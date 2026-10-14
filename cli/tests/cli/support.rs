@@ -1,5 +1,6 @@
-use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
 
 pub struct AgentTerminal {
@@ -20,6 +21,25 @@ impl AgentTerminal {
             .output()
             .expect("run agent-terminal");
         Run(output)
+    }
+
+    pub fn run_with(&self, args: &[&str], stdin: &str, env: &[(&str, &str)]) -> Run {
+        self.run_program(Path::new(env!("CARGO_BIN_EXE_agent-terminal")), args, stdin, env)
+    }
+
+    pub fn run_program(&self, program: &Path, args: &[&str], stdin: &str, env: &[(&str, &str)]) -> Run {
+        let mut child = Command::new(program)
+            .args(args)
+            .env("AGENT_TERMINAL_HOME", self.home.path())
+            .env_remove("AGENT_TERMINAL_SESSION")
+            .envs(env.iter().copied())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("run agent-terminal");
+        child.stdin.take().expect("stdin").write_all(stdin.as_bytes()).expect("write stdin");
+        Run(child.wait_with_output().expect("wait for agent-terminal"))
     }
 
     pub fn home(&self) -> &std::path::Path {
@@ -66,14 +86,15 @@ impl Run {
     }
 
     pub fn screen(&self) -> String {
-        let out = self.stdout();
-        match out.find("frame ") {
-            Some(i) => {
-                let end = out[i + 6..].find(|c: char| !c.is_ascii_digit()).map_or(out.len(), |e| i + 6 + e);
-                format!("{}frame N{}", &out[..i], &out[end..])
-            }
-            None => out,
+        let mut out = self.stdout();
+        let mut from = 0;
+        while let Some(found) = out[from..].find("frame ") {
+            let digits = from + found + 6;
+            let end = out[digits..].find(|c: char| !c.is_ascii_digit()).map_or(out.len(), |e| digits + e);
+            out.replace_range(digits..end, "N");
+            from = digits + 1;
         }
+        out
     }
 
     pub fn json(&self) -> serde_json::Value {

@@ -1,11 +1,14 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 
+use crate::batch;
 use crate::connection;
+use crate::doctor;
 use crate::native::daemon;
 use crate::output;
-use crate::protocol::{Request, Response, Size, Wait};
+use crate::protocol::{BatchStep, Request, Response, Size, Wait};
+use crate::upgrade;
 
 #[derive(Parser)]
 #[command(name = "agent-terminal", version, about = "Fast terminal automation CLI for AI agents")]
@@ -45,6 +48,29 @@ enum Command {
         #[command(subcommand)]
         action: DaemonAction,
     },
+    #[command(
+        about = "Several commands in one call (args or stdin)",
+        long_about = "Run several commands in order in one call to the daemon.\n\nPass each command as one quoted argument, e.g. batch \"open htop\" \"snapshot\", or pipe a JSON array to stdin whose items are command lines or argument arrays, e.g. [[\"open\", \"htop\"], \"snapshot\"]. Commands use the batch's --session and --timeout unless they set their own. Every command is parsed before any of them runs. Each command's output and exit code are printed in order, and batch exits with the code of the first command that failed."
+    )]
+    Batch(BatchArgs),
+    #[command(about = "Check PTY support and the daemon socket, and say how to fix each problem")]
+    Doctor {
+        #[arg(long, help = "Remove stale sockets and state")]
+        fix: bool,
+    },
+    #[command(about = "Upgrade to the latest version, with npm or Homebrew, whichever installed it")]
+    Upgrade,
+    #[command(about = "Print the version")]
+    Version,
+}
+
+#[derive(Args)]
+struct BatchArgs {
+    #[arg(long, help = "Stop at the first command that fails")]
+    bail: bool,
+
+    #[arg(help = "The commands, each as one quoted argument", value_name = "COMMAND")]
+    commands: Vec<String>,
 }
 
 #[derive(Args)]
@@ -88,19 +114,34 @@ enum DaemonAction {
 
 pub fn run() -> i32 {
     let cli = Cli::parse();
-    let session = cli.session;
-    let request = match cli.command {
+    let json = cli.json;
+    let request = match &cli.command {
         Command::Daemon { action: DaemonAction::Run } => {
             return match daemon::run() {
                 Ok(()) => 0,
                 Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
             };
         }
+        Command::Version => return output::version(json),
+        Command::Doctor { fix } => return doctor::run(*fix, json),
+        Command::Upgrade => return upgrade::run(json),
+        Command::Batch(args) => batch(args, &cli.session, cli.timeout),
+        _ => request(cli),
+    };
+    match request {
+        Ok(request) => send(&request, json),
+        Err(message) => output::fail(&message, crate::exit::ERROR),
+    }
+}
+
+fn request(cli: Cli) -> Result<Request, String> {
+    let session = cli.session;
+    let request = match cli.command {
         Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
         Command::Open(args) => {
             let cwd = match args.cwd.map_or_else(std::env::current_dir, Ok) {
                 Ok(cwd) => cwd,
-                Err(e) => return output::fail(&format!("current directory: {e}"), crate::exit::ERROR),
+                Err(e) => return Err(format!("current directory: {e}")),
             };
             let mut env: Vec<(String, String)> =
                 std::env::vars().filter(|(k, _)| !args.env.iter().any(|(o, _)| o == k)).collect();
@@ -122,19 +163,49 @@ pub fn run() -> i32 {
         }
         Command::Snapshot => Request::Snapshot { session },
         Command::Close { all } => Request::Close { session, all },
+        Command::Daemon { action: DaemonAction::Run }
+        | Command::Batch(_)
+        | Command::Doctor { .. }
+        | Command::Upgrade
+        | Command::Version => {
+            return Err("this command runs on its own, not inside batch".into());
+        }
     };
 
+    Ok(request)
+}
+
+fn batch(args: &BatchArgs, session: &str, timeout: u64) -> Result<Request, String> {
+    let parser = Cli::command()
+        .no_binary_name(true)
+        .mut_arg("session", |arg| arg.env(None::<&str>).default_value(session.to_string()))
+        .mut_arg("timeout", |arg| arg.default_value(timeout.to_string()));
+    let mut steps = Vec::new();
+    for (index, call) in batch::calls(&args.commands)?.into_iter().enumerate() {
+        let request = batch_step(parser.clone(), &call)
+            .map_err(|reason| batch::not_valid(index, &output::call_line(&call), &reason))?;
+        steps.push(BatchStep { args: call, request });
+    }
+    Ok(Request::Batch { steps, bail: args.bail })
+}
+
+fn batch_step(parser: clap::Command, call: &[String]) -> Result<Request, String> {
+    let matches = parser.try_get_matches_from(call).map_err(|e| e.render().to_string())?;
+    request(Cli::from_arg_matches(&matches).map_err(|e| e.render().to_string())?)
+}
+
+fn send(request: &Request, json: bool) -> i32 {
     let is_stop = matches!(request, Request::Stop);
-    let response = match connection::send(&request, !is_stop) {
+    let response = match connection::send(request, !is_stop) {
         Ok(Some(response)) => response,
         Ok(None) => return 0,
         Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
     };
     match response {
-        Response::Err(error) => output::error(&error, cli.json),
+        Response::Err(error) => output::error(&error, json),
         Response::Ok(reply) => {
-            output::reply(&reply, cli.json);
-            0
+            output::reply(&reply, json);
+            reply.exit_code()
         }
     }
 }

@@ -1,8 +1,11 @@
+mod batch;
 mod commands;
 mod connection;
+mod doctor;
 mod native;
 mod output;
 mod protocol;
+mod upgrade;
 
 use std::fmt;
 

@@ -39,6 +39,10 @@ pub enum Request {
         all: bool,
     },
     Stop,
+    Batch {
+        steps: Vec<BatchStep>,
+        bail: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -48,10 +52,12 @@ pub enum Response {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "reply", content = "data")]
 pub enum Reply {
     Snapshot(Snapshot),
     Closed(Closed),
     Stopped,
+    Batch(Vec<BatchOutcome>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -88,6 +94,41 @@ pub struct Closed {
 pub struct TabRef {
     pub session: String,
     pub tab: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BatchStep {
+    pub args: Vec<String>,
+    pub request: Request,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BatchOutcome {
+    pub args: Vec<String>,
+    pub response: Option<Response>,
+}
+
+impl Response {
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            Response::Ok(reply) => reply.exit_code(),
+            Response::Err(error) => error.code,
+        }
+    }
+}
+
+impl Reply {
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            Reply::Batch(outcomes) => outcomes
+                .iter()
+                .filter_map(|outcome| outcome.response.as_ref())
+                .map(Response::exit_code)
+                .find(|&code| code != 0)
+                .unwrap_or(0),
+            _ => 0,
+        }
+    }
 }
 
 const MAX_MESSAGE: u32 = 64 * 1024 * 1024;
