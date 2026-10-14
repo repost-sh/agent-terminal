@@ -124,3 +124,47 @@ jobs:
       - run: cargo test --workspace
       - name: Rerun the CLI tests to surface timing flakes
         run: for run in 1 2 3 4; do cargo test --quiet --test cli || exit 1; done
+
+  performance:
+    name: Speed and memory (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cli
+      - name: Build agent-terminal at the base of this change
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
+          cargo build --release --manifest-path "$RUNNER_TEMP/base/cli/Cargo.toml" --target-dir target --bin agent-terminal
+          cp target/release/agent-terminal "$RUNNER_TEMP/agent-terminal-base"
+      - name: Build this change's agent-terminal, the fixtures and at-perf
+        run: cargo build --release --workspace --bins
+      - name: Measure the base and this change, interleaved on this runner
+        run: >-
+          target/release/at-perf measure
+          --base "$RUNNER_TEMP/agent-terminal-base"
+          --change target/release/agent-terminal
+          --fixtures target/release
+          --work "$RUNNER_TEMP/performance"
+          --out "$RUNNER_TEMP/performance-${{ matrix.os }}.json"
+      - name: Keep this run's samples
+        uses: actions/upload-artifact@v7
+        with:
+          name: performance-${{ matrix.os }}
+          path: ${{ runner.temp }}/performance-${{ matrix.os }}.json
+          if-no-files-found: error
+      - name: Fail on a missed target or a regression against the base
+        run: target/release/at-perf check "$RUNNER_TEMP/performance-${{ matrix.os }}.json" --summary "$GITHUB_STEP_SUMMARY"
