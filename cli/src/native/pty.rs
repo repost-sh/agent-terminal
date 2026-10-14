@@ -1,10 +1,13 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Result};
-use portable_pty::{ChildKiller, CommandBuilder, PtySize, native_pty_system};
+use anyhow::{Context, Result, anyhow};
+use nix::sys::signal::{Signal as NativeSignal, killpg};
+use nix::unistd::Pid;
+use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
-use crate::protocol::Size;
+use crate::protocol::{Signal, Size};
 
 pub struct Command {
     pub program: String,
@@ -19,6 +22,7 @@ pub struct Spawned {
     pub writer: Box<dyn Write + Send>,
     pub killer: Box<dyn Killer>,
     pub pid: Option<u32>,
+    pub signaller: Box<dyn Signaller>,
     pub wait: Box<dyn FnOnce() -> Result<i32> + Send>,
 }
 
@@ -26,11 +30,46 @@ pub trait Killer: Send {
     fn kill(&mut self) -> std::io::Result<()>;
 }
 
+pub trait Signaller: Send + Sync {
+    fn signal(&self, signal: Signal) -> Result<i32>;
+}
+
 struct PortableKiller(Box<dyn ChildKiller + Send + Sync>);
 
 impl Killer for PortableKiller {
     fn kill(&mut self) -> std::io::Result<()> {
         self.0.kill()
+    }
+}
+
+type SharedMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
+
+struct ForegroundSignaller(SharedMaster);
+
+impl Signaller for ForegroundSignaller {
+    fn signal(&self, signal: Signal) -> Result<i32> {
+        let group = self
+            .0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|master| master.process_group_leader())
+            .ok_or_else(|| anyhow!("the terminal has no foreground process to signal"))?;
+        killpg(Pid::from_raw(group), native(signal))
+            .with_context(|| format!("send {signal} to process group {group}"))?;
+        Ok(group)
+    }
+}
+
+fn native(signal: Signal) -> NativeSignal {
+    match signal {
+        Signal::Int => NativeSignal::SIGINT,
+        Signal::Term => NativeSignal::SIGTERM,
+        Signal::Kill => NativeSignal::SIGKILL,
+        Signal::Hup => NativeSignal::SIGHUP,
+        Signal::Tstp => NativeSignal::SIGTSTP,
+        Signal::Cont => NativeSignal::SIGCONT,
+        Signal::Winch => NativeSignal::SIGWINCH,
     }
 }
 
@@ -56,15 +95,16 @@ pub fn spawn(command: Command) -> Result<Spawned> {
     let killer = PortableKiller(child.clone_killer());
     let reader = pair.master.try_clone_reader().context("read from the pseudo-terminal")?;
     let writer = pair.master.take_writer().context("write to the pseudo-terminal")?;
-    let master = pair.master;
+    let master: SharedMaster = Arc::new(Mutex::new(Some(pair.master)));
     Ok(Spawned {
         reader,
         writer,
         killer: Box::new(killer),
         pid: child.process_id(),
+        signaller: Box::new(ForegroundSignaller(Arc::clone(&master))),
         wait: Box::new(move || {
             let status = child.wait().context("wait for the program to exit");
-            drop(master);
+            drop(master.lock().unwrap().take());
             Ok(status?.exit_code() as i32)
         }),
     })

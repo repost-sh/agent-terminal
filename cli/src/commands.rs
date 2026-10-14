@@ -1,11 +1,15 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 
 use crate::connection;
+use crate::key::Key;
 use crate::native::daemon;
 use crate::output;
-use crate::protocol::{Baseline, Get, Request, Response, RowRange, Scrollback, Size, SnapshotOptions, Wait};
+use crate::protocol::{
+    Baseline, Get, Input, Request, Response, RowRange, Scrollback, Signal, Size, SnapshotOptions, Wait,
+};
+use crate::skills;
 
 #[derive(Parser)]
 #[command(name = "agent-terminal", version, about = "Fast terminal automation CLI for AI agents")]
@@ -74,6 +78,26 @@ enum Command {
     Diff {
         #[command(subcommand)]
         what: DiffCommand,
+    },
+    #[command(about = "Type text, key by key")]
+    Type(TypeArgs),
+    #[command(about = "Press keys: Enter, Tab, Esc, Up, F5, Ctrl+c, Alt+x, Shift+Tab; several keys run in order")]
+    Press(PressArgs),
+    #[command(about = "Paste text (bracketed paste when the app supports it)")]
+    Paste(PasteArgs),
+    #[command(about = r"Raw bytes with escapes, last resort: \e \xHH \n \r \t \0 \\")]
+    Send(SendArgs),
+    #[command(about = "Send a signal to the program in the foreground: INT, TERM, KILL, HUP, TSTP, CONT, WINCH")]
+    Signal(SignalArgs),
+    #[command(about = "Guides that ship with this version (core, tui-qa, cli-qa)")]
+    Skills {
+        #[command(subcommand)]
+        action: Option<skills::Action>,
+    },
+    #[command(about = "Install the agent skill stub into ~/.claude/skills")]
+    Install {
+        #[arg(long, help = "Install the agent skill stub (the default)")]
+        skills: bool,
     },
     #[command(hide = true)]
     Daemon {
@@ -204,6 +228,80 @@ enum DiffCommand {
     },
 }
 
+#[derive(Args)]
+struct TypeArgs {
+    #[arg(help = "The text; a newline presses Enter, a tab presses Tab", allow_hyphen_values = true)]
+    text: String,
+
+    #[arg(long, help = "Pause this long between keys", value_name = "MS", default_value_t = 0)]
+    delay: u64,
+
+    #[command(flatten)]
+    after: AfterInput,
+}
+
+#[derive(Args)]
+struct PressArgs {
+    #[arg(
+        help = "Keys: Enter, Tab, Esc, Backspace, Delete, Insert, Up, Down, Left, Right, Home, End, PageUp, PageDown, F1-F12, Space or a character, with Ctrl+, Alt+, Shift+",
+        required = true,
+        value_name = "KEY",
+        value_parser = clap::value_parser!(Key)
+    )]
+    keys: Vec<Key>,
+
+    #[arg(long, help = "Press the whole sequence this many times", value_name = "N", default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+    repeat: u32,
+
+    #[command(flatten)]
+    after: AfterInput,
+}
+
+#[derive(Args)]
+struct PasteArgs {
+    #[arg(help = "The text, pasted in one piece", allow_hyphen_values = true)]
+    text: String,
+
+    #[command(flatten)]
+    after: AfterInput,
+}
+
+#[derive(Args)]
+struct SendArgs {
+    #[arg(
+        help = "The bytes, with escapes for what you cannot type",
+        value_name = "BYTES",
+        value_parser = parse_bytes,
+        allow_hyphen_values = true
+    )]
+    bytes: RawBytes,
+
+    #[command(flatten)]
+    after: AfterInput,
+}
+
+#[derive(Args)]
+struct SignalArgs {
+    #[arg(
+        help = "INT, TERM, KILL, HUP, TSTP, CONT or WINCH",
+        value_name = "SIGNAL",
+        value_parser = clap::value_parser!(Signal)
+    )]
+    signal: Signal,
+
+    #[command(flatten)]
+    after: AfterInput,
+}
+
+#[derive(Args)]
+struct AfterInput {
+    #[arg(long, help = "Then wait until this text is on screen", value_name = "TEXT")]
+    wait: Option<String>,
+}
+
+#[derive(Clone)]
+struct RawBytes(Vec<u8>);
+
 #[derive(Subcommand)]
 enum DaemonAction {
     Run,
@@ -211,7 +309,16 @@ enum DaemonAction {
 }
 
 pub fn run() -> i32 {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            let code = if e.use_stderr() { crate::exit::ERROR } else { 0 };
+            if let Err(print) = e.print() {
+                eprintln!("error: printing the usage failed: {print}");
+            }
+            return code;
+        }
+    };
     let session = cli.session;
     let request = match cli.command {
         Command::Daemon { action: DaemonAction::Run } => {
@@ -221,6 +328,8 @@ pub fn run() -> i32 {
             };
         }
         Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
+        Command::Skills { action } => return skills::run(action, cli.json, Cli::command()),
+        Command::Install { .. } => return skills::install(cli.json),
         Command::Open(args) => {
             let cwd = match args.cwd.map_or_else(std::env::current_dir, Ok) {
                 Ok(cwd) => cwd,
@@ -257,6 +366,15 @@ pub fn run() -> i32 {
             };
             Request::DiffSnapshot { session, baseline }
         }
+        Command::Type(args) => {
+            input(session, Input::Type { text: args.text, delay_ms: args.delay }, args.after, cli.timeout)
+        }
+        Command::Press(args) => {
+            input(session, Input::Press { keys: args.keys, repeat: args.repeat }, args.after, cli.timeout)
+        }
+        Command::Paste(args) => input(session, Input::Paste { text: args.text }, args.after, cli.timeout),
+        Command::Send(args) => input(session, Input::Send { bytes: args.bytes.0 }, args.after, cli.timeout),
+        Command::Signal(args) => input(session, Input::Signal { signal: args.signal }, args.after, cli.timeout),
     };
 
     let is_stop = matches!(request, Request::Stop);
@@ -272,6 +390,10 @@ pub fn run() -> i32 {
             0
         }
     }
+}
+
+fn input(session: String, input: Input, after: AfterInput, timeout_ms: u64) -> Request {
+    Request::Input { session, input, wait: after.wait.map(|text| Wait::Text { text }), timeout_ms }
 }
 
 fn parse_size(value: &str) -> Result<Size, String> {
@@ -308,4 +430,34 @@ fn parse_env(value: &str) -> Result<(String, String), String> {
         return Err("expected K=V".into());
     }
     Ok((key.to_string(), value.to_string()))
+}
+
+fn parse_bytes(value: &str) -> Result<RawBytes, String> {
+    let mut bytes = Vec::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            bytes.extend_from_slice(c.encode_utf8(&mut [0u8; 4]).as_bytes());
+            continue;
+        }
+        match chars.next() {
+            Some('e') => bytes.push(0x1b),
+            Some('n') => bytes.push(b'\n'),
+            Some('r') => bytes.push(b'\r'),
+            Some('t') => bytes.push(b'\t'),
+            Some('0') => bytes.push(0),
+            Some('\\') => bytes.push(b'\\'),
+            Some('x') => {
+                let hex: String = chars.by_ref().take(2).collect();
+                let byte = Some(&hex)
+                    .filter(|hex| hex.len() == 2 && hex.chars().all(|c| c.is_ascii_hexdigit()))
+                    .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+                    .ok_or_else(|| format!(r"\x needs two hex digits, got \x{hex}"))?;
+                bytes.push(byte);
+            }
+            Some(other) => return Err(format!(r"unknown escape \{other}; use \e, \xHH, \n, \r, \t, \0 or \\")),
+            None => return Err(r"a trailing \ escapes nothing; write \\ for a backslash".into()),
+        }
+    }
+    Ok(RawBytes(bytes))
 }

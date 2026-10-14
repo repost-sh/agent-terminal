@@ -1,4 +1,4 @@
-use crate::protocol::{DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Snapshot, SnapshotDiff};
+use crate::protocol::{Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Snapshot, SnapshotDiff};
 
 pub fn screen(s: &Snapshot) -> String {
     let mut header = vec![format!("{} {}", s.session, s.tab), s.program.clone(), format!("{}x{}", s.cols, s.rows)];
@@ -56,6 +56,8 @@ pub fn reply(reply: &Reply, json: bool) {
                 println!("closed {} {}", tab.session, tab.tab);
             }
         }
+        Reply::Delivered(delivered) if json => println!("{}", serde_json::json!(delivered)),
+        Reply::Delivered(delivered) => println!("{}", delivery(delivered)),
         Reply::Stopped => {}
         Reply::Fact(fact) if json => println!("{}", serde_json::json!(fact)),
         Reply::Fact(fact) => print!("{}", fact_text(fact)),
@@ -81,8 +83,7 @@ fn diff_text(diff: &SnapshotDiff) -> String {
     };
     let changed = match diff.changes.len() {
         0 => "no rows changed".to_string(),
-        1 => "1 row changed".to_string(),
-        n => format!("{n} rows changed"),
+        n => format!("{} changed", count(n, "row")),
     };
     let mut out = format!("{from} → frame {} · {changed}\n", diff.frame);
     let width = diff.changes.iter().map(|change| change.row.to_string().len()).max().unwrap_or(1);
@@ -146,6 +147,24 @@ fn fact_text(fact: &Fact) -> String {
     }
 }
 
+fn delivery(d: &Delivered) -> String {
+    let target = format!("{} {}", d.session, d.tab);
+    match &d.delivery {
+        Delivery::Text { keys, .. } => format!("typed {} into {target}", count(*keys, "key")),
+        Delivery::Keys { keys, .. } => format!("pressed {} in {target}", count(*keys, "key")),
+        Delivery::Paste { bracketed: true, bytes } => {
+            format!("pasted {} into {target} (bracketed paste)", count(*bytes, "byte"))
+        }
+        Delivery::Paste { bracketed: false, bytes } => {
+            format!("pasted {} into {target} (plain, the app has not turned on bracketed paste)", count(*bytes, "byte"))
+        }
+        Delivery::Raw { bytes } => format!("sent {} to {target}", count(*bytes, "raw byte")),
+        Delivery::Signal { signal, process_group } => {
+            format!("sent {signal} to {target} (process group {process_group})")
+        }
+    }
+}
+
 fn modes_text(modes: &Modes) -> String {
     let on = |enabled: bool| if enabled { "on" } else { "off" };
     let mouse = modes.mouse.as_ref().map_or_else(|| "off".into(), |m| format!("{}, {}", m.tracking, m.encoding));
@@ -157,6 +176,10 @@ fn modes_text(modes: &Modes) -> String {
         on(modes.app_cursor),
         on(modes.focus_events),
     )
+}
+
+fn count(n: usize, noun: &str) -> String {
+    if n == 1 { format!("1 {noun}") } else { format!("{n} {noun}s") }
 }
 
 pub fn error(error: &ErrorBody, json: bool) -> i32 {

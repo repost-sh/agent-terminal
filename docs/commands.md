@@ -17,7 +17,7 @@ Start and stop:
   shell                        Open your shell, with command history turned on
   exec "<command line>"        Run a command in the shell tab, wait for it, print output + exit code
   restart                      Run the same program again with the same options
-  signal <INT|TERM|KILL|...>   Send a signal to the running program
+  signal <INT|TERM|KILL|...>   Send a signal to the program in the foreground (INT TERM KILL HUP TSTP CONT WINCH)
   resize <cols>x<rows>         Resize the terminal, e.g. resize 80x24 (the app gets SIGWINCH)
   close [--all]                Close the current tab (--all closes every session)
 
@@ -36,13 +36,15 @@ Read the screen:
   mark <name>                  Name this point in the output, to read or clip from later
 
 Send input:
-  type <text>                  Type text, key by key
+  type <text>                  Type text, key by key (--delay <ms> between keys)
   paste <text>                 Paste text (bracketed paste when the app supports it)
   press <key...>               Enter, Tab, Esc, Up, F5, Ctrl+c, Alt+x, Shift+Tab; several keys run in order
+                               --repeat <n>  press the whole sequence n times
+                               keys follow the app's modes: application cursor keys, Kitty keyboard protocol
   click <@ref|row,col|text>    Mouse click (refused if the app has no mouse support; use keys instead)
   scroll <up|down> [n]         Scroll (mouse wheel if supported, else PageUp/PageDown)
   mouse <move|down|up|wheel>   Low-level mouse events
-  send <bytes>                 Raw bytes with escapes, last resort
+  send <bytes>                 Raw bytes with escapes (\e \xHH \n \r \t \0 \\), last resort
 
   Any input command also takes:
     --wait <text>              then wait until the text is on screen

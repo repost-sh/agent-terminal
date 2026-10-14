@@ -9,7 +9,10 @@ use anyhow::{Context, Result};
 use crate::connection::{READY, home, socket_path};
 use crate::native::pty;
 use crate::native::terminal::{Settled, Terminal};
-use crate::protocol::{self, Closed, ErrorBody, Marked, Matches, Printed, Reply, Request, Response, TabRef, Wait};
+use crate::protocol::{
+    self, Closed, Delivered, ErrorBody, Input, Marked, Matches, Printed, Reply, Request, Response, Snapshot, TabRef,
+    Wait,
+};
 
 #[derive(Default)]
 struct Daemon {
@@ -112,6 +115,9 @@ impl Daemon {
                 let (_, terminal) = self.current(&session)?;
                 terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(failure)
             }
+            Request::Input { session, input, wait, timeout_ms } => {
+                self.input(session, &input, wait.as_ref(), timeout_ms)
+            }
             Request::Stop => {
                 self.close_all();
                 if let Err(e) = socket_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
@@ -137,15 +143,20 @@ impl Daemon {
         let snapshot = terminal.snapshot(&session, &tab);
         match settled {
             Settled::Met | Settled::Exited => Ok(Reply::Snapshot(snapshot)),
-            Settled::TimedOut => Err(ErrorBody {
-                code: crate::exit::TIMEOUT,
-                message: format!(
-                    "timed out after {timeout_ms} ms waiting for {}; {session} {tab} is still running (read it with `agent-terminal snapshot`, stop it with `agent-terminal close`)",
-                    describe(wait)
-                ),
-                snapshot: Some(Box::new(snapshot)),
-            }),
+            Settled::TimedOut => Err(timed_out(wait, timeout_ms, snapshot)),
         }
+    }
+
+    fn input(&self, session: String, input: &Input, wait: Option<&Wait>, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+        let (id, terminal) = self.current(&session)?;
+        let tab = tab_name(id);
+        let delivery = terminal.input(input).map_err(|e| error_body(e.context(format!("{session} {tab}"))))?;
+        if let Some(wait) = wait
+            && let Settled::TimedOut = terminal.wait(wait, Duration::from_millis(timeout_ms))
+        {
+            return Err(timed_out(wait, timeout_ms, terminal.snapshot(&session, &tab)));
+        }
+        Ok(Reply::Delivered(Delivered { session, tab, delivery }))
     }
 
     fn close_current(&self, session: &str) -> Result<TabRef, ErrorBody> {
@@ -179,6 +190,19 @@ impl Daemon {
             .get(session)
             .and_then(|s| s.current.and_then(|id| s.tabs.get(&id).map(|t| (id, Arc::clone(t)))))
             .ok_or_else(|| no_terminal(session))
+    }
+}
+
+fn timed_out(wait: &Wait, timeout_ms: u64, snapshot: Snapshot) -> ErrorBody {
+    ErrorBody {
+        code: crate::exit::TIMEOUT,
+        message: format!(
+            "timed out after {timeout_ms} ms waiting for {}; {} {} is still running (read it with `agent-terminal snapshot`, stop it with `agent-terminal close`)",
+            describe(wait),
+            snapshot.session,
+            snapshot.tab
+        ),
+        snapshot: Some(Box::new(snapshot)),
     }
 }
 

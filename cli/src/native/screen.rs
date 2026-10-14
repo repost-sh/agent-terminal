@@ -52,6 +52,21 @@ pub struct ScreenView {
     pub mouse: Option<MouseMode>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KeyboardModes {
+    pub app_cursor: bool,
+    pub bracketed_paste: bool,
+    pub kitty_flags: u8,
+}
+
+const KITTY_FLAGS: [(TermMode, u8, &str); 5] = [
+    (TermMode::DISAMBIGUATE_ESC_CODES, 1, "disambiguate"),
+    (TermMode::REPORT_EVENT_TYPES, 2, "report-events"),
+    (TermMode::REPORT_ALTERNATE_KEYS, 4, "report-alternates"),
+    (TermMode::REPORT_ALL_KEYS_AS_ESC, 8, "report-all-keys"),
+    (TermMode::REPORT_ASSOCIATED_TEXT, 16, "report-text"),
+];
+
 fn is_spacer(cell: &GridCell) -> bool {
     cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
 }
@@ -273,17 +288,23 @@ pub struct Screen {
 impl Screen {
     pub fn new(size: Size) -> Self {
         let events = Events::default();
+        let config = Config { kitty_keyboard: true, scrolling_history: 2000, ..Config::default() };
         Self {
-            term: Term::new(
-                Config { kitty_keyboard: true, scrolling_history: 2000, ..Config::default() },
-                &size,
-                events.clone(),
-            ),
+            term: Term::new(config, &size, events.clone()),
             parser: Processor::new(),
             events,
             stream_parser: Parser::new(),
             stream: Stream::default(),
             size,
+        }
+    }
+
+    pub fn keyboard_modes(&self) -> KeyboardModes {
+        let mode = *self.term.mode();
+        KeyboardModes {
+            app_cursor: mode.contains(TermMode::APP_CURSOR),
+            bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
+            kitty_flags: KITTY_FLAGS.iter().filter(|(flag, ..)| mode.contains(*flag)).map(|(_, bit, _)| bit).sum(),
         }
     }
 
@@ -320,13 +341,6 @@ impl Screen {
         } else {
             None
         };
-        let keyboard = [
-            (TermMode::DISAMBIGUATE_ESC_CODES, "disambiguate"),
-            (TermMode::REPORT_EVENT_TYPES, "report-events"),
-            (TermMode::REPORT_ALTERNATE_KEYS, "report-alternates"),
-            (TermMode::REPORT_ALL_KEYS_AS_ESC, "report-all-keys"),
-            (TermMode::REPORT_ASSOCIATED_TEXT, "report-text"),
-        ];
         Modes {
             alt_screen: mode.contains(TermMode::ALT_SCREEN),
             mouse: tracking.zip(mouse_encoding(mode)).map(|(tracking, encoding)| Mouse {
@@ -336,10 +350,10 @@ impl Screen {
             bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
             app_cursor: mode.contains(TermMode::APP_CURSOR),
             focus_events: mode.contains(TermMode::FOCUS_IN_OUT),
-            keyboard: keyboard
+            keyboard: KITTY_FLAGS
                 .iter()
-                .filter(|(flag, _)| mode.contains(*flag))
-                .map(|(_, name)| name.to_string())
+                .filter(|(flag, ..)| mode.contains(*flag))
+                .map(|(.., name)| name.to_string())
                 .collect(),
         }
     }
