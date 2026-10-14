@@ -42,7 +42,7 @@ fn the_live_terminal_shows_the_screen_on_connect_then_streams_matching_snapshot(
 
     cue.print("\x1b[?2004h\x1b[?1000h\x1b[?1006h");
     let (_, frame) = snapshot_rows(&at, &[]);
-    browser.wait_for_status(&format!("frame {frame}"));
+    browser.wait_for_status("bracketed paste");
     assert_eq!(
         browser.status(),
         ["Live", &stream(&dashboard), "40 × 6", "mouse sgr", "bracketed paste", &format!("frame {frame}")]

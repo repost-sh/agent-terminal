@@ -8,7 +8,7 @@ use serde::Serialize;
 use tokio::sync::watch;
 
 use super::{Backend, tab_id};
-use crate::native::terminal::{Frame, Terminal};
+use crate::native::terminal::{Picture, Terminal};
 use crate::protocol::Size;
 
 #[derive(Serialize)]
@@ -33,11 +33,30 @@ struct Watched {
     frames: watch::Receiver<u64>,
 }
 
+type Modes = (bool, Option<&'static str>, bool);
+
 struct Shown {
     size: Size,
     rows: Vec<String>,
     frame: u64,
+    modes: Modes,
     exit: Option<Option<i32>>,
+}
+
+impl Shown {
+    fn of(picture: Picture) -> Self {
+        Self {
+            modes: modes(&picture),
+            size: picture.size,
+            rows: picture.rows,
+            frame: picture.frame,
+            exit: picture.exit,
+        }
+    }
+}
+
+fn modes(picture: &Picture) -> Modes {
+    (picture.alt_screen, picture.mouse, picture.bracketed_paste)
 }
 
 pub async fn tab(
@@ -67,12 +86,12 @@ async fn follow_tab(mut socket: WebSocket, backend: Arc<dyn Backend>, session: S
         }
         let watching = watched.get_or_insert_with(|| Watched { frames: terminal.frames(), terminal });
         watching.frames.borrow_and_update();
-        let frame = watching.terminal.frame();
-        if let Some(update) = update(&frame, shown.as_ref()) {
+        let picture = watching.terminal.picture();
+        if let Some(update) = update(&picture, shown.as_ref()) {
             if !send(&mut socket, &update).await {
                 return;
             }
-            shown = Some(Shown { size: frame.size, rows: frame.rows, frame: frame.number, exit: frame.exit });
+            shown = Some(Shown::of(picture));
         }
         tokio::select! {
             changed = lifecycle.changed() => if changed.is_err() { return },
@@ -82,32 +101,33 @@ async fn follow_tab(mut socket: WebSocket, backend: Arc<dyn Backend>, session: S
     }
 }
 
-fn update(frame: &Frame, shown: Option<&Shown>) -> Option<Update> {
-    let repaint_all = shown.is_none_or(|shown| shown.size != frame.size);
-    let same_screen =
-        shown.is_some_and(|shown| !repaint_all && shown.frame == frame.number && shown.exit == frame.exit);
-    if same_screen {
+fn update(picture: &Picture, shown: Option<&Shown>) -> Option<Update> {
+    let repaint_all = shown.is_none_or(|shown| shown.size != picture.size);
+    let unchanged = shown.is_some_and(|shown| {
+        !repaint_all && shown.frame == picture.frame && shown.exit == picture.exit && shown.modes == modes(picture)
+    });
+    if unchanged {
         return None;
     }
     let mut paint = String::new();
-    for (index, row) in frame.rows.iter().enumerate() {
+    for (index, row) in picture.rows.iter().enumerate() {
         let changed = repaint_all || shown.is_some_and(|shown| shown.rows.get(index) != Some(row));
         if changed {
             paint.push_str(&format!("\x1b[{};1H\x1b[0m\x1b[2K{row}", index + 1));
         }
     }
-    let visibility = if frame.cursor_visible && frame.exit.is_none() { 'h' } else { 'l' };
-    paint.push_str(&format!("\x1b[0m\x1b[{};{}H\x1b[?25{visibility}", frame.cursor.0, frame.cursor.1));
+    let visibility = if picture.cursor_visible && picture.exit.is_none() { 'h' } else { 'l' };
+    paint.push_str(&format!("\x1b[0m\x1b[{};{}H\x1b[?25{visibility}", picture.cursor.0, picture.cursor.1));
     Some(Update::Frame {
-        frame: frame.number,
-        cols: frame.size.cols,
-        rows: frame.size.rows,
+        frame: picture.frame,
+        cols: picture.size.cols,
+        rows: picture.size.rows,
         paint,
-        alt_screen: frame.alt_screen,
-        mouse: frame.mouse,
-        bracketed_paste: frame.bracketed_paste,
-        exited: frame.exit.is_some(),
-        exit_code: frame.exit.flatten(),
+        alt_screen: picture.alt_screen,
+        mouse: picture.mouse,
+        bracketed_paste: picture.bracketed_paste,
+        exited: picture.exit.is_some(),
+        exit_code: picture.exit.flatten(),
     })
 }
 

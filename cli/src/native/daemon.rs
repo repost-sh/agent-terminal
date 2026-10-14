@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{ErrorKind, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use tokio::sync::watch;
@@ -11,10 +11,13 @@ use crate::connection::{READY, home, socket_path};
 use crate::native::changes::Changes;
 use crate::native::dashboard::{self, Backend};
 use crate::native::pty;
+use crate::native::store::{self, ActivityEntry, SessionFolder};
 use crate::native::terminal::{Settled, Terminal};
+use crate::native::wait::{Condition, Pattern};
 use crate::protocol::{
-    self, Closed, Dashboard, DashboardStopped, Delivered, ErrorBody, Input, Marked, Matches, Printed, Reply, Request,
-    Response, SessionInfo, Sessions, Size, Snapshot, TabRef, Wait,
+    self, Addressed, BatchOutcome, BatchStep, Call, Checked, Closed, Dashboard, DashboardStopped, Delivered, ErrorBody,
+    Expect, Export, Input, Marked, Matches, Printed, RecordingFile, Reply, Request, Response, RowRange, SavedRecording,
+    SessionInfo, Sessions, Size, Snapshot, SnapshotOptions, Style, TabRef, TextMatch, Wait, Waited,
 };
 
 #[derive(Default)]
@@ -23,16 +26,25 @@ struct Daemon {
     restarting: Mutex<()>,
     activity: Mutex<Activity>,
     quiet: Condvar,
+    folders: Mutex<HashMap<String, Weak<SessionFolder>>>,
     changes: Changes,
     dashboard: Mutex<Option<dashboard::Server>>,
     me: Weak<Daemon>,
 }
 
-#[derive(Default)]
 struct Session {
     tabs: BTreeMap<u32, Arc<Terminal>>,
     current: Option<u32>,
-    next_id: u32,
+    folder: Arc<SessionFolder>,
+}
+
+struct Logged {
+    session: String,
+    tab: Option<u32>,
+    folder: Option<Arc<SessionFolder>>,
+    typed: Vec<String>,
+    time: SystemTime,
+    started: Instant,
 }
 
 struct Activity {
@@ -95,19 +107,23 @@ pub fn run(idle_timeout: Duration) -> Result<()> {
 impl Daemon {
     fn serve(&self, mut stream: UnixStream) {
         let busy = self.busy();
-        let request: Request = match protocol::read(&mut stream) {
-            Ok(Some(request)) => request,
+        let call: Call = match protocol::read(&mut stream) {
+            Ok(Some(call)) => call,
             Ok(None) => return,
             Err(e) => {
                 eprintln!("reading a request failed: {e:#}");
                 return;
             }
         };
-        let stop = matches!(request, Request::Stop);
+        let stop = matches!(call.request, Request::Stop);
+        let logged = call.typed.and_then(|typed| self.about_to_handle(typed, &call.request));
         let handled = match &busy {
-            Some(_) => self.handle(request),
+            Some(_) => self.handle(call.request),
             None => Err(stopping()),
         };
+        if let Some(logged) = logged {
+            self.log(logged, &handled);
+        }
         let response = match handled {
             Ok(reply) => Response::Ok(reply),
             Err(failure) => Response::Err(failure),
@@ -123,7 +139,7 @@ impl Daemon {
     fn handle(&self, request: Request) -> Result<Reply, ErrorBody> {
         match request {
             Request::Open { session, program, args, size, cwd, env, wait, timeout_ms } => {
-                self.open(session, pty::Command { program, args, cwd, env, size }, &wait, timeout_ms)
+                self.open(session, pty::Command { program, args, cwd, env, size }, wait.as_ref(), timeout_ms)
             }
             Request::Snapshot { session, tab, options } => {
                 let (tab, terminal) = self.target(&session, tab)?;
@@ -153,9 +169,14 @@ impl Daemon {
                 entry.current = Some(tab);
                 Ok(Reply::Tabs(entry.info(&session)))
             }
-            Request::Input { session, tab, input, wait, timeout_ms } => {
-                self.input(session, tab, &input, wait.as_ref(), timeout_ms)
+            Request::Input { session, tab, input, wait, snapshot, timeout_ms } => {
+                self.input(session, tab, &input, wait.as_ref(), snapshot, timeout_ms)
             }
+            Request::Wait { session, tab, wait: Wait::Elapsed { ms }, timeout_ms } => {
+                self.wait(session, tab, &Wait::Elapsed { ms }, timeout_ms.max(ms))
+            }
+            Request::Wait { session, tab, wait, timeout_ms } => self.wait(session, tab, &wait, timeout_ms),
+            Request::Expect { session, tab, expect } => self.expect(session, tab, &expect),
             Request::Get { session, tab, what } => {
                 let (_, terminal) = self.target(&session, tab)?;
                 terminal.fact(what).map(Reply::Fact).map_err(failure)
@@ -179,10 +200,40 @@ impl Daemon {
                 let (_, terminal) = self.target(&session, tab)?;
                 terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(failure)
             }
+            Request::RecordStart { session, tab, path } => {
+                let (id, terminal) = self.target(&session, tab)?;
+                let tab = tab_name(id);
+                let path = match path {
+                    Some(path) => path,
+                    None => home().map_err(error_body)?.join("recordings").join(format!(
+                        "{}-{tab}-{}.cast",
+                        store::file_name(&session),
+                        terminal.frame()
+                    )),
+                };
+                terminal.recording().save_to(&path).map_err(error_body)?;
+                Ok(Reply::Recording(RecordingFile { session, tab, path }))
+            }
+            Request::RecordStop { session, tab } => {
+                let (id, terminal) = self.target(&session, tab)?;
+                let saved = terminal.recording().stop_saving().map_err(error_body)?;
+                Ok(Reply::Saved(SavedRecording {
+                    session,
+                    tab: tab_name(id),
+                    path: saved.path,
+                    duration_ms: saved.duration.as_millis() as u64,
+                    bytes: saved.bytes,
+                }))
+            }
+            Request::TraceExport { session, path } => {
+                let exported = home().and_then(|home| store::export(&home, &session, &path)).map_err(error_body)?;
+                Ok(Reply::Exported(Export { session, path, files: exported.files, bytes: exported.bytes }))
+            }
             Request::Stop => {
                 self.shut_down();
                 Ok(Reply::Stopped)
             }
+            Request::Batch { steps, bail } => Ok(Reply::Batch(self.batch(steps, bail))),
             Request::DashboardStart { port } => self.start_dashboard(port).map(Reply::Dashboard),
             Request::DashboardStop => Ok(Reply::DashboardStopped(DashboardStopped { stopped: self.stop_dashboard() })),
         }
@@ -215,6 +266,78 @@ impl Daemon {
     fn stop_dashboard(&self) -> bool {
         let server = self.dashboard.lock().unwrap().take();
         server.is_some()
+    }
+
+    fn batch(&self, steps: Vec<BatchStep>, bail: bool) -> Vec<BatchOutcome> {
+        let mut outcomes = Vec::with_capacity(steps.len());
+        let mut failed = false;
+        for step in steps {
+            let response = if bail && failed { None } else { Some(self.batch_step(&step.args, step.request)) };
+            failed |= response.as_ref().is_some_and(|response| response.exit_code() != 0);
+            outcomes.push(BatchOutcome { args: step.args, response });
+        }
+        outcomes
+    }
+
+    fn batch_step(&self, args: &[String], request: Request) -> Response {
+        if matches!(request, Request::Stop) {
+            return Response::Err(ErrorBody {
+                code: crate::exit::ERROR,
+                message: "stopping the daemon cannot be part of a batch".into(),
+                snapshot: None,
+            });
+        }
+        let logged = self.about_to_handle(args.to_vec(), &request);
+        let handled = self.handle(request);
+        if let Some(logged) = logged {
+            self.log(logged, &handled);
+        }
+        match handled {
+            Ok(reply) => Response::Ok(reply),
+            Err(failure) => Response::Err(failure),
+        }
+    }
+
+    fn about_to_handle(&self, typed: Vec<String>, request: &Request) -> Option<Logged> {
+        let sessions = self.sessions.lock().unwrap();
+        let (session, tab) = match request.addressed() {
+            Addressed::Nothing => return None,
+            Addressed::Session(session) => (session, None),
+            Addressed::Tab(session, Some(id)) => (session, Some(id)),
+            Addressed::Tab(session, None) => (session, sessions.get(session).and_then(|s| s.current)),
+        };
+        Some(Logged {
+            session: session.to_string(),
+            tab,
+            folder: sessions.get(session).map(|s| Arc::clone(&s.folder)),
+            typed,
+            time: SystemTime::now(),
+            started: Instant::now(),
+        })
+    }
+
+    fn log(&self, logged: Logged, handled: &Result<Reply, ErrorBody>) {
+        let mut entry = ActivityEntry::at(logged.time, &logged.typed, logged.started.elapsed());
+        let folder =
+            logged.folder.or_else(|| self.sessions.lock().unwrap().get(&logged.session).map(|s| Arc::clone(&s.folder)));
+        let Some(folder) = folder else {
+            return;
+        };
+        let shown = match handled {
+            Ok(Reply::Snapshot(snapshot)) => Some(snapshot),
+            Err(failure) => failure.snapshot.as_deref(),
+            Ok(_) => None,
+        };
+        entry.tab = shown.map(|snapshot| snapshot.tab.clone()).or_else(|| logged.tab.map(tab_name));
+        entry.frame = shown.map(|snapshot| snapshot.frame).or_else(|| {
+            let (_, terminal) = self.target(&logged.session, Some(logged.tab?)).ok()?;
+            Some(terminal.frame())
+        });
+        if let Err(failure) = handled {
+            entry.exit = failure.code;
+            entry.error = Some(failure.message.clone());
+        }
+        folder.log(&entry);
     }
 
     fn busy(&self) -> Option<Busy<'_>> {
@@ -254,19 +377,46 @@ impl Daemon {
         self.close_all();
     }
 
-    fn open(&self, session: String, command: pty::Command, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
-        let terminal = Terminal::start(command, self.changes.clone()).map_err(error_body)?;
-        let tab = {
-            let mut sessions = self.sessions.lock().unwrap();
-            let entry = sessions.entry(session.clone()).or_default();
-            entry.next_id += 1;
-            let id = entry.next_id;
-            entry.tabs.insert(id, Arc::clone(&terminal));
-            entry.current = Some(id);
-            id
+    fn open(
+        &self,
+        session: String,
+        command: pty::Command,
+        wait: Option<&Wait>,
+        timeout_ms: u64,
+    ) -> Result<Reply, ErrorBody> {
+        let spawned = pty::spawn(command.clone()).map_err(error_body)?;
+        let folder = match self.folder(&session) {
+            Ok(folder) => folder,
+            Err(e) => {
+                spawned.abandon();
+                return Err(error_body(e));
+            }
         };
+        let tab = folder.next_tab();
+        let recording = folder.record(&tab_name(tab), &command);
+        let terminal = Terminal::start(command, spawned, recording, self.changes.clone());
+        {
+            let mut sessions = self.sessions.lock().unwrap();
+            let entry = sessions.entry(session.clone()).or_insert_with(|| Session::new(Arc::clone(&folder)));
+            entry.tabs.insert(tab, Arc::clone(&terminal));
+            entry.current = Some(tab);
+        }
         self.changes.notify();
-        settle(&session, tab, &terminal, wait, timeout_ms)
+        match wait {
+            Some(wait) => settle(&session, tab, &terminal, wait, timeout_ms),
+            None => Ok(Reply::Snapshot(terminal.snapshot(&session, &tab_name(tab)))),
+        }
+    }
+
+    fn folder(&self, session: &str) -> Result<Arc<SessionFolder>> {
+        let mut folders = self.folders.lock().unwrap();
+        if let Some(folder) = folders.get(session).and_then(Weak::upgrade) {
+            return Ok(folder);
+        }
+        let folder = Arc::new(SessionFolder::start(&home()?, session)?);
+        folders.retain(|_, folder| folder.strong_count() > 0);
+        folders.insert(session.to_string(), Arc::downgrade(&folder));
+        Ok(folder)
     }
 
     fn resize(
@@ -296,7 +446,11 @@ impl Daemon {
                 snapshot: None,
             });
         }
-        let terminal = Terminal::start(old.rerun(), self.changes.clone()).map_err(error_body)?;
+        let command = old.rerun();
+        let spawned = pty::spawn(command.clone()).map_err(error_body)?;
+        let recording = old.recording();
+        recording.restart();
+        let terminal = Terminal::start(command, spawned, recording, self.changes.clone());
         {
             let mut sessions = self.sessions.lock().unwrap();
             match sessions.get_mut(session).and_then(|s| s.tabs.get_mut(&tab)) {
@@ -318,17 +472,80 @@ impl Daemon {
         tab: Option<u32>,
         input: &Input,
         wait: Option<&Wait>,
+        snapshot: bool,
         timeout_ms: u64,
     ) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&session, tab)?;
         let tab = tab_name(id);
+        let condition = wait.map(condition).transpose()?;
         let delivery = terminal.input(input).map_err(|e| error_body(e.context(format!("{session} {tab}"))))?;
-        if let Some(wait) = wait
-            && let Settled::TimedOut = terminal.wait(wait, Duration::from_millis(timeout_ms))
-        {
-            return Err(timed_out(wait, timeout_ms, terminal.snapshot(&session, &tab)));
+        if let Some((wait, condition)) = wait.zip(condition) {
+            wait_for(&terminal, &session, &tab, wait, condition, timeout_ms)?;
         }
-        Ok(Reply::Delivered(Delivered { session, tab, delivery }))
+        let snapshot = snapshot.then(|| Box::new(terminal.snapshot(&session, &tab)));
+        Ok(Reply::Delivered(Delivered { session, tab, delivery, snapshot }))
+    }
+
+    fn wait(&self, session: String, tab: Option<u32>, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+        let (id, terminal) = self.target(&session, tab)?;
+        let tab = tab_name(id);
+        let condition = condition(wait)?;
+        let started = Instant::now();
+        let frame = wait_for(&terminal, &session, &tab, wait, condition, timeout_ms)?;
+        let waited_ms = started.elapsed().as_millis() as u64;
+        let exit_code = match wait {
+            Wait::Exit { .. } => terminal.exit_status().flatten(),
+            _ => None,
+        };
+        Ok(Reply::Waited(Waited { session, tab, until: describe(wait), waited_ms, frame, exit_code }))
+    }
+
+    fn expect(&self, session: String, tab: Option<u32>, expect: &Expect) -> Result<Reply, ErrorBody> {
+        let (id, terminal) = self.target(&session, tab)?;
+        let tab = tab_name(id);
+        let place = format!("{session} {tab}");
+        let excerpt = |rows: Option<RowRange>| {
+            let options = SnapshotOptions { rows, ..SnapshotOptions::default() };
+            terminal.snapshot_with(&session, &tab, &options).map_err(failure)
+        };
+        let fact = match expect {
+            Expect::Text(text) => {
+                if !Pattern::new(text).map_err(failure)?.found(&terminal.lines()) {
+                    return Err(assertion(format!("{text} is not on screen in {place}"), excerpt(None)?));
+                }
+                format!("{text} is on screen")
+            }
+            Expect::Gone(text) => {
+                let rows = Pattern::new(text).map_err(failure)?.rows_found(&terminal.lines());
+                if let (Some(&first), Some(&last)) = (rows.first(), rows.last()) {
+                    let which = if first == last { format!("row {first}") } else { format!("rows {first}-{last}") };
+                    let shown = excerpt(Some(RowRange { first, last }))?;
+                    return Err(assertion(format!("{text} is on screen in {place}, in {which}"), shown));
+                }
+                format!("{text} is not on screen")
+            }
+            Expect::ExitCode { code } => match terminal.exit_status() {
+                Some(Some(exited)) if exited == *code => format!("{} exited with code {code}", terminal.program),
+                Some(_) => return Err(exited_otherwise(*code, terminal.snapshot(&session, &tab))),
+                None => {
+                    let message = format!(
+                        "{} in {place} is still running, so it has not exited with code {code}",
+                        terminal.program
+                    );
+                    return Err(assertion(message, excerpt(None)?));
+                }
+            },
+            Expect::Cell { row, col, style } => {
+                let cell = terminal.cell(*row, *col).map_err(failure)?;
+                let missing: Vec<&Style> = style.iter().filter(|style| !style.holds(&cell)).collect();
+                if !missing.is_empty() {
+                    let message = format!("cell {row},{col} in {place} is not {}: it is {cell}", listed(&missing));
+                    return Err(assertion(message, excerpt(Some(RowRange { first: *row, last: *row }))?));
+                }
+                format!("cell {row},{col} is {}", listed(&style.iter().collect::<Vec<_>>()))
+            }
+        };
+        Ok(Reply::Checked(Checked { session, tab, fact }))
     }
 
     fn close(&self, session: &str, tab: Option<u32>) -> Result<TabRef, ErrorBody> {
@@ -398,6 +615,10 @@ impl Backend for Daemon {
 }
 
 impl Session {
+    fn new(folder: Arc<SessionFolder>) -> Self {
+        Self { tabs: BTreeMap::new(), current: None, folder }
+    }
+
     fn info(&self, name: &str) -> SessionInfo {
         SessionInfo {
             session: name.to_string(),
@@ -409,11 +630,64 @@ impl Session {
 
 fn settle(session: &str, tab: u32, terminal: &Terminal, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
     let tab = tab_name(tab);
-    let settled = terminal.wait(wait, Duration::from_millis(timeout_ms));
+    let settled = terminal.wait(condition(wait)?, Duration::from_millis(timeout_ms));
     let snapshot = terminal.snapshot(session, &tab);
     match settled {
-        Settled::Met | Settled::Exited => Ok(Reply::Snapshot(snapshot)),
+        Settled::Met { .. } | Settled::Exited => Ok(Reply::Snapshot(snapshot)),
         Settled::TimedOut => Err(timed_out(wait, timeout_ms, snapshot)),
+    }
+}
+
+fn condition(wait: &Wait) -> Result<Condition, ErrorBody> {
+    Condition::new(wait).map_err(failure)
+}
+
+fn wait_for(
+    terminal: &Terminal,
+    session: &str,
+    tab: &str,
+    wait: &Wait,
+    condition: Condition,
+    timeout_ms: u64,
+) -> Result<u64, ErrorBody> {
+    match terminal.wait(condition, Duration::from_millis(timeout_ms)) {
+        Settled::Met { frame } => match (wait, terminal.exit_status()) {
+            (Wait::Exit { code: Some(expected) }, Some(code)) if code != Some(*expected) => {
+                Err(exited_otherwise(*expected, terminal.snapshot(session, tab)))
+            }
+            _ => Ok(frame),
+        },
+        Settled::Exited => Err(exited_while_waiting(wait, terminal.snapshot(session, tab))),
+        Settled::TimedOut => Err(timed_out(wait, timeout_ms, terminal.snapshot(session, tab))),
+    }
+}
+
+fn assertion(message: String, snapshot: Snapshot) -> ErrorBody {
+    ErrorBody { code: crate::exit::ASSERTION, message, snapshot: Some(Box::new(snapshot)) }
+}
+
+fn listed(styles: &[&Style]) -> String {
+    styles.iter().map(|style| style.to_string()).collect::<Vec<_>>().join(", ")
+}
+
+fn exited_otherwise(expected: i32, snapshot: Snapshot) -> ErrorBody {
+    let how = snapshot.exit_code.map_or_else(|| "without an exit code".to_string(), |code| format!("with code {code}"));
+    let message = format!("{} in {} {} exited {how}, not {expected}", snapshot.program, snapshot.session, snapshot.tab);
+    assertion(message, snapshot)
+}
+
+fn exited_while_waiting(wait: &Wait, snapshot: Snapshot) -> ErrorBody {
+    let how = snapshot.exit_code.map_or_else(String::new, |code| format!(" with code {code}"));
+    ErrorBody {
+        code: crate::exit::EXITED,
+        message: format!(
+            "stopped waiting for {}: {} in {} {} has exited{how}",
+            describe(wait),
+            snapshot.program,
+            snapshot.session,
+            snapshot.tab
+        ),
+        snapshot: Some(Box::new(snapshot)),
     }
 }
 
@@ -433,7 +707,22 @@ fn timed_out(wait: &Wait, timeout_ms: u64, snapshot: Snapshot) -> ErrorBody {
 fn describe(wait: &Wait) -> String {
     match wait {
         Wait::Stable { quiet_ms } => format!("the screen to stay unchanged for {quiet_ms} ms"),
-        Wait::Text { text } => format!("\"{text}\" to appear"),
+        Wait::Idle { quiet_ms } => format!("the program to print nothing for {quiet_ms} ms"),
+        Wait::Elapsed { ms } => format!("{ms} ms to pass"),
+        Wait::Exit { code: None } => "the program to exit".to_string(),
+        Wait::Exit { code: Some(code) } => format!("the program to exit with code {code}"),
+        Wait::Cursor { row, col } => format!("the cursor to reach {row},{col}"),
+        Wait::Frame { frame } => format!("frame {frame}"),
+        Wait::Text(text) => describe_text(text, "to appear", "a match for"),
+        Wait::Gone(text) => describe_text(text, "to disappear", "no match for"),
+    }
+}
+
+fn describe_text(text: &TextMatch, plain: &str, pattern: &str) -> String {
+    let what = if text.regex { format!("{pattern} /{}/", text.text) } else { format!("\"{}\" {plain}", text.text) };
+    match text.rows {
+        Some(RowRange { first, last }) => format!("{what} in rows {first}-{last}"),
+        None => what,
     }
 }
 

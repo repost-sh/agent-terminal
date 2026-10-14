@@ -19,7 +19,103 @@ pub struct Size {
 #[serde(tag = "until", rename_all = "kebab-case")]
 pub enum Wait {
     Stable { quiet_ms: u64 },
-    Text { text: String },
+    Idle { quiet_ms: u64 },
+    Text(TextMatch),
+    Gone(TextMatch),
+    Exit { code: Option<i32> },
+    Cursor { row: u16, col: u16 },
+    Frame { frame: u64 },
+    Elapsed { ms: u64 },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TextMatch {
+    pub text: String,
+    pub regex: bool,
+    pub rows: Option<RowRange>,
+}
+
+impl TextMatch {
+    pub fn plain(text: String) -> Self {
+        Self { text, regex: false, rows: None }
+    }
+}
+
+impl fmt::Display for TextMatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.regex { write!(f, "/{}/", self.text) } else { write!(f, "\"{}\"", self.text) }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "check", rename_all = "kebab-case")]
+pub enum Expect {
+    Text(TextMatch),
+    Gone(TextMatch),
+    ExitCode { code: i32 },
+    Cell { row: u16, col: u16, style: Vec<Style> },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Style {
+    Bold,
+    Inverse,
+    Underline,
+    Fg(String),
+    Bg(String),
+}
+
+impl Style {
+    pub fn holds(&self, cell: &Cell) -> bool {
+        match self {
+            Style::Bold => cell.bold,
+            Style::Inverse => cell.inverse,
+            Style::Underline => cell.underline,
+            Style::Fg(color) => cell.fg == *color,
+            Style::Bg(color) => cell.bg == *color,
+        }
+    }
+}
+
+impl FromStr for Style {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, String> {
+        let lower = text.to_ascii_lowercase();
+        match lower.split_once('=') {
+            None if lower == "bold" => Ok(Style::Bold),
+            None if lower == "inverse" => Ok(Style::Inverse),
+            None if lower == "underline" => Ok(Style::Underline),
+            Some(("fg", color)) if !color.is_empty() => Ok(Style::Fg(color.to_string())),
+            Some(("bg", color)) if !color.is_empty() => Ok(Style::Bg(color.to_string())),
+            _ => Err(format!("unknown style {text}; use bold, inverse, underline, fg=<color> or bg=<color>")),
+        }
+    }
+}
+
+impl fmt::Display for Style {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Style::Bold => f.write_str("bold"),
+            Style::Inverse => f.write_str("inverse"),
+            Style::Underline => f.write_str("underline"),
+            Style::Fg(color) => write!(f, "fg={color}"),
+            Style::Bg(color) => write!(f, "bg={color}"),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Call {
+    pub typed: Option<Vec<String>>,
+    pub request: Request,
+}
+
+pub enum Addressed<'a> {
+    Nothing,
+    Session(&'a str),
+    Tab(&'a str, Option<u32>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -32,7 +128,7 @@ pub enum Request {
         size: Size,
         cwd: PathBuf,
         env: Vec<(String, String)>,
-        wait: Wait,
+        wait: Option<Wait>,
         timeout_ms: u64,
     },
     Snapshot {
@@ -72,9 +168,26 @@ pub enum Request {
         tab: Option<u32>,
         input: Input,
         wait: Option<Wait>,
+        #[serde(default)]
+        snapshot: bool,
         timeout_ms: u64,
     },
+    Wait {
+        session: String,
+        tab: Option<u32>,
+        wait: Wait,
+        timeout_ms: u64,
+    },
+    Expect {
+        session: String,
+        tab: Option<u32>,
+        expect: Expect,
+    },
     Stop,
+    Batch {
+        steps: Vec<BatchStep>,
+        bail: bool,
+    },
     Get {
         session: String,
         tab: Option<u32>,
@@ -103,10 +216,54 @@ pub enum Request {
         tab: Option<u32>,
         baseline: Option<Baseline>,
     },
+    RecordStart {
+        session: String,
+        tab: Option<u32>,
+        path: Option<PathBuf>,
+    },
+    RecordStop {
+        session: String,
+        tab: Option<u32>,
+    },
+    TraceExport {
+        session: String,
+        path: PathBuf,
+    },
     DashboardStart {
         port: u16,
     },
     DashboardStop,
+}
+
+impl Request {
+    pub fn addressed(&self) -> Addressed<'_> {
+        match self {
+            Request::Sessions
+            | Request::Stop
+            | Request::Batch { .. }
+            | Request::DashboardStart { .. }
+            | Request::DashboardStop => Addressed::Nothing,
+            Request::Open { session, .. }
+            | Request::Tabs { session }
+            | Request::Close { session, all: true, .. }
+            | Request::TraceExport { session, .. } => Addressed::Session(session),
+            Request::SwitchTab { session, tab } => Addressed::Tab(session, Some(*tab)),
+            Request::Snapshot { session, tab, .. }
+            | Request::Close { session, tab, .. }
+            | Request::Resize { session, tab, .. }
+            | Request::Restart { session, tab, .. }
+            | Request::Input { session, tab, .. }
+            | Request::Wait { session, tab, .. }
+            | Request::Expect { session, tab, .. }
+            | Request::Get { session, tab, .. }
+            | Request::Find { session, tab, .. }
+            | Request::Mark { session, tab, .. }
+            | Request::Output { session, tab, .. }
+            | Request::DiffSnapshot { session, tab, .. }
+            | Request::RecordStart { session, tab, .. }
+            | Request::RecordStop { session, tab } => Addressed::Tab(session, *tab),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -218,18 +375,25 @@ pub enum Response {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "reply", content = "data")]
 pub enum Reply {
     Snapshot(Snapshot),
     Closed(Closed),
     Sessions(Sessions),
     Tabs(SessionInfo),
     Delivered(Delivered),
+    Waited(Waited),
+    Checked(Checked),
     Stopped,
+    Batch(Vec<BatchOutcome>),
     Fact(Fact),
     Matches(Matches),
     Marked(Marked),
     Printed(Printed),
     Diff(SnapshotDiff),
+    Recording(RecordingFile),
+    Saved(SavedRecording),
+    Exported(Export),
     Dashboard(Dashboard),
     DashboardStopped(DashboardStopped),
 }
@@ -243,6 +407,30 @@ pub struct Dashboard {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DashboardStopped {
     pub stopped: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Export {
+    pub session: String,
+    pub path: PathBuf,
+    pub files: usize,
+    pub bytes: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RecordingFile {
+    pub session: String,
+    pub tab: String,
+    pub path: PathBuf,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SavedRecording {
+    pub session: String,
+    pub tab: String,
+    pub path: PathBuf,
+    pub duration_ms: u64,
+    pub bytes: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -315,6 +503,18 @@ pub struct Cell {
     pub bold: bool,
     pub inverse: bool,
     pub underline: bool,
+}
+
+impl fmt::Display for Cell {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} fg={} bg={}", self.char, self.fg, self.bg)?;
+        for (on, name) in [(self.bold, "bold"), (self.inverse, "inverse"), (self.underline, "underline")] {
+            if on {
+                write!(f, " {name}")?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -413,6 +613,8 @@ pub struct Delivered {
     pub tab: String,
     #[serde(flatten)]
     pub delivery: Delivery,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<Box<Snapshot>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -426,9 +628,62 @@ pub enum Delivery {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct Waited {
+    pub session: String,
+    pub tab: String,
+    pub until: String,
+    pub waited_ms: u64,
+    pub frame: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Checked {
+    pub session: String,
+    pub tab: String,
+    pub fact: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct TabRef {
     pub session: String,
     pub tab: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BatchStep {
+    pub args: Vec<String>,
+    pub request: Request,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BatchOutcome {
+    pub args: Vec<String>,
+    pub response: Option<Response>,
+}
+
+impl Response {
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            Response::Ok(reply) => reply.exit_code(),
+            Response::Err(error) => error.code,
+        }
+    }
+}
+
+impl Reply {
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            Reply::Batch(outcomes) => outcomes
+                .iter()
+                .filter_map(|outcome| outcome.response.as_ref())
+                .map(Response::exit_code)
+                .find(|&code| code != 0)
+                .unwrap_or(0),
+            _ => 0,
+        }
+    }
 }
 
 const MAX_MESSAGE: u32 = 64 * 1024 * 1024;

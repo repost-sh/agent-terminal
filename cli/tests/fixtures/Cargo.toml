@@ -8,6 +8,7 @@ description = "Programs that agent-terminal's tests drive"
 [dependencies]
 crossterm = "0.29"
 ratatui = "0.30"
+serde_json = "1"
 signal-hook = "0.3"
 
 [lints]

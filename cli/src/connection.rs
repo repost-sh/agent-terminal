@@ -9,7 +9,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
-use crate::protocol::{self, Reply, Request, Response};
+use crate::protocol::{self, Call, Reply, Response};
 
 pub const READY: &str = "ready";
 
@@ -36,7 +36,7 @@ pub fn socket_path() -> Result<PathBuf> {
     Ok(home()?.join("daemon.sock"))
 }
 
-pub fn send(request: &Request, if_not_running: IfNotRunning) -> Result<Response> {
+pub fn send(call: &Call, if_not_running: IfNotRunning) -> Result<Response> {
     let socket = socket_path()?;
     let mut stream = match UnixStream::connect(&socket) {
         Ok(stream) => stream,
@@ -46,20 +46,37 @@ pub fn send(request: &Request, if_not_running: IfNotRunning) -> Result<Response>
         },
         Err(e) => return Err(e).with_context(|| format!("connect to the daemon at {}", socket.display())),
     };
-    protocol::write(&mut stream, request)?;
+    protocol::write(&mut stream, call)?;
     protocol::read(&mut stream)?.context("the daemon closed the connection without replying")
 }
 
 fn connect_or_start(launch: &Launch) -> Result<UnixStream> {
     let home = home()?;
-    std::fs::create_dir_all(&home).with_context(|| format!("create {}", home.display()))?;
-    let lock_path = home.join("start.lock");
-    let lock = std::fs::File::create(&lock_path).with_context(|| format!("create {}", lock_path.display()))?;
-    lock.lock().with_context(|| format!("lock {}", lock_path.display()))?;
+    let _lock = start_lock(&home)?;
     match UnixStream::connect(socket_path()?) {
         Ok(stream) => Ok(stream),
         Err(e) if is_not_running(&e) => start_daemon(&home, launch),
         Err(e) => Err(e).context("connect to the daemon"),
+    }
+}
+
+fn start_lock(home: &std::path::Path) -> Result<std::fs::File> {
+    std::fs::create_dir_all(home).with_context(|| format!("create {}", home.display()))?;
+    let lock_path = home.join("start.lock");
+    let lock = std::fs::File::create(&lock_path).with_context(|| format!("create {}", lock_path.display()))?;
+    lock.lock().with_context(|| format!("lock {}", lock_path.display()))?;
+    Ok(lock)
+}
+
+pub fn remove_stale_socket() -> Result<bool> {
+    let _lock = start_lock(&home()?)?;
+    let socket = socket_path()?;
+    match UnixStream::connect(&socket) {
+        Err(e) if e.kind() == ErrorKind::ConnectionRefused => {
+            std::fs::remove_file(&socket).with_context(|| format!("remove {}", socket.display()))?;
+            Ok(true)
+        }
+        _ => Ok(false),
     }
 }
 

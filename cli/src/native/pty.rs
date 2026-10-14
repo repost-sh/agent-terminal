@@ -28,6 +28,17 @@ pub struct Spawned {
     pub wait: Box<dyn FnOnce() -> Result<i32> + Send>,
 }
 
+impl Spawned {
+    pub fn abandon(mut self) {
+        if let Err(e) = self.killer.kill() {
+            eprintln!("stopping a program that could not be set up failed: {e}");
+        }
+        if let Err(e) = (self.wait)() {
+            eprintln!("waiting for a program that could not be set up failed: {e:#}");
+        }
+    }
+}
+
 type SharedMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
 
 pub struct Master(SharedMaster);
@@ -126,6 +137,13 @@ pub fn spawn(command: Command) -> Result<Spawned> {
             Ok(status?.exit_code() as i32)
         }),
     })
+}
+
+pub fn check() -> Result<()> {
+    native_pty_system()
+        .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+        .map(drop)
+        .context("open a pseudo-terminal")
 }
 
 fn resolve(program: &str, cwd: &Path, path_var: &str) -> Result<PathBuf> {
