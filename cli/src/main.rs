@@ -3,6 +3,7 @@ mod commands;
 mod connection;
 mod doctor;
 mod key;
+mod mcp;
 mod native;
 mod output;
 mod protocol;

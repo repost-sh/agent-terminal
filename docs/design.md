@@ -20,13 +20,15 @@ Main job: **QA of TUIs and CLIs by agents** (lazygit-style apps, chat TUIs, inst
 - `agent-terminal` is a single Rust binary: the CLI, the daemon and the dashboard server.
 - The daemon owns, per terminal: a PTY, a VT parser and grid with scrollback (`alacritty_terminal` or `libghostty-vt`), a frame counter, an output ring buffer, and an asciicast event log.
 - The CLI talks to the daemon over a unix socket. The dashboard talks over HTTP + WebSocket on `127.0.0.1:4849`.
+- Each session keeps its tab recordings and the activity log of every call in a plain folder; the format is in [`session-folder.md`](session-folder.md).
+- `agent-terminal mcp` is an MCP stdio server (`rmcp`) whose tools are generated from the CLI's own command definitions: one tool per command, named by its words joined with `_` (`get text` is `get_text`), taking the command's arguments and options as properties. A tool call runs that command with `--json` and returns what it prints, so a new command is a new tool with no MCP code.
 - PNG rendering happens on the server from the grid, with a bundled monospace font (JetBrains Mono + Symbols Nerd Font fallback), so it needs no window server.
 - Shell integration (OSC 133 prompt marks, OSC 7 cwd, OSC 2 title) is injected into `bash`, `zsh` and `fish` when a session opens a shell. That is what produces command history.
 - Speed targets: CLI round trip ≤ 5 ms; `snapshot` ≤ 10 ms; `screenshot` PNG ≤ 40 ms at 120×40; `open` to first frame ≤ 50 ms plus the app's own startup.
 
 ## Concepts
 
-The vocabulary (session, terminal, tab, frame, stable, snapshot, ref, mark, command, activity, control) is defined in [`GLOSSARY.md`](../GLOSSARY.md).
+The vocabulary (session, terminal, tab, frame, stable, snapshot, ref, mark, command, activity, control, tool) is defined in [`GLOSSARY.md`](../GLOSSARY.md).
 
 ## Command reference
 

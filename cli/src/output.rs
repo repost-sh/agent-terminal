@@ -1,6 +1,7 @@
 use crate::protocol::{
     BatchOutcome, Checked, ClickTarget, Delivered, Delivery, DiffBase, Direction, ErrorBody, Exit, Fact, Modes,
-    MouseButton, MouseEvent, Ref, RefKind, Reply, Response, ScrollBy, SessionInfo, Snapshot, SnapshotDiff, Waited,
+    MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, ScrollBy, SessionInfo, Snapshot,
+    SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
 
@@ -127,6 +128,32 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Printed(printed) => print!("{}", printed.output),
         Reply::Diff(diff) if json => println!("{}", serde_json::json!(diff)),
         Reply::Diff(diff) => print!("{}", diff_text(diff)),
+        Reply::Recording(recording) if json => println!("{}", serde_json::json!(recording)),
+        Reply::Recording(recording) => {
+            println!("recording {} {} to {}", recording.session, recording.tab, recording.path.display())
+        }
+        Reply::Saved(saved) if json => println!("{}", serde_json::json!(saved)),
+        Reply::Saved(saved) => println!("{}", saved_text(saved)),
+        Reply::Exported(export) if json => println!("{}", serde_json::json!(export)),
+        Reply::Exported(export) => println!(
+            "exported session {} to {} ({}, {} KB)",
+            export.session,
+            export.path.display(),
+            count(export.files, "file"),
+            export.bytes.div_ceil(1024)
+        ),
+    }
+}
+
+fn saved_text(saved: &SavedRecording) -> String {
+    format!("saved {} ({}, {} KB)", saved.path.display(), duration(saved.duration_ms), saved.bytes.div_ceil(1024))
+}
+
+fn duration(ms: u64) -> String {
+    match ms {
+        0..1_000 => format!("{ms} ms"),
+        1_000..60_000 => format!("{:.1} s", ms as f64 / 1000.0),
+        _ => format!("{} min {:02} s", ms / 60_000, ms % 60_000 / 1000),
     }
 }
 

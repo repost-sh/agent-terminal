@@ -22,4 +22,10 @@
 
 **activity**: one CLI call to agent-terminal as recorded in the session's log: time, command as typed, duration and result.
 
+**recording**: a tab's output, input and resizes as an asciicast file, written from the moment the tab opens. `record start` saves a copy of it from that point to a file of your choice.
+
+**session folder**: the plain folder where a session keeps its recordings and activity log (`~/.agent-terminal/sessions/<session>/`); `trace export` zips it.
+
 **control**: who may send input to a terminal: the agent (default) or a human who took it from the dashboard. While a human holds it, agent input exits 4.
+
+**tool**: an MCP tool served by `agent-terminal mcp`. Each one is a CLI command under the command's words joined with `_` (`get_text`, `tab_new`); it takes the command's arguments and returns its `--json` output.

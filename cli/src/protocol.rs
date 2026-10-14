@@ -107,6 +107,18 @@ impl fmt::Display for Style {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct Call {
+    pub typed: Option<Vec<String>>,
+    pub request: Request,
+}
+
+pub enum Addressed<'a> {
+    Nothing,
+    Session(&'a str),
+    Tab(&'a str, Option<u32>),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "command", rename_all = "kebab-case")]
 pub enum Request {
     Open {
@@ -204,6 +216,46 @@ pub enum Request {
         tab: Option<u32>,
         baseline: Option<Baseline>,
     },
+    RecordStart {
+        session: String,
+        tab: Option<u32>,
+        path: Option<PathBuf>,
+    },
+    RecordStop {
+        session: String,
+        tab: Option<u32>,
+    },
+    TraceExport {
+        session: String,
+        path: PathBuf,
+    },
+}
+
+impl Request {
+    pub fn addressed(&self) -> Addressed<'_> {
+        match self {
+            Request::Sessions | Request::Stop | Request::Batch { .. } => Addressed::Nothing,
+            Request::Open { session, .. }
+            | Request::Tabs { session }
+            | Request::Close { session, all: true, .. }
+            | Request::TraceExport { session, .. } => Addressed::Session(session),
+            Request::SwitchTab { session, tab } => Addressed::Tab(session, Some(*tab)),
+            Request::Snapshot { session, tab, .. }
+            | Request::Close { session, tab, .. }
+            | Request::Resize { session, tab, .. }
+            | Request::Restart { session, tab, .. }
+            | Request::Input { session, tab, .. }
+            | Request::Wait { session, tab, .. }
+            | Request::Expect { session, tab, .. }
+            | Request::Get { session, tab, .. }
+            | Request::Find { session, tab, .. }
+            | Request::Mark { session, tab, .. }
+            | Request::Output { session, tab, .. }
+            | Request::DiffSnapshot { session, tab, .. }
+            | Request::RecordStart { session, tab, .. }
+            | Request::RecordStop { session, tab } => Addressed::Tab(session, *tab),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -458,6 +510,33 @@ pub enum Reply {
     Marked(Marked),
     Printed(Printed),
     Diff(SnapshotDiff),
+    Recording(RecordingFile),
+    Saved(SavedRecording),
+    Exported(Export),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Export {
+    pub session: String,
+    pub path: PathBuf,
+    pub files: usize,
+    pub bytes: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RecordingFile {
+    pub session: String,
+    pub tab: String,
+    pub path: PathBuf,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SavedRecording {
+    pub session: String,
+    pub tab: String,
+    pub path: PathBuf,
+    pub duration_ms: u64,
+    pub bytes: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

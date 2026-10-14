@@ -1,0 +1,120 @@
+use std::collections::BTreeMap;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+use crate::support::{AgentTerminal, fixture};
+
+fn work_folder(at: &AgentTerminal) -> PathBuf {
+    let work = at.home().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    work.canonicalize().unwrap()
+}
+
+fn unzip(path: &Path) -> BTreeMap<String, String> {
+    let file = std::fs::File::open(path).unwrap_or_else(|e| panic!("open {}: {e}", path.display()));
+    let mut archive = zip::ZipArchive::new(file).expect("a zip file");
+    (0..archive.len())
+        .map(|i| {
+            let mut entry = archive.by_index(i).unwrap();
+            let mut contents = String::new();
+            entry.read_to_string(&mut contents).unwrap();
+            (entry.name().unwrap().into_owned(), contents)
+        })
+        .collect()
+}
+
+fn read(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+}
+
+fn open_printer(at: &AgentTerminal, session: &str, command: &[&str]) {
+    let printer = fixture("line-printer");
+    let mut args = vec!["--session", session];
+    args.extend_from_slice(command);
+    args.extend_from_slice(&["--wait", "line 3", &printer, "--hold"]);
+    at.run(&args).success();
+}
+
+#[test]
+fn trace_export_zips_the_session_folder() {
+    let at = AgentTerminal::new();
+    let work = work_folder(&at);
+    let folder = at.home().join("sessions").join("qa");
+    open_printer(&at, "qa", &["open"]);
+    open_printer(&at, "qa", &["tab", "new"]);
+    let activity = read(&folder.join("activity.jsonl"));
+
+    let exported = at.run_in(&work, &["--session", "qa", "trace", "export", "evidence/qa.zip"]).success().stdout();
+    let zip = work.join("evidence").join("qa.zip");
+    let kb = std::fs::metadata(&zip).unwrap().len().div_ceil(1024);
+    assert_eq!(exported, format!("exported session qa to {} (3 files, {kb} KB)\n", zip.display()));
+    let files = unzip(&zip);
+    assert_eq!(files.keys().collect::<Vec<_>>(), ["qa/activity.jsonl", "qa/t1.cast", "qa/t2.cast"]);
+    assert_eq!(files["qa/activity.jsonl"], activity);
+    assert_eq!(files["qa/t1.cast"], read(&folder.join("t1.cast")));
+    assert_eq!(files["qa/t2.cast"], read(&folder.join("t2.cast")));
+
+    let last = read(&folder.join("activity.jsonl")).lines().last().unwrap().to_string();
+    let last: serde_json::Value = serde_json::from_str(&last).unwrap();
+    assert_eq!(last["command"], "--session qa trace export evidence/qa.zip");
+}
+
+#[test]
+fn trace_export_answers_in_json() {
+    let at = AgentTerminal::new();
+    let work = work_folder(&at);
+    open_printer(&at, "default", &["open"]);
+    let exported = at.run_in(&work, &["--json", "trace", "export", "trace.zip"]).success().json();
+    let zip = work.join("trace.zip");
+    assert_eq!(
+        exported,
+        serde_json::json!({
+            "session": "default",
+            "path": zip.to_string_lossy(),
+            "files": 2,
+            "bytes": std::fs::metadata(&zip).unwrap().len(),
+        })
+    );
+}
+
+#[test]
+fn trace_export_still_works_after_the_session_closed() {
+    let at = AgentTerminal::new();
+    let work = work_folder(&at);
+    open_printer(&at, "default", &["open"]);
+    at.run(&["close"]).success();
+    at.run_in(&work, &["trace", "export", "after-close.zip"]).success();
+    let files = unzip(&work.join("after-close.zip"));
+    assert_eq!(files.keys().collect::<Vec<_>>(), ["default/activity.jsonl", "default/t1.cast"]);
+    assert!(files["default/activity.jsonl"].lines().last().unwrap().contains(r#""command":"close""#));
+}
+
+#[test]
+fn trace_export_of_a_session_that_never_ran_explains_what_to_do() {
+    let at = AgentTerminal::new();
+    let work = work_folder(&at);
+    let exported = at.run_in(&work, &["--session", "ghost", "trace", "export", "ghost.zip"]);
+    assert_eq!(exported.code(), 1);
+    assert_eq!(
+        exported.stderr(),
+        "error: session ghost has nothing to export; open a terminal in it first with `agent-terminal open <program>`\n"
+    );
+    assert!(!work.join("ghost.zip").exists());
+}
+
+#[test]
+fn trace_export_while_the_program_prints_keeps_only_whole_events() {
+    let at = AgentTerminal::new();
+    let work = work_folder(&at);
+    at.run(&["open", "--wait", "y", "sh", "-c", "yes | head -c 5000000"]).success();
+    for attempt in 0..5 {
+        let zip = work.join(format!("busy-{attempt}.zip"));
+        at.run(&["trace", "export", &zip.to_string_lossy()]).success();
+        for (name, contents) in unzip(&zip) {
+            assert!(contents.is_empty() || contents.ends_with('\n'), "{name} ends in the middle of a line");
+            for line in contents.lines() {
+                assert!(serde_json::from_str::<serde_json::Value>(line).is_ok(), "{name} has a broken line: {line}");
+            }
+        }
+    }
+}
