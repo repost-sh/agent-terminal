@@ -139,17 +139,20 @@ Terminal apps break at sizes their authors never tried. The default is 120x40. T
 
 ```bash
 agent-terminal open myapp --size 80x24
-agent-terminal resize 200x60 --wait-stable --snapshot
+agent-terminal resize 200x60 --wait-stable   # prints the screen at the new size
 ```
 
 ## Several programs at once
 
 ```bash
-agent-terminal open pnpm dev --name server
-agent-terminal tab new myapp-tui
-agent-terminal --tab t1 wait "ready on"
-agent-terminal tab t2
+agent-terminal open pnpm dev                 # tab t1
+agent-terminal tab new myapp-tui             # tab t2, now the current tab
+agent-terminal wait "ready on" --tab t1      # act on t1 without switching to it
+agent-terminal tab t1                        # switch
+agent-terminal restart --tab t1              # run the server again after a fix
 ```
+
+Tabs are numbered `t1`, `t2`, … in the order they open. `agent-terminal tab` lists them; `session list` lists every session.
 
 ## When a human takes control
 

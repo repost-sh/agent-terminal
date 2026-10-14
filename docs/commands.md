@@ -16,9 +16,10 @@ Start and stop:
                                --wait-stable [ms]  how long unchanged counts as stable (default 300)
   shell                        Open your shell, with command history turned on
   exec "<command line>"        Run a command in the shell tab, wait for it, print output + exit code
-  restart                      Run the same program again with the same options
-  signal <INT|TERM|KILL|...>   Send a signal to the running program
+  restart                      Run the same program again with the same options (cwd, env, current size)
+  signal <INT|TERM|KILL|...>   Send a signal to the program in the foreground (INT TERM KILL HUP TSTP CONT WINCH)
   resize <cols>x<rows>         Resize the terminal, e.g. resize 80x24 (the app gets SIGWINCH)
+                               restart and resize print the screen and take --wait <text> / --wait-stable [ms] like open
   close [--all]                Close the current tab (--all closes every session)
 
 Read the screen:
@@ -35,13 +36,15 @@ Read the screen:
   mark <name>                  Name this point in the output, to read or clip from later
 
 Send input:
-  type <text>                  Type text, key by key
+  type <text>                  Type text, key by key (--delay <ms> between keys)
   paste <text>                 Paste text (bracketed paste when the app supports it)
   press <key...>               Enter, Tab, Esc, Up, F5, Ctrl+c, Alt+x, Shift+Tab; several keys run in order
+                               --repeat <n>  press the whole sequence n times
+                               keys follow the app's modes: application cursor keys, Kitty keyboard protocol
   click <@ref|row,col|text>    Mouse click (refused if the app has no mouse support; use keys instead)
   scroll <up|down> [n]         Scroll (mouse wheel if supported, else PageUp/PageDown)
   mouse <move|down|up|wheel>   Low-level mouse events
-  send <bytes>                 Raw bytes with escapes, last resort
+  send <bytes>                 Raw bytes with escapes (\e \xHH \n \r \t \0 \\), last resort
 
   Any input command also takes:
     --wait <text>              then wait until the text is on screen
@@ -98,7 +101,8 @@ Options:
   --env <K=V>                  Extra environment variable (repeatable)
   --timeout <ms>               For waits (default 25000)
   --json                       JSON output
-  --idle-timeout <time>        Stop an unused daemon after this long (default 1h, 0 = never)
+  --idle-timeout <time>        Stop an unused daemon after this long (default 1h, 0 = never; 30s, 10m, 1h or raw ms;
+                               set by the call that starts the daemon)
   --screenshot-dir <path>      Where screenshots and clips go (or AGENT_TERMINAL_SCREENSHOT_DIR)
 
 Exit codes:

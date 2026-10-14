@@ -1,7 +1,9 @@
 mod idle;
+mod input;
 mod open;
 mod resize;
 mod restart;
 mod sessions;
+mod skills;
 mod support;
 mod tabs;

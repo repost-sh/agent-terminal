@@ -90,9 +90,22 @@ fn a_tab_that_does_not_exist_is_an_error() {
 
     for malformed in [&["tab", "first"][..], &["--tab", "first", "snapshot"], &["tab", "close", "first"]] {
         let run = at.run(malformed);
-        assert_ne!(run.code(), 0, "{malformed:?}");
+        assert_eq!(run.code(), 1, "{malformed:?}");
         assert!(run.stderr().contains("invalid tab id: first (expected t1, t2, ...)"), "{}", run.stderr());
     }
+}
+
+#[test]
+fn input_reaches_a_tab_other_than_the_current_one() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "60x4", "--wait", "ready", &fixture("input-echo")]).success();
+    at.run(&["tab", "new", "--size", "20x2", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
+        .success();
+
+    let typed = at.run(&["--tab", "t1", "type", "abc", "--wait", "abc"]).success();
+    assert_eq!(typed.stdout(), "typed 3 keys into default t1\n");
+    assert_eq!(at.run(&["--json", "--tab", "t1", "snapshot"]).success().json()["lines"][1], "abc");
+    assert_eq!(at.run(&["--json", "tab"]).success().json()["current"], "t2");
 }
 
 #[test]

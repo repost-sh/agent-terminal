@@ -62,7 +62,15 @@ fn resizing_a_tab_whose_program_exited_fails_with_exit_code_5() {
     assert_eq!(run.code(), 5);
     assert_eq!(
         run.stderr(),
-        "error: line-printer in default t1 has exited with code 7; run it again with `agent-terminal restart` or close it with `agent-terminal close`\n"
+        "error: default t1: line-printer has exited with code 7; nothing more can be sent to it (read its last screen with `agent-terminal snapshot`, run it again with `agent-terminal restart`)\n"
     );
     assert_eq!(at.run(&["tab"]).success().stdout(), "default t1 · line-printer · 20x3 · exited 7 · current\n");
+}
+
+#[test]
+fn resize_waits_for_a_stable_screen_when_no_wait_value_is_given() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "50x8", "--wait", "Size: 50x8", &fixture("fixture-tui")]).success();
+    let resized = at.run(&["resize", "60x10", "--wait-stable"]).success();
+    assert!(resized.stdout().starts_with("default t1 · fixture-tui · 60x10 · "), "{}", resized.stdout());
 }

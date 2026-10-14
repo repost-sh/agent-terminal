@@ -1,0 +1,114 @@
+name: npm packages
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  pack:
+    name: Pack the npm packages
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Fetch the release archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: artifacts-build-local-*
+          path: target/distrib/
+          merge-multiple: true
+      - name: Build one package per platform and the main package
+        env:
+          PLAN: ${{ inputs.plan }}
+        run: |
+          printf '%s' "$PLAN" > "$RUNNER_TEMP/plan.json"
+          node npm/build-packages.js --manifest "$RUNNER_TEMP/plan.json" --artifacts target/distrib --out target/npm
+          mkdir target/npm-tarballs
+          for package in target/npm/*/; do
+            npm pack "$package" --pack-destination target/npm-tarballs
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: npm-packages
+          path: target/npm-tarballs/*.tgz
+          if-no-files-found: error
+
+  install-test:
+    name: npm i -g on a clean ${{ matrix.name }}
+    needs: pack
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian x64
+            runner: ubuntu-24.04
+            image: node:24-bookworm-slim
+            fixture-target: x86_64-unknown-linux-musl
+            package: agent-terminal-linux-x64
+          - name: Alpine x64
+            runner: ubuntu-24.04
+            image: node:24-alpine
+            fixture-target: x86_64-unknown-linux-musl
+            package: agent-terminal-linux-x64-musl
+          - name: Debian arm64
+            runner: ubuntu-24.04-arm
+            image: node:24-bookworm-slim
+            fixture-target: aarch64-unknown-linux-musl
+            package: agent-terminal-linux-arm64
+          - name: Alpine arm64
+            runner: ubuntu-24.04-arm
+            image: node:24-alpine
+            fixture-target: aarch64-unknown-linux-musl
+            package: agent-terminal-linux-arm64-musl
+          - name: macOS arm64
+            runner: macos-15
+            fixture-target: aarch64-apple-darwin
+            package: agent-terminal-darwin-arm64
+          - name: macOS x64
+            runner: macos-15-intel
+            fixture-target: x86_64-apple-darwin
+            package: agent-terminal-darwin-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.fixture-target }}
+      - name: Install musl-tools
+        if: matrix.image
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build the line-printer fixture
+        working-directory: cli
+        run: cargo build --release -p at-fixtures --bin line-printer --target ${{ matrix.fixture-target }}
+      - name: Fetch the npm packages
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-packages
+          path: npm-tarballs
+      - name: Install from npm and drive the fixture in a fresh ${{ matrix.image }} container
+        if: matrix.image
+        run: >-
+          docker run --rm
+          -v "$PWD/npm-tarballs:/tarballs:ro"
+          -v "$PWD/cli/target/${{ matrix.fixture-target }}/release/line-printer:/fixture/line-printer:ro"
+          -v "$PWD/npm/install-test:/install-test:ro"
+          ${{ matrix.image }}
+          sh /install-test/run.sh /tarballs /fixture/line-printer ${{ matrix.package }}
+      - uses: actions/setup-node@v7
+        if: ${{ !matrix.image }}
+        with:
+          node-version: 24
+      - name: Install from npm and drive the fixture on the runner
+        if: ${{ !matrix.image }}
+        run: >-
+          sh npm/install-test/run.sh "$PWD/npm-tarballs"
+          "$PWD/cli/target/${{ matrix.fixture-target }}/release/line-printer" ${{ matrix.package }}

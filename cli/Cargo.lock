@@ -11,7 +11,9 @@ dependencies = [
  "clap",
  "insta",
  "libc",
+ "nix 0.28.0",
  "portable-pty",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -135,6 +137,7 @@ version = "0.0.0"
 dependencies = [
  "crossterm",
  "ratatui",
+ "signal-hook 0.3.18",
 ]
 
 [[package]]

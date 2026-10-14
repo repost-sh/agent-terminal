@@ -9,7 +9,10 @@ use anyhow::{Context, Result};
 use crate::connection::{READY, home, socket_path};
 use crate::native::pty;
 use crate::native::terminal::{Settled, Terminal};
-use crate::protocol::{self, Closed, ErrorBody, Reply, Request, Response, SessionInfo, Sessions, Size, TabRef, Wait};
+use crate::protocol::{
+    self, Closed, Delivered, ErrorBody, Input, Reply, Request, Response, SessionInfo, Sessions, Size, Snapshot, TabRef,
+    Wait,
+};
 
 #[derive(Default)]
 struct Daemon {
@@ -153,6 +156,9 @@ impl Daemon {
                 entry.current = Some(tab);
                 Ok(Reply::Tabs(entry.info(&session)))
             }
+            Request::Input { session, tab, input, wait, timeout_ms } => {
+                self.input(session, tab, &input, wait.as_ref(), timeout_ms)
+            }
             Request::Stop => {
                 self.shut_down();
                 Ok(Reply::Stopped)
@@ -219,11 +225,8 @@ impl Daemon {
         timeout_ms: u64,
     ) -> Result<Reply, ErrorBody> {
         let (tab, terminal) = self.target(session, tab)?;
-        match terminal.resize(size) {
-            Ok(true) => settle(session, tab, &terminal, wait, timeout_ms),
-            Ok(false) => Err(exited(session, tab, &terminal)),
-            Err(e) => Err(error_body(e)),
-        }
+        terminal.resize(size).map_err(|e| error_body(e.context(format!("{session} {}", tab_name(tab)))))?;
+        settle(session, tab, &terminal, wait, timeout_ms)
     }
 
     fn restart(&self, session: &str, tab: Option<u32>, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
@@ -253,6 +256,25 @@ impl Daemon {
         }
         drop(restarting);
         settle(session, tab, &terminal, wait, timeout_ms)
+    }
+
+    fn input(
+        &self,
+        session: String,
+        tab: Option<u32>,
+        input: &Input,
+        wait: Option<&Wait>,
+        timeout_ms: u64,
+    ) -> Result<Reply, ErrorBody> {
+        let (id, terminal) = self.target(&session, tab)?;
+        let tab = tab_name(id);
+        let delivery = terminal.input(input).map_err(|e| error_body(e.context(format!("{session} {tab}"))))?;
+        if let Some(wait) = wait
+            && let Settled::TimedOut = terminal.wait(wait, Duration::from_millis(timeout_ms))
+        {
+            return Err(timed_out(wait, timeout_ms, terminal.snapshot(&session, &tab)));
+        }
+        Ok(Reply::Delivered(Delivered { session, tab, delivery }))
     }
 
     fn close(&self, session: &str, tab: Option<u32>) -> Result<TabRef, ErrorBody> {
@@ -313,27 +335,20 @@ fn settle(session: &str, tab: u32, terminal: &Terminal, wait: &Wait, timeout_ms:
     let snapshot = terminal.snapshot(session, &tab);
     match settled {
         Settled::Met | Settled::Exited => Ok(Reply::Snapshot(snapshot)),
-        Settled::TimedOut => Err(ErrorBody {
-            code: crate::exit::TIMEOUT,
-            message: format!(
-                "timed out after {timeout_ms} ms waiting for {}; {session} {tab} is still running (read it with `agent-terminal snapshot`, stop it with `agent-terminal close`)",
-                describe(wait)
-            ),
-            snapshot: Some(Box::new(snapshot)),
-        }),
+        Settled::TimedOut => Err(timed_out(wait, timeout_ms, snapshot)),
     }
 }
 
-fn exited(session: &str, tab: u32, terminal: &Terminal) -> ErrorBody {
-    let info = terminal.info(&tab_name(tab));
-    let how = info.exit_code.map_or_else(|| "has exited".to_string(), |code| format!("has exited with code {code}"));
+fn timed_out(wait: &Wait, timeout_ms: u64, snapshot: Snapshot) -> ErrorBody {
     ErrorBody {
-        code: crate::exit::EXITED,
+        code: crate::exit::TIMEOUT,
         message: format!(
-            "{} in {session} {} {how}; run it again with `agent-terminal restart` or close it with `agent-terminal close`",
-            info.program, info.tab
+            "timed out after {timeout_ms} ms waiting for {}; {} {} is still running (read it with `agent-terminal snapshot`, stop it with `agent-terminal close`)",
+            describe(wait),
+            snapshot.session,
+            snapshot.tab
         ),
-        snapshot: None,
+        snapshot: Some(Box::new(snapshot)),
     }
 }
 

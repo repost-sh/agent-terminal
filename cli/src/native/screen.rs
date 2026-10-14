@@ -50,6 +50,21 @@ pub struct ScreenView {
     pub mouse: Option<MouseMode>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KeyboardModes {
+    pub app_cursor: bool,
+    pub bracketed_paste: bool,
+    pub kitty_flags: u8,
+}
+
+const KITTY_FLAGS: [(TermMode, u8); 5] = [
+    (TermMode::DISAMBIGUATE_ESC_CODES, 1),
+    (TermMode::REPORT_EVENT_TYPES, 2),
+    (TermMode::REPORT_ALTERNATE_KEYS, 4),
+    (TermMode::REPORT_ALL_KEYS_AS_ESC, 8),
+    (TermMode::REPORT_ASSOCIATED_TEXT, 16),
+];
+
 #[derive(Clone, Default)]
 struct Replies(Arc<Mutex<Vec<u8>>>);
 
@@ -71,7 +86,17 @@ pub struct Screen {
 impl Screen {
     pub fn new(size: Size) -> Self {
         let replies = Replies::default();
-        Self { term: Term::new(Config::default(), &size, replies.clone()), parser: Processor::new(), replies, size }
+        let config = Config { kitty_keyboard: true, ..Config::default() };
+        Self { term: Term::new(config, &size, replies.clone()), parser: Processor::new(), replies, size }
+    }
+
+    pub fn keyboard_modes(&self) -> KeyboardModes {
+        let mode = *self.term.mode();
+        KeyboardModes {
+            app_cursor: mode.contains(TermMode::APP_CURSOR),
+            bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
+            kitty_flags: KITTY_FLAGS.iter().filter(|(flag, _)| mode.contains(*flag)).map(|(_, bit)| bit).sum(),
+        }
     }
 
     pub fn size(&self) -> Size {

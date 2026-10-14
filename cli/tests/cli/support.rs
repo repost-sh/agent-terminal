@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::OnceLock;
 
@@ -19,14 +19,18 @@ impl AgentTerminal {
     }
 
     pub fn run(&self, args: &[&str]) -> Run {
-        Run(self.command(args).output().expect("run agent-terminal"))
+        self.run_with_env(args, &[])
+    }
+
+    pub fn run_with_env(&self, args: &[&str], env: &[(&str, &Path)]) -> Run {
+        Run(self.command(args).envs(env.iter().copied()).output().expect("run agent-terminal"))
     }
 
     pub fn run_with_session_env(&self, session: &str, args: &[&str]) -> Run {
         Run(self.command(args).env("AGENT_TERMINAL_SESSION", session).output().expect("run agent-terminal"))
     }
 
-    pub fn run_in(&self, dir: &std::path::Path, args: &[&str]) -> Run {
+    pub fn run_in(&self, dir: &Path, args: &[&str]) -> Run {
         Run(self.command(args).current_dir(dir).output().expect("run agent-terminal"))
     }
 
