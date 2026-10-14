@@ -192,3 +192,26 @@ fn in_a_split_activity_shows_the_calls_to_the_focused_terminal() {
     at.run(&["--session", "web", "get", "frame"]).success();
     browser.wait_until("document.querySelectorAll(\"[aria-label='Calls to web t1'] > li\").length === 3");
 }
+
+#[test]
+fn a_screenshot_call_shows_the_picture_it_saved_as_a_thumbnail() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "40x6", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    wait_for_calls(&browser, 1);
+    let shot = at.home().join("shots").join("evidence.png");
+    at.run(&["screenshot", &shot.to_string_lossy()]).success();
+    wait_for_calls(&browser, 2);
+
+    let thumbnail = format!("document.querySelector(\"{CALLS}:nth-child(2) a img\")");
+    browser.wait_until(&format!("{thumbnail}?.complete === true && {thumbnail}.naturalWidth > 0"));
+    let png = std::fs::read(&shot).expect("the saved screenshot");
+    let size = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
+    assert_eq!(
+        browser.eval(&format!("[{thumbnail}.naturalWidth, {thumbnail}.naturalHeight].join('x')")),
+        format!("\"{}x{}\"", size(16), size(20))
+    );
+    browser.run(&["find", "role", "link", "hover", "--name", "Open screenshot evidence.png", "--exact"]);
+    assert_eq!(browser.eval(&format!("document.querySelectorAll(\"{CALLS}:nth-child(1) a img\").length")), "0");
+}
