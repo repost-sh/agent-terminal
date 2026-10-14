@@ -229,12 +229,20 @@ pub enum Request {
         session: String,
         path: PathBuf,
     },
+    DashboardStart {
+        port: u16,
+    },
+    DashboardStop,
 }
 
 impl Request {
     pub fn addressed(&self) -> Addressed<'_> {
         match self {
-            Request::Sessions | Request::Stop | Request::Batch { .. } => Addressed::Nothing,
+            Request::Sessions
+            | Request::Stop
+            | Request::Batch { .. }
+            | Request::DashboardStart { .. }
+            | Request::DashboardStop => Addressed::Nothing,
             Request::Open { session, .. }
             | Request::Tabs { session }
             | Request::Close { session, all: true, .. }
@@ -513,6 +521,19 @@ pub enum Reply {
     Recording(RecordingFile),
     Saved(SavedRecording),
     Exported(Export),
+    Dashboard(Dashboard),
+    DashboardStopped(DashboardStopped),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Dashboard {
+    pub url: String,
+    pub port: u16,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DashboardStopped {
+    pub stopped: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

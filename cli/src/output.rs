@@ -1,7 +1,7 @@
 use crate::protocol::{
-    BatchOutcome, Checked, ClickTarget, Delivered, Delivery, DiffBase, Direction, ErrorBody, Exit, Fact, Modes,
-    MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, ScrollBy, SessionInfo, Snapshot,
-    SnapshotDiff, Waited,
+    BatchOutcome, Checked, ClickTarget, DashboardStopped, Delivered, Delivery, DiffBase, Direction, ErrorBody, Exit,
+    Fact, Modes, MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, ScrollBy, SessionInfo,
+    Snapshot, SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
 
@@ -142,6 +142,11 @@ pub fn reply(reply: &Reply, json: bool) {
             count(export.files, "file"),
             export.bytes.div_ceil(1024)
         ),
+        Reply::Dashboard(dashboard) if json => println!("{}", serde_json::json!(dashboard)),
+        Reply::Dashboard(dashboard) => println!("dashboard running at {}", dashboard.url),
+        Reply::DashboardStopped(stopped) if json => println!("{}", serde_json::json!(stopped)),
+        Reply::DashboardStopped(DashboardStopped { stopped: true }) => println!("dashboard stopped"),
+        Reply::DashboardStopped(DashboardStopped { stopped: false }) => println!("no dashboard is running"),
     }
 }
 

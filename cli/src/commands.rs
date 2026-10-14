@@ -11,8 +11,9 @@ use crate::mcp;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, BatchStep, Call, ClickTarget, Direction, Expect, Get, Input, MouseButton, MouseEvent, Reply, Request,
-    Response, RowRange, Scrollback, SessionInfo, Sessions, Signal, Size, SnapshotOptions, Style, TextMatch, Wait,
+    Baseline, BatchStep, Call, ClickTarget, DashboardStopped, Direction, Expect, Get, Input, MouseButton, MouseEvent,
+    Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Signal, Size, SnapshotOptions, Style,
+    TextMatch, Wait,
 };
 use crate::session_id;
 use crate::skills;
@@ -159,6 +160,16 @@ enum Command {
     Skills {
         #[command(subcommand)]
         action: Option<skills::Action>,
+    },
+    #[command(
+        about = "The live dashboard on http://localhost:4849 (dashboard start, dashboard stop)",
+        args_conflicts_with_subcommands = true
+    )]
+    Dashboard {
+        #[command(flatten)]
+        start: DashboardArgs,
+        #[command(subcommand)]
+        action: Option<DashboardAction>,
     },
     #[command(about = "Install the agent skill stub into ~/.claude/skills")]
     Install {
@@ -744,6 +755,20 @@ impl AfterInput {
     }
 }
 
+#[derive(Subcommand)]
+enum DashboardAction {
+    #[command(about = "Serve the dashboard and print its address (the default)")]
+    Start(DashboardArgs),
+    #[command(about = "Stop serving the dashboard")]
+    Stop,
+}
+
+#[derive(Args)]
+struct DashboardArgs {
+    #[arg(long, help = "Port to serve on (0 picks a free one)", value_name = "N", default_value_t = 4849)]
+    port: u16,
+}
+
 #[derive(Clone)]
 struct RawBytes(Vec<u8>);
 
@@ -808,6 +833,9 @@ fn request(cli: Cli) -> Result<Request, String> {
     let session = cli.session;
     let request = match cli.command {
         Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
+        Command::Dashboard { action: Some(DashboardAction::Stop), .. } => Request::DashboardStop,
+        Command::Dashboard { action: Some(DashboardAction::Start(DashboardArgs { port })), .. }
+        | Command::Dashboard { start: DashboardArgs { port }, action: None } => Request::DashboardStart { port },
         Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
             open(session, args, cli.timeout)?
         }
@@ -909,6 +937,7 @@ fn batch_step(parser: clap::Command, call: &[String]) -> Result<Request, String>
 fn send(request: Request, json: bool, idle_timeout: Duration) -> i32 {
     let if_not_running = match &request {
         Request::Stop => IfNotRunning::Answer(Reply::Stopped),
+        Request::DashboardStop => IfNotRunning::Answer(Reply::DashboardStopped(DashboardStopped { stopped: false })),
         Request::Sessions => IfNotRunning::Answer(Reply::Sessions(Sessions::default())),
         Request::Tabs { session } => IfNotRunning::Answer(Reply::Tabs(SessionInfo::empty(session))),
         _ => IfNotRunning::Start(Launch { idle_timeout }),

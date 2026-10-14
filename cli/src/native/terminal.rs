@@ -3,8 +3,10 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use tokio::sync::watch;
 
 use crate::key::{Key, KeyCode, Mods};
+use crate::native::changes::Changes;
 use crate::native::keyboard;
 use crate::native::mouse::{self, Action};
 use crate::native::output_log::OutputLog;
@@ -31,6 +33,20 @@ pub struct Terminal {
     signaller: Box<dyn Signaller>,
     command: pty::Command,
     recording: Arc<Recording>,
+    frames: Changes,
+    lifecycle: Changes,
+}
+
+pub struct Picture {
+    pub frame: u64,
+    pub size: Size,
+    pub rows: Vec<String>,
+    pub cursor: (u16, u16),
+    pub cursor_visible: bool,
+    pub alt_screen: bool,
+    pub mouse: Option<&'static str>,
+    pub bracketed_paste: bool,
+    pub exit: Option<Option<i32>>,
 }
 
 struct State {
@@ -100,7 +116,7 @@ pub enum Settled {
 }
 
 impl Terminal {
-    pub fn start(command: pty::Command, spawned: Spawned, recording: Arc<Recording>) -> Arc<Self> {
+    pub fn start(command: pty::Command, spawned: Spawned, recording: Arc<Recording>, lifecycle: Changes) -> Arc<Self> {
         let program = display_name(&command.program);
         let size = command.size;
         let cwd = command.cwd.to_string_lossy().into_owned();
@@ -132,6 +148,8 @@ impl Terminal {
             signaller: spawned.signaller,
             command,
             recording,
+            frames: Changes::default(),
+            lifecycle,
         });
 
         let reading = Arc::clone(&terminal);
@@ -162,6 +180,8 @@ impl Terminal {
             }
             waiting.state.lock().unwrap().exit = Some(code);
             waiting.changed.notify_all();
+            waiting.frames.notify();
+            waiting.lifecycle.notify();
         });
 
         terminal
@@ -181,6 +201,7 @@ impl Terminal {
             replies
         };
         self.changed.notify_all();
+        self.frames.notify();
         if !replies.is_empty() {
             let mut writer = self.writer.lock().unwrap();
             if let Err(e) = writer.write_all(&replies).and_then(|()| writer.flush()) {
@@ -258,11 +279,33 @@ impl Terminal {
         state.refresh(Instant::now());
         drop(state);
         self.changed.notify_all();
+        self.frames.notify();
+        self.lifecycle.notify();
         Ok(())
     }
 
     pub fn frame(&self) -> u64 {
         self.state.lock().unwrap().frame
+    }
+
+    pub fn frames(&self) -> watch::Receiver<u64> {
+        self.frames.subscribe()
+    }
+
+    pub fn picture(&self) -> Picture {
+        let state = self.state.lock().unwrap();
+        let view = state.screen.view();
+        Picture {
+            frame: state.frame,
+            size: view.size,
+            rows: state.screen.rows(0..view.size.rows as i32, true),
+            cursor: (view.cursor.0 + 1, view.cursor.1 + 1),
+            cursor_visible: view.cursor_visible,
+            alt_screen: view.alt_screen,
+            mouse: view.mouse.map(|mouse| mouse.as_str()),
+            bracketed_paste: state.screen.keyboard_modes().bracketed_paste,
+            exit: state.exit,
+        }
     }
 
     pub fn recording(&self) -> Arc<Recording> {
