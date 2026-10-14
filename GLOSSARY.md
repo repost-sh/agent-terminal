@@ -14,6 +14,8 @@
 
 **snapshot**: the screen as text: a header line, numbered rows, trailing blank rows folded. `--json` gives the same data as an object.
 
+**screenshot**: a picture of the screen drawn from the terminal's grid with the fonts built into agent-terminal (PNG by default; SVG, HTML, text or ANSI on request), never captured from a window, so it looks the same on every machine.
+
 **ref**: `@t3`, a handle for an on-screen element found by `snapshot -i`. Valid until a later frame changes its cells.
 
 **mark**: a named point in a terminal's output stream (`mark before-login`); `output --since before-login` reads from it.

@@ -16,6 +16,7 @@ mod recording;
 mod refs;
 mod resize;
 mod restart;
+mod screenshot;
 mod session_folder;
 mod sessions;
 mod skills;

@@ -8,13 +8,14 @@ use anyhow::{Context, Result};
 
 use crate::connection::{READY, home, socket_path};
 use crate::native::pty;
+use crate::native::screenshots;
 use crate::native::store::{self, ActivityEntry, SessionFolder};
 use crate::native::terminal::{Settled, Terminal};
 use crate::native::wait::{Condition, Pattern};
 use crate::protocol::{
     self, Addressed, BatchOutcome, BatchStep, Call, Checked, Closed, Delivered, ErrorBody, Expect, Export, Input,
     Marked, Matches, Printed, RecordingFile, Reply, Request, Response, RowRange, SavedRecording, SessionInfo, Sessions,
-    Size, Snapshot, SnapshotOptions, Style, TabRef, TextMatch, Wait, Waited,
+    Shot, Size, Snapshot, SnapshotOptions, Style, TabRef, TextMatch, Wait, Waited,
 };
 
 #[derive(Default)]
@@ -172,8 +173,19 @@ impl Daemon {
                 entry.current = Some(tab);
                 Ok(Reply::Tabs(entry.info(&session)))
             }
-            Request::Input { session, tab, input, wait, snapshot, timeout_ms } => {
-                self.input(session, tab, &input, wait.as_ref(), snapshot, timeout_ms)
+            Request::Input { session, tab, input, wait, snapshot, screenshot, timeout_ms } => {
+                let after = After { wait: wait.as_ref(), snapshot, screenshot: screenshot.as_ref() };
+                self.input(session, tab, &input, after, timeout_ms)
+            }
+            Request::Screenshot { session, tab, shot } => {
+                let (id, terminal) = self.target(&session, tab)?;
+                screenshots::take(&session, &tab_name(id), &terminal, &shot).map(Reply::Screenshot).map_err(error_body)
+            }
+            Request::DiffScreenshot { session, tab, baseline, shot, threshold } => {
+                let (id, terminal) = self.target(&session, tab)?;
+                screenshots::diff(&session, &tab_name(id), &terminal, baseline, &shot, threshold)
+                    .map(Reply::ScreenshotDiff)
+                    .map_err(error_body)
             }
             Request::Wait { session, tab, wait: Wait::Elapsed { ms }, timeout_ms } => {
                 self.wait(session, tab, &Wait::Elapsed { ms }, timeout_ms.max(ms))
@@ -305,10 +317,24 @@ impl Daemon {
             let (_, terminal) = self.target(&logged.session, Some(logged.tab?)).ok()?;
             Some(terminal.frame())
         });
-        if let Err(failure) = handled {
-            entry.exit = failure.code;
-            entry.error = Some(failure.message.clone());
+        match handled {
+            Ok(reply) => entry.exit = reply.exit_code(),
+            Err(failure) => {
+                entry.exit = failure.code;
+                entry.error = Some(failure.message.clone());
+            }
         }
+        if let Ok(Reply::ScreenshotDiff(diff)) = handled
+            && !diff.passed
+        {
+            entry.error = Some(diff.summary());
+        }
+        entry.screenshots = match handled {
+            Ok(Reply::Screenshot(screenshot)) => vec![screenshot.path.clone()],
+            Ok(Reply::ScreenshotDiff(diff)) => vec![diff.path.clone()],
+            Ok(Reply::Delivered(delivered)) => delivered.screenshot.iter().map(|shot| shot.path.clone()).collect(),
+            Ok(_) | Err(_) => Vec::new(),
+        };
         folder.log(&entry);
     }
 
@@ -440,19 +466,23 @@ impl Daemon {
         session: String,
         tab: Option<u32>,
         input: &Input,
-        wait: Option<&Wait>,
-        snapshot: bool,
+        after: After<'_>,
         timeout_ms: u64,
     ) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&session, tab)?;
         let tab = tab_name(id);
-        let condition = wait.map(condition).transpose()?;
+        let condition = after.wait.map(condition).transpose()?;
         let delivery = terminal.input(input).map_err(|e| error_body(e.context(format!("{session} {tab}"))))?;
-        if let Some((wait, condition)) = wait.zip(condition) {
+        if let Some((wait, condition)) = after.wait.zip(condition) {
             wait_for(&terminal, &session, &tab, wait, condition, timeout_ms)?;
         }
-        let snapshot = snapshot.then(|| Box::new(terminal.snapshot(&session, &tab)));
-        Ok(Reply::Delivered(Delivered { session, tab, delivery, snapshot }))
+        let screenshot = after
+            .screenshot
+            .map(|shot| screenshots::take(&session, &tab, &terminal, shot).map_err(error_body))
+            .transpose()?
+            .map(Box::new);
+        let snapshot = after.snapshot.then(|| Box::new(terminal.snapshot(&session, &tab)));
+        Ok(Reply::Delivered(Delivered { session, tab, delivery, screenshot, snapshot }))
     }
 
     fn wait(&self, session: String, tab: Option<u32>, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
@@ -571,6 +601,12 @@ impl Session {
             tabs: self.tabs.iter().map(|(id, terminal)| terminal.info(&tab_name(*id))).collect(),
         }
     }
+}
+
+struct After<'a> {
+    wait: Option<&'a Wait>,
+    snapshot: bool,
+    screenshot: Option<&'a Shot>,
 }
 
 fn settle(session: &str, tab: u32, terminal: &Terminal, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {

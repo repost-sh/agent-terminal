@@ -1,7 +1,7 @@
 use crate::protocol::{
     BatchOutcome, Checked, ClickTarget, Delivered, Delivery, DiffBase, Direction, ErrorBody, Exit, Fact, Modes,
-    MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, ScrollBy, SessionInfo, Snapshot,
-    SnapshotDiff, Waited,
+    MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, Screenshot, ScrollBy, SessionInfo,
+    Snapshot, SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
 
@@ -100,6 +100,9 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Delivered(delivered) if json => println!("{}", serde_json::json!(delivered)),
         Reply::Delivered(delivered) => {
             println!("{}", delivery(delivered));
+            if let Some(screenshot) = &delivered.screenshot {
+                print!("{}", screenshot_text(screenshot));
+            }
             if let Some(snapshot) = &delivered.snapshot {
                 print!("{}", screen(snapshot));
             }
@@ -142,7 +145,25 @@ pub fn reply(reply: &Reply, json: bool) {
             count(export.files, "file"),
             export.bytes.div_ceil(1024)
         ),
+        Reply::Screenshot(screenshot) if json => println!("{}", serde_json::json!(screenshot)),
+        Reply::Screenshot(screenshot) => print!("{}", screenshot_text(screenshot)),
+        Reply::ScreenshotDiff(diff) if json => println!("{}", serde_json::json!(diff)),
+        Reply::ScreenshotDiff(diff) => println!("{}", diff.summary()),
     }
+}
+
+fn screenshot_text(screenshot: &Screenshot) -> String {
+    let mut out = format!(
+        "saved {} ({} {}, frame {})\n",
+        screenshot.path.display(),
+        screenshot.session,
+        screenshot.tab,
+        screenshot.frame
+    );
+    if let Some(refs) = &screenshot.refs {
+        out.push_str(&refs_text(refs));
+    }
+    out
 }
 
 fn saved_text(saved: &SavedRecording) -> String {

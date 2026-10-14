@@ -1,13 +1,13 @@
 use crate::support::AgentTerminal;
 
 #[test]
-fn doctor_checks_the_pty_and_the_daemon_without_starting_it() {
+fn doctor_checks_the_pty_the_fonts_and_the_daemon_without_starting_it() {
     let at = AgentTerminal::new();
     let socket = at.home().join("daemon.sock");
     let run = at.run(&["doctor"]).success();
     assert_eq!(
         run.stdout(),
-        "ok       pty      opened a pseudo-terminal\nok       daemon   not running; the next command starts it\n"
+        "ok       pty      opened a pseudo-terminal\nok       fonts    JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in\nok       daemon   not running; the next command starts it\n"
     );
     assert!(!socket.exists(), "doctor must not start the daemon");
 
@@ -16,7 +16,7 @@ fn doctor_checks_the_pty_and_the_daemon_without_starting_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\nok       daemon   running, listening on {}\n",
+            "ok       pty      opened a pseudo-terminal\nok       fonts    JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in\nok       daemon   running, listening on {}\n",
             socket.display()
         )
     );
@@ -33,7 +33,7 @@ fn doctor_reports_a_stale_socket_and_fix_removes_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\nproblem  daemon   stale socket {}: no daemon is listening on it\n                  fix: agent-terminal doctor --fix removes it\n",
+            "ok       pty      opened a pseudo-terminal\nok       fonts    JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in\nproblem  daemon   stale socket {}: no daemon is listening on it\n                  fix: agent-terminal doctor --fix removes it\n",
             socket.display()
         )
     );
@@ -43,13 +43,13 @@ fn doctor_reports_a_stale_socket_and_fix_removes_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\nfixed    daemon   removed the stale socket {}\n",
+            "ok       pty      opened a pseudo-terminal\nok       fonts    JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in\nfixed    daemon   removed the stale socket {}\n",
             socket.display()
         )
     );
     assert!(!socket.exists());
     assert_eq!(
-        at.run(&["doctor"]).success().stdout().lines().nth(1),
+        at.run(&["doctor"]).success().stdout().lines().nth(2),
         Some("ok       daemon   not running; the next command starts it")
     );
     at.run(&["open", "--size", "20x2", "cat"]).success();
@@ -78,12 +78,12 @@ fn doctor_says_how_to_fix_a_socket_path_the_system_cannot_use() {
     assert_eq!(run.code(), 1);
     let stdout = run.stdout();
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 3, "{stdout}");
+    assert_eq!(lines.len(), 4, "{stdout}");
     assert!(
-        lines[1].starts_with(&format!("problem  daemon   cannot reach the daemon socket {}: ", socket.display())),
+        lines[2].starts_with(&format!("problem  daemon   cannot reach the daemon socket {}: ", socket.display())),
         "{stdout}"
     );
-    assert_eq!(lines[2], "                  fix: set AGENT_TERMINAL_HOME to a short folder you own");
+    assert_eq!(lines[3], "                  fix: set AGENT_TERMINAL_HOME to a short folder you own");
 }
 
 #[test]
@@ -96,6 +96,11 @@ fn doctor_json_lists_every_check() {
             "ok": true,
             "checks": [
                 { "name": "pty", "status": "ok", "message": "opened a pseudo-terminal" },
+                {
+                    "name": "fonts",
+                    "status": "ok",
+                    "message": "JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in"
+                },
                 { "name": "daemon", "status": "ok", "message": "not running; the next command starts it" }
             ]
         })
@@ -106,7 +111,7 @@ fn doctor_json_lists_every_check() {
     let run = at.run(&["doctor", "--json"]);
     assert_eq!(run.code(), 1);
     assert_eq!(
-        run.json()["checks"][1],
+        run.json()["checks"][2],
         serde_json::json!({
             "name": "daemon",
             "status": "problem",
