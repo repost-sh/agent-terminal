@@ -24,6 +24,7 @@ pub struct SessionFolder {
     activity: Mutex<()>,
     logged: Changes,
     screenshots: Mutex<()>,
+    screenshots_listed: Changes,
 }
 
 #[derive(Serialize)]
@@ -100,6 +101,7 @@ impl SessionFolder {
             activity: Mutex::new(()),
             logged: Changes::default(),
             screenshots: Mutex::new(()),
+            screenshots_listed: Changes::default(),
         })
     }
 
@@ -125,9 +127,16 @@ impl SessionFolder {
             let _turn = self.screenshots.lock().unwrap();
             append_line(&path, &line)
         });
-        if let Err(e) = appended {
-            eprintln!("adding {} to the screenshot list {} failed: {e:#}", entry.path.display(), path.display());
+        match appended {
+            Ok(()) => self.screenshots_listed.notify(),
+            Err(e) => {
+                eprintln!("adding {} to the screenshot list {} failed: {e:#}", entry.path.display(), path.display())
+            }
         }
+    }
+
+    pub fn screenshots_listed(&self) -> watch::Receiver<u64> {
+        self.screenshots_listed.subscribe()
     }
 
     pub fn logged(&self) -> watch::Receiver<u64> {
@@ -153,6 +162,24 @@ impl SessionFolder {
             .collect::<Result<Vec<_>, _>>()
             .with_context(|| format!("read {}", path.display()))?;
         Ok((entries, offset + complete as u64))
+    }
+
+    pub fn screenshots(&self) -> Result<Vec<ScreenshotEntry>> {
+        let path = self.path.join("screenshots.jsonl");
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+        };
+        let complete = text.rfind('\n').map_or(0, |end| end + 1);
+        let mut kept: Vec<ScreenshotEntry> = Vec::new();
+        for line in text[..complete].lines() {
+            let entry: ScreenshotEntry =
+                serde_json::from_str(line).with_context(|| format!("read {}: {line}", path.display()))?;
+            kept.retain(|earlier| earlier.path != entry.path);
+            kept.push(entry);
+        }
+        Ok(kept)
     }
 
     pub fn record(&self, tab: &str, command: &pty::Command) -> Arc<Recording> {

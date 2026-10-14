@@ -7,16 +7,29 @@ struct Http {
     status: u16,
     head: String,
     body: String,
+    bytes: Vec<u8>,
 }
 
 fn exchange(port: u16, request: &str) -> Http {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to the dashboard");
     stream.write_all(request.as_bytes()).expect("send the request");
-    let mut response = String::new();
-    stream.read_to_string(&mut response).expect("read the response");
-    let (head, body) = response.split_once("\r\n\r\n").expect("an HTTP response");
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).expect("read the response");
+    let split = response.windows(4).position(|window| window == b"\r\n\r\n").expect("an HTTP response");
+    let head = String::from_utf8_lossy(&response[..split]).to_ascii_lowercase();
+    let bytes = response[split + 4..].to_vec();
     let status = head.split_whitespace().nth(1).and_then(|code| code.parse().ok()).expect("a status code");
-    Http { status, head: head.to_ascii_lowercase(), body: body.to_string() }
+    Http { status, head, body: String::from_utf8_lossy(&bytes).into_owned(), bytes }
+}
+
+fn post(port: u16, path: &str, body: &str) -> Http {
+    let length = body.len();
+    exchange(
+        port,
+        &format!(
+            "POST {path} HTTP/1.1\r\nHost: localhost:{port}\r\nContent-Type: application/json\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n{body}"
+        ),
+    )
 }
 
 fn get(port: u16, path: &str, extra: &[(&str, &str)]) -> Http {
@@ -185,7 +198,7 @@ fn path_segment(text: &str) -> String {
 }
 
 #[test]
-fn the_dashboard_serves_no_file_the_activity_log_does_not_list_as_a_screenshot() {
+fn the_dashboard_serves_no_file_the_session_does_not_list_as_a_screenshot() {
     let at = AgentTerminal::new();
     at.run(&["open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     let png = at.home().join("evidence.png");
@@ -215,4 +228,78 @@ fn starting_on_a_port_another_program_holds_fails() {
             "error: port {port} is in use by another program; pick another with `agent-terminal dashboard start --port <n>`\n"
         )
     );
+}
+
+fn screenshot_url(session: &str, path: &str) -> String {
+    format!("/api/session/{session}/screenshots/{}", path_segment(path))
+}
+
+fn screenshots_listed(at: &AgentTerminal, session: &str) -> Vec<serde_json::Value> {
+    let path = at.home().join("sessions").join(session).join("screenshots.jsonl");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}")))
+        .collect()
+}
+
+#[test]
+fn a_screenshot_taken_from_the_dashboard_is_saved_listed_without_a_call_and_served() {
+    let at = AgentTerminal::new();
+    at.run(&["--session", "qa", "open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"])
+        .success();
+    let frame: u64 = at.run(&["--session", "qa", "get", "frame"]).success().stdout().trim().parse().unwrap();
+    let port = start(&at);
+
+    let taken = post(port, "/api/session/qa/t1/screenshot", "");
+
+    assert_eq!(taken.status, 200, "{}{}", taken.head, taken.body);
+    let path = at.home().join("screenshots").join(format!("qa-t1-{frame}.png")).to_string_lossy().into_owned();
+    let reply: serde_json::Value = serde_json::from_str(&taken.body).expect("JSON");
+    assert_eq!(reply["data"]["path"], path.as_str());
+    let listed = screenshots_listed(&at, "qa");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        (&listed[0]["path"], &listed[0]["by"], &listed[0]["frame"]),
+        (&path.clone().into(), &serde_json::Value::Null, &frame.into())
+    );
+    let served = get(port, &screenshot_url("qa", &path), &[]);
+    assert_eq!(served.status, 200, "{}{}", served.head, served.body);
+    assert_eq!(served.bytes, std::fs::read(&path).expect("read the screenshot"));
+    let activity = std::fs::read_to_string(at.home().join("sessions/qa/activity.jsonl")).expect("the activity log");
+    assert!(!activity.contains(&path), "{activity}");
+}
+
+#[test]
+fn the_dashboard_counts_and_boxes_the_cells_two_screenshots_differ_in() {
+    let at = AgentTerminal::new();
+    let shots = at.home().join("shots");
+    let [before, after, bigger] =
+        ["before.png", "after.png", "bigger.png"].map(|name| shots.join(name).to_string_lossy().into_owned());
+    let lines = "stty -echo; printf '\\033[?25lone'; read _; printf '\\ntwo'; read _";
+    at.run(&["open", "--size", "20x4", "--wait", "one", "sh", "-c", lines]).success();
+    at.run(&["screenshot", &before]).success();
+    at.run(&["press", "Enter", "--wait", "two", "--screenshot", &after]).success();
+    at.run(&["screenshot", "--scale", "2", &bigger]).success();
+    let port = start(&at);
+    let compare = |a: &str, b: &str| {
+        let pair = serde_json::json!({ "paths": [a, b] }).to_string();
+        let compared = post(port, "/api/session/default/screenshots/compare", &pair);
+        match compared.status {
+            200 => serde_json::from_str(&compared.body).expect("JSON"),
+            status => serde_json::json!({ "status": status, "error": compared.body }),
+        }
+    };
+
+    let three = serde_json::json!({ "changed": 3, "boxes": [{ "x": 10, "y": 30, "width": 27, "height": 20 }] });
+    assert_eq!(compare(&before, &after), three);
+    assert_eq!(compare(&after, &before), three);
+    assert_eq!(compare(&before, &before), serde_json::json!({ "changed": 0, "boxes": [] }));
+    assert_eq!(compare(&before, &bigger), serde_json::json!({ "changed": null, "boxes": [] }));
+    let elsewhere = shots.join("elsewhere.png").to_string_lossy().into_owned();
+    let refusal = format!("{elsewhere} is not a PNG screenshot in session default");
+    assert_eq!(compare(&before, &elsewhere), serde_json::json!({ "status": 404, "error": refusal }));
+
+    at.run(&["screenshot", "--scale", "2", &before]).success();
+    assert_eq!(compare(&before, &after), serde_json::json!({ "changed": null, "boxes": [] }));
 }

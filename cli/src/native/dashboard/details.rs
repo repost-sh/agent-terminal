@@ -369,9 +369,10 @@ pub async fn screenshot(
     let wanted = path.clone();
     let read = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<Vec<u8>>> {
         let (entries, _) = folder.activity_since(0)?;
-        let listed = entries.iter().any(|entry| {
+        let logged = entries.iter().any(|entry| {
             entry["screenshots"].as_array().is_some_and(|shots| shots.iter().any(|shot| shot == wanted.as_str()))
         });
+        let listed = logged || folder.screenshots()?.iter().any(|shot| shot.path.as_os_str() == wanted.as_str());
         if !listed || !wanted.to_ascii_lowercase().ends_with(".png") {
             return Ok(None);
         }

@@ -10,7 +10,7 @@ use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 use crate::native::refs::{Glyph, Grid};
 use crate::protocol::{Look, Ref, RowRange};
-pub use diff::compare;
+pub use diff::{CellBox, changed_cells, compare};
 use fonts::{CellSize, Face, GLYPHS, Glyphs, Mask};
 use theme::{Palette, Rgb};
 pub use vector::{html, svg};

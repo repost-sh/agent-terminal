@@ -7,7 +7,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use super::{Backend, tab_id};
-use crate::protocol::{Request, Sessions, Wait};
+use crate::protocol::{Request, Sessions, Shot, Wait};
 
 const RESTART_SETTLES_AFTER_MS: u64 = 300;
 const RESTART_TIMEOUT_MS: u64 = 25_000;
@@ -57,6 +57,14 @@ pub async fn restart(
 pub async fn close(State(backend): State<Arc<dyn Backend>>, Path((session, tab)): Path<(String, String)>) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
     call(backend, Request::Close { session, all: false, tab: Some(id) }).await
+}
+
+pub async fn screenshot(
+    State(backend): State<Arc<dyn Backend>>,
+    Path((session, tab)): Path<(String, String)>,
+) -> Response {
+    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
+    call(backend, Request::Screenshot { session, tab: Some(id), shot: Shot::default() }).await
 }
 
 async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
