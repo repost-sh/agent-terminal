@@ -7,7 +7,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use super::{Backend, tab_id};
-use crate::protocol::{ErrorBody, Request, Sessions, Wait};
+use crate::protocol::{ErrorBody, Look, Request, ScreenshotFormat, Sessions, Shot, Wait};
 
 const RESTART_SETTLES_AFTER_MS: u64 = 300;
 const RESTART_TIMEOUT_MS: u64 = 25_000;
@@ -61,6 +61,22 @@ pub async fn close(State(backend): State<Arc<dyn Backend>>, Path((session, tab))
 
 pub async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
     call(backend, Request::Close { session: String::new(), all: true, tab: None }).await
+}
+
+pub async fn screenshot(
+    State(backend): State<Arc<dyn Backend>>,
+    Path((session, tab)): Path<(String, String)>,
+) -> Response {
+    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
+    let shot = Shot {
+        path: None,
+        dir: None,
+        format: ScreenshotFormat::Png,
+        look: Look::default(),
+        rows: None,
+        annotate: false,
+    };
+    call(backend, Request::Screenshot { session, tab: Some(id), shot }).await
 }
 
 pub async fn record_start(

@@ -67,6 +67,37 @@ fn record_button(browser: &Browser) -> (String, String, String) {
 }
 
 #[test]
+fn screenshot_saves_a_png_of_the_screen_and_says_where() {
+    let at = AgentTerminal::new();
+    at.run(&[
+        "--session",
+        "qa",
+        "open",
+        "--size",
+        "30x4",
+        "--wait",
+        "line 1",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--hold",
+    ])
+    .success();
+    let frame = at.run(&["--session", "qa", "get", "frame"]).success().stdout();
+    let file = format!("qa-t1-{}.png", frame.trim());
+    let saved = at.home().join("screenshots").join(&file).to_string_lossy().into_owned();
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/s/qa/t1"));
+    browser.wait_for_status("Live");
+
+    browser.click_button("Take a screenshot");
+    wait_for_toast(&browser, &format!("Saved {file}"));
+    assert_eq!(newest_toast(&browser), [format!("Saved {file}"), saved.clone()]);
+    let png = std::fs::read(&saved).expect("the screenshot");
+    assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"), "not a PNG: {:?}", &png[..8.min(png.len())]);
+}
+
+#[test]
 fn record_saves_the_tab_to_a_cast_file_until_stopped_and_follows_record_from_the_cli() {
     let at = AgentTerminal::new();
     at.run(&[

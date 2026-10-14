@@ -133,6 +133,7 @@ fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
         .route("/api/session/{session}/screenshots/{path}", get(details::screenshot))
         .route("/api/session/{session}/{tab}/restart", post(api::restart))
         .route("/api/session/{session}/{tab}/close", post(api::close))
+        .route("/api/session/{session}/{tab}/screenshot", post(api::screenshot))
         .route("/api/session/{session}/{tab}/record/start", post(api::record_start))
         .route("/api/session/{session}/{tab}/record/stop", post(api::record_stop))
         .route("/api/session/{session}/{tab}/commands/stream", get(commands::stream))

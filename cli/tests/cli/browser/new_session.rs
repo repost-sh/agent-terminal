@@ -79,8 +79,12 @@ fn new_session_writes_the_cli_line_as_the_form_fills_then_opens_the_tab_and_goes
     assert_eq!(browser.eval("document.querySelector('[role=dialog]')"), "null");
     browser.wait_for_text("Waiting for first frame...");
     browser.wait_for_status("Connected");
+    let enabled =
+        |tooltip: &str| browser.run(&["is", "enabled", &format!("button[data-tooltip='{tooltip}']")]).trim() == "true";
+    assert!(!enabled("Restart") && !enabled("Screenshot"), "restart and screenshot wait for the first frame");
     cue.print("first\n");
     browser.wait_for_status("Live");
+    assert!(enabled("Restart") && enabled("Screenshot"));
     browser.wait_for_screen("first");
     assert!(!browser.text("main").contains("Waiting for first frame..."));
     assert_eq!(at.run(&["session", "list"]).success().stdout(), "qa t1 · line-printer · 80x24 · running · current\n");

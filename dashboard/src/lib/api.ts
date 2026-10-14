@@ -50,6 +50,8 @@ export const restartTab = (session: string, tab: string) => post(`${tabPath(sess
 
 export const closeTab = (session: string, tab: string) => post(`${tabPath(session, tab)}/close`);
 
+export const takeScreenshot = async (session: string, tab: string) => (await post<{ path: string }>(`${tabPath(session, tab)}/screenshot`)).path;
+
 export const startRecording = async (session: string, tab: string) => (await post<{ path: string }>(`${tabPath(session, tab)}/record/start`)).path;
 
 export const stopRecording = async (session: string, tab: string) => (await post<{ path: string }>(`${tabPath(session, tab)}/record/stop`)).path;
