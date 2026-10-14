@@ -38,6 +38,8 @@ pub enum Request {
     Snapshot {
         session: String,
         tab: Option<u32>,
+        #[serde(default)]
+        options: SnapshotOptions,
     },
     Close {
         session: String,
@@ -73,6 +75,78 @@ pub enum Request {
         timeout_ms: u64,
     },
     Stop,
+    Get {
+        session: String,
+        tab: Option<u32>,
+        what: Get,
+    },
+    Find {
+        session: String,
+        tab: Option<u32>,
+        text: String,
+        regex: bool,
+        all: bool,
+    },
+    Mark {
+        session: String,
+        tab: Option<u32>,
+        name: String,
+    },
+    Output {
+        session: String,
+        tab: Option<u32>,
+        since: Option<String>,
+        raw: bool,
+    },
+    DiffSnapshot {
+        session: String,
+        tab: Option<u32>,
+        baseline: Option<Baseline>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Baseline {
+    pub name: String,
+    pub lines: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default)]
+pub struct SnapshotOptions {
+    pub rows: Option<RowRange>,
+    pub scrollback: Scrollback,
+    pub ansi: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowRange {
+    pub first: u16,
+    pub last: u16,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Scrollback {
+    #[default]
+    None,
+    All,
+    Last(usize),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+pub enum Get {
+    Text,
+    Cursor,
+    Size,
+    Frame,
+    Program,
+    ExitCode,
+    Pid,
+    Title,
+    Cwd,
+    Modes,
+    Cell { row: u16, col: u16 },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -147,6 +221,112 @@ pub enum Reply {
     Tabs(SessionInfo),
     Delivered(Delivered),
     Stopped,
+    Fact(Fact),
+    Matches(Matches),
+    Marked(Marked),
+    Printed(Printed),
+    Diff(SnapshotDiff),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SnapshotDiff {
+    pub since: DiffBase,
+    pub frame: u64,
+    pub changes: Vec<RowChange>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum DiffBase {
+    Frame(u64),
+    Baseline(String),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RowChange {
+    pub row: u16,
+    pub before: String,
+    pub after: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Marked {
+    pub mark: String,
+    pub frame: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Printed {
+    pub output: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Matches {
+    pub matches: Vec<Match>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Match {
+    pub row: i32,
+    pub col: u16,
+    pub text: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum Fact {
+    Text(String),
+    Cursor(Cursor),
+    Size(Size),
+    Frame(u64),
+    Program(String),
+    ExitCode(Exit),
+    Pid(Option<u32>),
+    Title(Option<String>),
+    Cwd(String),
+    Modes(Modes),
+    Cell(Cell),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Cell {
+    pub row: u16,
+    pub col: u16,
+    pub char: String,
+    pub fg: String,
+    pub bg: String,
+    pub bold: bool,
+    pub inverse: bool,
+    pub underline: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Modes {
+    pub alt_screen: bool,
+    pub mouse: Option<Mouse>,
+    pub bracketed_paste: bool,
+    pub app_cursor: bool,
+    pub focus_events: bool,
+    pub keyboard: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Mouse {
+    pub tracking: String,
+    pub encoding: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Exit {
+    pub exited: bool,
+    pub code: Option<i32>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Cursor {
+    pub row: u16,
+    pub col: u16,
+    pub visible: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -199,6 +379,9 @@ pub struct Snapshot {
     pub frame: u64,
     pub exited: bool,
     pub exit_code: Option<i32>,
+    pub first_row: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scrollback: Option<Vec<String>>,
     pub lines: Vec<String>,
 }
 

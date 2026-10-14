@@ -10,8 +10,8 @@ use crate::connection::{READY, home, socket_path};
 use crate::native::pty;
 use crate::native::terminal::{Settled, Terminal};
 use crate::protocol::{
-    self, Closed, Delivered, ErrorBody, Input, Reply, Request, Response, SessionInfo, Sessions, Size, Snapshot, TabRef,
-    Wait,
+    self, Closed, Delivered, ErrorBody, Input, Marked, Matches, Printed, Reply, Request, Response, SessionInfo,
+    Sessions, Size, Snapshot, TabRef, Wait,
 };
 
 #[derive(Default)]
@@ -123,9 +123,9 @@ impl Daemon {
             Request::Open { session, program, args, size, cwd, env, wait, timeout_ms } => {
                 self.open(session, pty::Command { program, args, cwd, env, size }, &wait, timeout_ms)
             }
-            Request::Snapshot { session, tab } => {
+            Request::Snapshot { session, tab, options } => {
                 let (tab, terminal) = self.target(&session, tab)?;
-                Ok(Reply::Snapshot(terminal.snapshot(&session, &tab_name(tab))))
+                terminal.snapshot_with(&session, &tab_name(tab), &options).map(Reply::Snapshot).map_err(failure)
             }
             Request::Close { session, all, tab } => {
                 let closed = if all { self.close_all() } else { vec![self.close(&session, tab)?] };
@@ -158,6 +158,29 @@ impl Daemon {
             }
             Request::Input { session, tab, input, wait, timeout_ms } => {
                 self.input(session, tab, &input, wait.as_ref(), timeout_ms)
+            }
+            Request::Get { session, tab, what } => {
+                let (_, terminal) = self.target(&session, tab)?;
+                terminal.fact(what).map(Reply::Fact).map_err(failure)
+            }
+            Request::Find { session, tab, text, regex, all } => {
+                let (_, terminal) = self.target(&session, tab)?;
+                let matches = terminal.find(&text, regex, all).map_err(failure)?;
+                Ok(Reply::Matches(Matches { matches }))
+            }
+            Request::Mark { session, tab, name } => {
+                let (_, terminal) = self.target(&session, tab)?;
+                let frame = terminal.mark(name.clone());
+                Ok(Reply::Marked(Marked { mark: name, frame }))
+            }
+            Request::Output { session, tab, since, raw } => {
+                let (_, terminal) = self.target(&session, tab)?;
+                let output = terminal.printed(since.as_deref(), raw).map_err(failure)?;
+                Ok(Reply::Printed(Printed { output }))
+            }
+            Request::DiffSnapshot { session, tab, baseline } => {
+                let (_, terminal) = self.target(&session, tab)?;
+                terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(failure)
             }
             Request::Stop => {
                 self.shut_down();
@@ -372,11 +395,11 @@ fn no_terminal(session: &str) -> ErrorBody {
 }
 
 fn no_tab(session: &str, id: u32) -> ErrorBody {
-    ErrorBody {
-        code: crate::exit::ERROR,
-        message: format!("no tab {} in session {session}; list tabs with `agent-terminal tab`", tab_name(id)),
-        snapshot: None,
-    }
+    failure(format!("no tab {} in session {session}; list tabs with `agent-terminal tab`", tab_name(id)))
+}
+
+fn failure(message: String) -> ErrorBody {
+    ErrorBody { code: crate::exit::ERROR, message, snapshot: None }
 }
 
 fn error_body(error: anyhow::Error) -> ErrorBody {

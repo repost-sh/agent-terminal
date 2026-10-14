@@ -26,12 +26,13 @@ Read the screen:
   snapshot                     The screen as text: header, numbered rows, cursor
                                header: session tab · program · size · alt-screen · mouse:<enc> · cursor r,c|hidden · frame n · exited [code]
   snapshot -i                  Same, plus @t refs for things on screen (selected rows, buttons, panels, links, inputs)
+  snapshot --rows <a:b>        Only rows a to b; --scrollback [n] adds n lines (all if no n) above as rows -n..-1; --ansi keeps colors
   screenshot [path]            PNG of the screen (--annotate draws the refs)
   get text                     Screen text only, no header
   get <what>                   cursor, size, title, cwd, pid, exit-code, modes, frame, program
   get cell <row> <col>         One character and its style (color, bold, inverse...)
   find <text>                  Where the text is on screen (row,col); --regex, --all includes scrollback
-  output [--since <mark>]      What the program printed since a point (--raw keeps escape codes)
+  output [--since <mark|frame>]   What the program printed since a point (--raw keeps escape codes)
   history                      Commands run in the shell tab, with exit codes (history show <id> for output)
   mark <name>                  Name this point in the output, to read or clip from later
 
@@ -67,7 +68,7 @@ Wait and check:
 Evidence:
   clip <path> [--last 10s]     GIF or MP4 of a moment: --last <time>, --from/--to <mark|@activity>, --command <id>
   record start|stop [path]     Save the whole tab as an asciicast (.cast) file
-  diff snapshot                What changed on screen since the last snapshot
+  diff snapshot                What changed on screen since the last snapshot (--baseline <file>: a saved one)
   diff screenshot --baseline <png>   Pixel diff against a baseline image
   trace export <path>          Everything about this session in one file, for a bug report
 

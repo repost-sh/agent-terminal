@@ -96,6 +96,24 @@ fn a_tab_that_does_not_exist_is_an_error() {
 }
 
 #[test]
+fn reading_commands_reach_a_tab_other_than_the_current_one() {
+    let at = AgentTerminal::new();
+    open_two_tabs(&at);
+
+    assert_eq!(at.run(&["--tab", "t1", "get", "text"]).success().stdout(), "line 1\n");
+    assert_eq!(at.run(&["--tab", "t1", "get", "size"]).success().stdout(), "20x2\n");
+    assert_eq!(at.run(&["--tab", "t1", "find", "line 2"]).code(), 1);
+    assert_eq!(at.run(&["find", "line 2"]).success().stdout(), "2,1 line 2\n");
+    at.run(&["--tab", "t1", "mark", "before"]).success();
+    assert_eq!(at.run(&["--tab", "t1", "output", "--since", "before"]).success().stdout(), "");
+    assert_eq!(at.run(&["output", "--since", "before"]).code(), 1);
+    at.run(&["--tab", "t1", "snapshot"]).success();
+    let diff = at.run(&["--tab", "t1", "diff", "snapshot"]).success().stdout();
+    assert!(diff.ends_with(" · no rows changed\n"), "{diff}");
+    assert_eq!(at.run(&["--json", "tab"]).success().json()["current"], "t2");
+}
+
+#[test]
 fn input_reaches_a_tab_other_than_the_current_one() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "60x4", "--wait", "ready", &fixture("input-echo")]).success();

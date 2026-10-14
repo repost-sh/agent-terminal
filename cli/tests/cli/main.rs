@@ -1,9 +1,14 @@
+mod diff;
+mod find;
+mod get;
 mod idle;
 mod input;
 mod open;
+mod output;
 mod resize;
 mod restart;
 mod sessions;
 mod skills;
+mod snapshot;
 mod support;
 mod tabs;
