@@ -8,7 +8,6 @@ import { followLink, navigate, splitRoute, tabRoute, type Cell } from "../lib/ro
 import { isShown, resizeCells, shownCells, withCell, type Layout } from "../lib/split";
 import { useTabStream } from "../lib/stream";
 import { tabName, tabState } from "../lib/tabs";
-import { useXterm } from "../lib/xterm";
 import { TabChip, TabGlyph } from "./sessions-sidebar";
 import { StatusBar } from "./status-bar";
 import { Viewport } from "./terminal-view";
@@ -91,8 +90,7 @@ type SplitCellProps = {
 };
 
 const SplitCell = ({ at, session, tab, focused, statusSlot, onFocus, onRemove }: SplitCellProps) => {
-  const terminal = useXterm();
-  const { state, shown } = useTabStream(session, tab.tab, terminal);
+  const { state, shown, paint } = useTabStream(session, tab.tab);
   const name = tabName(session, tab.tab);
   const alone = tabRoute(session, tab.tab);
 
@@ -140,7 +138,7 @@ const SplitCell = ({ at, session, tab, focused, statusSlot, onFocus, onRemove }:
           }}
         />
       </div>
-      <Viewport compact terminal={terminal} state={state} shown={shown} program={tab.program} label={`${name} ${tab.program}, live frame ${shown?.frame ?? 0}`} />
+      <Viewport compact paint={paint}state={state} shown={shown} program={tab.program} label={`${name} ${tab.program}, live frame ${shown?.frame ?? 0}`} />
       {statusSlot && createPortal(<StatusBar session={session} tab={tab} state={state} shown={shown} />, statusSlot)}
     </section>
   );

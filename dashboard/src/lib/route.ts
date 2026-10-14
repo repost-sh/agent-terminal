@@ -5,8 +5,13 @@ export type Cell = { session: string; tab: string } | null;
 export type Route = { kind: "home" } | { kind: "tab"; session: string; tab: string } | { kind: "split"; cells: Cell[] } | { kind: "missing" };
 
 const listeners = new Set<() => void>();
-const notify = () => listeners.forEach((listener) => listener());
-window.addEventListener("popstate", notify);
+let home: string | null = null;
+
+const settle = () => {
+  if (home && location.pathname === "/") history.replaceState(null, "", home);
+  listeners.forEach((listener) => listener());
+};
+window.addEventListener("popstate", settle);
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -20,7 +25,12 @@ export const navigate = (path: string, { replace = false } = {}) => {
     if (replace) history.replaceState(null, "", path);
     else history.pushState(null, "", path);
   }
-  notify();
+  settle();
+};
+
+export const leadHomeTo = (path: string | null) => {
+  home = path;
+  settle();
 };
 
 export const followLink = (event: MouseEvent<HTMLAnchorElement>, to: string) => {

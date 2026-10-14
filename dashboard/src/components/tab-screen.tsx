@@ -4,7 +4,6 @@ import { navigate, tabRoute } from "../lib/route";
 import type { Layout } from "../lib/split";
 import { useTabStream } from "../lib/stream";
 import { firstTab, tabName } from "../lib/tabs";
-import { useXterm } from "../lib/xterm";
 import { announce } from "./announcer";
 import { StatusBar } from "./status-bar";
 import { Viewport } from "./terminal-view";
@@ -16,8 +15,7 @@ const reason = (error: unknown) => (error instanceof Error ? error.message : Str
 type TabScreenProps = { session: string; tab: TabInfo; sessions: SessionInfo[]; onLayout: (count: Layout) => void };
 
 export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) => {
-  const terminal = useXterm();
-  const { state, shown } = useTabStream(session, tab.tab, terminal);
+  const { state, shown, paint } = useTabStream(session, tab.tab);
   const name = tabName(session, tab.tab);
 
   const restart = async () => {
@@ -47,7 +45,7 @@ export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) 
       <Toolbar layout={1} onLayout={onLayout} />
       <div className="h-px shrink-0 bg-border" role="none" />
       <Viewport
-        terminal={terminal}
+        paint={paint}
         state={state}
         shown={shown}
         program={tab.program}
