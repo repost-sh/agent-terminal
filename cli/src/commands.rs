@@ -10,8 +10,8 @@ use crate::key::Key;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, BatchStep, Expect, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions,
-    Signal, Size, SnapshotOptions, Style, TextMatch, Wait,
+    Baseline, BatchStep, Call, Expect, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo,
+    Sessions, Signal, Size, SnapshotOptions, Style, TextMatch, Wait,
 };
 use crate::session_id;
 use crate::skills;
@@ -118,6 +118,16 @@ enum Command {
     Diff {
         #[command(subcommand)]
         what: DiffCommand,
+    },
+    #[command(about = "Save the tab as an asciicast (.cast) file that plays in asciinema")]
+    Record {
+        #[command(subcommand)]
+        action: RecordAction,
+    },
+    #[command(about = "Everything about this session in one file, for a bug report")]
+    Trace {
+        #[command(subcommand)]
+        action: TraceAction,
     },
     #[command(about = "Type text, key by key")]
     Type(TypeArgs),
@@ -344,6 +354,28 @@ enum DiffCommand {
     Snapshot {
         #[arg(long, help = "Compare with a snapshot saved to this file instead", value_name = "FILE")]
         baseline: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum RecordAction {
+    #[command(
+        about = "Save the tab to a .cast file from now on, starting from the screen as it is (default: ~/.agent-terminal/recordings/<session>-<tab>-<frame>.cast)"
+    )]
+    Start {
+        #[arg(help = "Where to save it", value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+    #[command(about = "Stop saving and print the file, its length and its size")]
+    Stop,
+}
+
+#[derive(Subcommand)]
+enum TraceAction {
+    #[command(about = "Zip the session folder (activity log of every call, tab recordings) into one file")]
+    Export {
+        #[arg(help = "Where to write the zip file", value_name = "PATH")]
+        path: PathBuf,
     },
 }
 
@@ -629,7 +661,7 @@ pub fn run() -> i32 {
         command => request(Cli { command, ..cli }),
     };
     match request {
-        Ok(request) => send(&request, json, idle_timeout),
+        Ok(request) => send(request, json, idle_timeout),
         Err(message) => output::fail(&message, crate::exit::ERROR),
     }
 }
@@ -662,6 +694,14 @@ fn request(cli: Cli) -> Result<Request, String> {
         Command::Diff { what: DiffCommand::Snapshot { baseline } } => {
             let baseline = baseline.map(|path| read_baseline(&path)).transpose()?;
             Request::DiffSnapshot { session, tab: cli.tab, baseline }
+        }
+        Command::Record { action: RecordAction::Start { path } } => {
+            let path = path.map(|path| absolute(&path)).transpose()?;
+            Request::RecordStart { session, tab: cli.tab, path }
+        }
+        Command::Record { action: RecordAction::Stop } => Request::RecordStop { session, tab: cli.tab },
+        Command::Trace { action: TraceAction::Export { path } } => {
+            Request::TraceExport { session, path: absolute(&path)? }
         }
         Command::Type(args) => {
             input(session, cli.tab, Input::Type { text: args.text, delay_ms: args.delay }, args.after, cli.timeout)
@@ -714,14 +754,15 @@ fn batch_step(parser: clap::Command, call: &[String]) -> Result<Request, String>
     request(Cli::from_arg_matches(&matches).map_err(|e| e.render().to_string())?)
 }
 
-fn send(request: &Request, json: bool, idle_timeout: Duration) -> i32 {
-    let if_not_running = match request {
+fn send(request: Request, json: bool, idle_timeout: Duration) -> i32 {
+    let if_not_running = match &request {
         Request::Stop => IfNotRunning::Answer(Reply::Stopped),
         Request::Sessions => IfNotRunning::Answer(Reply::Sessions(Sessions::default())),
         Request::Tabs { session } => IfNotRunning::Answer(Reply::Tabs(SessionInfo::empty(session))),
         _ => IfNotRunning::Start(Launch { idle_timeout }),
     };
-    let response = match connection::send(request, if_not_running) {
+    let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
+    let response = match connection::send(&Call { typed: Some(typed), request }, if_not_running) {
         Ok(response) => response,
         Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
     };
@@ -755,6 +796,10 @@ fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, Str
         wait: (!args.no_wait).then(|| args.wait.until()),
         timeout_ms,
     })
+}
+
+fn absolute(path: &std::path::Path) -> Result<PathBuf, String> {
+    std::path::absolute(path).map_err(|e| format!("current directory: {e}"))
 }
 
 fn parse_tab(value: &str) -> Result<u32, String> {
