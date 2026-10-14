@@ -369,9 +369,12 @@ impl Daemon {
             let (_, terminal) = self.target(&logged.session, Some(logged.tab?)).ok()?;
             Some(terminal.frame())
         });
-        if let Err(failure) = handled {
-            entry.exit = failure.code;
-            entry.error = Some(failure.message.clone());
+        match handled {
+            Ok(reply) => entry.exit = reply.exit_code(),
+            Err(failure) => {
+                entry.exit = failure.code;
+                entry.error = Some(failure.message.clone());
+            }
         }
         folder.log(&entry);
     }

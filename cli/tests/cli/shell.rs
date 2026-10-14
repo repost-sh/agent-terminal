@@ -330,6 +330,21 @@ fn exec_and_history_print_json() {
 }
 
 #[test]
+fn the_activity_log_keeps_the_exit_code_exec_check_exits_with() {
+    let Some(tab) = ShellTab::opened("zsh") else { return };
+    assert_eq!(tab.run(&["exec", "--check", "sh -c 'exit 7'"]).code(), 7);
+    tab.run(&["exec", "false"]).success();
+    let log = std::fs::read_to_string(tab.at.home().join("sessions/default/activity.jsonl")).expect("activity log");
+    let exits: Vec<(String, i64)> = log
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("activity entry"))
+        .map(|entry| (entry["command"].as_str().unwrap().to_string(), entry["exit"].as_i64().unwrap()))
+        .skip(1)
+        .collect();
+    assert_eq!(exits, [("exec --check \"sh -c 'exit 7'\"".to_string(), 7), ("exec false".to_string(), 0)]);
+}
+
+#[test]
 fn restart_opens_the_shell_again_with_integration() {
     let Some(tab) = ShellTab::opened("zsh") else { return };
     tab.run(&["exec", "echo before"]).success();
