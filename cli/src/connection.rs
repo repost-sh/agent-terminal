@@ -1,10 +1,12 @@
 use std::io::{BufRead, BufReader, ErrorKind};
+use std::os::fd::RawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, anyhow, bail};
+use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
 use crate::protocol::{self, Request, Response};
 
@@ -60,6 +62,7 @@ fn start_daemon(home: &std::path::Path) -> Result<UnixStream> {
         .append(true)
         .open(&log_path)
         .with_context(|| format!("open {}", log_path.display()))?;
+    keep_inherited_descriptors_from_the_daemon()?;
     let mut daemon = Command::new(std::env::current_exe()?)
         .args(["daemon", "run"])
         .stdin(Stdio::null())
@@ -77,4 +80,20 @@ fn start_daemon(home: &std::path::Path) -> Result<UnixStream> {
         bail!("the daemon did not start; see {}", log_path.display());
     }
     UnixStream::connect(socket_path()?).context("connect to the daemon")
+}
+
+fn keep_inherited_descriptors_from_the_daemon() -> Result<()> {
+    let listing = "list the open descriptors in /dev/fd";
+    for entry in std::fs::read_dir("/dev/fd").context(listing)? {
+        let name = entry.context(listing)?.file_name();
+        let descriptor: RawFd = name
+            .to_str()
+            .and_then(|number| number.parse().ok())
+            .with_context(|| format!("/dev/fd lists {name:?}, which is not a descriptor number"))?;
+        if descriptor > 2 {
+            fcntl(descriptor, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))
+                .with_context(|| format!("mark descriptor {descriptor} close-on-exec"))?;
+        }
+    }
+    Ok(())
 }
