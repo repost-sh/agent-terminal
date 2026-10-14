@@ -1,0 +1,89 @@
+# agent-terminal — design
+
+Status: draft, for ratification. UI is being prototyped in `.superpowers/prototypes/2026-10-14-dashboard-ui-prototype/`.
+
+`agent-terminal` is to terminals what `agent-browser` is to web pages: a fast CLI that lets an agent start a program in a real PTY, read the screen, send keys, wait for the UI to settle, take screenshots, and leave evidence. A human can watch every session live in a dashboard and take control. It ships its own skill, version-matched to the binary.
+
+Main job: **QA of TUIs and CLIs by agents** (lazygit-style apps, chat TUIs, installers, REPLs, `--help` output, interactive prompts).
+
+## Principles
+
+1. **Same vocabulary as agent-browser.** `open`, `snapshot`, `screenshot`, `press`, `type`, `click`, `wait`, `close`, `--session`, `tab`, `batch`, `diff`, `record`, `dashboard`, `skills`, `--json`. An agent that knows one CLI already knows the other.
+2. **Text first, pixels when you need them.** `snapshot` is the cheap default: the screen as text, with row numbers, cursor, modes and refs. `screenshot` renders a PNG for vision models, humans and evidence.
+3. **Act and wait in one call.** Every input command accepts `--wait …`, so the usual loop is one round trip: `press Enter --wait-stable`.
+4. **Event driven, not polling.** A resident daemon owns the PTYs and a headless VT emulator per terminal. Waits wake on the next frame that matches.
+5. **Honest about TUIs.** Refs are heuristics over cells (inverse spans, `[ OK ]` buttons, box titles, OSC 8 links). `click` refuses when the app never turned mouse reporting on, and tells the agent which keys to use instead.
+6. **Humans can see everything.** Every CLI call, every shell command (exit code, duration, cwd) and every screenshot is in the dashboard, and the dashboard can rewind to any point.
+
+## Architecture (short)
+
+- `agent-terminal` is a single Rust binary: the CLI, the daemon and the dashboard server.
+- The daemon owns, per terminal: a PTY, a VT parser and grid with scrollback (`alacritty_terminal` or `libghostty-vt`), a frame counter, an output ring buffer, and an asciicast event log.
+- The CLI talks to the daemon over a unix socket. The dashboard talks over HTTP + WebSocket on `127.0.0.1:4849`.
+- PNG rendering happens on the server from the grid, with a bundled monospace font (JetBrains Mono + Symbols Nerd Font fallback), so it needs no window server.
+- Shell integration (OSC 133 prompt marks, OSC 7 cwd, OSC 2 title) is injected into `bash`, `zsh` and `fish` when a session opens a shell. That is what produces command history.
+- Speed targets: CLI round trip ≤ 5 ms; `snapshot` ≤ 10 ms; `screenshot` PNG ≤ 40 ms at 120×40; `open` to first frame ≤ 50 ms plus the app's own startup.
+
+## Concepts
+
+| Term | Meaning |
+|---|---|
+| session | A named workspace (`--session qa`, default `default`). Owns one or more terminals. Isolates history, recordings and screenshots. |
+| terminal (tab) | One PTY running one program. Addressed as `t1`, `t2`, … within its session. |
+| frame | One version of the screen. Increments every time the grid changes. |
+| ref | `@t3`: a stable handle for an on-screen element found by `snapshot -i`. Valid until the next frame that changes its cells. |
+| mark | A named point in a terminal's output stream (`mark set before-login`). `output --since before-login` reads from it. |
+| command | One shell command line, delimited by OSC 133. Has command text, cwd, exit code, start time, duration and output range. |
+| control | Who may send input: `agent` (default) or `human` (taken from the dashboard). |
+
+## Command reference
+
+The full command list lives in [`commands.md`](commands.md). The skills that teach agents to use it live in `skills/` (the installed stub) and `skill-data/` (what `agent-terminal skills get <name>` prints).
+
+## Example: QA of a TUI in five calls
+
+```sh
+agent-terminal --session qa open lazygit --cwd ~/code/agent-terminal --size 120x36
+agent-terminal snapshot -i                       # read the panels, get refs
+agent-terminal press 2 --wait "Unstaged changes" --snapshot
+agent-terminal press space --wait-stable --screenshot ./evidence/staged.png
+agent-terminal expect --cell 4,3 --style inverse && agent-terminal close
+```
+
+Example `snapshot -i` output:
+
+```
+qa t1 · lazygit · 120x36 · alt-screen · mouse:sgr · cursor 4,3 · frame 212
+ 1│┌─ Status ──────────────────┐┌─ Unstaged changes ─────────────────────────────┐
+ 2││ agent-terminal → main     ││ M  docs/design.md                              │
+ 3│└───────────────────────────┘│ ?? .gitignore                                  │
+ 4│┌─ Files ───────────────────┐│                                                │
+ …
+36│ Stage: <space> | Commit: c | Push: P | Keybindings: ?
+refs:
+  @t1 [panel]    "Status"            rows 1-3
+  @t2 [panel]    "Unstaged changes"  rows 1-18
+  @t3 [selected] "M  docs/design.md" row 2 col 33
+  @t4 [hint]     "Commit: c"         row 36
+```
+
+## Dashboard
+
+`agent-terminal dashboard start` serves `http://localhost:4849`. Same layout and visual language as the agent-browser dashboard:
+
+- **Sessions sidebar**: sessions grouped with their tabs; each tab shows program, status (running · exited 0 · exited 1 · human control) and a live dot. New session, close all, theme.
+- **Center**: a toolbar showing the command line and size, then the live terminal (rendered from the daemon's grid, not a second PTY). Status bar: Live/Reconnecting, stream URL, size, modes.
+- **Split view**: show 2 or 4 terminals side by side, so one human can watch several agents or the server and the TUI under test at once.
+- **Right panel** tabs: **Activity** (every CLI call: command, duration, result, inline thumbnail for screenshots, failed waits in red), **Commands** (shell history from OSC 133: command, exit code, duration, cwd; click to see its output), **Screenshots** (gallery with diff), **Output** (raw stream with marks), **Info** (pid, cwd, TERM, env, modes).
+- **Timeline**: scrub back through frames; clicking an Activity or Commands row jumps the terminal to that moment. "Live" returns.
+- **Take control**: a human takes the keyboard. While they hold it, agent input commands exit `4` with "A human has control of qa t1. Run `agent-terminal wait --control`."
+
+## Skills shipped
+
+See `skills/agent-terminal/SKILL.md` (stub), `skill-data/core/SKILL.md`, `skill-data/tui-qa/SKILL.md` and `skill-data/cli-qa/SKILL.md`.
+
+## Open points
+
+1. Standalone dashboard on `:4849`, or terminals as a second session kind inside the agent-browser dashboard on `:4848`? Draft: standalone, same look, so it ships on its own.
+2. Should the dashboard have agent-browser's Chat tab? Draft: no, it is a watch-and-take-over tool.
+3. Name of the binary: `agent-terminal` (and the short alias `at`?). Draft: `agent-terminal` only, since `at` clashes with the Unix `at`.
