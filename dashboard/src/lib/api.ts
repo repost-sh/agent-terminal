@@ -10,6 +10,11 @@ export const tabStreamUrl = (session: string, tab: string) => socketUrl(`${tabPa
 
 export const commandsStreamUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/commands/stream`);
 
+export const screenshotUrl = (session: string, path: string) =>
+  `/api/session/${encodeURIComponent(session)}/screenshots/${encodeURIComponent(path)}`;
+
+export const tabFeedPath = (session: string, tab: string, feed: "activity" | "output" | "info") => `${tabPath(session, tab)}/${feed}`;
+
 const refusal = (text: string, response: Response) => {
   try {
     return (JSON.parse(text) as { error: ErrorBody }).error.message;

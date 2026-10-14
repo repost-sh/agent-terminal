@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use tokio::sync::watch;
@@ -10,7 +10,7 @@ use crate::native::changes::Changes;
 use crate::native::commands::{Change, Commands, Point, Submitted};
 use crate::native::keyboard;
 use crate::native::mouse::{self, Action};
-use crate::native::output_log::{Offsets, OutputLog};
+use crate::native::output_log::{Offsets, Output, OutputLog};
 use crate::native::pty::{self, Killer, Signaller, Spawned};
 use crate::native::recording::Recording;
 use crate::native::refs::{self, Found, Grid};
@@ -19,14 +19,15 @@ use crate::native::store::CommandLog;
 use crate::native::wait::{self, Condition, Moment, Verdict};
 use crate::protocol::{
     Baseline, Cell, ClickTarget, CommandRecord, Cursor, Delivery, DiffBase, Direction, Exit, Fact, Get, Input, Match,
-    MouseButton, MouseEvent, Ref, RowChange, RowRange, ScrollBy, Scrollback, Shell, Size, Snapshot, SnapshotDiff,
-    SnapshotOptions, TabInfo,
+    Modes, MouseButton, MouseEvent, Ref, RowChange, RowRange, ScrollBy, Scrollback, Shell, Size, Snapshot,
+    SnapshotDiff, SnapshotOptions, TabInfo,
 };
 
 pub struct Terminal {
     pub program: String,
     pid: Option<u32>,
     cwd: String,
+    started: SystemTime,
     state: Mutex<State>,
     changed: Condvar,
     input_turn: Mutex<()>,
@@ -41,6 +42,16 @@ pub struct Terminal {
     frames: Changes,
     history: Changes,
     lifecycle: Changes,
+}
+
+pub struct Setup {
+    pub command: pty::Command,
+    pub pid: Option<u32>,
+    pub cwd: String,
+    pub size: Size,
+    pub modes: Modes,
+    pub started: SystemTime,
+    pub exit: Option<Option<i32>>,
 }
 
 pub struct Picture {
@@ -154,6 +165,7 @@ impl Terminal {
             program,
             pid: spawned.pid,
             cwd,
+            started: SystemTime::now(),
             state: Mutex::new(State {
                 look: screen.fingerprint(),
                 screen,
@@ -372,6 +384,19 @@ impl Terminal {
         }
     }
 
+    pub fn setup(&self) -> Setup {
+        let state = self.state.lock().unwrap();
+        Setup {
+            command: self.command.clone(),
+            pid: self.pid,
+            cwd: state.screen.reported_cwd().unwrap_or_else(|| self.cwd.clone()),
+            size: state.screen.size(),
+            modes: state.screen.modes(),
+            started: self.started,
+            exit: state.exit,
+        }
+    }
+
     pub fn recording(&self) -> Arc<Recording> {
         Arc::clone(&self.recording)
     }
@@ -470,6 +495,10 @@ impl Terminal {
         let frame = state.frame;
         state.log.mark(name, frame);
         frame
+    }
+
+    pub fn output_since(&self, raw: u64, styled: u64) -> Output {
+        self.state.lock().unwrap().log.output_since(raw, styled)
     }
 
     pub fn printed(&self, since: Option<&str>, raw: bool) -> Result<String, String> {
