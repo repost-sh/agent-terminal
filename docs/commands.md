@@ -102,6 +102,7 @@ Sessions and tabs:
 Watch and take over:
   dashboard [start|stop]       The live dashboard on http://localhost:4849 (--port <n>; 0 picks a free port)
   attach [--read-only]         Watch or drive a session from your own terminal (detach: Ctrl-p Ctrl-q)
+                               without --read-only you take control: the agent's input exits 4 until you detach
 
 Everything else:
   batch [--bail] ["cmd" ...]   Several commands in one call (args or stdin)
@@ -129,7 +130,7 @@ Exit codes:
   1  error
   2  expect or wait --assert failed, or diff screenshot found more changes than --threshold
   3  timed out
-  4  a human has control of this tab
+  4  a human has control of this tab (input commands and exec; resume with wait --control)
   5  the program has exited
 ```
 

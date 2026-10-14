@@ -166,10 +166,10 @@ Tabs are numbered `t1`, `t2`, … in the order they open. `agent-terminal tab` l
 
 ## When a human takes control
 
-A person watching the dashboard can take control of a tab. Your input commands then exit 4 with "A human has control of …". Do not retry in a loop:
+A person can take control of a tab, from the dashboard or with `agent-terminal attach` in their own terminal. Your input commands (`type`, `press`, `paste`, `send`, `signal`, `click`, `scroll`, `mouse`) and `exec` then exit 4 with "A human has control of …". Reading the screen still works. Do not retry in a loop:
 
 ```bash
-agent-terminal wait --control      # resumes when they hand it back
+agent-terminal wait --control --timeout 600000   # resumes when they hand it back (the default timeout is 25 s)
 ```
 
 ## Finishing
