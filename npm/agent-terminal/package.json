@@ -1,0 +1,21 @@
+{
+  "name": "agent-terminal",
+  "description": "Fast terminal automation CLI for AI agents",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/repost-sh/agent-terminal.git"
+  },
+  "homepage": "https://github.com/repost-sh/agent-terminal",
+  "bugs": {
+    "url": "https://github.com/repost-sh/agent-terminal/issues"
+  },
+  "keywords": ["terminal", "tui", "automation", "ai", "agent", "pty", "cli"],
+  "bin": {
+    "agent-terminal": "bin/agent-terminal.js"
+  },
+  "files": ["bin", "lib"],
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -28,7 +28,7 @@ impl Installer {
     fn command(self) -> (&'static str, &'static [&'static str]) {
         match self {
             Installer::Npm => ("npm", &["install", "-g", "agent-terminal@latest"]),
-            Installer::Homebrew => ("brew", &["upgrade", "agent-terminal"]),
+            Installer::Homebrew => ("brew", &["upgrade", "repost-sh/tap/agent-terminal"]),
         }
     }
 }

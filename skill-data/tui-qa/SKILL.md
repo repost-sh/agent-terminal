@@ -23,7 +23,7 @@ Start right away. Ask only if the app needs credentials you do not have.
 
 ```bash
 mkdir -p ./tui-qa-output/{screenshots,clips}
-cp {SKILL_DIR}/templates/report.md ./tui-qa-output/report.md
+cp "$(agent-terminal skills path tui-qa)/templates/report.md" ./tui-qa-output/report.md
 export AGENT_TERMINAL_SESSION=qa-lazygit
 agent-terminal open lazygit --cwd <repo> --size 120x40
 agent-terminal snapshot -i

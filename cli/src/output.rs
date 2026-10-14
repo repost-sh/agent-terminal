@@ -1,4 +1,4 @@
-use crate::protocol::{BatchOutcome, ErrorBody, Reply, Response, Snapshot};
+use crate::protocol::{BatchOutcome, Delivered, Delivery, ErrorBody, Reply, Response, Snapshot};
 
 pub fn screen(s: &Snapshot) -> String {
     let mut header = vec![format!("{} {}", s.session, s.tab), s.program.clone(), format!("{}x{}", s.cols, s.rows)];
@@ -46,10 +46,34 @@ pub fn reply(reply: &Reply, json: bool) {
                 println!("closed {} {}", tab.session, tab.tab);
             }
         }
+        Reply::Delivered(delivered) if json => println!("{}", serde_json::json!(delivered)),
+        Reply::Delivered(delivered) => println!("{}", delivery(delivered)),
         Reply::Stopped => {}
         Reply::Batch(outcomes) if json => println!("{}", batch_json(outcomes)),
         Reply::Batch(outcomes) => batch(outcomes),
     }
+}
+
+fn delivery(d: &Delivered) -> String {
+    let target = format!("{} {}", d.session, d.tab);
+    match &d.delivery {
+        Delivery::Text { keys, .. } => format!("typed {} into {target}", count(*keys, "key")),
+        Delivery::Keys { keys, .. } => format!("pressed {} in {target}", count(*keys, "key")),
+        Delivery::Paste { bracketed: true, bytes } => {
+            format!("pasted {} into {target} (bracketed paste)", count(*bytes, "byte"))
+        }
+        Delivery::Paste { bracketed: false, bytes } => {
+            format!("pasted {} into {target} (plain, the app has not turned on bracketed paste)", count(*bytes, "byte"))
+        }
+        Delivery::Raw { bytes } => format!("sent {} to {target}", count(*bytes, "raw byte")),
+        Delivery::Signal { signal, process_group } => {
+            format!("sent {signal} to {target} (process group {process_group})")
+        }
+    }
+}
+
+fn count(n: usize, noun: &str) -> String {
+    if n == 1 { format!("1 {noun}") } else { format!("{n} {noun}s") }
 }
 
 fn batch_json(outcomes: &[BatchOutcome]) -> serde_json::Value {

@@ -2,9 +2,11 @@ mod batch;
 mod commands;
 mod connection;
 mod doctor;
+mod key;
 mod native;
 mod output;
 mod protocol;
+mod skills;
 mod upgrade;
 
 use std::fmt;
@@ -12,6 +14,7 @@ use std::fmt;
 pub mod exit {
     pub const ERROR: i32 = 1;
     pub const TIMEOUT: i32 = 3;
+    pub const EXITED: i32 = 5;
 }
 
 #[derive(Debug)]

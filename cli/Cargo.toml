@@ -5,6 +5,7 @@ edition = "2024"
 description = "Fast terminal automation CLI for AI agents"
 license = "Apache-2.0"
 repository = "https://github.com/repost-sh/agent-terminal"
+homepage = "https://github.com/repost-sh/agent-terminal"
 readme = "../README.md"
 keywords = ["terminal", "tui", "automation", "ai", "pty"]
 categories = ["command-line-utilities", "development-tools::testing"]
@@ -17,7 +18,9 @@ alacritty_terminal = "0.26"
 anyhow = "1"
 clap = { version = "4.6", features = ["derive", "env", "string"] }
 libc = "0.2"
+nix = { version = "0.28", features = ["signal"] }
 portable-pty = "0.9"
+semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 shlex = "2"
@@ -29,6 +32,9 @@ tempfile = "3"
 [profile.release]
 lto = "thin"
 strip = true
+
+[profile.dist]
+inherits = "release"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

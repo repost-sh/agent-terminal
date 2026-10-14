@@ -2,18 +2,22 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
-use crate::native::pty::{self, Killer};
+use crate::key::Key;
+use crate::native::keyboard;
+use crate::native::pty::{self, Killer, Signaller};
 use crate::native::screen::Screen;
-use crate::protocol::{Snapshot, Wait};
+use crate::protocol::{Delivery, Input, Snapshot, Wait};
 
 pub struct Terminal {
     pub program: String,
     state: Mutex<State>,
     changed: Condvar,
+    input_turn: Mutex<()>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn Killer>>,
+    signaller: Box<dyn Signaller>,
 }
 
 struct State {
@@ -38,8 +42,10 @@ impl Terminal {
             program,
             state: Mutex::new(State { screen: Screen::new(size), frame: 0, last_change: Instant::now(), exit: None }),
             changed: Condvar::new(),
+            input_turn: Mutex::new(()),
             writer: Mutex::new(spawned.writer),
             killer: Mutex::new(spawned.killer),
+            signaller: spawned.signaller,
         });
 
         let reading = Arc::clone(&terminal);
@@ -133,6 +139,100 @@ impl Terminal {
             let wake = met_at.map_or(deadline, |at| at.min(deadline)) - now;
             state = self.changed.wait_timeout(state, wake).unwrap().0;
         }
+    }
+
+    pub fn input(&self, input: &Input) -> Result<Delivery> {
+        let _turn = self.input_turn.lock().unwrap();
+        match input {
+            Input::Type { text, delay_ms } => {
+                let keys = Key::for_text(text).map_err(anyhow::Error::msg)?;
+                let mut bytes = 0;
+                for (i, key) in keys.iter().enumerate() {
+                    if i > 0 {
+                        self.pause(Duration::from_millis(*delay_ms))?;
+                    }
+                    bytes += self.press(*key)?;
+                }
+                Ok(Delivery::Text { keys: keys.len(), bytes })
+            }
+            Input::Press { keys, repeat } => {
+                let modes = self.state.lock().unwrap().screen.keyboard_modes();
+                let encoded = keys
+                    .iter()
+                    .map(|key| keyboard::encode(*key, modes))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(anyhow::Error::msg)?;
+                let mut bytes = 0;
+                for _ in 0..*repeat {
+                    for key in &encoded {
+                        self.write(key)?;
+                        bytes += key.len();
+                    }
+                }
+                Ok(Delivery::Keys { keys: keys.len() * *repeat as usize, bytes })
+            }
+            Input::Paste { text } => {
+                let modes = self.state.lock().unwrap().screen.keyboard_modes();
+                let bytes = keyboard::paste(text, modes);
+                self.write(&bytes)?;
+                Ok(Delivery::Paste { bracketed: modes.bracketed_paste, bytes: bytes.len() })
+            }
+            Input::Send { bytes } => {
+                self.write(bytes)?;
+                Ok(Delivery::Raw { bytes: bytes.len() })
+            }
+            Input::Signal { signal } => {
+                self.ensure_running()?;
+                let process_group = self.signaller.signal(*signal)?;
+                Ok(Delivery::Signal { signal: *signal, process_group })
+            }
+        }
+    }
+
+    fn press(&self, key: Key) -> Result<usize> {
+        let modes = self.state.lock().unwrap().screen.keyboard_modes();
+        let bytes = keyboard::encode(key, modes).map_err(anyhow::Error::msg)?;
+        self.write(&bytes)?;
+        Ok(bytes.len())
+    }
+
+    fn pause(&self, delay: Duration) -> Result<()> {
+        let until = Instant::now() + delay;
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(code) = state.exit {
+                return Err(self.exited(code).into());
+            }
+            let now = Instant::now();
+            if now >= until {
+                return Ok(());
+            }
+            state = self.changed.wait_timeout(state, until - now).unwrap().0;
+        }
+    }
+
+    fn write(&self, bytes: &[u8]) -> Result<()> {
+        self.ensure_running()?;
+        let mut writer = self.writer.lock().unwrap();
+        writer.write_all(bytes).and_then(|()| writer.flush()).with_context(|| format!("write to {}", self.program))
+    }
+
+    fn ensure_running(&self) -> Result<()> {
+        match self.state.lock().unwrap().exit {
+            None => Ok(()),
+            Some(code) => Err(self.exited(code).into()),
+        }
+    }
+
+    fn exited(&self, code: Option<i32>) -> crate::Error {
+        let how = code.map_or_else(String::new, |code| format!(" with code {code}"));
+        crate::Error::new(
+            crate::exit::EXITED,
+            format!(
+                "{} has exited{how}; nothing more can be sent to it (read its last screen with `agent-terminal snapshot`)",
+                self.program
+            ),
+        )
     }
 
     pub fn kill(&self) {

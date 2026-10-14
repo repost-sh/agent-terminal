@@ -70,7 +70,7 @@ fn upgrade_of_a_homebrew_install_runs_brew_and_says_when_nothing_changed() {
     let install = Install::new(&at, "homebrew/Cellar/agent-terminal/0.0.1/bin/agent-terminal");
     install.package_manager("brew", "echo 'Warning: agent-terminal already installed'\n");
     let run = install.upgrade(&at, &["upgrade"]).success();
-    assert_eq!(install.calls(), "upgrade agent-terminal\n");
+    assert_eq!(install.calls(), "upgrade repost-sh/tap/agent-terminal\n");
     assert_eq!(run.stdout(), format!("agent-terminal {VERSION} is already the latest version\n"));
 
     let json = install.upgrade(&at, &["--json", "upgrade"]).success().json();
