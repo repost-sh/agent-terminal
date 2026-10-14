@@ -7,6 +7,7 @@ use crate::batch;
 use crate::connection::{self, IfNotRunning, Launch};
 use crate::doctor;
 use crate::key::Key;
+use crate::mcp;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
@@ -153,6 +154,8 @@ enum Command {
         long_about = "Run several commands in order in one call to the daemon.\n\nPass each command as one quoted argument, e.g. batch \"open htop\" \"snapshot\", or pipe a JSON array to stdin whose items are command lines or argument arrays, e.g. [[\"open\", \"htop\"], \"snapshot\"]. Commands use the batch's --session, --tab and --timeout unless they set their own. Every command is parsed before any of them runs. Each command's output and exit code are printed in order, and batch exits with the code of the first command that failed."
     )]
     Batch(BatchArgs),
+    #[command(about = "MCP stdio server with the same commands as tools")]
+    Mcp,
     #[command(about = "Check PTY support and the daemon socket, and say how to fix each problem")]
     Doctor {
         #[arg(long, help = "Remove stale sockets and state")]
@@ -606,6 +609,7 @@ pub fn run() -> i32 {
         }
         Command::Skills { action } => return skills::run(action, json, Cli::command()),
         Command::Install { .. } => return skills::install(json),
+        Command::Mcp => return mcp::run(Cli::command()),
         Command::Session { action: None } => {
             output::session(&cli.session, json);
             return 0;
@@ -681,6 +685,7 @@ fn request(cli: Cli) -> Result<Request, String> {
         | Command::Install { .. }
         | Command::Session { action: None | Some(SessionAction::Id { .. }) }
         | Command::Batch(_)
+        | Command::Mcp
         | Command::Doctor { .. }
         | Command::Upgrade
         | Command::Version => {

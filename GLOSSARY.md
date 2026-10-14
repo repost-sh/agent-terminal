@@ -23,3 +23,5 @@
 **activity**: one CLI call to agent-terminal as recorded in the session's log: time, command as typed, duration and result.
 
 **control**: who may send input to a terminal: the agent (default) or a human who took it from the dashboard. While a human holds it, agent input exits 4.
+
+**tool**: an MCP tool served by `agent-terminal mcp`. Each one is a CLI command under the command's words joined with `_` (`get_text`, `tab_new`); it takes the command's arguments and returns its `--json` output.
