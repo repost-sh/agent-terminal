@@ -1,2 +1,4 @@
 .superpowers/
 target/
+*.pending-snap
+*.snap.new

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+subject=$(grep -v '^#' "$1" | head -n 1)
+
+if [[ "$subject" =~ ^(Merge|Revert\ \"|fixup!|squash!|amend!) ]]; then
+  exit 0
+fi
+
+pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9._/-]+\))?!?: [^ ].*$'
+
+if [[ ! "$subject" =~ $pattern ]]; then
+  cat >&2 <<MSG
+commit blocked: the first line is not a Conventional Commit.
+
+  got:      $subject
+  expected: <type>(<optional scope>)!?: <description>
+  types:    build chore ci docs feat fix perf refactor revert style test
+  example:  feat(cli): add snapshot --rows
+
+See https://www.conventionalcommits.org
+MSG
+  exit 1
+fi
+
+if (( ${#subject} > 100 )); then
+  echo "commit blocked: the first line is ${#subject} characters; keep it to 100." >&2
+  exit 1
+fi

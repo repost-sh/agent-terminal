@@ -6,6 +6,23 @@ on:
   pull_request:
 
 jobs:
+  commits:
+    name: Conventional Commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check every commit message in the pull request
+        run: |
+          status=0
+          for sha in $(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
+            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/msg"
+            .githooks/commit-msg "$RUNNER_TEMP/msg" || status=1
+          done
+          exit $status
+
   cli:
     name: CLI (${{ matrix.os }})
     strategy:
