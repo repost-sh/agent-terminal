@@ -5,6 +5,7 @@ edition = "2024"
 description = "Fast terminal automation CLI for AI agents"
 license = "Apache-2.0"
 repository = "https://github.com/repost-sh/agent-terminal"
+homepage = "https://github.com/repost-sh/agent-terminal"
 readme = "../README.md"
 keywords = ["terminal", "tui", "automation", "ai", "pty"]
 categories = ["command-line-utilities", "development-tools::testing"]
@@ -29,6 +30,9 @@ tempfile = "3"
 [profile.release]
 lto = "thin"
 strip = true
+
+[profile.dist]
+inherits = "release"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

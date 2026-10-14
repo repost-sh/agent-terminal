@@ -1,0 +1,21 @@
+[workspace]
+members = ["cargo:cli"]
+
+[dist]
+cargo-dist-version = "0.33.0"
+ci = "github"
+targets = [
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-musl",
+  "x86_64-unknown-linux-musl",
+]
+precise-builds = true
+installers = ["homebrew"]
+tap = "repost-sh/homebrew-tap"
+formula = "agent-terminal"
+global-artifacts-jobs = ["./npm-packages"]
+publish-jobs = ["homebrew", "./publish-npm"]
+install-path = "CARGO_HOME"

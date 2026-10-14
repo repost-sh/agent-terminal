@@ -26,6 +26,20 @@ jobs:
           done
           exit $status
 
+  npm:
+    name: npm packages (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node --test 'npm/test/*.test.js'
+
   cli:
     name: CLI (${{ matrix.os }})
     strategy:
