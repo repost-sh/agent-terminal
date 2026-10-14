@@ -1,6 +1,6 @@
 use crate::protocol::{
-    BatchOutcome, Checked, Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Response, SessionInfo,
-    Snapshot, SnapshotDiff, Waited,
+    BatchOutcome, Checked, CommandRecord, Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Response,
+    SessionInfo, Snapshot, SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
 
@@ -103,6 +103,43 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Printed(printed) => print!("{}", printed.output),
         Reply::Diff(diff) if json => println!("{}", serde_json::json!(diff)),
         Reply::Diff(diff) => print!("{}", diff_text(diff)),
+        Reply::History(history) if json => println!("{}", serde_json::json!(history)),
+        Reply::History(history) if history.total == 0 => {
+            println!("no commands have run in {} {}", history.session, history.tab)
+        }
+        Reply::History(history) if history.commands.is_empty() => {
+            println!("no command matches in {} {} ({} in all)", history.session, history.tab, history.total)
+        }
+        Reply::History(history) => {
+            for record in &history.commands {
+                println!("{}", record_line(record));
+            }
+        }
+        Reply::Command(ran) if json => println!("{}", serde_json::json!(ran)),
+        Reply::Command(ran) => {
+            print!("{}", ran.output);
+            if !ran.output.is_empty() && !ran.output.ends_with('\n') {
+                println!();
+            }
+            println!("{}", record_line(&ran.record));
+        }
+    }
+}
+
+fn record_line(record: &CommandRecord) -> String {
+    let status = match (record.finished(), record.exit_code) {
+        (false, _) => "running".to_string(),
+        (true, Some(code)) => format!("exit {code}"),
+        (true, None) => "exit unknown".to_string(),
+    };
+    format!("{} · {status} · {} · {} · {}", record.id, duration(record.duration_ms), record.cwd, record.command)
+}
+
+fn duration(ms: u64) -> String {
+    match ms {
+        0..1_000 => format!("{ms} ms"),
+        1_000..60_000 => format!("{}.{} s", ms / 1_000, ms % 1_000 / 100),
+        _ => format!("{}m {:02}s", ms / 60_000, ms % 60_000 / 1_000),
     }
 }
 

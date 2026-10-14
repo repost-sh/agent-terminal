@@ -11,6 +11,7 @@ mod output;
 mod resize;
 mod restart;
 mod sessions;
+mod shell;
 mod skills;
 mod snapshot;
 mod support;

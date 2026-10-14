@@ -8,12 +8,13 @@ use anyhow::{Context, Result};
 
 use crate::connection::{READY, home, socket_path};
 use crate::native::pty;
+use crate::native::shell;
 use crate::native::terminal::{Settled, Terminal};
 use crate::native::wait::{Condition, Pattern};
 use crate::protocol::{
-    self, BatchOutcome, BatchStep, Checked, Closed, Delivered, ErrorBody, Expect, Input, Marked, Matches, Printed,
-    Reply, Request, Response, RowRange, SessionInfo, Sessions, Size, Snapshot, SnapshotOptions, Style, TabRef,
-    TextMatch, Wait, Waited,
+    self, BatchOutcome, BatchStep, Checked, Closed, CommandOutput, CommandRecord, Delivered, ErrorBody, Expect,
+    History, Input, Marked, Matches, Printed, Reply, Request, Response, RowRange, SessionInfo, Sessions, Shell, Size,
+    Snapshot, SnapshotOptions, Style, TabRef, TextMatch, Wait, Waited,
 };
 
 #[derive(Default)]
@@ -189,6 +190,40 @@ impl Daemon {
                 let (_, terminal) = self.target(&session, tab)?;
                 terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(failure)
             }
+            Request::Shell { session, shell, program, size, cwd, env, wait, timeout_ms } => self.open_shell(
+                session,
+                shell,
+                pty::Command { program, args: Vec::new(), cwd, env, size },
+                wait.as_ref(),
+                timeout_ms,
+            ),
+            Request::Exec { session, tab, line, check, timeout_ms } => {
+                self.exec(session, tab, &line, check, timeout_ms)
+            }
+            Request::History { session, tab, last, failed } => {
+                let (id, terminal) = self.target(&session, tab)?;
+                let tab = tab_name(id);
+                let mut commands = terminal.commands().ok_or_else(|| no_integration(&session, &tab, &terminal))?;
+                let total = commands.len();
+                if failed {
+                    commands.retain(CommandRecord::failed);
+                }
+                if let Some(last) = last {
+                    commands.drain(..commands.len().saturating_sub(last));
+                }
+                Ok(Reply::History(History { session, tab, total, commands }))
+            }
+            Request::HistoryShow { session, tab, id } => {
+                let (tab_id, terminal) = self.target(&session, tab)?;
+                let tab = tab_name(tab_id);
+                if terminal.shell().is_none() {
+                    return Err(no_integration(&session, &tab, &terminal));
+                }
+                let (record, output) = terminal.command(id).ok_or_else(|| {
+                    failure(format!("no command {id} in {session} {tab}; list them with `agent-terminal history`"))
+                })?;
+                Ok(Reply::Command(CommandOutput { session, tab, record, output, check: false }))
+            }
             Request::Stop => {
                 self.shut_down();
                 Ok(Reply::Stopped)
@@ -266,19 +301,42 @@ impl Daemon {
         timeout_ms: u64,
     ) -> Result<Reply, ErrorBody> {
         let terminal = Terminal::start(command).map_err(error_body)?;
-        let tab = {
-            let mut sessions = self.sessions.lock().unwrap();
-            let entry = sessions.entry(session.clone()).or_default();
-            entry.next_id += 1;
-            let id = entry.next_id;
-            entry.tabs.insert(id, Arc::clone(&terminal));
-            entry.current = Some(id);
-            id
-        };
-        match wait {
-            Some(wait) => settle(&session, tab, &terminal, wait, timeout_ms),
-            None => Ok(Reply::Snapshot(terminal.snapshot(&session, &tab_name(tab)))),
-        }
+        let tab = self.add_tab(&session, &terminal);
+        first_screen(&session, tab, &terminal, wait, timeout_ms)
+    }
+
+    fn open_shell(
+        &self,
+        session: String,
+        shell: Shell,
+        command: pty::Command,
+        wait: Option<&Wait>,
+        timeout_ms: u64,
+    ) -> Result<Reply, ErrorBody> {
+        let terminal = shell::prepare(shell, command)
+            .and_then(|command| Terminal::launch(command, Some(shell)))
+            .map_err(error_body)?;
+        let tab = self.add_tab(&session, &terminal);
+        first_screen(&session, tab, &terminal, wait, timeout_ms).map_err(|mut error| {
+            if matches!(wait, Some(Wait::Command)) && error.code == crate::exit::TIMEOUT {
+                error.message = format!(
+                    "timed out after {timeout_ms} ms waiting for the first prompt of {} in {session} {}; its startup files may be waiting for input or the shell integration did not load (read the screen with `agent-terminal snapshot`, check with `agent-terminal doctor`)",
+                    terminal.program,
+                    tab_name(tab)
+                );
+            }
+            error
+        })
+    }
+
+    fn add_tab(&self, session: &str, terminal: &Arc<Terminal>) -> u32 {
+        let mut sessions = self.sessions.lock().unwrap();
+        let entry = sessions.entry(session.to_string()).or_default();
+        entry.next_id += 1;
+        let id = entry.next_id;
+        entry.tabs.insert(id, Arc::clone(terminal));
+        entry.current = Some(id);
+        id
     }
 
     fn resize(
@@ -308,7 +366,7 @@ impl Daemon {
                 snapshot: None,
             });
         }
-        let terminal = Terminal::start(old.rerun()).map_err(error_body)?;
+        let terminal = old.start_again().map_err(error_body)?;
         {
             let mut sessions = self.sessions.lock().unwrap();
             match sessions.get_mut(session).and_then(|s| s.tabs.get_mut(&tab)) {
@@ -346,15 +404,74 @@ impl Daemon {
     fn wait(&self, session: String, tab: Option<u32>, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&session, tab)?;
         let tab = tab_name(id);
+        if matches!(wait, Wait::Command) && terminal.shell().is_none() {
+            return Err(no_integration(&session, &tab, &terminal));
+        }
         let condition = condition(wait)?;
         let started = Instant::now();
         let frame = wait_for(&terminal, &session, &tab, wait, condition, timeout_ms)?;
         let waited_ms = started.elapsed().as_millis() as u64;
         let exit_code = match wait {
             Wait::Exit { .. } => terminal.exit_status().flatten(),
+            Wait::Command => terminal.last_exit_code(),
             _ => None,
         };
         Ok(Reply::Waited(Waited { session, tab, until: describe(wait), waited_ms, frame, exit_code }))
+    }
+
+    fn exec(
+        &self,
+        session: String,
+        tab: Option<u32>,
+        line: &str,
+        check: bool,
+        timeout_ms: u64,
+    ) -> Result<Reply, ErrorBody> {
+        let (id, terminal) = self.target(&session, tab)?;
+        let tab = tab_name(id);
+        if terminal.shell().is_none() {
+            return Err(no_integration(&session, &tab, &terminal));
+        }
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+        let left = || deadline.saturating_duration_since(Instant::now());
+        let submitted = loop {
+            let submitted = terminal.submit(line).map_err(|e| error_body(e.context(format!("{session} {tab}"))))?;
+            if let Some(submitted) = submitted {
+                break submitted;
+            }
+            match terminal.wait(Condition::Command, left()) {
+                Settled::Met { .. } => continue,
+                Settled::Exited => {
+                    return Err(exited_while_waiting(&Wait::Command, terminal.snapshot(&session, &tab)));
+                }
+                Settled::TimedOut => {
+                    let waiting = match terminal.running_command() {
+                        Some(running) => format!("`{running}` to finish"),
+                        None => "the shell prompt".to_string(),
+                    };
+                    let message = format!(
+                        "timed out after {timeout_ms} ms waiting for {waiting} in {session} {tab}, so `{line}` did not run (read the screen with `agent-terminal snapshot`, interrupt a command with `agent-terminal signal INT`)"
+                    );
+                    return Err(with_screen(crate::exit::TIMEOUT, message, terminal.snapshot(&session, &tab)));
+                }
+            }
+        };
+        match terminal.wait(Condition::PromptAfter(submitted.prompts), left()) {
+            Settled::Met { .. } => {}
+            Settled::Exited => return Err(exited_while_waiting(&Wait::Command, terminal.snapshot(&session, &tab))),
+            Settled::TimedOut => {
+                let message = format!(
+                    "timed out after {timeout_ms} ms waiting for `{line}` to finish in {session} {tab}; it is still running as command {} (wait for it with `agent-terminal wait --command`, read its output with `agent-terminal history show {}`, interrupt it with `agent-terminal signal INT`)",
+                    submitted.first_id, submitted.first_id
+                );
+                return Err(with_screen(crate::exit::TIMEOUT, message, terminal.snapshot(&session, &tab)));
+            }
+        }
+        let (record, output) = terminal.command(submitted.first_id).ok_or_else(|| {
+            let message = format!("the shell in {session} {tab} ran no command for `{line}`; the screen shows why");
+            with_screen(crate::exit::ERROR, message, terminal.snapshot(&session, &tab))
+        })?;
+        Ok(Reply::Command(CommandOutput { session, tab, record, output, check }))
     }
 
     fn expect(&self, session: String, tab: Option<u32>, expect: &Expect) -> Result<Reply, ErrorBody> {
@@ -457,6 +574,19 @@ impl Session {
     }
 }
 
+fn first_screen(
+    session: &str,
+    tab: u32,
+    terminal: &Terminal,
+    wait: Option<&Wait>,
+    timeout_ms: u64,
+) -> Result<Reply, ErrorBody> {
+    match wait {
+        Some(wait) => settle(session, tab, terminal, wait, timeout_ms),
+        None => Ok(Reply::Snapshot(terminal.snapshot(session, &tab_name(tab)))),
+    }
+}
+
 fn settle(session: &str, tab: u32, terminal: &Terminal, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
     let tab = tab_name(tab);
     let settled = terminal.wait(condition(wait)?, Duration::from_millis(timeout_ms));
@@ -489,6 +619,17 @@ fn wait_for(
         Settled::Exited => Err(exited_while_waiting(wait, terminal.snapshot(session, tab))),
         Settled::TimedOut => Err(timed_out(wait, timeout_ms, terminal.snapshot(session, tab))),
     }
+}
+
+fn with_screen(code: i32, message: String, snapshot: Snapshot) -> ErrorBody {
+    ErrorBody { code, message, snapshot: Some(Box::new(snapshot)) }
+}
+
+fn no_integration(session: &str, tab: &str, terminal: &Terminal) -> ErrorBody {
+    failure(format!(
+        "{session} {tab} runs {} without shell integration, so it keeps no command history; exec, history and wait --command work in a tab opened with `agent-terminal shell`",
+        terminal.program
+    ))
 }
 
 fn assertion(message: String, snapshot: Snapshot) -> ErrorBody {
@@ -542,6 +683,7 @@ fn describe(wait: &Wait) -> String {
         Wait::Exit { code: Some(code) } => format!("the program to exit with code {code}"),
         Wait::Cursor { row, col } => format!("the cursor to reach {row},{col}"),
         Wait::Frame { frame } => format!("frame {frame}"),
+        Wait::Command => "the shell command to finish".to_string(),
         Wait::Text(text) => describe_text(text, "to appear", "a match for"),
         Wait::Gone(text) => describe_text(text, "to disappear", "no match for"),
     }

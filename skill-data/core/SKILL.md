@@ -107,6 +107,8 @@ agent-terminal history --failed            # which commands failed
 agent-terminal history show 3              # the output of command 3
 ```
 
+`shell` opens your `$SHELL` (zsh, bash or fish; `--shell` picks one) with shell integration, which is what records each command's exit code, duration, cwd and output. A tab opened with `open` has none, so `exec` and `history` refuse there. `exec` waits for a command that is still running before it types the next one; when `exec` times out, the command keeps running: `wait --command` waits for it.
+
 Use `type` + `press Enter` only when you need to test the typing itself, such as shell completion or a prompt.
 
 ## Checking

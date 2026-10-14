@@ -20,6 +20,8 @@
 
 **command**: one shell command line, delimited by OSC 133 marks. Has its text, cwd, exit code, start time, duration and output range. Not to be confused with a CLI call to agent-terminal, which is an **activity** entry.
 
+**shell integration**: the small startup scripts agent-terminal injects into zsh, bash or fish when `shell` opens a tab, without changing the user's own startup files. They report prompts and commands (OSC 133), the cwd (OSC 7) and the title; the terminal turns those reports into commands. `exec`, `history` and `wait --command` need it.
+
 **activity**: one CLI call to agent-terminal as recorded in the session's log: time, command as typed, duration and result.
 
 **control**: who may send input to a terminal: the agent (default) or a human who took it from the dashboard. While a human holds it, agent input exits 4.
