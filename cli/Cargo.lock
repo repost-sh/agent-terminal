@@ -13,6 +13,7 @@ dependencies = [
  "libc",
  "nix 0.28.0",
  "portable-pty",
+ "regex",
  "semver",
  "serde",
  "serde_json",

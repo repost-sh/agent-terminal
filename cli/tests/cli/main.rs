@@ -1,7 +1,12 @@
 mod batch;
+mod diff;
 mod doctor;
+mod find;
+mod get;
 mod input;
 mod open;
+mod output;
 mod skills;
+mod snapshot;
 mod support;
 mod version;
