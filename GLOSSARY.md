@@ -27,3 +27,5 @@
 **session folder**: the plain folder where a session keeps its recordings and activity log (`~/.agent-terminal/sessions/<session>/`); `trace export` zips it.
 
 **control**: who may send input to a terminal: the agent (default) or a human who took it from the dashboard. While a human holds it, agent input exits 4.
+
+**tool**: an MCP tool served by `agent-terminal mcp`. Each one is a CLI command under the command's words joined with `_` (`get_text`, `tab_new`); it takes the command's arguments and returns its `--json` output.

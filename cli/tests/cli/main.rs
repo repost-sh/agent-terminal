@@ -7,6 +7,7 @@ mod find;
 mod get;
 mod idle;
 mod input;
+mod mcp;
 mod open;
 mod output;
 mod record;
