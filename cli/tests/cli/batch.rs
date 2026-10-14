@@ -1,4 +1,4 @@
-use crate::support::AgentTerminal;
+use crate::support::{AgentTerminal, fixture};
 
 #[test]
 fn batch_runs_commands_in_order_and_prints_each_output_and_exit_code() {
@@ -199,6 +199,29 @@ fn json_output_lists_each_command_with_its_exit_code_and_result() {
         })
     );
     assert_eq!(entries[2], serde_json::json!({ "args": ["close"], "exit_code": null }));
+}
+
+#[test]
+fn batch_runs_any_command_the_daemon_serves() {
+    let at = AgentTerminal::new();
+    let stdin = serde_json::json!([
+        ["open", "--size", "60x3", "--wait", "ready", fixture("input-echo")],
+        ["type", "hi", "--wait", "hi"],
+        ["mark", "typed"],
+        ["close"]
+    ])
+    .to_string();
+    let out = at.run_with(&["batch"], &stdin, &[]).success().screen();
+    let blocks: Vec<&str> = out.split("\n\n").collect();
+    assert_eq!(
+        blocks[1..],
+        [
+            "[2] type hi --wait hi · exit 0\ntyped 2 keys into default t1",
+            "[3] mark typed · exit 0\nmarked typed at frame N",
+            "[4] close · exit 0\nclosed default t1\n"
+        ],
+        "{out}"
+    );
 }
 
 #[test]
