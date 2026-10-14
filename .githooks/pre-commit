@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if ! git diff --cached --name-only | grep -q '^cli/'; then
-  exit 0
+root="$(git rev-parse --show-toplevel)"
+staged="$(git diff --cached --name-only)"
+
+if grep -q '^dashboard/' <<<"$staged"; then
+  cd "$root/dashboard"
+  [ -x node_modules/.bin/oxlint ] || { echo "pre-commit: run 'npm ci' in dashboard/" >&2; exit 1; }
+  npm run --silent lint
 fi
 
-cd "$(git rev-parse --show-toplevel)/cli"
-cargo fmt --all --check || { echo "pre-commit: run 'cargo fmt --all' in cli/" >&2; exit 1; }
-cargo clippy --quiet --workspace --all-targets -- -D warnings
-cargo test --quiet --workspace
+if grep -q '^cli/' <<<"$staged"; then
+  cd "$root/cli"
+  cargo fmt --all --check || { echo "pre-commit: run 'cargo fmt --all' in cli/" >&2; exit 1; }
+  cargo clippy --quiet --workspace --all-targets -- -D warnings
+  cargo test --quiet --workspace
+fi
