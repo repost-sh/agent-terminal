@@ -1,11 +1,14 @@
+mod batch;
 mod commands;
 mod connection;
+mod doctor;
 mod key;
 mod native;
 mod output;
 mod protocol;
 mod session_id;
 mod skills;
+mod upgrade;
 
 use std::fmt;
 

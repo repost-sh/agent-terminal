@@ -1,5 +1,6 @@
 use crate::protocol::{
-    Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, SessionInfo, Snapshot, SnapshotDiff,
+    BatchOutcome, Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Response, SessionInfo, Snapshot,
+    SnapshotDiff,
 };
 use crate::session_id::SessionId;
 
@@ -74,6 +75,8 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Delivered(delivered) if json => println!("{}", serde_json::json!(delivered)),
         Reply::Delivered(delivered) => println!("{}", delivery(delivered)),
         Reply::Stopped => {}
+        Reply::Batch(outcomes) if json => println!("{}", batch_json(outcomes)),
+        Reply::Batch(outcomes) => batch(outcomes),
         Reply::Fact(fact) if json => println!("{}", serde_json::json!(fact)),
         Reply::Fact(fact) => print!("{}", fact_text(fact)),
         Reply::Matches(matches) if json => println!("{}", serde_json::json!(matches)),
@@ -232,6 +235,55 @@ fn count(n: usize, noun: &str) -> String {
     if n == 1 { format!("1 {noun}") } else { format!("{n} {noun}s") }
 }
 
+fn batch_json(outcomes: &[BatchOutcome]) -> serde_json::Value {
+    outcomes
+        .iter()
+        .map(|outcome| {
+            let mut entry = serde_json::json!({
+                "args": outcome.args,
+                "exit_code": outcome.response.as_ref().map(Response::exit_code),
+            });
+            match &outcome.response {
+                Some(Response::Ok(ok)) => entry["result"] = serde_json::json!(ok)["data"].take(),
+                Some(Response::Err(error)) => entry["error"] = serde_json::json!(error),
+                None => {}
+            }
+            entry
+        })
+        .collect()
+}
+
+fn batch(outcomes: &[BatchOutcome]) {
+    for (index, outcome) in outcomes.iter().enumerate() {
+        if index > 0 {
+            println!();
+        }
+        let call = format!("[{}] {}", index + 1, call_line(&outcome.args));
+        let Some(response) = &outcome.response else {
+            println!("{call} · not run");
+            continue;
+        };
+        println!("{call} · exit {}", response.exit_code());
+        match response {
+            Response::Ok(ok) => reply(ok, false),
+            Response::Err(error) => {
+                println!("error: {}", error.message);
+                if let Some(snapshot) = &error.snapshot {
+                    print!("{}", screen(snapshot));
+                }
+            }
+        }
+    }
+}
+
+pub fn call_line(args: &[String]) -> String {
+    let words: Vec<String> = args
+        .iter()
+        .map(|arg| shlex::try_quote(arg).map_or_else(|_| format!("{arg:?}"), |quoted| quoted.into_owned()))
+        .collect();
+    words.join(" ")
+}
+
 pub fn error(error: &ErrorBody, json: bool) -> i32 {
     if json {
         println!("{}", serde_json::json!({ "error": error }));
@@ -247,4 +299,14 @@ pub fn error(error: &ErrorBody, json: bool) -> i32 {
 pub fn fail(message: &str, code: i32) -> i32 {
     eprintln!("error: {message}");
     code
+}
+
+pub fn version(json: bool) -> i32 {
+    let version = env!("CARGO_PKG_VERSION");
+    if json {
+        println!("{}", serde_json::json!({ "version": version }));
+    } else {
+        println!("agent-terminal {version}");
+    }
+    0
 }

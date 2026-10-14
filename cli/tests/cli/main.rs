@@ -1,4 +1,6 @@
+mod batch;
 mod diff;
+mod doctor;
 mod find;
 mod get;
 mod idle;
@@ -12,3 +14,4 @@ mod skills;
 mod snapshot;
 mod support;
 mod tabs;
+mod version;

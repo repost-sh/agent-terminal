@@ -1,18 +1,21 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
+use crate::batch;
 use crate::connection::{self, IfNotRunning, Launch};
+use crate::doctor;
 use crate::key::Key;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Signal, Size,
-    SnapshotOptions, Wait,
+    Baseline, BatchStep, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Signal,
+    Size, SnapshotOptions, Wait,
 };
 use crate::session_id;
 use crate::skills;
+use crate::upgrade;
 
 #[derive(Parser)]
 #[command(name = "agent-terminal", version, about = "Fast terminal automation CLI for AI agents")]
@@ -141,6 +144,29 @@ enum Command {
         #[command(subcommand)]
         action: DaemonAction,
     },
+    #[command(
+        about = "Several commands in one call (args or stdin)",
+        long_about = "Run several commands in order in one call to the daemon.\n\nPass each command as one quoted argument, e.g. batch \"open htop\" \"snapshot\", or pipe a JSON array to stdin whose items are command lines or argument arrays, e.g. [[\"open\", \"htop\"], \"snapshot\"]. Commands use the batch's --session, --tab and --timeout unless they set their own. Every command is parsed before any of them runs. Each command's output and exit code are printed in order, and batch exits with the code of the first command that failed."
+    )]
+    Batch(BatchArgs),
+    #[command(about = "Check PTY support and the daemon socket, and say how to fix each problem")]
+    Doctor {
+        #[arg(long, help = "Remove stale sockets and state")]
+        fix: bool,
+    },
+    #[command(about = "Upgrade to the latest version, with npm or Homebrew, whichever installed it")]
+    Upgrade,
+    #[command(about = "Print the version")]
+    Version,
+}
+
+#[derive(Args)]
+struct BatchArgs {
+    #[arg(long, help = "Stop at the first command that fails")]
+    bail: bool,
+
+    #[arg(help = "The commands, each as one quoted argument", value_name = "COMMAND")]
+    commands: Vec<String>,
 }
 
 #[derive(Args)]
@@ -405,45 +431,58 @@ pub fn run() -> i32 {
             return code;
         }
     };
-    let session = cli.session;
+    let json = cli.json;
+    let idle_timeout = cli.idle_timeout;
     let request = match cli.command {
         Command::Daemon { action: DaemonAction::Run } => {
-            return match daemon::run(cli.idle_timeout) {
+            return match daemon::run(idle_timeout) {
                 Ok(()) => 0,
                 Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
             };
         }
-        Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
-        Command::Skills { action } => return skills::run(action, cli.json, Cli::command()),
-        Command::Install { .. } => return skills::install(cli.json),
-        Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
-            match open(session, args, cli.timeout) {
-                Ok(request) => request,
-                Err(message) => return output::fail(&message, crate::exit::ERROR),
-            }
-        }
-        Command::Tab { id: Some(tab), .. } => Request::SwitchTab { session, tab },
-        Command::Tab { id: None, action: None | Some(TabAction::List) } => Request::Tabs { session },
-        Command::Tab { action: Some(TabAction::Close { id }), .. } => {
-            Request::Close { session, all: false, tab: id.or(cli.tab) }
-        }
+        Command::Skills { action } => return skills::run(action, json, Cli::command()),
+        Command::Install { .. } => return skills::install(json),
         Command::Session { action: None } => {
-            output::session(&session, cli.json);
+            output::session(&cli.session, json);
             return 0;
         }
-        Command::Session { action: Some(SessionAction::List) } => Request::Sessions,
         Command::Session { action: Some(SessionAction::Id { scope: Scope::Worktree, prefix }) } => {
             let id = std::env::current_dir()
                 .map_err(anyhow::Error::from)
                 .and_then(|cwd| session_id::for_worktree(&cwd, prefix.as_deref()));
             return match id {
                 Ok(id) => {
-                    output::session_id(&id, cli.json);
+                    output::session_id(&id, json);
                     0
                 }
                 Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
             };
         }
+        Command::Version => return output::version(json),
+        Command::Doctor { fix } => return doctor::run(fix, json),
+        Command::Upgrade => return upgrade::run(json),
+        Command::Batch(args) => batch(&args, &cli.session, cli.tab, cli.timeout),
+        command => request(Cli { command, ..cli }),
+    };
+    match request {
+        Ok(request) => send(&request, json, idle_timeout),
+        Err(message) => output::fail(&message, crate::exit::ERROR),
+    }
+}
+
+fn request(cli: Cli) -> Result<Request, String> {
+    let session = cli.session;
+    let request = match cli.command {
+        Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
+        Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
+            open(session, args, cli.timeout)?
+        }
+        Command::Tab { id: Some(tab), .. } => Request::SwitchTab { session, tab },
+        Command::Tab { id: None, action: None | Some(TabAction::List) } => Request::Tabs { session },
+        Command::Tab { action: Some(TabAction::Close { id }), .. } => {
+            Request::Close { session, all: false, tab: id.or(cli.tab) }
+        }
+        Command::Session { action: Some(SessionAction::List) } => Request::Sessions,
         Command::Restart(wait) => {
             Request::Restart { session, tab: cli.tab, wait: wait.until(), timeout_ms: cli.timeout }
         }
@@ -457,10 +496,7 @@ pub fn run() -> i32 {
         Command::Mark { name } => Request::Mark { session, tab: cli.tab, name },
         Command::Output { since, raw } => Request::Output { session, tab: cli.tab, since, raw },
         Command::Diff { what: DiffCommand::Snapshot { baseline } } => {
-            let baseline = match baseline.map(|path| read_baseline(&path)).transpose() {
-                Ok(baseline) => baseline,
-                Err(message) => return output::fail(&message, crate::exit::ERROR),
-            };
+            let baseline = baseline.map(|path| read_baseline(&path)).transpose()?;
             Request::DiffSnapshot { session, tab: cli.tab, baseline }
         }
         Command::Type(args) => {
@@ -474,23 +510,60 @@ pub fn run() -> i32 {
         Command::Signal(args) => {
             input(session, cli.tab, Input::Signal { signal: args.signal }, args.after, cli.timeout)
         }
+        Command::Daemon { action: DaemonAction::Run }
+        | Command::Skills { .. }
+        | Command::Install { .. }
+        | Command::Session { action: None | Some(SessionAction::Id { .. }) }
+        | Command::Batch(_)
+        | Command::Doctor { .. }
+        | Command::Upgrade
+        | Command::Version => {
+            return Err("this command runs on its own, not inside batch".into());
+        }
     };
 
-    let if_not_running = match &request {
+    Ok(request)
+}
+
+fn batch(args: &BatchArgs, session: &str, tab: Option<u32>, timeout: u64) -> Result<Request, String> {
+    let parser = Cli::command()
+        .no_binary_name(true)
+        .mut_arg("session", |arg| arg.env(None::<&str>).default_value(session.to_string()))
+        .mut_arg("tab", |arg| match tab {
+            Some(id) => arg.default_value(id.to_string()),
+            None => arg,
+        })
+        .mut_arg("timeout", |arg| arg.default_value(timeout.to_string()));
+    let mut steps = Vec::new();
+    for (index, call) in batch::calls(&args.commands)?.into_iter().enumerate() {
+        let request = batch_step(parser.clone(), &call)
+            .map_err(|reason| batch::not_valid(index, &output::call_line(&call), &reason))?;
+        steps.push(BatchStep { args: call, request });
+    }
+    Ok(Request::Batch { steps, bail: args.bail })
+}
+
+fn batch_step(parser: clap::Command, call: &[String]) -> Result<Request, String> {
+    let matches = parser.try_get_matches_from(call).map_err(|e| e.render().to_string())?;
+    request(Cli::from_arg_matches(&matches).map_err(|e| e.render().to_string())?)
+}
+
+fn send(request: &Request, json: bool, idle_timeout: Duration) -> i32 {
+    let if_not_running = match request {
         Request::Stop => IfNotRunning::Answer(Reply::Stopped),
         Request::Sessions => IfNotRunning::Answer(Reply::Sessions(Sessions::default())),
         Request::Tabs { session } => IfNotRunning::Answer(Reply::Tabs(SessionInfo::empty(session))),
-        _ => IfNotRunning::Start(Launch { idle_timeout: cli.idle_timeout }),
+        _ => IfNotRunning::Start(Launch { idle_timeout }),
     };
-    let response = match connection::send(&request, if_not_running) {
+    let response = match connection::send(request, if_not_running) {
         Ok(response) => response,
         Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
     };
     match response {
-        Response::Err(error) => output::error(&error, cli.json),
+        Response::Err(error) => output::error(&error, json),
         Response::Ok(reply) => {
-            output::reply(&reply, cli.json);
-            0
+            output::reply(&reply, json);
+            reply.exit_code()
         }
     }
 }

@@ -52,14 +52,31 @@ pub fn send(request: &Request, if_not_running: IfNotRunning) -> Result<Response>
 
 fn connect_or_start(launch: &Launch) -> Result<UnixStream> {
     let home = home()?;
-    std::fs::create_dir_all(&home).with_context(|| format!("create {}", home.display()))?;
-    let lock_path = home.join("start.lock");
-    let lock = std::fs::File::create(&lock_path).with_context(|| format!("create {}", lock_path.display()))?;
-    lock.lock().with_context(|| format!("lock {}", lock_path.display()))?;
+    let _lock = start_lock(&home)?;
     match UnixStream::connect(socket_path()?) {
         Ok(stream) => Ok(stream),
         Err(e) if is_not_running(&e) => start_daemon(&home, launch),
         Err(e) => Err(e).context("connect to the daemon"),
+    }
+}
+
+fn start_lock(home: &std::path::Path) -> Result<std::fs::File> {
+    std::fs::create_dir_all(home).with_context(|| format!("create {}", home.display()))?;
+    let lock_path = home.join("start.lock");
+    let lock = std::fs::File::create(&lock_path).with_context(|| format!("create {}", lock_path.display()))?;
+    lock.lock().with_context(|| format!("lock {}", lock_path.display()))?;
+    Ok(lock)
+}
+
+pub fn remove_stale_socket() -> Result<bool> {
+    let _lock = start_lock(&home()?)?;
+    let socket = socket_path()?;
+    match UnixStream::connect(&socket) {
+        Err(e) if e.kind() == ErrorKind::ConnectionRefused => {
+            std::fs::remove_file(&socket).with_context(|| format!("remove {}", socket.display()))?;
+            Ok(true)
+        }
+        _ => Ok(false),
     }
 }
 

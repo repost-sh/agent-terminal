@@ -10,8 +10,8 @@ use crate::connection::{READY, home, socket_path};
 use crate::native::pty;
 use crate::native::terminal::{Settled, Terminal};
 use crate::protocol::{
-    self, Closed, Delivered, ErrorBody, Input, Marked, Matches, Printed, Reply, Request, Response, SessionInfo,
-    Sessions, Size, Snapshot, TabRef, Wait,
+    self, BatchOutcome, BatchStep, Closed, Delivered, ErrorBody, Input, Marked, Matches, Printed, Reply, Request,
+    Response, SessionInfo, Sessions, Size, Snapshot, TabRef, Wait,
 };
 
 #[derive(Default)]
@@ -186,6 +186,32 @@ impl Daemon {
                 self.shut_down();
                 Ok(Reply::Stopped)
             }
+            Request::Batch { steps, bail } => Ok(Reply::Batch(self.batch(steps, bail))),
+        }
+    }
+
+    fn batch(&self, steps: Vec<BatchStep>, bail: bool) -> Vec<BatchOutcome> {
+        let mut outcomes = Vec::with_capacity(steps.len());
+        let mut failed = false;
+        for step in steps {
+            let response = if bail && failed { None } else { Some(self.batch_step(step.request)) };
+            failed |= response.as_ref().is_some_and(|response| response.exit_code() != 0);
+            outcomes.push(BatchOutcome { args: step.args, response });
+        }
+        outcomes
+    }
+
+    fn batch_step(&self, request: Request) -> Response {
+        if matches!(request, Request::Stop) {
+            return Response::Err(ErrorBody {
+                code: crate::exit::ERROR,
+                message: "stopping the daemon cannot be part of a batch".into(),
+                snapshot: None,
+            });
+        }
+        match self.handle(request) {
+            Ok(reply) => Response::Ok(reply),
+            Err(failure) => Response::Err(failure),
         }
     }
 
