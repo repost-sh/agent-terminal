@@ -30,17 +30,18 @@ const useFit = (terminal: Terminal | null, box: RefObject<HTMLDivElement | null>
   }, [terminal, box]);
 };
 
+type ExitActions = { onRestart: () => void; onClose: () => void };
+
 type ViewportProps = {
   terminal: Terminal | null;
   state: StreamState;
   shown: Shown | null;
   program: string;
   label: string;
-  onRestart: () => void;
-  onClose: () => void;
-};
+} & ({ compact: true } | ({ compact?: false } & ExitActions));
 
-export const Viewport = ({ terminal, state, shown, program, label, onRestart, onClose }: ViewportProps) => {
+export const Viewport = (props: ViewportProps) => {
+  const { terminal, state, shown, program, label } = props;
   const box = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
 
@@ -55,7 +56,7 @@ export const Viewport = ({ terminal, state, shown, program, label, onRestart, on
   const dim = shown?.exited || state === "reconnecting";
 
   return (
-    <div id="viewport-region" ref={box} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+    <div id={props.compact ? undefined : "viewport-region"} ref={box} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
       {loading && (
         <p className="absolute flex items-center gap-2 text-xs text-muted-foreground">
           <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" />
@@ -65,15 +66,18 @@ export const Viewport = ({ terminal, state, shown, program, label, onRestart, on
       <div role="group" aria-label={label} className={cn("term-frame", dim && "is-dim", loading && "opacity-0")}>
         <div ref={host} />
       </div>
-      {shown?.exited && <ExitBar program={program} code={shown.exit_code} onRestart={onRestart} onClose={onClose} />}
+      {shown?.exited && <ExitBar program={program} code={shown.exit_code} actions={props.compact ? null : props} />}
     </div>
   );
 };
 
-const ExitBar = ({ program, code, onRestart, onClose }: { program: string; code: number | null; onRestart: () => void; onClose: () => void }) => (
+const ExitBar = ({ program, code, actions }: { program: string; code: number | null; actions: ExitActions | null }) => (
   <div
     role="status"
-    className="absolute inset-x-0 bottom-4 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-xl bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/10"
+    className={cn(
+      "absolute inset-x-0 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-xl bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/10",
+      actions ? "bottom-4" : "bottom-2",
+    )}
   >
     <span>
       <span className="font-mono">{program}</span>
@@ -86,13 +90,15 @@ const ExitBar = ({ program, code, onRestart, onClose }: { program: string; code:
         </>
       )}
     </span>
-    <span className="flex gap-2">
-      <Button icon={RotateCw} onClick={onRestart}>
-        Restart
-      </Button>
-      <Button variant="ghost" onClick={onClose}>
-        Close tab
-      </Button>
-    </span>
+    {actions && (
+      <span className="flex gap-2">
+        <Button icon={RotateCw} onClick={actions.onRestart}>
+          Restart
+        </Button>
+        <Button variant="ghost" onClick={actions.onClose}>
+          Close tab
+        </Button>
+      </span>
+    )}
   </div>
 );
