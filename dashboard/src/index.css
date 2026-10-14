@@ -238,3 +238,41 @@
     transform: none;
   }
 }
+
+:root {
+  --ansi-0: #3f3f46;
+  --ansi-1: #dc2626;
+  --ansi-2: #16a34a;
+  --ansi-3: #ca8a04;
+  --ansi-4: #2563eb;
+  --ansi-5: #9333ea;
+  --ansi-6: #0891b2;
+  --ansi-7: #71717a;
+  --ansi-8: #52525b;
+  --ansi-9: #ef4444;
+  --ansi-10: #22c55e;
+  --ansi-11: #eab308;
+  --ansi-12: #3b82f6;
+  --ansi-13: #a855f7;
+  --ansi-14: #06b6d4;
+  --ansi-15: #a1a1aa;
+}
+
+.dark {
+  --ansi-0: #27272a;
+  --ansi-1: #f87171;
+  --ansi-2: #4ade80;
+  --ansi-3: #facc15;
+  --ansi-4: #60a5fa;
+  --ansi-5: #c084fc;
+  --ansi-6: #22d3ee;
+  --ansi-7: #d4d4d8;
+  --ansi-8: #71717a;
+  --ansi-9: #fca5a5;
+  --ansi-10: #86efac;
+  --ansi-11: #fde047;
+  --ansi-12: #93c5fd;
+  --ansi-13: #d8b4fe;
+  --ansi-14: #67e8f9;
+  --ansi-15: #fafafa;
+}

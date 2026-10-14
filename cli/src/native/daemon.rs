@@ -11,15 +11,17 @@ use crate::connection::{READY, home, socket_path};
 use crate::native::changes::Changes;
 use crate::native::dashboard::{self, Backend};
 use crate::native::pty;
+use crate::native::screenshots;
 use crate::native::shell;
 use crate::native::store::{self, ActivityEntry, SessionFolder};
 use crate::native::terminal::{Settled, Terminal};
 use crate::native::wait::{Condition, Pattern};
+use crate::output;
 use crate::protocol::{
     self, Addressed, BatchOutcome, BatchStep, Call, Checked, Closed, CommandOutput, CommandRecord, Dashboard,
     DashboardStopped, Delivered, ErrorBody, Expect, Export, History, Input, Marked, Matches, Printed, RecordingFile,
-    Reply, Request, Response, RowRange, SavedRecording, SessionInfo, Sessions, Shell, Size, Snapshot, SnapshotOptions,
-    Style, TabRef, TextMatch, Wait, Waited,
+    Reply, Request, Response, RowRange, SavedRecording, SessionInfo, Sessions, Shell, Shot, Size, Snapshot,
+    SnapshotOptions, Style, TabRef, TextMatch, Wait, Waited,
 };
 
 #[derive(Default)]
@@ -171,8 +173,19 @@ impl Daemon {
                 entry.current = Some(tab);
                 Ok(Reply::Tabs(entry.info(&session)))
             }
-            Request::Input { session, tab, input, wait, snapshot, timeout_ms } => {
-                self.input(session, tab, &input, wait.as_ref(), snapshot, timeout_ms)
+            Request::Input { session, tab, input, wait, snapshot, screenshot, timeout_ms } => {
+                let after = After { wait: wait.as_ref(), snapshot, screenshot: screenshot.as_ref() };
+                self.input(session, tab, &input, after, timeout_ms)
+            }
+            Request::Screenshot { session, tab, shot } => {
+                let (id, terminal) = self.target(&session, tab)?;
+                screenshots::take(&session, &tab_name(id), &terminal, &shot).map(Reply::Screenshot).map_err(error_body)
+            }
+            Request::DiffScreenshot { session, tab, baseline, shot, threshold } => {
+                let (id, terminal) = self.target(&session, tab)?;
+                screenshots::diff(&session, &tab_name(id), &terminal, baseline, &shot, threshold)
+                    .map(Reply::ScreenshotDiff)
+                    .map_err(error_body)
             }
             Request::Wait { session, tab, wait: Wait::Elapsed { ms }, timeout_ms } => {
                 self.wait(session, tab, &Wait::Elapsed { ms }, timeout_ms.max(ms))
@@ -372,12 +385,27 @@ impl Daemon {
             Some(terminal.frame())
         });
         match handled {
-            Ok(reply) => entry.exit = reply.exit_code(),
+            Ok(reply) => {
+                entry.exit = reply.exit_code();
+                entry.printed(output::reply_text(reply));
+            }
             Err(failure) => {
                 entry.exit = failure.code;
                 entry.error = Some(failure.message.clone());
+                entry.printed(output::error_text(failure));
             }
         }
+        if let Ok(Reply::ScreenshotDiff(diff)) = handled
+            && !diff.passed
+        {
+            entry.error = Some(diff.summary());
+        }
+        entry.screenshots = match handled {
+            Ok(Reply::Screenshot(screenshot)) => vec![screenshot.path.clone()],
+            Ok(Reply::ScreenshotDiff(diff)) => vec![diff.path.clone()],
+            Ok(Reply::Delivered(delivered)) => delivered.screenshot.iter().map(|shot| shot.path.clone()).collect(),
+            Ok(_) | Err(_) => Vec::new(),
+        };
         folder.log(&entry);
     }
 
@@ -467,7 +495,8 @@ impl Daemon {
         };
         let tab = folder.next_tab();
         let recording = folder.record(&tab_name(tab), &command);
-        let terminal = Terminal::start(command, shell, spawned, recording, self.changes.clone());
+        let command_log = folder.command_log(&tab_name(tab));
+        let terminal = Terminal::start(command, shell, spawned, recording, command_log, self.changes.clone());
         {
             let mut sessions = self.sessions.lock().unwrap();
             let entry = sessions.entry(session.to_string()).or_insert_with(|| Session::new(Arc::clone(&folder)));
@@ -520,7 +549,8 @@ impl Daemon {
         let spawned = pty::spawn(command.clone()).map_err(error_body)?;
         let recording = old.recording();
         recording.restart();
-        let terminal = Terminal::start(command, old.shell(), spawned, recording, self.changes.clone());
+        let terminal =
+            Terminal::start(command, old.shell(), spawned, recording, old.command_log(), self.changes.clone());
         {
             let mut sessions = self.sessions.lock().unwrap();
             match sessions.get_mut(session).and_then(|s| s.tabs.get_mut(&tab)) {
@@ -541,19 +571,23 @@ impl Daemon {
         session: String,
         tab: Option<u32>,
         input: &Input,
-        wait: Option<&Wait>,
-        snapshot: bool,
+        after: After<'_>,
         timeout_ms: u64,
     ) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&session, tab)?;
         let tab = tab_name(id);
-        let condition = wait.map(condition).transpose()?;
+        let condition = after.wait.map(condition).transpose()?;
         let delivery = terminal.input(input).map_err(|e| error_body(e.context(format!("{session} {tab}"))))?;
-        if let Some((wait, condition)) = wait.zip(condition) {
+        if let Some((wait, condition)) = after.wait.zip(condition) {
             wait_for(&terminal, &session, &tab, wait, condition, timeout_ms)?;
         }
-        let snapshot = snapshot.then(|| Box::new(terminal.snapshot(&session, &tab)));
-        Ok(Reply::Delivered(Delivered { session, tab, delivery, snapshot }))
+        let screenshot = after
+            .screenshot
+            .map(|shot| screenshots::take(&session, &tab, &terminal, shot).map_err(error_body))
+            .transpose()?
+            .map(Box::new);
+        let snapshot = after.snapshot.then(|| Box::new(terminal.snapshot(&session, &tab)));
+        Ok(Reply::Delivered(Delivered { session, tab, delivery, screenshot, snapshot }))
     }
 
     fn wait(&self, session: String, tab: Option<u32>, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
@@ -738,6 +772,10 @@ impl Backend for Daemon {
         self.sessions.lock().unwrap().get(session).and_then(|entry| entry.tabs.get(&tab)).cloned()
     }
 
+    fn folder(&self, session: &str) -> Option<Arc<SessionFolder>> {
+        self.sessions.lock().unwrap().get(session).map(|entry| Arc::clone(&entry.folder))
+    }
+
     fn changes(&self) -> watch::Receiver<u64> {
         self.changes.subscribe()
     }
@@ -755,6 +793,12 @@ impl Session {
             tabs: self.tabs.iter().map(|(id, terminal)| terminal.info(&tab_name(*id))).collect(),
         }
     }
+}
+
+struct After<'a> {
+    wait: Option<&'a Wait>,
+    snapshot: bool,
+    screenshot: Option<&'a Shot>,
 }
 
 fn first_screen(

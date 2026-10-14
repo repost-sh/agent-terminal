@@ -52,6 +52,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
+      - run: npm run lint
       - run: npm run build
       - name: The build committed in cli/assets/dashboard matches the sources
         run: |
@@ -106,6 +107,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: cli
+      - name: Install fish for the shell tests
+        if: runner.os == 'Linux'
+        run: |
+          sudo add-apt-repository --yes ppa:fish-shell/release-4
+          sudo apt-get update
+          sudo apt-get install --yes fish
+          fish --version
+      - name: Install fish for the shell tests
+        if: runner.os == 'macOS'
+        run: |
+          brew install fish
+          fish --version
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace

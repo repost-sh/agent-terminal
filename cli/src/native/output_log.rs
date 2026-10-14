@@ -7,6 +7,7 @@ struct Point {
     frame: u64,
     raw: u64,
     text: u64,
+    styled: u64,
 }
 
 #[derive(Default)]
@@ -38,22 +39,53 @@ impl Kept {
         let kept = self.bytes.range((start - self.dropped) as usize..(end - self.dropped) as usize).copied().collect();
         (kept, start - from)
     }
+
+    fn kept_from(&self, offset: u64) -> (u64, Vec<u8>) {
+        let start = offset.clamp(self.dropped, self.end());
+        (start, self.bytes.range((start - self.dropped) as usize..).copied().collect())
+    }
+}
+
+pub struct Slice {
+    pub start: u64,
+    pub bytes: Vec<u8>,
+}
+
+pub struct Output {
+    pub raw: Slice,
+    pub styled: Slice,
+    pub marks: Vec<Marked>,
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Marked {
+    pub raw: u64,
+    pub styled: u64,
+    pub name: String,
+}
+
+#[derive(Clone, Copy)]
+pub struct Offsets {
+    pub text: u64,
+    pub styled: u64,
 }
 
 #[derive(Default)]
 pub struct OutputLog {
     raw: Kept,
     text: Kept,
+    styled: Kept,
     chunks: VecDeque<Point>,
     forgot_chunks: bool,
     marks: HashMap<String, Point>,
 }
 
 impl OutputLog {
-    pub fn record(&mut self, frame: u64, raw: &[u8], text: &[u8]) {
+    pub fn record(&mut self, frame: u64, raw: &[u8], text: &[u8], styled: &[u8]) {
         self.chunks.push_back(self.here(frame));
         self.raw.push(raw);
         self.text.push(text);
+        self.styled.push(styled);
         while self.chunks.front().is_some_and(|chunk| chunk.raw < self.raw.dropped) {
             self.chunks.pop_front();
             self.forgot_chunks = true;
@@ -66,7 +98,7 @@ impl OutputLog {
 
     pub fn since(&self, since: Option<&str>, raw: bool, frame: u64) -> Result<String, String> {
         let (point, described) = match since {
-            None => (Some(Point { frame: 0, raw: 0, text: 0 }), "the start".to_string()),
+            None => (Some(Point { frame: 0, raw: 0, text: 0, styled: 0 }), "the start".to_string()),
             Some(name) => match (self.marks.get(name), name.parse::<u64>()) {
                 (Some(point), _) => (Some(*point), name.to_string()),
                 (None, Ok(since_frame)) => (self.at_frame(since_frame, frame), format!("frame {since_frame}")),
@@ -85,24 +117,34 @@ impl OutputLog {
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
-    pub fn text_end(&self) -> u64 {
-        self.text.end()
+    pub fn end(&self) -> Offsets {
+        Offsets { text: self.text.end(), styled: self.styled.end() }
     }
 
-    pub fn text_between(&self, from: u64, to: Option<u64>) -> String {
-        let (kept, lost) = self.text.between(from, to.unwrap_or_else(|| self.text.end()));
-        let text = String::from_utf8_lossy(&kept).into_owned();
-        if lost == 0 {
-            return text;
-        }
-        format!(
-            "… (the first {lost} bytes are no longer kept; agent-terminal keeps the last {} MiB of output)\n{text}",
-            KEPT_BYTES / (1024 * 1024)
-        )
+    pub fn output_since(&self, raw: u64, styled: u64) -> Output {
+        let slice = |kept: &Kept, offset: u64| {
+            let (start, bytes) = kept.kept_from(offset);
+            Slice { start, bytes }
+        };
+        let mut marks: Vec<Marked> = self
+            .marks
+            .iter()
+            .map(|(name, point)| Marked { raw: point.raw, styled: point.styled, name: name.clone() })
+            .collect();
+        marks.sort();
+        Output { raw: slice(&self.raw, raw), styled: slice(&self.styled, styled), marks }
+    }
+
+    pub fn text_between(&self, from: Offsets, to: Option<Offsets>) -> String {
+        kept_between(&self.text, from.text, to.map(|to| to.text))
+    }
+
+    pub fn styled_between(&self, from: Offsets, to: Option<Offsets>) -> String {
+        kept_between(&self.styled, from.styled, to.map(|to| to.styled))
     }
 
     fn here(&self, frame: u64) -> Point {
-        Point { frame, raw: self.raw.end(), text: self.text.end() }
+        Point { frame, raw: self.raw.end(), text: self.text.end(), styled: self.styled.end() }
     }
 
     fn at_frame(&self, since: u64, frame: u64) -> Option<Point> {
@@ -112,4 +154,16 @@ impl OutputLog {
             None => Some(self.here(frame)),
         }
     }
+}
+
+fn kept_between(kept: &Kept, from: u64, to: Option<u64>) -> String {
+    let (bytes, lost) = kept.between(from, to.unwrap_or_else(|| kept.end()));
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    if lost == 0 {
+        return text;
+    }
+    format!(
+        "… (the first {lost} bytes are no longer kept; agent-terminal keeps the last {} MiB of output)\n{text}",
+        KEPT_BYTES / (1024 * 1024)
+    )
 }

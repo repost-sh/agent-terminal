@@ -1,31 +1,33 @@
 use std::io::{Read, Write};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use tokio::sync::watch;
 
 use crate::key::{Key, KeyCode, Mods};
 use crate::native::changes::Changes;
-use crate::native::commands::{Commands, Point, Submitted};
+use crate::native::commands::{Change, Commands, Point, Submitted};
 use crate::native::keyboard;
 use crate::native::mouse::{self, Action};
-use crate::native::output_log::OutputLog;
+use crate::native::output_log::{Offsets, Output, OutputLog};
 use crate::native::pty::{self, Killer, Signaller, Spawned};
 use crate::native::recording::Recording;
-use crate::native::refs::{self, Found};
+use crate::native::refs::{self, Found, Grid};
 use crate::native::screen::{Screen, ShellReport};
+use crate::native::store::CommandLog;
 use crate::native::wait::{self, Condition, Moment, Verdict};
 use crate::protocol::{
     Baseline, Cell, ClickTarget, CommandRecord, Cursor, Delivery, DiffBase, Direction, Exit, Fact, Get, Input, Match,
-    MouseButton, MouseEvent, Ref, RowChange, RowRange, ScrollBy, Scrollback, Shell, Size, Snapshot, SnapshotDiff,
-    SnapshotOptions, TabInfo,
+    Modes, MouseButton, MouseEvent, Ref, RowChange, RowRange, ScrollBy, Scrollback, Shell, Size, Snapshot,
+    SnapshotDiff, SnapshotOptions, TabInfo,
 };
 
 pub struct Terminal {
     pub program: String,
     pid: Option<u32>,
     cwd: String,
+    started: SystemTime,
     state: Mutex<State>,
     changed: Condvar,
     input_turn: Mutex<()>,
@@ -36,8 +38,20 @@ pub struct Terminal {
     command: pty::Command,
     shell: Option<Shell>,
     recording: Arc<Recording>,
+    command_log: CommandLog,
     frames: Changes,
+    history: Changes,
     lifecycle: Changes,
+}
+
+pub struct Setup {
+    pub command: pty::Command,
+    pub pid: Option<u32>,
+    pub cwd: String,
+    pub size: Size,
+    pub modes: Modes,
+    pub started: SystemTime,
+    pub exit: Option<Option<i32>>,
 }
 
 pub struct Picture {
@@ -119,6 +133,13 @@ impl State {
     }
 }
 
+pub struct Capture {
+    pub grid: Grid,
+    pub rows: RowRange,
+    pub frame: u64,
+    pub refs: Option<Vec<Ref>>,
+}
+
 pub enum Settled {
     Met { frame: u64 },
     Exited,
@@ -131,6 +152,7 @@ impl Terminal {
         shell: Option<Shell>,
         spawned: Spawned,
         recording: Arc<Recording>,
+        command_log: CommandLog,
         lifecycle: Changes,
     ) -> Arc<Self> {
         let program = display_name(&command.program);
@@ -143,6 +165,7 @@ impl Terminal {
             program,
             pid: spawned.pid,
             cwd,
+            started: SystemTime::now(),
             state: Mutex::new(State {
                 look: screen.fingerprint(),
                 screen,
@@ -167,7 +190,9 @@ impl Terminal {
             command,
             shell,
             recording,
+            command_log,
             frames: Changes::default(),
+            history: Changes::default(),
             lifecycle,
         });
 
@@ -207,30 +232,45 @@ impl Terminal {
     }
 
     fn output(&self, bytes: &[u8]) {
-        let replies = {
+        let (replies, history_changed) = {
             let mut state = self.state.lock().unwrap();
             self.recording.output(bytes);
             let replies = state.screen.feed(bytes);
             let printed = state.screen.take_printed();
             let reports = state.screen.take_shell_reports();
             let frame = state.frame;
-            let start = state.log.text_end();
-            state.log.record(frame, bytes, printed.as_bytes());
+            let start = state.log.end();
+            state.log.record(frame, bytes, printed.text.as_bytes(), printed.styled.as_bytes());
             let now = Instant::now();
             state.last_output = now;
             state.advance(now);
             let shown = state.frame;
-            if let Some(commands) = &mut state.commands {
+            let mut history_changed = false;
+            let State { commands, log, .. } = &mut *state;
+            if let Some(commands) = commands {
                 for (at, report) in reports {
                     let frame = if matches!(report, ShellReport::Started { .. }) { frame } else { shown };
-                    commands.report(report, Point { output: start + at as u64, frame });
+                    let output = Offsets { text: start.text + at.text as u64, styled: start.styled + at.styled as u64 };
+                    match commands.report(report, Point { output, frame }) {
+                        Some(Change::Started) => history_changed = true,
+                        Some(Change::Finished { id }) => {
+                            history_changed = true;
+                            if let Some((record, from, to)) = commands.record(id) {
+                                self.command_log.append(&record, &log.text_between(from, to));
+                            }
+                        }
+                        None => {}
+                    }
                 }
             }
             state.publish();
-            replies
+            (replies, history_changed)
         };
         self.changed.notify_all();
         self.frames.notify();
+        if history_changed {
+            self.history.notify();
+        }
         if !replies.is_empty() {
             let mut writer = self.writer.lock().unwrap();
             if let Err(e) = writer.write_all(&replies).and_then(|()| writer.flush()) {
@@ -247,15 +287,22 @@ impl Terminal {
 
     pub fn snapshot_with(&self, session: &str, tab: &str, options: &SnapshotOptions) -> Result<Snapshot, String> {
         let mut state = self.state.lock().unwrap();
-        let size = state.screen.view().size;
-        let range = match options.rows {
-            None => RowRange { first: 1, last: size.rows },
-            Some(RowRange { first, last }) if first == 0 || first > size.rows || first > last => {
-                return Err(format!("rows {first}:{last} are outside the {}x{} screen", size.cols, size.rows));
-            }
-            Some(RowRange { first, last }) => RowRange { first, last: last.min(size.rows) },
-        };
+        let range = row_range(state.screen.size(), options.rows)?;
         Ok(self.render(&mut state, session, tab, range, options))
+    }
+
+    pub fn capture(&self, rows: Option<RowRange>, refs: bool) -> Result<Capture, String> {
+        let mut state = self.state.lock().unwrap();
+        let rows = row_range(state.screen.size(), rows)?;
+        let grid = state.screen.grid();
+        let refs = refs.then(|| remember_refs(&mut state, &grid));
+        Ok(Capture { grid, rows, frame: state.frame, refs })
+    }
+
+    pub fn text_rows(&self, rows: Option<RowRange>, ansi: bool) -> Result<(u64, Vec<String>), String> {
+        let state = self.state.lock().unwrap();
+        let rows = row_range(state.screen.size(), rows)?;
+        Ok((state.frame, state.screen.rows(rows.first as i32 - 1..rows.last as i32, ansi)))
     }
 
     fn render(
@@ -337,8 +384,29 @@ impl Terminal {
         }
     }
 
+    pub fn setup(&self) -> Setup {
+        let state = self.state.lock().unwrap();
+        Setup {
+            command: self.command.clone(),
+            pid: self.pid,
+            cwd: state.screen.reported_cwd().unwrap_or_else(|| self.cwd.clone()),
+            size: state.screen.size(),
+            modes: state.screen.modes(),
+            started: self.started,
+            exit: state.exit,
+        }
+    }
+
     pub fn recording(&self) -> Arc<Recording> {
         Arc::clone(&self.recording)
+    }
+
+    pub fn command_log(&self) -> CommandLog {
+        self.command_log.clone()
+    }
+
+    pub fn history_changes(&self) -> watch::Receiver<u64> {
+        self.history.subscribe()
     }
 
     pub fn rerun(&self) -> pty::Command {
@@ -433,6 +501,10 @@ impl Terminal {
         let frame = state.frame;
         state.log.mark(name, frame);
         frame
+    }
+
+    pub fn output_since(&self, raw: u64, styled: u64) -> Output {
+        self.state.lock().unwrap().log.output_since(raw, styled)
     }
 
     pub fn printed(&self, since: Option<&str>, raw: bool) -> Result<String, String> {
@@ -687,6 +759,12 @@ impl Terminal {
         Some((record, state.log.text_between(from, to)))
     }
 
+    pub fn styled_command(&self, id: u32) -> Option<(CommandRecord, String)> {
+        let state = self.state.lock().unwrap();
+        let (record, from, to) = state.commands.as_ref()?.record(id)?;
+        Some((record, state.log.styled_between(from, to)))
+    }
+
     pub fn exit_status(&self) -> Option<Option<i32>> {
         self.state.lock().unwrap().exit
     }
@@ -761,8 +839,23 @@ fn click_target(state: &State, target: &ClickTarget) -> Result<(u16, u16)> {
     }
 }
 
+fn row_range(size: Size, rows: Option<RowRange>) -> Result<RowRange, String> {
+    match rows {
+        None => Ok(RowRange { first: 1, last: size.rows }),
+        Some(RowRange { first, last }) if first == 0 || first > size.rows || first > last => {
+            Err(format!("rows {first}:{last} are outside the {}x{} screen", size.cols, size.rows))
+        }
+        Some(RowRange { first, last }) => Ok(RowRange { first, last: last.min(size.rows) }),
+    }
+}
+
 fn list_refs(state: &mut State) -> Vec<Ref> {
-    let found = refs::find(&state.screen.grid());
+    let grid = state.screen.grid();
+    remember_refs(state, &grid)
+}
+
+fn remember_refs(state: &mut State, grid: &Grid) -> Vec<Ref> {
+    let found = refs::find(grid);
     let frame = state.frame;
     let listed = found.iter().enumerate().map(|(index, found)| listed_ref(index, found, frame)).collect();
     state.listed = Some(Listed { frame, refs: found });

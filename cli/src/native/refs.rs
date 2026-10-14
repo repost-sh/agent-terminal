@@ -13,6 +13,10 @@ pub struct Glyph {
     pub inverse: bool,
     pub bold: bool,
     pub underline: bool,
+    pub italic: bool,
+    pub dim: bool,
+    pub strikeout: bool,
+    pub wide: bool,
     pub link: Option<Link>,
 }
 

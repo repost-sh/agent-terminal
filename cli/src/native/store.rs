@@ -1,23 +1,27 @@
-use std::fs::OpenOptions;
-use std::io::{ErrorKind, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
+use tokio::sync::watch;
 use zip::write::SimpleFileOptions;
 
+use crate::native::changes::Changes;
 use crate::native::pty;
 use crate::native::recording::Recording;
 use crate::output::call_line;
+use crate::protocol::CommandRecord;
 
 pub struct SessionFolder {
     session: String,
     path: PathBuf,
     last_tab: AtomicU32,
     activity: Mutex<()>,
+    logged: Changes,
 }
 
 #[derive(Serialize)]
@@ -32,7 +36,12 @@ pub struct ActivityEntry {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frame: Option<u64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub screenshots: Vec<PathBuf>,
+    pub output: String,
 }
+
+const KEPT_OUTPUT_BYTES: usize = 64 * 1024;
 
 impl ActivityEntry {
     pub fn at(time: SystemTime, typed: &[String], duration: Duration) -> Self {
@@ -44,7 +53,19 @@ impl ActivityEntry {
             exit: 0,
             error: None,
             frame: None,
+            screenshots: Vec::new(),
+            output: String::new(),
         }
+    }
+
+    pub fn printed(&mut self, mut text: String) {
+        if text.len() > KEPT_OUTPUT_BYTES {
+            let kept = text.floor_char_boundary(KEPT_OUTPUT_BYTES);
+            let left = text.len() - kept;
+            text.truncate(kept);
+            text.push_str(&format!("\n… {left} more bytes not kept\n"));
+        }
+        self.output = text;
     }
 }
 
@@ -57,7 +78,13 @@ impl SessionFolder {
             Err(e) => return Err(e).with_context(|| format!("clear the previous session folder {}", path.display())),
         }
         std::fs::create_dir_all(&path).with_context(|| format!("create the session folder {}", path.display()))?;
-        Ok(Self { session: session.to_string(), path, last_tab: AtomicU32::new(0), activity: Mutex::new(()) })
+        Ok(Self {
+            session: session.to_string(),
+            path,
+            last_tab: AtomicU32::new(0),
+            activity: Mutex::new(()),
+            logged: Changes::default(),
+        })
     }
 
     pub fn next_tab(&self) -> u32 {
@@ -68,19 +95,92 @@ impl SessionFolder {
         let path = self.path.join("activity.jsonl");
         let appended = serde_json::to_string(entry).map_err(anyhow::Error::from).and_then(|line| {
             let _turn = self.activity.lock().unwrap();
-            let mut log = OpenOptions::new().create(true).append(true).open(&path)?;
-            log.write_all(format!("{line}\n").as_bytes())?;
-            Ok(())
+            append_line(&path, &line)
         });
-        if let Err(e) = appended {
-            eprintln!("adding `{}` to the activity log {} failed: {e:#}", entry.command, path.display());
+        match appended {
+            Ok(()) => self.logged.notify(),
+            Err(e) => eprintln!("adding `{}` to the activity log {} failed: {e:#}", entry.command, path.display()),
         }
+    }
+
+    pub fn logged(&self) -> watch::Receiver<u64> {
+        self.logged.subscribe()
+    }
+
+    pub fn activity_since(&self, offset: u64) -> Result<(Vec<serde_json::Value>, u64)> {
+        let path = self.path.join("activity.jsonl");
+        let mut log = match File::open(&path) {
+            Ok(log) => log,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok((Vec::new(), offset)),
+            Err(e) => return Err(e).with_context(|| format!("open {}", path.display())),
+        };
+        let mut read = Vec::new();
+        log.seek(SeekFrom::Start(offset))
+            .and_then(|_| log.read_to_end(&mut read))
+            .with_context(|| format!("read {}", path.display()))?;
+        let complete = read.iter().rposition(|byte| *byte == b'\n').map_or(0, |end| end + 1);
+        let entries = read[..complete]
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(serde_json::from_slice)
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("read {}", path.display()))?;
+        Ok((entries, offset + complete as u64))
     }
 
     pub fn record(&self, tab: &str, command: &pty::Command) -> Arc<Recording> {
         let path = self.path.join(format!("{tab}.cast"));
         Recording::start(format!("{} {tab}", self.session), path, command.size, command.line())
     }
+
+    pub fn command_log(&self, tab: &str) -> CommandLog {
+        CommandLog { path: self.path.join(format!("{tab}.commands.jsonl")) }
+    }
+}
+
+#[derive(Clone)]
+pub struct CommandLog {
+    path: PathBuf,
+}
+
+#[derive(Serialize)]
+struct LoggedCommand<'a> {
+    #[serde(flatten)]
+    record: &'a CommandRecord,
+    output: &'a str,
+}
+
+impl CommandLog {
+    pub fn append(&self, record: &CommandRecord, output: &str) {
+        let appended = serde_json::to_string(&LoggedCommand { record, output })
+            .map_err(anyhow::Error::from)
+            .and_then(|line| append_line(&self.path, &line));
+        if let Err(e) = appended {
+            eprintln!(
+                "adding command {} `{}` to the command log {} failed: {e:#}",
+                record.id,
+                record.command,
+                self.path.display()
+            );
+        }
+    }
+}
+
+fn append_line(path: &Path, line: &str) -> Result<()> {
+    let mut log = OpenOptions::new().create(true).append(true).open(path)?;
+    log.write_all(format!("{line}\n").as_bytes())?;
+    Ok(())
+}
+
+pub fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    let name = path.file_name().with_context(|| format!("{} names no file", path.display()))?;
+    static WRITES: AtomicU64 = AtomicU64::new(0);
+    let write = WRITES.fetch_add(1, Ordering::Relaxed);
+    let partial = parent.join(format!(".{}.{}-{write}.partial", name.to_string_lossy(), std::process::id()));
+    std::fs::write(&partial, bytes).with_context(|| format!("write {}", partial.display()))?;
+    std::fs::rename(&partial, path).with_context(|| format!("move {} to {}", partial.display(), path.display()))
 }
 
 pub struct Exported {

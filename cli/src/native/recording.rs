@@ -196,7 +196,7 @@ impl Writer {
     }
 }
 
-fn decode(undecoded: &mut Vec<u8>, bytes: &[u8]) -> String {
+pub fn decode(undecoded: &mut Vec<u8>, bytes: &[u8]) -> String {
     let mut pending = std::mem::take(undecoded);
     pending.extend_from_slice(bytes);
     let mut text = String::new();

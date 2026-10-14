@@ -1,5 +1,7 @@
 use crate::support::{AgentTerminal, Run};
 
+const FONTS: &str = "ok       fonts    JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in\n";
+
 const NO_SCRIPTS_YET: &str = "ok       shell    zsh (your SHELL) has shell integration; `agent-terminal shell` writes its scripts when it first runs\n";
 
 fn doctor(at: &AgentTerminal, args: &[&str]) -> Run {
@@ -7,14 +9,14 @@ fn doctor(at: &AgentTerminal, args: &[&str]) -> Run {
 }
 
 #[test]
-fn doctor_checks_the_pty_and_the_daemon_without_starting_it() {
+fn doctor_checks_the_pty_the_fonts_and_the_daemon_without_starting_it() {
     let at = AgentTerminal::new();
     let socket = at.home().join("daemon.sock");
     let run = doctor(&at, &["doctor"]).success();
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\n{NO_SCRIPTS_YET}ok       daemon   not running; the next command starts it\n"
+            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}ok       daemon   not running; the next command starts it\n"
         )
     );
     assert!(!socket.exists(), "doctor must not start the daemon");
@@ -24,7 +26,7 @@ fn doctor_checks_the_pty_and_the_daemon_without_starting_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\n{NO_SCRIPTS_YET}ok       daemon   running, listening on {}\n",
+            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}ok       daemon   running, listening on {}\n",
             socket.display()
         )
     );
@@ -38,7 +40,7 @@ fn doctor_checks_the_shell_integration_scripts_and_fix_brings_them_up_to_date() 
     at.run_with(&["shell", "--shell", "bash", "--size", "40x5"], "", &[("HOME", &at.home().to_string_lossy())])
         .success();
     let shipped = std::fs::read_to_string(&script).expect("shell writes the bash integration script");
-    let line = |run: &Run| run.stdout().lines().nth(1).map(str::to_string);
+    let line = |run: &Run| run.stdout().lines().nth(2).map(str::to_string);
     let up_to_date = format!(
         "ok       shell    zsh (your SHELL) has shell integration; the scripts in {} are up to date",
         scripts.display()
@@ -51,7 +53,7 @@ fn doctor_checks_the_shell_integration_scripts_and_fix_brings_them_up_to_date() 
     let stale = doctor(&at, &["doctor"]);
     assert_eq!(stale.code(), 1);
     assert_eq!(
-        stale.stdout().lines().skip(1).take(2).collect::<Vec<_>>(),
+        stale.stdout().lines().skip(2).take(2).collect::<Vec<_>>(),
         [
             format!(
                 "problem  shell    the shell integration scripts in {} are not this version's (1 changed, 1 left over)",
@@ -92,7 +94,7 @@ fn doctor_says_when_your_shell_has_no_integration() {
         let run = Run(command.output().expect("run doctor"));
         assert_eq!(run.code(), 1);
         assert_eq!(
-            run.stdout().lines().skip(1).take(2).collect::<Vec<_>>(),
+            run.stdout().lines().skip(2).take(2).collect::<Vec<_>>(),
             [
                 format!("problem  shell    {message}").as_str(),
                 "                  fix: open a shell with agent-terminal shell --shell zsh (or bash, fish)",
@@ -112,7 +114,7 @@ fn doctor_reports_a_stale_socket_and_fix_removes_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\n{NO_SCRIPTS_YET}problem  daemon   stale socket {}: no daemon is listening on it\n                  fix: agent-terminal doctor --fix removes it\n",
+            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}problem  daemon   stale socket {}: no daemon is listening on it\n                  fix: agent-terminal doctor --fix removes it\n",
             socket.display()
         )
     );
@@ -122,13 +124,13 @@ fn doctor_reports_a_stale_socket_and_fix_removes_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\n{NO_SCRIPTS_YET}fixed    daemon   removed the stale socket {}\n",
+            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}fixed    daemon   removed the stale socket {}\n",
             socket.display()
         )
     );
     assert!(!socket.exists());
     assert_eq!(
-        doctor(&at, &["doctor"]).success().stdout().lines().nth(2),
+        doctor(&at, &["doctor"]).success().stdout().lines().nth(3),
         Some("ok       daemon   not running; the next command starts it")
     );
     at.run(&["open", "--size", "20x2", "cat"]).success();
@@ -157,12 +159,12 @@ fn doctor_says_how_to_fix_a_socket_path_the_system_cannot_use() {
     assert_eq!(run.code(), 1);
     let stdout = run.stdout();
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 4, "{stdout}");
+    assert_eq!(lines.len(), 5, "{stdout}");
     assert!(
-        lines[2].starts_with(&format!("problem  daemon   cannot reach the daemon socket {}: ", socket.display())),
+        lines[3].starts_with(&format!("problem  daemon   cannot reach the daemon socket {}: ", socket.display())),
         "{stdout}"
     );
-    assert_eq!(lines[3], "                  fix: set AGENT_TERMINAL_HOME to a short folder you own");
+    assert_eq!(lines[4], "                  fix: set AGENT_TERMINAL_HOME to a short folder you own");
 }
 
 #[test]
@@ -175,6 +177,11 @@ fn doctor_json_lists_every_check() {
             "ok": true,
             "checks": [
                 { "name": "pty", "status": "ok", "message": "opened a pseudo-terminal" },
+                {
+                    "name": "fonts",
+                    "status": "ok",
+                    "message": "JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in"
+                },
                 {
                     "name": "shell",
                     "status": "ok",
@@ -190,7 +197,7 @@ fn doctor_json_lists_every_check() {
     let run = doctor(&at, &["doctor", "--json"]);
     assert_eq!(run.code(), 1);
     assert_eq!(
-        run.json()["checks"][2],
+        run.json()["checks"][3],
         serde_json::json!({
             "name": "daemon",
             "status": "problem",

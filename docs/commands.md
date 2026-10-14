@@ -31,7 +31,11 @@ Read the screen:
   snapshot -i                  Same, plus @t refs for things on screen (panels, selected rows, buttons, links, key hints, the input)
                                each ref: @tN [kind] "label" row r col c (panels: rows a-b); it fails once its cells change
   snapshot --rows <a:b>        Only rows a to b; --scrollback [n] adds n lines (all if no n) above as rows -n..-1; --ansi keeps colors
-  screenshot [path]            PNG of the screen (--annotate draws the refs)
+  screenshot [path]            PNG of the screen, drawn from the grid with bundled fonts (--annotate draws the refs)
+                               default path: <screenshot dir>/<session>-<tab>-<frame>.png
+                               --annotate  a box and the name of each @t ref, a legend under the screen, the refs printed
+                               --scale 1|2, --theme dark|light, --rows <a:b>, --cursor / --no-cursor
+                               --format png|svg|html|txt|ansi  (default: from the file's extension, else png)
   get text                     Screen text only, no header
   get <what>                   cursor, size, title, cwd, pid, exit-code, modes, frame, program
   get cell <row> <col>         One character and its style (color, bold, inverse...)
@@ -80,7 +84,10 @@ Evidence:
   clip <path> [--last 10s]     GIF or MP4 of a moment: --last <time>, --from/--to <mark|@activity>, --command <id>
   record start|stop [path]     Save the whole tab as an asciicast (.cast) file
   diff snapshot                What changed on screen since the last snapshot (--baseline <file>: a saved one)
-  diff screenshot --baseline <png>   Pixel diff against a baseline image
+  diff screenshot --baseline <png>   Pixel diff against a baseline image, saved as an image with the changes in red
+                               --output <png>  where the diff image goes (default: <screenshot dir>/<session>-<tab>-<frame>-diff.png)
+                               --threshold <0-1>  share of pixels that may differ (default 0); more exits 2
+                               takes --scale, --theme, --rows, --cursor / --no-cursor like screenshot
   trace export <path>          Everything about this session in one file, for a bug report
 
 Sessions and tabs:
@@ -115,12 +122,12 @@ Options:
   --json                       JSON output
   --idle-timeout <time>        Stop an unused daemon after this long (default 1h, 0 = never; 30s, 10m, 1h or raw ms;
                                set by the call that starts the daemon)
-  --screenshot-dir <path>      Where screenshots and clips go (or AGENT_TERMINAL_SCREENSHOT_DIR)
+  --screenshot-dir <path>      Where screenshots and clips go (or AGENT_TERMINAL_SCREENSHOT_DIR; default ~/.agent-terminal/screenshots)
 
 Exit codes:
   0  ok
   1  error
-  2  expect or wait --assert failed
+  2  expect or wait --assert failed, or diff screenshot found more changes than --threshold
   3  timed out
   4  a human has control of this tab
   5  the program has exited

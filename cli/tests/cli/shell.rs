@@ -90,7 +90,10 @@ in_every_shell!(
     exec_prints_the_output_and_the_exit_code,
     history_keeps_every_command_with_its_exit_code_cwd_and_output,
     wait_command_waits_for_a_long_running_command,
+    a_cancelled_command_line_leaves_the_shell_ready,
+    exec_after_a_line_the_shell_refused_starts_on_an_empty_command_line,
     the_users_startup_files_load_and_stay_untouched,
+    the_command_log_keeps_every_finished_command_with_its_output,
 );
 
 fn exec_prints_the_output_and_the_exit_code(shell: &'static str) {
@@ -198,6 +201,96 @@ fn wait_command_waits_for_a_long_running_command(shell: &'static str) {
         timeless(&tab.run(&["history", "show", "2"]).success().stdout()),
         format!("typed\n2 · exit 0 · <time> · {cwd} · cat hold\n")
     );
+}
+
+fn a_cancelled_command_line_leaves_the_shell_ready(shell: &'static str) {
+    let Some(tab) = ShellTab::opened(shell) else { return };
+    let cwd = tab.cwd();
+    for cancel in [&["press", "Ctrl+c"][..], &["signal", "INT"]] {
+        tab.run(&["type", "echo 'unfinished\n"]).success();
+        assert_eq!(tab.run(&["wait", "--command", "--timeout", "300"]).code(), 3, "{cancel:?}");
+        tab.run(cancel).success();
+        tab.run(&["wait", "--command"]).success();
+    }
+    assert_eq!(
+        timeless(&tab.run(&["exec", "echo after"]).success().stdout()),
+        format!("after\n1 · exit 0 · <time> · {cwd} · echo after\n")
+    );
+}
+
+fn exec_after_a_line_the_shell_refused_starts_on_an_empty_command_line(shell: &'static str) {
+    let Some(tab) = ShellTab::opened(shell) else { return };
+    let cwd = tab.cwd();
+    let refused = tab.run(&["exec", ")"]);
+    assert_eq!(refused.code(), 1);
+    assert_eq!(
+        refused.stderr().lines().next(),
+        Some("error: the shell in default t1 ran no command for `)`; the screen shows why")
+    );
+    assert_eq!(
+        timeless(&tab.run(&["exec", "echo after"]).success().stdout()),
+        format!("after\n1 · exit 0 · <time> · {cwd} · echo after\n")
+    );
+}
+
+fn logged_commands(tab: &ShellTab) -> Vec<serde_json::Value> {
+    let path = tab.at.home().join("sessions/default/t1.commands.jsonl");
+    let log = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    log.lines().map(|line| serde_json::from_str(line).expect("a command log line")).collect()
+}
+
+fn without_timing(mut logged: serde_json::Value) -> serde_json::Value {
+    let started = logged["started_at_ms"].as_u64().expect("started_at_ms");
+    assert!(logged["ended_at_ms"].as_u64().expect("ended_at_ms") >= started, "{logged}");
+    logged["duration_ms"].as_u64().expect("duration_ms");
+    let first_frame = logged["first_frame"].as_u64().expect("first_frame");
+    assert!(logged["last_frame"].as_u64().expect("last_frame") >= first_frame, "{logged}");
+    for timing in ["started_at_ms", "ended_at_ms", "duration_ms", "first_frame", "last_frame"] {
+        logged[timing] = serde_json::json!("<masked>");
+    }
+    logged
+}
+
+fn finished(id: u32, command: &str, cwd: &str, exit_code: i32, output: &str) -> serde_json::Value {
+    let masked = "<masked>";
+    serde_json::json!({
+        "id": id, "command": command, "cwd": cwd, "started_at_ms": masked, "ended_at_ms": masked,
+        "duration_ms": masked, "exit_code": exit_code, "first_frame": masked, "last_frame": masked, "output": output
+    })
+}
+
+fn the_command_log_keeps_every_finished_command_with_its_output(shell: &'static str) {
+    let Some(tab) = ShellTab::opened(shell) else { return };
+    let cwd = tab.cwd();
+    tab.run(&["exec", "echo passing"]).success();
+    tab.run(&["exec", "echo failing; false"]).success();
+    let logged = logged_commands(&tab);
+    assert_eq!(
+        logged.iter().cloned().map(without_timing).collect::<Vec<_>>(),
+        [finished(1, "echo passing", &cwd, 0, "passing\n"), finished(2, "echo failing; false", &cwd, 1, "failing\n")]
+    );
+    for line in &logged {
+        let mut shown = tab.run(&["--json", "history", "show", &line["id"].to_string()]).success().json();
+        let shown = shown.as_object_mut().expect("a command");
+        shown.remove("session");
+        shown.remove("tab");
+        assert_eq!(line, &serde_json::Value::Object(shown.clone()));
+    }
+
+    let hold = tab.work.path().join("hold");
+    let status = std::process::Command::new("mkfifo").arg(&hold).status().expect("run mkfifo");
+    assert!(status.success(), "mkfifo failed");
+    assert_eq!(tab.run(&["exec", "cat hold", "--timeout", "300"]).code(), 3);
+    assert_eq!(logged_commands(&tab).len(), 2, "a running command is not in the log yet");
+    std::fs::write(&hold, "released\n").expect("release the command");
+    tab.run(&["wait", "--command"]).success();
+    assert_eq!(without_timing(logged_commands(&tab)[2].clone()), finished(3, "cat hold", &cwd, 0, "released\n"));
+
+    tab.run(&["restart"]).success();
+    tab.run(&["exec", "echo again"]).success();
+    let logged = logged_commands(&tab);
+    assert_eq!(logged.len(), 4, "restart keeps the log of the tab");
+    assert_eq!(without_timing(logged[3].clone()), finished(1, "echo again", &cwd, 0, "again\n"));
 }
 
 fn the_users_startup_files_load_and_stay_untouched(shell: &'static str) {

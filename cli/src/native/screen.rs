@@ -8,7 +8,7 @@ use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::{Cell as GridCell, Flags};
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor};
-use alacritty_terminal::vte::{Parser, Perform};
+use alacritty_terminal::vte::{Params, Parser, Perform};
 
 use crate::native::refs::{Glyph, Grid, Link};
 use crate::protocol::{Cell, Modes, Mouse, Size};
@@ -180,7 +180,7 @@ fn color_sgr(color: Color, base: u16) -> Option<String> {
     }
 }
 
-const COLOR_NAMES: [&str; 16] = [
+pub const COLOR_NAMES: [&str; 16] = [
     "black",
     "red",
     "green",
@@ -230,6 +230,10 @@ fn glyph(cell: &GridCell) -> Glyph {
         inverse: cell.flags.contains(Flags::INVERSE),
         bold: cell.flags.contains(Flags::BOLD),
         underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
+        italic: cell.flags.contains(Flags::ITALIC),
+        dim: cell.flags.contains(Flags::DIM),
+        strikeout: cell.flags.contains(Flags::STRIKEOUT),
+        wide: cell.flags.contains(Flags::WIDE_CHAR),
         link: cell.hyperlink().map(|link| Link { id: link.id().to_string(), url: link.uri().to_string() }),
     }
 }
@@ -283,11 +287,23 @@ pub enum ShellReport {
     Finished { exit_code: Option<i32> },
 }
 
+#[derive(Clone, Copy)]
+pub struct At {
+    pub text: usize,
+    pub styled: usize,
+}
+
+pub struct Printed {
+    pub text: String,
+    pub styled: String,
+}
+
 #[derive(Default)]
 struct Stream {
     cwd: Option<String>,
     printed: String,
-    reports: Vec<(usize, ShellReport)>,
+    styled: String,
+    reports: Vec<(At, ShellReport)>,
 }
 
 impl Stream {
@@ -304,7 +320,7 @@ impl Stream {
             },
             _ => return,
         };
-        self.reports.push((self.printed.len(), report));
+        self.reports.push((At { text: self.printed.len(), styled: self.styled.len() }, report));
     }
 }
 
@@ -318,12 +334,23 @@ fn command_line(option: &[u8]) -> Option<String> {
 impl Perform for Stream {
     fn print(&mut self, c: char) {
         self.printed.push(c);
+        self.styled.push(c);
     }
 
     fn execute(&mut self, byte: u8) {
         if matches!(byte, b'\n' | b'\t') {
             self.printed.push(byte as char);
+            self.styled.push(byte as char);
         }
+    }
+
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        if action != 'm' || ignore || !intermediates.is_empty() {
+            return;
+        }
+        let params: Vec<String> =
+            params.iter().map(|group| group.iter().map(u16::to_string).collect::<Vec<_>>().join(":")).collect();
+        self.styled.push_str(&format!("\x1b[{}m", params.join(";")));
     }
 
     fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
@@ -508,11 +535,11 @@ impl Screen {
         self.events.0.lock().unwrap().title.clone()
     }
 
-    pub fn take_printed(&mut self) -> String {
-        std::mem::take(&mut self.stream.printed)
+    pub fn take_printed(&mut self) -> Printed {
+        Printed { text: std::mem::take(&mut self.stream.printed), styled: std::mem::take(&mut self.stream.styled) }
     }
 
-    pub fn take_shell_reports(&mut self) -> Vec<(usize, ShellReport)> {
+    pub fn take_shell_reports(&mut self) -> Vec<(At, ShellReport)> {
         std::mem::take(&mut self.stream.reports)
     }
 

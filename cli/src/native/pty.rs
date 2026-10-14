@@ -119,11 +119,9 @@ pub fn spawn(command: Command) -> Result<Spawned> {
     builder.args(&command.args);
     builder.cwd(&command.cwd);
     builder.env_clear();
-    for (key, value) in &command.env {
+    for (key, value) in environment(&command) {
         builder.env(key, value);
     }
-    builder.env("TERM", "xterm-256color");
-    builder.env("COLORTERM", "truecolor");
 
     let mut child = pair.slave.spawn_command(builder).with_context(|| format!("start {}", command.program))?;
     drop(pair.slave);
@@ -144,6 +142,14 @@ pub fn spawn(command: Command) -> Result<Spawned> {
             Ok(status?.exit_code() as i32)
         }),
     })
+}
+
+pub fn environment(command: &Command) -> Vec<(String, String)> {
+    let set = [("TERM", "xterm-256color"), ("COLORTERM", "truecolor")];
+    let mut env: Vec<(String, String)> =
+        command.env.iter().filter(|(key, _)| !set.iter().any(|(name, _)| name == key)).cloned().collect();
+    env.extend(set.iter().map(|(name, value)| (name.to_string(), value.to_string())));
+    env
 }
 
 pub fn check() -> Result<()> {

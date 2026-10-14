@@ -53,6 +53,8 @@ pub fn prepare(shell: Shell, mut command: pty::Command) -> Result<pty::Command> 
         Shell::Bash => vec!["--rcfile".to_string(), text(&dir.join("agent-terminal.bash")), "-i".to_string()],
         Shell::Fish => vec![
             "--interactive".to_string(),
+            "--features".to_string(),
+            "no-mark-prompt".to_string(),
             "--init-command".to_string(),
             format!("source {}", fish_quoted(&text(&dir.join("agent-terminal.fish")))),
         ],

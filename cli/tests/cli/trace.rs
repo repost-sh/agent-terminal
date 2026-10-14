@@ -60,6 +60,30 @@ fn trace_export_zips_the_session_folder() {
 }
 
 #[test]
+fn trace_export_includes_the_command_log_of_a_shell_tab() {
+    let at = AgentTerminal::new();
+    let work = work_folder(&at);
+    let folder = at.home().join("sessions").join("default");
+    let cwd = work.to_string_lossy().into_owned();
+    at.run_with_env(&["shell", "--shell", "bash", "--cwd", &cwd], &[("HOME", work.as_path())]).success();
+    at.run(&["exec", "echo traced"]).success();
+
+    at.run_in(&work, &["trace", "export", "trace.zip"]).success();
+    let files = unzip(&work.join("trace.zip"));
+    assert_eq!(
+        files.keys().collect::<Vec<_>>(),
+        ["default/activity.jsonl", "default/t1.cast", "default/t1.commands.jsonl"]
+    );
+    assert_eq!(files["default/t1.commands.jsonl"], read(&folder.join("t1.commands.jsonl")));
+    let logged: Vec<serde_json::Value> =
+        files["default/t1.commands.jsonl"].lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    assert_eq!(logged.len(), 1, "{logged:?}");
+    assert_eq!(logged[0]["command"], "echo traced");
+    assert_eq!(logged[0]["exit_code"], 0);
+    assert_eq!(logged[0]["output"], "traced\n");
+}
+
+#[test]
 fn trace_export_answers_in_json() {
     let at = AgentTerminal::new();
     let work = work_folder(&at);

@@ -91,6 +91,30 @@ fn the_api_lists_the_same_sessions_as_session_list() {
 }
 
 #[test]
+fn the_api_serves_a_shell_command_with_its_colors_kept() {
+    let at = AgentTerminal::new();
+    let home = at.home().join("user");
+    std::fs::create_dir_all(&home).expect("create the home folder");
+    let cwd = home.canonicalize().expect("canonical home").to_string_lossy().into_owned();
+    at.run_with_env(&["shell", "--shell", "bash", "--cwd", &cwd], &[("HOME", home.as_path())]).success();
+    at.run(&["exec", "printf '\\033[32mgreen\\033[0m plain\\n'"]).success();
+    let port = start(&at);
+
+    let served = get(port, "/api/session/default/t1/commands/1", &[]);
+    assert_eq!(served.status, 200, "{}", served.head);
+    let mut served: serde_json::Value = serde_json::from_str(&served.body).expect("JSON");
+    assert_eq!(served["output"], "\u{1b}[32mgreen\u{1b}[0m plain\n");
+    let mut shown = at.run(&["--json", "history", "show", "1"]).success().json();
+    assert_eq!(shown["output"], "green plain\n");
+    served["output"] = serde_json::Value::Null;
+    shown["output"] = serde_json::Value::Null;
+    assert_eq!(served, shown);
+
+    let missing = get(port, "/api/session/default/t1/commands/9", &[]);
+    assert_eq!((missing.status, missing.body.as_str()), (404, "no command 9 in default t1"));
+}
+
+#[test]
 fn the_dashboard_refuses_requests_from_other_sites() {
     let at = AgentTerminal::new();
     let port = start(&at);
@@ -149,6 +173,32 @@ fn starting_again_keeps_the_running_dashboard_and_refuses_another_port() {
             "error: the dashboard already runs at http://localhost:{port}; stop it first with `agent-terminal dashboard stop`\n"
         )
     );
+}
+
+fn path_segment(text: &str) -> String {
+    text.bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (byte as char).to_string(),
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
+#[test]
+fn the_dashboard_serves_no_file_the_activity_log_does_not_list_as_a_screenshot() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    let png = at.home().join("evidence.png");
+    std::fs::write(&png, b"\x89PNG\r\n\x1a\n").expect("write a PNG file");
+    let log = at.home().join("sessions/default/activity.jsonl");
+    let port = start(&at);
+
+    for (session, file) in [("default", &png), ("default", &log), ("other", &png)] {
+        let path = file.to_string_lossy();
+        let refused = get(port, &format!("/api/session/{session}/screenshots/{}", path_segment(&path)), &[]);
+        assert_eq!(refused.status, 404, "{}", refused.head);
+        assert_eq!(refused.body, format!("{path} is not a PNG screenshot in session {session}"));
+    }
 }
 
 #[test]
