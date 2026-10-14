@@ -97,11 +97,11 @@ fn session_list_shows_every_tab_with_its_program_size_and_status() {
         at.run(&["--json", "session", "list"]).success().json(),
         serde_json::json!({ "sessions": [
             { "session": "a", "current": "t2", "tabs": [
-                { "tab": "t1", "program": "line-printer", "cols": 30, "rows": 5, "exited": false, "exit_code": null },
-                { "tab": "t2", "program": "line-printer", "cols": 20, "rows": 3, "exited": true, "exit_code": 4 },
+                { "tab": "t1", "program": "line-printer", "cols": 30, "rows": 5, "exited": false, "exit_code": null, "control": "agent" },
+                { "tab": "t2", "program": "line-printer", "cols": 20, "rows": 3, "exited": true, "exit_code": 4, "control": "agent" },
             ] },
             { "session": "b", "current": "t1", "tabs": [
-                { "tab": "t1", "program": "fixture-tui", "cols": 50, "rows": 8, "exited": false, "exit_code": null },
+                { "tab": "t1", "program": "fixture-tui", "cols": 50, "rows": 8, "exited": false, "exit_code": null, "control": "agent" },
             ] },
         ] })
     );

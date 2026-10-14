@@ -1,5 +1,6 @@
 pub mod changes;
 pub mod commands;
+pub mod control;
 pub mod daemon;
 pub mod dashboard;
 pub mod keyboard;

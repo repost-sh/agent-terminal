@@ -230,3 +230,17 @@ async fn arguments_the_command_does_not_take_are_refused() {
     assert_eq!(missing.is_error, Some(true));
     assert!(text(&missing).contains("the following required arguments were not provided"), "{}", text(&missing));
 }
+
+#[tokio::test]
+async fn the_attach_tool_says_it_needs_a_terminal_and_what_to_use_instead() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"]).success();
+    let client = connect(&at, &[]).await;
+
+    let attached = call(&client, "attach", json!({ "read_only": true })).await;
+    assert_eq!(attached.is_error, Some(true));
+    assert_eq!(
+        text(&attached),
+        "error: attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead"
+    );
+}

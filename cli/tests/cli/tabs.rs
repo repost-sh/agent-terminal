@@ -29,8 +29,8 @@ fn tab_new_runs_another_terminal_in_the_same_session() {
     assert_eq!(
         at.run(&["--json", "tab"]).success().json(),
         serde_json::json!({ "session": "default", "current": "t2", "tabs": [
-            { "tab": "t1", "program": "line-printer", "cols": 20, "rows": 2, "exited": false, "exit_code": null },
-            { "tab": "t2", "program": "line-printer", "cols": 20, "rows": 3, "exited": false, "exit_code": null },
+            { "tab": "t1", "program": "line-printer", "cols": 20, "rows": 2, "exited": false, "exit_code": null, "control": "agent" },
+            { "tab": "t2", "program": "line-printer", "cols": 20, "rows": 3, "exited": false, "exit_code": null, "control": "agent" },
         ] })
     );
 }

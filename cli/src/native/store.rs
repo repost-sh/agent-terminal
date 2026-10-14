@@ -14,7 +14,7 @@ use crate::native::changes::Changes;
 use crate::native::pty;
 use crate::native::recording::Recording;
 use crate::output::call_line;
-use crate::protocol::CommandRecord;
+use crate::protocol::{CommandRecord, HumanInput};
 
 pub struct SessionFolder {
     session: String,
@@ -39,6 +39,8 @@ pub struct ActivityEntry {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub screenshots: Vec<PathBuf>,
     pub output: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub human: Option<HumanInput>,
 }
 
 const KEPT_OUTPUT_BYTES: usize = 64 * 1024;
@@ -55,6 +57,7 @@ impl ActivityEntry {
             frame: None,
             screenshots: Vec::new(),
             output: String::new(),
+            human: None,
         }
     }
 
