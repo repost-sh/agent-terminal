@@ -147,7 +147,7 @@ agent-terminal resize 200x60 --wait-stable --snapshot
 ```bash
 agent-terminal open pnpm dev --name server
 agent-terminal tab new myapp-tui
-agent-terminal --tab t1 wait "ready on"
+agent-terminal wait "ready on" --tab t1
 agent-terminal tab t2
 ```
 

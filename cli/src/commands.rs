@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 
 use crate::connection;
 use crate::key::Key;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{Input, Request, Response, Signal, Size, Wait};
+use crate::skills;
 
 #[derive(Parser)]
 #[command(name = "agent-terminal", version, about = "Fast terminal automation CLI for AI agents")]
@@ -51,6 +52,16 @@ enum Command {
     Send(SendArgs),
     #[command(about = "Send a signal to the program in the foreground: INT, TERM, KILL, HUP, TSTP, CONT, WINCH")]
     Signal(SignalArgs),
+    #[command(about = "Guides that ship with this version (core, tui-qa, cli-qa)")]
+    Skills {
+        #[command(subcommand)]
+        action: Option<skills::Action>,
+    },
+    #[command(about = "Install the agent skill stub into ~/.claude/skills")]
+    Install {
+        #[arg(long, help = "Install the agent skill stub (the default)")]
+        skills: bool,
+    },
     #[command(hide = true)]
     Daemon {
         #[command(subcommand)]
@@ -191,6 +202,8 @@ pub fn run() -> i32 {
             };
         }
         Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
+        Command::Skills { action } => return skills::run(action, cli.json, Cli::command()),
+        Command::Install { .. } => return skills::install(cli.json),
         Command::Open(args) => {
             let cwd = match args.cwd.map_or_else(std::env::current_dir, Ok) {
                 Ok(cwd) => cwd,

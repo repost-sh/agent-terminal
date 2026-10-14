@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::OnceLock;
 
@@ -13,10 +13,15 @@ impl AgentTerminal {
     }
 
     pub fn run(&self, args: &[&str]) -> Run {
+        self.run_with_env(args, &[])
+    }
+
+    pub fn run_with_env(&self, args: &[&str], env: &[(&str, &Path)]) -> Run {
         let output = Command::new(env!("CARGO_BIN_EXE_agent-terminal"))
             .args(args)
             .env("AGENT_TERMINAL_HOME", self.home.path())
             .env_remove("AGENT_TERMINAL_SESSION")
+            .envs(env.iter().copied())
             .output()
             .expect("run agent-terminal");
         Run(output)
