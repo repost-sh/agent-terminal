@@ -3,6 +3,7 @@ mod connection;
 mod native;
 mod output;
 mod protocol;
+mod skills;
 
 use std::fmt;
 
