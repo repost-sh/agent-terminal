@@ -260,7 +260,7 @@ fn simultaneous_installs_leave_one_complete_stub() {
 }
 
 const NOT_YET_BUILT: &[&str] =
-    &["clip", "click", "dashboard", "exec", "expect", "history", "screenshot", "scroll", "shell", "trace", "wait"];
+    &["clip", "click", "dashboard", "exec", "history", "screenshot", "scroll", "shell", "trace"];
 
 fn code_in(markdown: &str) -> Vec<&str> {
     let mut code = Vec::new();

@@ -1,6 +1,7 @@
 mod batch;
 mod diff;
 mod doctor;
+mod expect;
 mod find;
 mod get;
 mod idle;
@@ -15,3 +16,4 @@ mod snapshot;
 mod support;
 mod tabs;
 mod version;
+mod wait;

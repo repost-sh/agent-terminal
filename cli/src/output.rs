@@ -1,6 +1,6 @@
 use crate::protocol::{
-    BatchOutcome, Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Response, SessionInfo, Snapshot,
-    SnapshotDiff,
+    BatchOutcome, Checked, Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Response, SessionInfo,
+    Snapshot, SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
 
@@ -73,7 +73,19 @@ pub fn reply(reply: &Reply, json: bool) {
         }
         Reply::Tabs(session) => print!("{}", tab_lines(session)),
         Reply::Delivered(delivered) if json => println!("{}", serde_json::json!(delivered)),
-        Reply::Delivered(delivered) => println!("{}", delivery(delivered)),
+        Reply::Delivered(delivered) => {
+            println!("{}", delivery(delivered));
+            if let Some(snapshot) = &delivered.snapshot {
+                print!("{}", screen(snapshot));
+            }
+        }
+        Reply::Waited(waited) if json => println!("{}", serde_json::json!(waited)),
+        Reply::Waited(Waited { session, tab, until, waited_ms, exit_code, .. }) => {
+            let code = exit_code.map_or_else(String::new, |code| format!(" (exit code {code})"));
+            println!("waited {waited_ms} ms for {until} in {session} {tab}{code}")
+        }
+        Reply::Checked(checked) if json => println!("{}", serde_json::json!(checked)),
+        Reply::Checked(Checked { session, tab, fact }) => println!("{fact} in {session} {tab}"),
         Reply::Stopped => {}
         Reply::Batch(outcomes) if json => println!("{}", batch_json(outcomes)),
         Reply::Batch(outcomes) => batch(outcomes),
@@ -151,17 +163,7 @@ fn fact_text(fact: &Fact) -> String {
         Fact::Title(None) => String::new(),
         Fact::Cwd(cwd) => format!("{cwd}\n"),
         Fact::Modes(modes) => modes_text(modes),
-        Fact::Cell(cell) => {
-            let mut text = format!("{:?} fg={} bg={}", cell.char, cell.fg, cell.bg);
-            for (on, name) in [(cell.bold, "bold"), (cell.inverse, "inverse"), (cell.underline, "underline")] {
-                if on {
-                    text.push(' ');
-                    text.push_str(name);
-                }
-            }
-            text.push('\n');
-            text
-        }
+        Fact::Cell(cell) => format!("{cell}\n"),
     }
 }
 

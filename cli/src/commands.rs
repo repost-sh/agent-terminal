@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
 use crate::batch;
 use crate::connection::{self, IfNotRunning, Launch};
@@ -10,8 +10,8 @@ use crate::key::Key;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, BatchStep, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Signal,
-    Size, SnapshotOptions, Wait,
+    Baseline, BatchStep, Expect, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions,
+    Signal, Size, SnapshotOptions, Style, TextMatch, Wait,
 };
 use crate::session_id;
 use crate::skills;
@@ -129,6 +129,10 @@ enum Command {
     Send(SendArgs),
     #[command(about = "Send a signal to the program in the foreground: INT, TERM, KILL, HUP, TSTP, CONT, WINCH")]
     Signal(SignalArgs),
+    #[command(about = "Wait until the text is on screen, the screen is stable, or the program exits")]
+    Wait(UntilArgs),
+    #[command(about = "Fail now (exit 2) unless the screen or the program is as expected")]
+    Expect(ExpectArgs),
     #[command(about = "Guides that ship with this version (core, tui-qa, cli-qa)")]
     Skills {
         #[command(subcommand)]
@@ -183,6 +187,9 @@ struct OpenArgs {
     #[command(flatten)]
     wait: WaitArgs,
 
+    #[arg(long, help = "Print the screen right away, without waiting", conflicts_with_all = ["wait", "wait_stable"])]
+    no_wait: bool,
+
     #[arg(
         help = "The program and its arguments",
         required = true,
@@ -213,7 +220,7 @@ struct WaitArgs {
 impl WaitArgs {
     fn until(self) -> Wait {
         match self.wait {
-            Some(text) => Wait::Text { text },
+            Some(text) => Wait::Text(TextMatch::plain(text)),
             None => Wait::Stable { quiet_ms: self.wait_stable },
         }
     }
@@ -406,9 +413,166 @@ struct SignalArgs {
 }
 
 #[derive(Args)]
+#[command(group(ArgGroup::new("until").required(true).args(["text", "stable", "idle", "exit", "cursor", "frame"])))]
+struct UntilArgs {
+    #[arg(
+        help = "The text to wait for; a plain number pauses that many milliseconds",
+        value_name = "TEXT|MS",
+        allow_hyphen_values = true
+    )]
+    text: Option<String>,
+
+    #[arg(long, requires = "text", help = "Treat the text as a regular expression")]
+    regex: bool,
+
+    #[arg(long, requires = "text", help = "Wait until the text is gone from the screen")]
+    gone: bool,
+
+    #[arg(
+        long,
+        requires = "text",
+        help = "Only look at rows A to B, counted from 1 at the top",
+        value_name = "A:B",
+        value_parser = parse_rows
+    )]
+    rows: Option<RowRange>,
+
+    #[arg(
+        long,
+        help = "Until the screen has not changed for this long (default 300)",
+        value_name = "MS",
+        num_args = 0..=1,
+        default_missing_value = "300"
+    )]
+    stable: Option<u64>,
+
+    #[arg(
+        long,
+        help = "Until the program has printed nothing for this long (default 300)",
+        value_name = "MS",
+        num_args = 0..=1,
+        default_missing_value = "300"
+    )]
+    idle: Option<u64>,
+
+    #[arg(long, help = "Until the program exits")]
+    exit: bool,
+
+    #[arg(long, requires = "exit", help = "Fail (exit 2) unless the program exits with this code", value_name = "N")]
+    code: Option<i32>,
+
+    #[arg(long, help = "Until the cursor is at this row and column", value_name = "ROW,COL", value_parser = parse_position)]
+    cursor: Option<(u16, u16)>,
+
+    #[arg(long, help = "Until the screen reaches this frame number", value_name = "N")]
+    frame: Option<u64>,
+}
+
+impl UntilArgs {
+    fn until(self) -> Wait {
+        if let Some(quiet_ms) = self.stable {
+            return Wait::Stable { quiet_ms };
+        }
+        if let Some(quiet_ms) = self.idle {
+            return Wait::Idle { quiet_ms };
+        }
+        if self.exit {
+            return Wait::Exit { code: self.code };
+        }
+        if let Some((row, col)) = self.cursor {
+            return Wait::Cursor { row, col };
+        }
+        if let Some(frame) = self.frame {
+            return Wait::Frame { frame };
+        }
+        let text = self.text.expect("clap requires one thing to wait for");
+        let plain = !self.regex && !self.gone && self.rows.is_none();
+        match text.parse() {
+            Ok(ms) if plain => Wait::Elapsed { ms },
+            _ => {
+                let text = TextMatch { text, regex: self.regex, rows: self.rows };
+                if self.gone { Wait::Gone(text) } else { Wait::Text(text) }
+            }
+        }
+    }
+}
+
+#[derive(Args)]
+#[command(group(ArgGroup::new("check").required(true).args(["text", "exit_code", "cell"])))]
+struct ExpectArgs {
+    #[arg(help = "Text that must be on screen", allow_hyphen_values = true)]
+    text: Option<String>,
+
+    #[arg(long, requires = "text", help = "Fail if the text is on screen instead")]
+    gone: bool,
+
+    #[arg(long, help = "Fail unless the program has exited with this code", value_name = "N")]
+    exit_code: Option<i32>,
+
+    #[arg(
+        long,
+        requires = "style",
+        help = "The cell to check, counted from 1,1 at the top left",
+        value_name = "ROW,COL",
+        value_parser = parse_position
+    )]
+    cell: Option<(u16, u16)>,
+
+    #[arg(
+        long,
+        requires = "cell",
+        help = "What the cell must look like: bold, inverse, underline, fg=<color>, bg=<color> (comma-separated)",
+        value_name = "STYLE",
+        value_delimiter = ',',
+        value_parser = clap::value_parser!(Style)
+    )]
+    style: Vec<Style>,
+}
+
+impl ExpectArgs {
+    fn check(self) -> Expect {
+        if let Some(code) = self.exit_code {
+            return Expect::ExitCode { code };
+        }
+        if let Some((row, col)) = self.cell {
+            return Expect::Cell { row, col, style: self.style };
+        }
+        let text = TextMatch::plain(self.text.expect("clap requires one thing to check"));
+        if self.gone { Expect::Gone(text) } else { Expect::Text(text) }
+    }
+}
+
+#[derive(Args)]
+#[command(group(ArgGroup::new("then").args(["wait", "wait_gone", "wait_stable"])))]
 struct AfterInput {
     #[arg(long, help = "Then wait until this text is on screen", value_name = "TEXT")]
     wait: Option<String>,
+
+    #[arg(long, help = "Then wait until this text is gone from the screen", value_name = "TEXT")]
+    wait_gone: Option<String>,
+
+    #[arg(
+        long,
+        help = "Then wait until the screen has not changed for this long (default 300)",
+        value_name = "MS",
+        num_args = 0..=1,
+        default_missing_value = "300"
+    )]
+    wait_stable: Option<u64>,
+
+    #[arg(long, help = "Then print the screen")]
+    snapshot: bool,
+}
+
+impl AfterInput {
+    fn wait(self) -> Option<Wait> {
+        match (self.wait, self.wait_gone, self.wait_stable) {
+            (Some(text), _, _) => Some(Wait::Text(TextMatch::plain(text))),
+            (_, Some(text), _) => Some(Wait::Gone(TextMatch::plain(text))),
+            (_, _, Some(quiet_ms)) => Some(Wait::Stable { quiet_ms }),
+            (None, None, None) => None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -510,6 +674,8 @@ fn request(cli: Cli) -> Result<Request, String> {
         Command::Signal(args) => {
             input(session, cli.tab, Input::Signal { signal: args.signal }, args.after, cli.timeout)
         }
+        Command::Wait(args) => Request::Wait { session, tab: cli.tab, wait: args.until(), timeout_ms: cli.timeout },
+        Command::Expect(args) => Request::Expect { session, tab: cli.tab, expect: args.check() },
         Command::Daemon { action: DaemonAction::Run }
         | Command::Skills { .. }
         | Command::Install { .. }
@@ -569,7 +735,8 @@ fn send(request: &Request, json: bool, idle_timeout: Duration) -> i32 {
 }
 
 fn input(session: String, tab: Option<u32>, input: Input, after: AfterInput, timeout_ms: u64) -> Request {
-    Request::Input { session, tab, input, wait: after.wait.map(|text| Wait::Text { text }), timeout_ms }
+    let snapshot = after.snapshot;
+    Request::Input { session, tab, input, wait: after.wait(), snapshot, timeout_ms }
 }
 
 fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, String> {
@@ -585,7 +752,7 @@ fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, Str
         size: args.size,
         cwd,
         env,
-        wait: args.wait.until(),
+        wait: (!args.no_wait).then(|| args.wait.until()),
         timeout_ms,
     })
 }
@@ -641,6 +808,16 @@ fn parse_rows(value: &str) -> Result<RowRange, String> {
         return Err("rows count from 1, and A must not be after B".into());
     }
     Ok(RowRange { first, last })
+}
+
+fn parse_position(value: &str) -> Result<(u16, u16), String> {
+    let (row, col) = value.split_once(',').ok_or("expected ROW,COL, e.g. 4,3")?;
+    let row: u16 = row.parse().map_err(|_| format!("invalid row: {row}"))?;
+    let col: u16 = col.parse().map_err(|_| format!("invalid column: {col}"))?;
+    if row == 0 || col == 0 {
+        return Err("rows and columns count from 1".into());
+    }
+    Ok((row, col))
 }
 
 fn parse_env(value: &str) -> Result<(String, String), String> {

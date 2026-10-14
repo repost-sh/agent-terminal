@@ -173,6 +173,26 @@ fn a_program_that_prints_nothing_opens_with_a_blank_screen() {
 }
 
 #[test]
+fn the_daemon_keeps_no_file_its_first_caller_inherited() {
+    let at = AgentTerminal::new();
+    let home = at.home().to_path_buf();
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let output = std::process::Command::new("sh")
+            .args(["-c", "exec 3>&1; exec \"$0\" open --size 20x2 cat", env!("CARGO_BIN_EXE_agent-terminal")])
+            .env("AGENT_TERMINAL_HOME", home)
+            .env_remove("AGENT_TERMINAL_SESSION")
+            .output()
+            .expect("run agent-terminal through sh");
+        done.send(output.status.code()).expect("report the exit code");
+    });
+    let code = finished
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the caller is still waiting for the end of its output: the daemon holds a copy of the caller's pipe");
+    assert_eq!(code, Some(0));
+}
+
+#[test]
 fn waiting_for_text_that_never_appears_times_out_and_shows_the_screen() {
     let at = AgentTerminal::new();
     let run = at.run(&[
@@ -197,8 +217,73 @@ fn waiting_for_text_that_never_appears_times_out_and_shows_the_screen() {
         ),
         "{stderr}"
     );
-    assert!(stderr.contains("1│line 1\n"), "{stderr}");
-    assert_eq!(at.run(&["snapshot"]).success().stdout().lines().nth(1), Some("1│line 1"));
+    assert!(stderr.contains("\ndefault t1 · line-printer · 20x2 · "), "{stderr}");
+    at.run(&["wait", "line 1"]).success();
+}
+
+#[test]
+fn open_waits_for_a_stable_first_screen_by_default() {
+    let at = AgentTerminal::new();
+    let run = at.run(&["--timeout", "200", "open", "--size", "20x2", "cat"]);
+    assert_eq!(run.code(), 3, "{}", run.stderr());
+    assert!(
+        run.stderr().starts_with(
+            "error: timed out after 200 ms waiting for the screen to stay unchanged for 300 ms; default t1 is still running"
+        ),
+        "{}",
+        run.stderr()
+    );
+}
+
+#[test]
+fn open_no_wait_prints_the_screen_without_waiting() {
+    let at = AgentTerminal::new();
+    let run = at.run(&["--timeout", "200", "open", "--no-wait", "--size", "30x4", &fixture("ticker"), "--flash"]);
+    assert_eq!(run.code(), 0, "{}", run.stderr());
+    assert!(run.stdout().starts_with("default t1 · ticker · 30x4 · "), "{}", run.stdout());
+    at.run(&["wait", "tick 3"]).success();
+}
+
+#[test]
+fn open_wait_stable_takes_an_optional_quiet_period() {
+    let at = AgentTerminal::new();
+    let run = at.run(&["--timeout", "200", "open", "--wait-stable", "--size", "20x2", "cat"]);
+    assert_eq!(run.code(), 3, "{}", run.stderr());
+    assert!(run.stderr().contains("waiting for the screen to stay unchanged for 300 ms;"), "{}", run.stderr());
+    let run = at.run(&["open", "--wait-stable", "50", "--size", "20x2", "cat"]).success();
+    assert!(run.stdout().starts_with("default t2 · cat · 20x2 · "), "{}", run.stdout());
+}
+
+#[test]
+fn open_no_wait_goes_alone() {
+    let at = AgentTerminal::new();
+    let run = at.run(&["open", "--no-wait", "--wait", "x", "cat"]);
+    assert_eq!(run.code(), 1, "{}", run.stderr());
+    assert!(run.stderr().contains("cannot be used with"), "{}", run.stderr());
+}
+
+#[test]
+fn open_wait_prints_the_last_screen_when_the_program_exits_without_the_text() {
+    let at = AgentTerminal::new();
+    let run = at
+        .run(&[
+            "open",
+            "--size",
+            "20x3",
+            "--wait",
+            "never shown",
+            &fixture("line-printer"),
+            "--lines",
+            "1",
+            "--exit",
+            "7",
+        ])
+        .success();
+    insta::assert_snapshot!(run.screen(), @r"
+    default t1 · line-printer · 20x3 · cursor 2,1 · frame N · exited 7
+    1│line 1
+    …│ (rows 2-3 blank)
+    ");
 }
 
 #[test]
