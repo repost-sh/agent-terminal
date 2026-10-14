@@ -6,9 +6,11 @@
 
 **daemon**: the resident process that owns every terminal. The CLI starts it on first use and talks to it over a unix socket in the agent-terminal home folder.
 
-**frame**: one version of a terminal's screen. The frame number goes up every time program output reaches the screen.
+**frame**: one version of a terminal's screen. The frame number goes up every time program output changes what the screen shows (text, colors, cursor); output that leaves the screen as it was makes no new frame.
 
 **stable**: a screen whose frame has not changed for the quiet period (300 ms by default). A heuristic; when the expected content is known, wait for that text instead.
+
+**idle**: a program that has printed nothing for the quiet period (300 ms by default), not even output that leaves the screen as it was.
 
 **snapshot**: the screen as text: a header line, numbered rows, trailing blank rows folded. `--json` gives the same data as an object.
 

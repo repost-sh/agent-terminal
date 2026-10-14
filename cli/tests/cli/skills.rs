@@ -265,7 +265,6 @@ const NOT_YET_BUILT: &[&str] = &[
     "dashboard",
     "doctor",
     "exec",
-    "expect",
     "history",
     "resize",
     "screenshot",
@@ -274,7 +273,6 @@ const NOT_YET_BUILT: &[&str] = &[
     "shell",
     "tab",
     "trace",
-    "wait",
 ];
 
 fn code_in(markdown: &str) -> Vec<&str> {

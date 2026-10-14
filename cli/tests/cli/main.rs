@@ -1,4 +1,5 @@
 mod diff;
+mod expect;
 mod find;
 mod get;
 mod input;
@@ -7,3 +8,4 @@ mod output;
 mod skills;
 mod snapshot;
 mod support;
+mod wait;

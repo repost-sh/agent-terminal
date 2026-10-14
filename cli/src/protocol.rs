@@ -19,7 +19,91 @@ pub struct Size {
 #[serde(tag = "until", rename_all = "kebab-case")]
 pub enum Wait {
     Stable { quiet_ms: u64 },
-    Text { text: String },
+    Idle { quiet_ms: u64 },
+    Text(TextMatch),
+    Gone(TextMatch),
+    Exit { code: Option<i32> },
+    Cursor { row: u16, col: u16 },
+    Frame { frame: u64 },
+    Elapsed { ms: u64 },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TextMatch {
+    pub text: String,
+    pub regex: bool,
+    pub rows: Option<RowRange>,
+}
+
+impl TextMatch {
+    pub fn plain(text: String) -> Self {
+        Self { text, regex: false, rows: None }
+    }
+}
+
+impl fmt::Display for TextMatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.regex { write!(f, "/{}/", self.text) } else { write!(f, "\"{}\"", self.text) }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "check", rename_all = "kebab-case")]
+pub enum Expect {
+    Text(TextMatch),
+    Gone(TextMatch),
+    ExitCode { code: i32 },
+    Cell { row: u16, col: u16, style: Vec<Style> },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Style {
+    Bold,
+    Inverse,
+    Underline,
+    Fg(String),
+    Bg(String),
+}
+
+impl Style {
+    pub fn holds(&self, cell: &Cell) -> bool {
+        match self {
+            Style::Bold => cell.bold,
+            Style::Inverse => cell.inverse,
+            Style::Underline => cell.underline,
+            Style::Fg(color) => cell.fg == *color,
+            Style::Bg(color) => cell.bg == *color,
+        }
+    }
+}
+
+impl FromStr for Style {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, String> {
+        let lower = text.to_ascii_lowercase();
+        match lower.split_once('=') {
+            None if lower == "bold" => Ok(Style::Bold),
+            None if lower == "inverse" => Ok(Style::Inverse),
+            None if lower == "underline" => Ok(Style::Underline),
+            Some(("fg", color)) if !color.is_empty() => Ok(Style::Fg(color.to_string())),
+            Some(("bg", color)) if !color.is_empty() => Ok(Style::Bg(color.to_string())),
+            _ => Err(format!("unknown style {text}; use bold, inverse, underline, fg=<color> or bg=<color>")),
+        }
+    }
+}
+
+impl fmt::Display for Style {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Style::Bold => f.write_str("bold"),
+            Style::Inverse => f.write_str("inverse"),
+            Style::Underline => f.write_str("underline"),
+            Style::Fg(color) => write!(f, "fg={color}"),
+            Style::Bg(color) => write!(f, "bg={color}"),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -32,7 +116,7 @@ pub enum Request {
         size: Size,
         cwd: PathBuf,
         env: Vec<(String, String)>,
-        wait: Wait,
+        wait: Option<Wait>,
         timeout_ms: u64,
     },
     Snapshot {
@@ -48,7 +132,18 @@ pub enum Request {
         session: String,
         input: Input,
         wait: Option<Wait>,
+        #[serde(default)]
+        snapshot: bool,
         timeout_ms: u64,
+    },
+    Wait {
+        session: String,
+        wait: Wait,
+        timeout_ms: u64,
+    },
+    Expect {
+        session: String,
+        expect: Expect,
     },
     Stop,
     Get {
@@ -189,6 +284,8 @@ pub enum Reply {
     Snapshot(Snapshot),
     Closed(Closed),
     Delivered(Delivered),
+    Waited(Waited),
+    Checked(Checked),
     Stopped,
     Fact(Fact),
     Matches(Matches),
@@ -269,6 +366,18 @@ pub struct Cell {
     pub underline: bool,
 }
 
+impl fmt::Display for Cell {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} fg={} bg={}", self.char, self.fg, self.bg)?;
+        for (on, name) in [(self.bold, "bold"), (self.inverse, "inverse"), (self.underline, "underline")] {
+            if on {
+                write!(f, " {name}")?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Modes {
     pub alt_screen: bool,
@@ -337,6 +446,8 @@ pub struct Delivered {
     pub tab: String,
     #[serde(flatten)]
     pub delivery: Delivery,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<Box<Snapshot>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -347,6 +458,24 @@ pub enum Delivery {
     Paste { bracketed: bool, bytes: usize },
     Raw { bytes: usize },
     Signal { signal: Signal, process_group: i32 },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Waited {
+    pub session: String,
+    pub tab: String,
+    pub until: String,
+    pub waited_ms: u64,
+    pub frame: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Checked {
+    pub session: String,
+    pub tab: String,
+    pub fact: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
