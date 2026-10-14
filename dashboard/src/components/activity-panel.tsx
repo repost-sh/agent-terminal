@@ -18,7 +18,9 @@ const RESULT_TONE = {
   warning: { text: "text-yellow-700 dark:text-warning", row: "bg-warning/5" },
 };
 
-const cleared = new Map<string, number>();
+type Cleared = { first: string; count: number };
+
+const cleared = new Map<string, Cleared>();
 
 const stickToLatest = (list: HTMLOListElement | null) => {
   if (!list) return;
@@ -97,10 +99,11 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
   const key = `${session}/${tab.tab}`;
   const name = tabName(session, tab.tab);
   const entries = useActivity(session, tab.tab);
-  const [hidden, setHidden] = useState(() => cleared.get(key) ?? 0);
+  const [clearedAt, setClearedAt] = useState(() => cleared.get(key) ?? null);
   const [follow, setFollow] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
   const followButton = useRef<HTMLButtonElement>(null);
+  const hidden = clearedAt && entries[0]?.time === clearedAt.first ? clearedAt.count : 0;
   const shown = entries.slice(hidden);
 
   const scrolled = (event: UIEvent<HTMLOListElement>) => {
@@ -110,8 +113,11 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
   };
 
   const clear = () => {
-    cleared.set(key, entries.length);
-    setHidden(entries.length);
+    const first = entries[0];
+    if (!first) return;
+    const at = { first: first.time, count: entries.length };
+    cleared.set(key, at);
+    setClearedAt(at);
     setExpanded(null);
     announce("Activity cleared");
   };

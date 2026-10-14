@@ -175,6 +175,32 @@ fn starting_again_keeps_the_running_dashboard_and_refuses_another_port() {
     );
 }
 
+fn path_segment(text: &str) -> String {
+    text.bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (byte as char).to_string(),
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
+#[test]
+fn the_dashboard_serves_no_file_the_activity_log_does_not_list_as_a_screenshot() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    let png = at.home().join("evidence.png");
+    std::fs::write(&png, b"\x89PNG\r\n\x1a\n").expect("write a PNG file");
+    let log = at.home().join("sessions/default/activity.jsonl");
+    let port = start(&at);
+
+    for (session, file) in [("default", &png), ("default", &log), ("other", &png)] {
+        let path = file.to_string_lossy();
+        let refused = get(port, &format!("/api/session/{session}/screenshots/{}", path_segment(&path)), &[]);
+        assert_eq!(refused.status, 404, "{}", refused.head);
+        assert_eq!(refused.body, format!("{path} is not a PNG screenshot in session {session}"));
+    }
+}
+
 #[test]
 fn starting_on_a_port_another_program_holds_fails() {
     let at = AgentTerminal::new();

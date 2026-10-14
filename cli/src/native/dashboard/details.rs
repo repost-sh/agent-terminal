@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
-use axum::extract::ws::{WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use axum::http::header::{CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use serde_json::Value;
@@ -309,7 +310,7 @@ async fn follow_info(mut socket: WebSocket, mut follow: Follow) {
             }
         };
         if info != sent {
-            if socket.send(axum::extract::ws::Message::text(info.clone())).await.is_err() {
+            if socket.send(Message::text(info.clone())).await.is_err() {
                 return;
             }
             sent = info;
@@ -355,6 +356,36 @@ fn masked(mut env: Vec<(String, String)>) -> Vec<EnvVar> {
             EnvVar { value: (!secret).then_some(value), name }
         })
         .collect()
+}
+
+pub async fn screenshot(
+    State(backend): State<Arc<dyn Backend>>,
+    Path((session, path)): Path<(String, String)>,
+) -> Response {
+    let not_listed = (StatusCode::NOT_FOUND, format!("{path} is not a PNG screenshot in session {session}"));
+    let Some(folder) = backend.folder(&session) else {
+        return not_listed.into_response();
+    };
+    let wanted = path.clone();
+    let read = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<Vec<u8>>> {
+        let (entries, _) = folder.activity_since(0)?;
+        let listed = entries.iter().any(|entry| {
+            entry["screenshots"].as_array().is_some_and(|shots| shots.iter().any(|shot| shot == wanted.as_str()))
+        });
+        if !listed || !wanted.to_ascii_lowercase().ends_with(".png") {
+            return Ok(None);
+        }
+        Ok(Some(std::fs::read(&wanted)?))
+    })
+    .await;
+    match read {
+        Ok(Ok(Some(png))) => ([(CONTENT_TYPE, "image/png"), (X_CONTENT_TYPE_OPTIONS, "nosniff")], png).into_response(),
+        Ok(Ok(None)) => not_listed.into_response(),
+        Ok(Err(e)) => (StatusCode::NOT_FOUND, format!("cannot read the screenshot {path}: {e:#}")).into_response(),
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("reading the screenshot {path} failed: {e}")).into_response()
+        }
+    }
 }
 
 fn not_a_tab(tab: &str) -> Response {

@@ -162,4 +162,33 @@ fn activity_follows_new_calls_until_scrolled_up_then_offers_jump_to_latest_and_c
         calls(&browser)[0]["parts"][0].as_str().unwrap().split(' ').take(2).collect::<Vec<_>>(),
         ["get", "frame"]
     );
+
+    browser.run(&["find", "role", "tab", "click", "--name", "Output", "--exact"]);
+    browser.run(&["find", "role", "tab", "click", "--name", "Activity", "--exact"]);
+    wait_for_calls(&browser, 1);
+
+    at.run(&["close"]).success();
+    browser.wait_for_text("default t1 is not open");
+    at.run(&["open", "--size", "40x6", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    wait_for_calls(&browser, 1);
+    assert_eq!(calls(&browser)[0]["parts"][0].as_str().unwrap().split(' ').next(), Some("open"));
+}
+
+#[test]
+fn in_a_split_activity_shows_the_calls_to_the_focused_terminal() {
+    let at = AgentTerminal::new();
+    let printer = fixture("line-printer");
+    for session in ["qa", "web"] {
+        at.run(&["--session", session, "open", "--size", "30x4", "--wait", "line 3", &printer, "--hold"]).success();
+    }
+    at.run(&["--session", "web", "get", "frame"]).success();
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/split/qa:t1,web:t1"));
+    browser.wait_until("document.querySelectorAll(\"[aria-label='Calls to qa t1'] > li\").length === 1");
+
+    browser.run(&["click", "main section[aria-label='web t1 line-printer'] [role=group]"]);
+    browser.wait_until("document.querySelectorAll(\"[aria-label='Calls to web t1'] > li\").length === 2");
+    at.run(&["--session", "qa", "get", "frame"]).success();
+    at.run(&["--session", "web", "get", "frame"]).success();
+    browser.wait_until("document.querySelectorAll(\"[aria-label='Calls to web t1'] > li\").length === 3");
 }
