@@ -94,6 +94,46 @@ fn a_batch_logs_each_command_it_ran() {
 }
 
 #[test]
+fn each_entry_keeps_what_the_call_printed() {
+    let at = AgentTerminal::new();
+    let printer = fixture("line-printer");
+    let opened = at.run(&["open", "--size", "40x6", "--wait", "line 3", &printer, "--hold"]).success();
+    at.run(&["type", "hi", "--wait", "hi"]).success();
+    let outside = at.run(&["get", "cell", "99", "1"]);
+    let timed_out = at.run(&["--timeout", "300", "wait", "never shown"]);
+    assert_eq!(timed_out.code(), 3);
+
+    let log = activity(&at, "default");
+    assert_eq!(
+        opened.screen(),
+        "default t1 · line-printer · 40x6 · cursor 4,1 · frame N\n1│line 1\n2│line 2\n3│line 3\n…│ (rows 4-6 blank)\n"
+    );
+    assert_eq!(log[0]["output"], opened.stdout());
+    assert_eq!(log[1]["output"], "typed 2 keys into default t1\n");
+    assert_eq!(log[2]["output"], "error: cell 99,1 is outside the 40x6 screen\n");
+    assert_eq!(log[2]["output"], outside.stderr());
+    assert_eq!(log[3]["output"], timed_out.stderr());
+    assert!(
+        log[3]["output"].as_str().unwrap().starts_with("error: timed out after 300 ms waiting for \"never shown\""),
+        "{}",
+        log[3]
+    );
+}
+
+#[test]
+fn an_entry_keeps_the_first_64_kib_of_a_long_output() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--wait", "line 20000", &fixture("line-printer"), "--lines", "20000", "--hold"]).success();
+    let printed = at.run(&["output"]).success().stdout();
+    assert!(printed.len() > 128 * 1024, "{} bytes", printed.len());
+
+    let output = activity(&at, "default")[1]["output"].as_str().unwrap().to_string();
+    let (kept, note) = output.split_at(64 * 1024);
+    assert_eq!(kept, &printed[..64 * 1024]);
+    assert_eq!(note, format!("\n… {} more bytes not kept\n", printed.len() - 64 * 1024));
+}
+
+#[test]
 fn calls_that_reach_no_session_leave_no_folder() {
     let at = AgentTerminal::new();
     assert_eq!(at.run(&["--session", "ghost", "snapshot"]).code(), 1);

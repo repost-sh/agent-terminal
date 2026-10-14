@@ -31,6 +31,17 @@ impl Kept {
         let start = offset.checked_sub(self.dropped)?;
         Some(self.bytes.range(start as usize..).copied().collect())
     }
+
+    fn kept_from(&self, offset: u64) -> (u64, Vec<u8>) {
+        let start = offset.clamp(self.dropped, self.end());
+        (start, self.bytes.range((start - self.dropped) as usize..).copied().collect())
+    }
+}
+
+pub struct RawOutput {
+    pub start: u64,
+    pub bytes: Vec<u8>,
+    pub marks: Vec<(String, u64)>,
 }
 
 #[derive(Default)]
@@ -76,6 +87,13 @@ impl OutputLog {
             )
         })?;
         Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    pub fn raw_from(&self, offset: u64) -> RawOutput {
+        let (start, bytes) = self.raw.kept_from(offset);
+        let mut marks: Vec<(String, u64)> = self.marks.iter().map(|(name, point)| (name.clone(), point.raw)).collect();
+        marks.sort_by(|a, b| (a.1, &a.0).cmp(&(b.1, &b.0)));
+        RawOutput { start, bytes, marks }
     }
 
     fn here(&self, frame: u64) -> Point {

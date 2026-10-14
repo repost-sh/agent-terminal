@@ -8,6 +8,11 @@ export const sessionsStreamUrl = () => socketUrl("/api/sessions/stream");
 
 export const tabStreamUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/stream`);
 
+export const screenshotUrl = (session: string, path: string) =>
+  `/api/session/${encodeURIComponent(session)}/screenshot?path=${encodeURIComponent(path)}`;
+
+export const tabFeedPath =(session: string, tab: string, feed: "activity" | "output" | "info") => `${tabPath(session, tab)}/${feed}`;
+
 const refusal = (text: string, response: Response) => {
   try {
     return (JSON.parse(text) as { error: ErrorBody }).error.message;

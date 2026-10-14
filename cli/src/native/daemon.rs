@@ -14,6 +14,7 @@ use crate::native::pty;
 use crate::native::store::{self, ActivityEntry, SessionFolder};
 use crate::native::terminal::{Settled, Terminal};
 use crate::native::wait::{Condition, Pattern};
+use crate::output;
 use crate::protocol::{
     self, Addressed, BatchOutcome, BatchStep, Call, Checked, Closed, Dashboard, DashboardStopped, Delivered, ErrorBody,
     Expect, Export, Input, Marked, Matches, Printed, RecordingFile, Reply, Request, Response, RowRange, SavedRecording,
@@ -333,9 +334,16 @@ impl Daemon {
             let (_, terminal) = self.target(&logged.session, Some(logged.tab?)).ok()?;
             Some(terminal.frame())
         });
-        if let Err(failure) = handled {
-            entry.exit = failure.code;
-            entry.error = Some(failure.message.clone());
+        match handled {
+            Ok(reply) => {
+                entry.exit = reply.exit_code();
+                entry.printed(output::reply_text(reply));
+            }
+            Err(failure) => {
+                entry.exit = failure.code;
+                entry.error = Some(failure.message.clone());
+                entry.printed(output::error_text(failure));
+            }
         }
         folder.log(&entry);
     }
@@ -607,6 +615,10 @@ impl Backend for Daemon {
 
     fn terminal(&self, session: &str, tab: u32) -> Option<Arc<Terminal>> {
         self.sessions.lock().unwrap().get(session).and_then(|entry| entry.tabs.get(&tab)).cloned()
+    }
+
+    fn folder(&self, session: &str) -> Option<Arc<SessionFolder>> {
+        self.sessions.lock().unwrap().get(session).map(|entry| Arc::clone(&entry.folder))
     }
 
     fn changes(&self) -> watch::Receiver<u64> {

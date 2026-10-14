@@ -36,3 +36,17 @@ export type ErrorBody = {
   code: number;
   message: string;
 };
+
+export type ActivityEntry = {
+  time: string;
+  tab?: string;
+  command: string;
+  duration_ms: number;
+  exit: number;
+  error?: string;
+  frame?: number;
+  output: string;
+  screenshots?: string[];
+};
+
+export type ActivityUpdate = { type: "entries"; entries: ActivityEntry[] } | { type: "closed" };

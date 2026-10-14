@@ -1,5 +1,6 @@
 mod api;
 mod assets;
+mod details;
 mod guard;
 mod stream;
 
@@ -13,6 +14,7 @@ use axum::Router;
 use axum::routing::{get, post};
 use tokio::sync::{oneshot, watch};
 
+use crate::native::store::SessionFolder;
 use crate::native::terminal::Terminal;
 use crate::protocol::{Dashboard, ErrorBody, Reply, Request, Sessions};
 
@@ -20,6 +22,7 @@ pub trait Backend: Send + Sync + 'static {
     fn call(&self, request: Request) -> Result<Reply, ErrorBody>;
     fn sessions(&self) -> Sessions;
     fn terminal(&self, session: &str, tab: u32) -> Option<Arc<Terminal>>;
+    fn folder(&self, session: &str) -> Option<Arc<SessionFolder>>;
     fn changes(&self) -> watch::Receiver<u64>;
 }
 
@@ -121,6 +124,9 @@ fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
         .route("/api/sessions", get(api::sessions))
         .route("/api/sessions/stream", get(api::sessions_stream))
         .route("/api/session/{session}/{tab}/stream", get(stream::tab))
+        .route("/api/session/{session}/{tab}/activity", get(details::activity))
+        .route("/api/session/{session}/{tab}/output", get(details::output))
+        .route("/api/session/{session}/{tab}/info", get(details::info))
         .route("/api/session/{session}/{tab}/restart", post(api::restart))
         .route("/api/session/{session}/{tab}/close", post(api::close))
         .fallback(assets::serve)
