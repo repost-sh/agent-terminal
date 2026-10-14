@@ -1,4 +1,7 @@
-use crate::protocol::{Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Snapshot, SnapshotDiff};
+use crate::protocol::{
+    Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, SessionInfo, Snapshot, SnapshotDiff,
+};
+use crate::session_id::SessionId;
 
 pub fn screen(s: &Snapshot) -> String {
     let mut header = vec![format!("{} {}", s.session, s.tab), s.program.clone(), format!("{}x{}", s.cols, s.rows)];
@@ -56,6 +59,18 @@ pub fn reply(reply: &Reply, json: bool) {
                 println!("closed {} {}", tab.session, tab.tab);
             }
         }
+        Reply::Sessions(sessions) if json => println!("{}", serde_json::json!(sessions)),
+        Reply::Sessions(sessions) if sessions.sessions.is_empty() => println!("no sessions are open"),
+        Reply::Sessions(sessions) => {
+            for session in &sessions.sessions {
+                print!("{}", tab_lines(session));
+            }
+        }
+        Reply::Tabs(session) if json => println!("{}", serde_json::json!(session)),
+        Reply::Tabs(session) if session.tabs.is_empty() => {
+            println!("no tabs are open in session {}", session.session)
+        }
+        Reply::Tabs(session) => print!("{}", tab_lines(session)),
         Reply::Delivered(delivered) if json => println!("{}", serde_json::json!(delivered)),
         Reply::Delivered(delivered) => println!("{}", delivery(delivered)),
         Reply::Stopped => {}
@@ -144,6 +159,41 @@ fn fact_text(fact: &Fact) -> String {
             text.push('\n');
             text
         }
+    }
+}
+
+fn tab_lines(session: &SessionInfo) -> String {
+    let mut out = String::new();
+    for tab in &session.tabs {
+        let mut line =
+            vec![format!("{} {}", session.session, tab.tab), tab.program.clone(), format!("{}x{}", tab.cols, tab.rows)];
+        line.push(match (tab.exited, tab.exit_code) {
+            (true, Some(code)) => format!("exited {code}"),
+            (true, None) => "exited".into(),
+            (false, _) => "running".into(),
+        });
+        if session.current.as_ref() == Some(&tab.tab) {
+            line.push("current".into());
+        }
+        out.push_str(&line.join(" · "));
+        out.push('\n');
+    }
+    out
+}
+
+pub fn session(name: &str, json: bool) {
+    if json {
+        println!("{}", serde_json::json!({ "session": name }));
+    } else {
+        println!("{name}");
+    }
+}
+
+pub fn session_id(id: &SessionId, json: bool) {
+    if json {
+        println!("{}", serde_json::json!(id));
+    } else {
+        println!("{}", id.session);
     }
 }
 

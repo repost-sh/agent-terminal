@@ -267,12 +267,9 @@ const NOT_YET_BUILT: &[&str] = &[
     "exec",
     "expect",
     "history",
-    "resize",
     "screenshot",
     "scroll",
-    "session",
     "shell",
-    "tab",
     "trace",
     "wait",
 ];

@@ -4,6 +4,7 @@ mod key;
 mod native;
 mod output;
 mod protocol;
+mod session_id;
 mod skills;
 
 use std::fmt;
