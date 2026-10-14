@@ -10,8 +10,8 @@ use crate::key::Key;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, BatchStep, Expect, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions,
-    Signal, Size, SnapshotOptions, Style, TextMatch, Wait,
+    Baseline, BatchStep, ClickTarget, Direction, Expect, Get, Input, MouseButton, MouseEvent, Reply, Request, Response,
+    RowRange, Scrollback, SessionInfo, Sessions, Signal, Size, SnapshotOptions, Style, TextMatch, Wait,
 };
 use crate::session_id;
 use crate::skills;
@@ -129,6 +129,17 @@ enum Command {
     Send(SendArgs),
     #[command(about = "Send a signal to the program in the foreground: INT, TERM, KILL, HUP, TSTP, CONT, WINCH")]
     Signal(SignalArgs),
+    #[command(
+        about = "Mouse click on a ref, a cell or text (refused if the app has no mouse support; use keys instead)"
+    )]
+    Click(ClickArgs),
+    #[command(about = "Scroll: the mouse wheel when the app tracks the mouse, else PageUp/PageDown")]
+    Scroll(ScrollArgs),
+    #[command(about = "Low-level mouse events at a cell: move, down, up, wheel")]
+    Mouse {
+        #[command(subcommand)]
+        event: MouseCommand,
+    },
     #[command(about = "Wait until the text is on screen, the screen is stable, or the program exits")]
     Wait(UntilArgs),
     #[command(about = "Fail now (exit 2) unless the screen or the program is as expected")]
@@ -241,6 +252,13 @@ struct SnapshotArgs {
 
     #[arg(long, help = "Keep colors and styles as ANSI escape codes")]
     ansi: bool,
+
+    #[arg(
+        short,
+        long,
+        help = "Also list @t refs for what is on screen: panels, selected rows, buttons, links, key hints, the input under the cursor"
+    )]
+    interactive: bool,
 }
 
 impl SnapshotArgs {
@@ -253,6 +271,7 @@ impl SnapshotArgs {
                 Some(Some(n)) => Scrollback::Last(n),
             },
             ansi: self.ansi,
+            refs: self.interactive,
         }
     }
 }
@@ -410,6 +429,121 @@ struct SignalArgs {
 
     #[command(flatten)]
     after: AfterInput,
+}
+
+#[derive(Args)]
+struct ClickArgs {
+    #[arg(
+        help = "A ref from snapshot -i (@t3), a cell (ROW,COL, from 1,1 at the top left) or text (its first match)",
+        value_name = "@REF|ROW,COL|TEXT",
+        value_parser = clap::value_parser!(ClickTarget),
+        allow_hyphen_values = true
+    )]
+    target: ClickTarget,
+
+    #[arg(long, help = "Click with the right button")]
+    right: bool,
+
+    #[arg(long, help = "Click twice, as a double click")]
+    double: bool,
+
+    #[command(flatten)]
+    after: AfterInput,
+}
+
+#[derive(Args)]
+struct ScrollArgs {
+    #[arg(help = "up or down", value_name = "up|down", value_parser = clap::value_parser!(Direction))]
+    direction: Direction,
+
+    #[arg(
+        help = "How many wheel notches or pages",
+        value_name = "N",
+        default_value_t = 1,
+        value_parser = clap::value_parser!(u32).range(1..)
+    )]
+    count: u32,
+
+    #[arg(long, help = "Press PageUp/PageDown even when the app tracks the mouse")]
+    keys: bool,
+
+    #[command(flatten)]
+    after: AfterInput,
+}
+
+#[derive(Subcommand)]
+enum MouseCommand {
+    #[command(about = "Move the mouse to a cell (the app sees it only when it tracks motion, or drags)")]
+    Move {
+        #[arg(help = "Row,column, from 1,1 at the top left", value_name = "ROW,COL", value_parser = parse_position)]
+        at: (u16, u16),
+        #[command(flatten)]
+        after: AfterInput,
+    },
+    #[command(about = "Press a mouse button at a cell")]
+    Down {
+        #[arg(help = "Row,column, from 1,1 at the top left", value_name = "ROW,COL", value_parser = parse_position)]
+        at: (u16, u16),
+        #[command(flatten)]
+        button: ButtonArgs,
+        #[command(flatten)]
+        after: AfterInput,
+    },
+    #[command(about = "Release a mouse button at a cell")]
+    Up {
+        #[arg(help = "Row,column, from 1,1 at the top left", value_name = "ROW,COL", value_parser = parse_position)]
+        at: (u16, u16),
+        #[command(flatten)]
+        button: ButtonArgs,
+        #[command(flatten)]
+        after: AfterInput,
+    },
+    #[command(about = "Turn the mouse wheel one notch at a cell")]
+    Wheel {
+        #[arg(help = "up or down", value_name = "up|down", value_parser = clap::value_parser!(Direction))]
+        direction: Direction,
+        #[arg(help = "Row,column, from 1,1 at the top left", value_name = "ROW,COL", value_parser = parse_position)]
+        at: (u16, u16),
+        #[command(flatten)]
+        after: AfterInput,
+    },
+}
+
+impl MouseCommand {
+    fn event(self) -> (MouseEvent, AfterInput) {
+        match self {
+            MouseCommand::Move { at: (row, col), after } => (MouseEvent::Move { row, col }, after),
+            MouseCommand::Down { at: (row, col), button, after } => {
+                (MouseEvent::Down { row, col, button: button.button() }, after)
+            }
+            MouseCommand::Up { at: (row, col), button, after } => {
+                (MouseEvent::Up { row, col, button: button.button() }, after)
+            }
+            MouseCommand::Wheel { direction, at: (row, col), after } => {
+                (MouseEvent::Wheel { row, col, direction }, after)
+            }
+        }
+    }
+}
+
+#[derive(Args)]
+#[command(group(ArgGroup::new("which").args(["right", "middle"])))]
+struct ButtonArgs {
+    #[arg(long, help = "The right button instead of the left one")]
+    right: bool,
+
+    #[arg(long, help = "The middle button instead of the left one")]
+    middle: bool,
+}
+
+impl ButtonArgs {
+    fn button(self) -> MouseButton {
+        match (self.right, self.middle) {
+            (true, _) => MouseButton::Right,
+            (_, true) => MouseButton::Middle,
+            _ => MouseButton::Left,
+        }
+    }
 }
 
 #[derive(Args)]
@@ -673,6 +807,19 @@ fn request(cli: Cli) -> Result<Request, String> {
         Command::Send(args) => input(session, cli.tab, Input::Send { bytes: args.bytes.0 }, args.after, cli.timeout),
         Command::Signal(args) => {
             input(session, cli.tab, Input::Signal { signal: args.signal }, args.after, cli.timeout)
+        }
+        Command::Click(args) => {
+            let button = if args.right { MouseButton::Right } else { MouseButton::Left };
+            let click = Input::Click { target: args.target, button, double: args.double };
+            input(session, cli.tab, click, args.after, cli.timeout)
+        }
+        Command::Scroll(args) => {
+            let scroll = Input::Scroll { direction: args.direction, count: args.count, keys: args.keys };
+            input(session, cli.tab, scroll, args.after, cli.timeout)
+        }
+        Command::Mouse { event } => {
+            let (event, after) = event.event();
+            input(session, cli.tab, Input::Mouse { event }, after, cli.timeout)
         }
         Command::Wait(args) => Request::Wait { session, tab: cli.tab, wait: args.until(), timeout_ms: cli.timeout },
         Command::Expect(args) => Request::Expect { session, tab: cli.tab, expect: args.check() },

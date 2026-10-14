@@ -1,7 +1,9 @@
 pub mod daemon;
 pub mod keyboard;
+pub mod mouse;
 pub mod output_log;
 pub mod pty;
+pub mod refs;
 pub mod screen;
 pub mod terminal;
 pub mod wait;
