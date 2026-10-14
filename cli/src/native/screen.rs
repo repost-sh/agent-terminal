@@ -275,10 +275,44 @@ impl EventListener for Events {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShellReport {
+    Prompt,
+    Ready,
+    Started { command: String, cwd: Option<String> },
+    Finished { exit_code: Option<i32> },
+}
+
 #[derive(Default)]
 struct Stream {
     cwd: Option<String>,
     printed: String,
+    reports: Vec<(usize, ShellReport)>,
+}
+
+impl Stream {
+    fn report(&mut self, params: &[&[u8]]) {
+        let report = match params {
+            [b"A", ..] => ShellReport::Prompt,
+            [b"B", ..] => ShellReport::Ready,
+            [b"C", options @ ..] => ShellReport::Started {
+                command: options.iter().find_map(|option| command_line(option)).unwrap_or_default(),
+                cwd: self.cwd.clone(),
+            },
+            [b"D", code @ ..] => ShellReport::Finished {
+                exit_code: code.first().and_then(|code| std::str::from_utf8(code).ok()?.parse().ok()),
+            },
+            _ => return,
+        };
+        self.reports.push((self.printed.len(), report));
+    }
+}
+
+fn command_line(option: &[u8]) -> Option<String> {
+    if let Some(encoded) = option.strip_prefix(b"cmdline_url=") {
+        return Some(String::from_utf8_lossy(&percent_decoded(encoded)).into_owned());
+    }
+    option.strip_prefix(b"cmdline=").map(|text| String::from_utf8_lossy(text).into_owned())
 }
 
 impl Perform for Stream {
@@ -293,10 +327,14 @@ impl Perform for Stream {
     }
 
     fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
-        if let [b"7", url @ ..] = params
-            && let Some(cwd) = file_url_path(&url.join(&b';'))
-        {
-            self.cwd = Some(cwd);
+        match params {
+            [b"7", url @ ..] => {
+                if let Some(cwd) = file_url_path(&url.join(&b';')) {
+                    self.cwd = Some(cwd);
+                }
+            }
+            [b"133", mark @ ..] => self.report(mark),
+            _ => {}
         }
     }
 }
@@ -304,6 +342,10 @@ impl Perform for Stream {
 fn file_url_path(url: &[u8]) -> Option<String> {
     let rest = url.strip_prefix(b"file://")?;
     let path = &rest[rest.iter().position(|&b| b == b'/')?..];
+    Some(String::from_utf8_lossy(&percent_decoded(path)).into_owned())
+}
+
+fn percent_decoded(path: &[u8]) -> Vec<u8> {
     let mut decoded = Vec::with_capacity(path.len());
     let mut i = 0;
     while i < path.len() {
@@ -322,7 +364,7 @@ fn file_url_path(url: &[u8]) -> Option<String> {
             }
         }
     }
-    Some(String::from_utf8_lossy(&decoded).into_owned())
+    decoded
 }
 
 pub struct Screen {
@@ -468,6 +510,10 @@ impl Screen {
 
     pub fn take_printed(&mut self) -> String {
         std::mem::take(&mut self.stream.printed)
+    }
+
+    pub fn take_shell_reports(&mut self) -> Vec<(usize, ShellReport)> {
+        std::mem::take(&mut self.stream.reports)
     }
 
     pub fn reported_cwd(&self) -> Option<String> {

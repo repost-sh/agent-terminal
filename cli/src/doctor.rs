@@ -4,7 +4,8 @@ use std::os::unix::net::UnixStream;
 use serde::Serialize;
 
 use crate::connection;
-use crate::native::pty;
+use crate::native::{pty, shell};
+use crate::protocol::Shell;
 
 #[derive(Serialize)]
 struct Check {
@@ -48,7 +49,7 @@ impl Check {
 }
 
 pub fn run(fix: bool, json: bool) -> i32 {
-    let checks = [pty(), daemon(fix)];
+    let checks = [pty(), shell(fix), daemon(fix)];
     let healthy = checks.iter().all(|check| check.status != Status::Problem);
     if json {
         println!("{}", serde_json::json!({ "ok": healthy, "checks": checks }));
@@ -72,6 +73,61 @@ fn pty() -> Check {
             "check that /dev/ptmx exists and that you can read and write it (in a container, mount devpts)",
         ),
     }
+}
+
+fn shell(fix: bool) -> Check {
+    let audited = if fix { shell::repair() } else { shell::audit() };
+    let audit = match audited {
+        Ok(audit) => audit,
+        Err(e) => return Check::problem("shell", format!("{e:#}"), "set AGENT_TERMINAL_HOME to a folder you own"),
+    };
+    let folder = audit.folder.display();
+    let (changed, left_over) = (audit.outdated.len(), audit.leftovers.len());
+    if changed + left_over > 0 && !fix {
+        return Check::problem(
+            "shell",
+            format!(
+                "the shell integration scripts in {folder} are not this version's ({changed} changed, {left_over} left over)"
+            ),
+            "agent-terminal doctor --fix brings them up to date",
+        );
+    }
+    let yours = match std::env::var_os("SHELL") {
+        None => Err("SHELL is not set, so `agent-terminal shell` does not know which shell to open".to_string()),
+        Some(program) => {
+            let program = program.to_string_lossy();
+            Shell::of_program(&program).ok_or_else(|| {
+                format!("SHELL is {program}, which has no shell integration (zsh, bash and fish have it)")
+            })
+        }
+    };
+    let yours = match yours {
+        Ok(shell) => shell.name(),
+        Err(message) => {
+            return Check::problem(
+                "shell",
+                message,
+                "open a shell with agent-terminal shell --shell zsh (or bash, fish)",
+            );
+        }
+    };
+    if changed + left_over > 0 {
+        return Check::fixed(
+            "shell",
+            format!(
+                "brought the shell integration scripts in {folder} up to date (rewrote {changed}, removed {left_over})"
+            ),
+        );
+    }
+    if audit.current == 0 {
+        return Check::ok(
+            "shell",
+            format!(
+                "{yours} (your SHELL) has shell integration; `agent-terminal shell` writes its scripts when it first runs"
+            ),
+        );
+    }
+    Check::ok("shell", format!("{yours} (your SHELL) has shell integration; the scripts in {folder} are up to date"))
 }
 
 fn daemon(fix: bool) -> Check {

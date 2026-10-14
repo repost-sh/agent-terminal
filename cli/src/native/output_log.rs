@@ -32,6 +32,13 @@ impl Kept {
         Some(self.bytes.range(start as usize..).copied().collect())
     }
 
+    fn between(&self, from: u64, to: u64) -> (Vec<u8>, u64) {
+        let start = from.max(self.dropped);
+        let end = to.clamp(start, self.end());
+        let kept = self.bytes.range((start - self.dropped) as usize..(end - self.dropped) as usize).copied().collect();
+        (kept, start - from)
+    }
+
     fn kept_from(&self, offset: u64) -> (u64, Vec<u8>) {
         let start = offset.clamp(self.dropped, self.end());
         (start, self.bytes.range((start - self.dropped) as usize..).copied().collect())
@@ -94,6 +101,22 @@ impl OutputLog {
         let mut marks: Vec<(String, u64)> = self.marks.iter().map(|(name, point)| (name.clone(), point.raw)).collect();
         marks.sort_by(|a, b| (a.1, &a.0).cmp(&(b.1, &b.0)));
         RawOutput { start, bytes, marks }
+    }
+
+    pub fn text_end(&self) -> u64 {
+        self.text.end()
+    }
+
+    pub fn text_between(&self, from: u64, to: Option<u64>) -> String {
+        let (kept, lost) = self.text.between(from, to.unwrap_or_else(|| self.text.end()));
+        let text = String::from_utf8_lossy(&kept).into_owned();
+        if lost == 0 {
+            return text;
+        }
+        format!(
+            "… (the first {lost} bytes are no longer kept; agent-terminal keeps the last {} MiB of output)\n{text}",
+            KEPT_BYTES / (1024 * 1024)
+        )
     }
 
     fn here(&self, frame: u64) -> Point {

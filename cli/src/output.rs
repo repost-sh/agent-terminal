@@ -1,7 +1,7 @@
 use crate::protocol::{
-    BatchOutcome, Checked, ClickTarget, DashboardStopped, Delivered, Delivery, DiffBase, Direction, ErrorBody, Exit,
-    Fact, Modes, MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, ScrollBy, SessionInfo,
-    Snapshot, SnapshotDiff, Waited,
+    BatchOutcome, Checked, ClickTarget, CommandRecord, DashboardStopped, Delivered, Delivery, DiffBase, Direction,
+    ErrorBody, Exit, Fact, Modes, MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, ScrollBy,
+    SessionInfo, Snapshot, SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
 
@@ -100,6 +100,8 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Exported(export) => println!("{}", serde_json::json!(export)),
         Reply::Dashboard(dashboard) => println!("{}", serde_json::json!(dashboard)),
         Reply::DashboardStopped(stopped) => println!("{}", serde_json::json!(stopped)),
+        Reply::History(history) => println!("{}", serde_json::json!(history)),
+        Reply::Command(ran) => println!("{}", serde_json::json!(ran)),
     }
 }
 
@@ -147,11 +149,31 @@ pub fn reply_text(reply: &Reply) -> String {
         Reply::Dashboard(dashboard) => format!("dashboard running at {}\n", dashboard.url),
         Reply::DashboardStopped(DashboardStopped { stopped: true }) => "dashboard stopped\n".into(),
         Reply::DashboardStopped(DashboardStopped { stopped: false }) => "no dashboard is running\n".into(),
+        Reply::History(history) if history.total == 0 => {
+            format!("no commands have run in {} {}\n", history.session, history.tab)
+        }
+        Reply::History(history) if history.commands.is_empty() => {
+            format!("no command matches in {} {} ({} in all)\n", history.session, history.tab, history.total)
+        }
+        Reply::History(history) => history.commands.iter().map(|record| format!("{}\n", record_line(record))).collect(),
+        Reply::Command(ran) => {
+            let gap = if !ran.output.is_empty() && !ran.output.ends_with('\n') { "\n" } else { "" };
+            format!("{}{gap}{}\n", ran.output, record_line(&ran.record))
+        }
     }
 }
 
 fn saved_text(saved: &SavedRecording) -> String {
     format!("saved {} ({}, {} KB)", saved.path.display(), duration(saved.duration_ms), saved.bytes.div_ceil(1024))
+}
+
+fn record_line(record: &CommandRecord) -> String {
+    let status = match (record.finished(), record.exit_code) {
+        (false, _) => "running".to_string(),
+        (true, Some(code)) => format!("exit {code}"),
+        (true, None) => "exit unknown".to_string(),
+    };
+    format!("{} · {status} · {} · {} · {}", record.id, duration(record.duration_ms), record.cwd, record.command)
 }
 
 fn duration(ms: u64) -> String {

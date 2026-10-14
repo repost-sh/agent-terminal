@@ -149,6 +149,10 @@
   .shell-cols > [role="separator"] {
     display: none;
   }
+  .split-grid {
+    grid-template-columns: 1fr !important;
+    grid-auto-rows: minmax(14rem, 1fr) !important;
+  }
 }
 
 .term-frame {

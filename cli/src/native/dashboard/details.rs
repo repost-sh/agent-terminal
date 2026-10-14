@@ -16,9 +16,7 @@ use crate::native::recording;
 use crate::native::store::SessionFolder;
 use crate::native::terminal::Terminal;
 use crate::output::call_line;
-use crate::protocol::Modes;
-
-const SHELLS: [&str; 3] = ["zsh", "bash", "fish"];
+use crate::protocol::{Modes, Shell};
 
 const SECRET_NAME_PARTS: [&str; 6] = ["TOKEN", "SECRET", "KEY", "PASSWORD", "PASSWD", "CREDENTIAL"];
 
@@ -299,7 +297,6 @@ fn info_of(terminal: &Terminal) -> Info {
     let setup = terminal.setup();
     let env = pty::environment(&setup.command);
     let term = env.iter().find(|(name, _)| name == "TERM").map(|(_, value)| value.clone());
-    let program = std::path::Path::new(&setup.command.program).file_name().and_then(|name| name.to_str());
     Info {
         program: setup.command.program.clone(),
         args: call_line(&setup.command.args),
@@ -308,7 +305,11 @@ fn info_of(terminal: &Terminal) -> Info {
         term,
         cols: setup.size.cols,
         rows: setup.size.rows,
-        shell_integration: program.is_some_and(|program| SHELLS.contains(&program)).then_some(false),
+        shell_integration: match (terminal.shell(), Shell::of_program(&setup.command.program)) {
+            (Some(_), _) => Some(true),
+            (None, Some(_)) => Some(false),
+            (None, None) => None,
+        },
         modes: setup.modes,
         recording: terminal.recording().saving_to(),
         started: humantime::format_rfc3339_millis(setup.started).to_string(),
