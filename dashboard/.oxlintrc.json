@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "error",
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "react",
+            "importNames": ["useEffect", "useLayoutEffect", "useInsertionEffect"],
+            "message": "Effect hooks are banned in the dashboard: subscribe with useSyncExternalStore, manage DOM and xterm.js in a ref callback that returns its cleanup, act in event handlers, derive values during render, reset state with key."
+          }
+        ]
+      }
+    ],
+    "no-restricted-properties": [
+      "error",
+      {
+        "property": "useEffect",
+        "message": "Effect hooks are banned in the dashboard: subscribe with useSyncExternalStore, manage DOM and xterm.js in a ref callback that returns its cleanup, act in event handlers, derive values during render, reset state with key."
+      },
+      {
+        "property": "useLayoutEffect",
+        "message": "Effect hooks are banned in the dashboard: subscribe with useSyncExternalStore, manage DOM and xterm.js in a ref callback that returns its cleanup, act in event handlers, derive values during render, reset state with key."
+      },
+      {
+        "property": "useInsertionEffect",
+        "message": "Effect hooks are banned in the dashboard: subscribe with useSyncExternalStore, manage DOM and xterm.js in a ref callback that returns its cleanup, act in event handlers, derive values during render, reset state with key."
+      }
+    ]
+  }
+}

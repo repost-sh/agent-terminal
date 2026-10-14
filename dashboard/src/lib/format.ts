@@ -1,21 +1,34 @@
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 const p2 = (n: number) => String(n).padStart(2, "0");
 
-const clock = (date: Date) => `${p2(date.getHours())}:${p2(date.getMinutes())}:${p2(date.getSeconds())}`;
-
-export const clockMs = (iso: string) => {
-  const date = new Date(iso);
-  return `${clock(date)}.${String(date.getMilliseconds()).padStart(3, "0")}`;
-};
-
-export const dateTime = (iso: string) => {
-  const date = new Date(iso);
-  return `${MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()} ${clock(date)}`;
-};
-
-export const duration = (ms: number) => {
+export const formatDuration = (ms: number) => {
   if (ms < 1000) return `${Math.round(ms)} ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)} s`;
-  return `${Math.floor(ms / 60000)} min ${p2(Math.round((ms % 60000) / 1000))} s`;
+  return `${Math.floor(ms / 60000)} min ${p2(Math.floor((ms % 60000) / 1000))} s`;
 };
+
+export const clockTime = (ms: number) => {
+  const at = new Date(ms);
+  return `${p2(at.getHours())}:${p2(at.getMinutes())}:${p2(at.getSeconds())}`;
+};
+
+export const clockMs = (iso: string) => {
+  const at = new Date(iso);
+  return `${clockTime(at.getTime())}.${String(at.getMilliseconds()).padStart(3, "0")}`;
+};
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export const dateTime = (iso: string) => {
+  const at = new Date(iso);
+  return `${MONTHS[at.getMonth()]} ${at.getDate()}, ${at.getFullYear()} ${clockTime(at.getTime())}`;
+};
+
+const initial = (part: string) => (part.startsWith(".") ? part.slice(0, 2) : [...part][0]);
+
+export const shortPath = (path: string, home: string | null) => {
+  const tilde = home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
+  const parts = tilde.split("/");
+  return parts.map((part, i) => (i === 0 || i === parts.length - 1 || !part ? part : initial(part))).join("/");
+};
+
+export const shellWord = (word: string) => (/^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);

@@ -11,7 +11,7 @@ Terminal automation CLI for AI agents, the terminal sibling of agent-browser.
 
 Read `CONTRIBUTING.md` before writing code or a commit: no comments in code, no workaround markers, no hacks, Conventional Commits. Enable the hooks once per clone with `git config core.hooksPath .githooks`.
 
-Checks, from `cli/`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. From the repo root, when `npm/` changes: `node --test 'npm/test/*.test.js'`. When `dashboard/` changes: `npm ci && npm run build` in `dashboard/`, commit `cli/assets/dashboard`, and run the browser tests from `cli/` (needs agent-browser): `cargo test --features browser-tests --test cli browser::`.
+Checks, from `cli/`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. From the repo root, when `npm/` changes: `node --test 'npm/test/*.test.js'`. When `dashboard/` changes: `npm ci`, `npm run lint`, `npm run build` in `dashboard/`, commit `cli/assets/dashboard`, and run the browser tests from `cli/` (needs agent-browser): `cargo test --features browser-tests --test cli browser::`.
 
 ## Agent skills
 

@@ -1,4 +1,4 @@
-import type { ErrorBody } from "./protocol";
+import type { CommandOutput, ErrorBody } from "./protocol";
 
 const tabPath = (session: string, tab: string) => `/api/session/${encodeURIComponent(session)}/${encodeURIComponent(tab)}`;
 
@@ -8,10 +8,12 @@ export const sessionsStreamUrl = () => socketUrl("/api/sessions/stream");
 
 export const tabStreamUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/stream`);
 
-export const screenshotUrl = (session: string, path: string) =>
-  `/api/session/${encodeURIComponent(session)}/screenshot?path=${encodeURIComponent(path)}`;
+export const commandsStreamUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/commands/stream`);
 
-export const tabFeedPath =(session: string, tab: string, feed: "activity" | "output" | "info") => `${tabPath(session, tab)}/${feed}`;
+export const screenshotUrl = (session: string, path: string) =>
+  `/api/session/${encodeURIComponent(session)}/screenshots/${encodeURIComponent(path)}`;
+
+export const tabFeedPath = (session: string, tab: string, feed: "activity" | "output" | "info") => `${tabPath(session, tab)}/${feed}`;
 
 const refusal = (text: string, response: Response) => {
   try {
@@ -29,3 +31,10 @@ const post = async (path: string) => {
 export const restartTab = (session: string, tab: string) => post(`${tabPath(session, tab)}/restart`);
 
 export const closeTab = (session: string, tab: string) => post(`${tabPath(session, tab)}/close`);
+
+export const commandOutput = async (session: string, tab: string, id: number) => {
+  const response = await fetch(`${tabPath(session, tab)}/commands/${id}`);
+  const text = await response.text();
+  if (!response.ok) throw new Error(refusal(text, response));
+  return (JSON.parse(text) as CommandOutput).output;
+};

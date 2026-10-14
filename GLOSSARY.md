@@ -26,7 +26,7 @@
 
 **recording**: a tab's output, input and resizes as an asciicast file, written from the moment the tab opens. `record start` saves a copy of it from that point to a file of your choice.
 
-**session folder**: the plain folder where a session keeps its recordings and activity log (`~/.agent-terminal/sessions/<session>/`); `trace export` zips it.
+**session folder**: the plain folder where a session keeps its recordings, activity log and command logs (`~/.agent-terminal/sessions/<session>/`); `trace export` zips it.
 
 **control**: who may send input to a terminal: the agent (default) or a human who took it from the dashboard. While a human holds it, agent input exits 4.
 

@@ -1,4 +1,5 @@
 mod activity;
+mod commands;
 mod empty;
 mod info;
 mod output;

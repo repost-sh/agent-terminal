@@ -11,6 +11,7 @@ use tokio::sync::watch;
 
 use super::stream::{hung_up, send};
 use super::{Backend, tab_id};
+use crate::native::output_log::{Marked, Output, Slice};
 use crate::native::pty;
 use crate::native::recording;
 use crate::native::store::SessionFolder;
@@ -30,7 +31,7 @@ enum ActivityUpdate {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 enum OutputUpdate {
-    Output { reset: bool, segments: Vec<Segment> },
+    Output { reset: bool, styled: Vec<Segment>, raw: Vec<Segment> },
     Closed,
 }
 
@@ -193,10 +194,50 @@ pub async fn output(
 }
 
 #[derive(Default)]
-struct Streamed {
+struct Stream {
     offset: u64,
     undecoded: Vec<u8>,
-    marks: Vec<(String, u64)>,
+}
+
+impl Stream {
+    fn segments(&mut self, slice: &Slice, marks: &[(u64, &str)]) -> Vec<Segment> {
+        let mut segments = Vec::new();
+        let mut taken = 0;
+        for &(at, name) in marks {
+            let Some(until) = at.checked_sub(slice.start) else { continue };
+            let until = (until as usize).min(slice.bytes.len());
+            let text = recording::decode(&mut self.undecoded, &slice.bytes[taken..until]);
+            if !text.is_empty() {
+                segments.push(Segment::Text(text));
+            }
+            segments.push(Segment::Mark(name.to_string()));
+            taken = until;
+        }
+        let text = recording::decode(&mut self.undecoded, &slice.bytes[taken..]);
+        if !text.is_empty() {
+            segments.push(Segment::Text(text));
+        }
+        self.offset = slice.start + slice.bytes.len() as u64;
+        segments
+    }
+}
+
+#[derive(Default)]
+struct Streamed {
+    raw: Stream,
+    styled: Stream,
+    marks: Vec<Marked>,
+}
+
+impl Streamed {
+    fn continues(&self, output: &Output) -> bool {
+        output.raw.start == self.raw.offset
+            && output.styled.start == self.styled.offset
+            && output.marks.starts_with(&self.marks)
+            && output.marks[self.marks.len()..]
+                .iter()
+                .all(|mark| mark.raw >= self.raw.offset && mark.styled >= self.styled.offset)
+    }
 }
 
 async fn follow_output(mut socket: WebSocket, mut follow: Follow) {
@@ -221,39 +262,25 @@ async fn follow_output(mut socket: WebSocket, mut follow: Follow) {
 }
 
 fn output_update(terminal: &Terminal, streamed: &mut Option<Streamed>) -> Option<OutputUpdate> {
-    let from = streamed.as_ref().map_or(0, |streamed| streamed.offset);
-    let mut raw = terminal.raw_output(from);
-    let continues = streamed.take().filter(|streamed| {
-        raw.start == streamed.offset
-            && raw.marks.starts_with(&streamed.marks)
-            && raw.marks[streamed.marks.len()..].iter().all(|(_, at)| *at >= streamed.offset)
-    });
+    let (raw, styled) = streamed.as_ref().map_or((0, 0), |streamed| (streamed.raw.offset, streamed.styled.offset));
+    let mut output = terminal.output_since(raw, styled);
+    let continues = streamed.take().filter(|streamed| streamed.continues(&output));
     let reset = continues.is_none();
-    let Streamed { mut undecoded, marks: known, .. } = match continues {
+    let mut streamed_now = match continues {
         Some(continues) => continues,
         None => {
-            raw = terminal.raw_output(0);
+            output = terminal.output_since(0, 0);
             Streamed::default()
         }
     };
-    let mut segments = Vec::new();
-    let mut taken = 0;
-    for (name, at) in &raw.marks[known.len()..] {
-        let Some(until) = at.checked_sub(raw.start) else { continue };
-        let until = (until as usize).min(raw.bytes.len());
-        let text = recording::decode(&mut undecoded, &raw.bytes[taken..until]);
-        if !text.is_empty() {
-            segments.push(Segment::Text(text));
-        }
-        segments.push(Segment::Mark(name.clone()));
-        taken = until;
-    }
-    let text = recording::decode(&mut undecoded, &raw.bytes[taken..]);
-    if !text.is_empty() {
-        segments.push(Segment::Text(text));
-    }
-    *streamed = Some(Streamed { offset: raw.start + raw.bytes.len() as u64, undecoded, marks: raw.marks });
-    (reset || !segments.is_empty()).then_some(OutputUpdate::Output { reset, segments })
+    let new = &output.marks[streamed_now.marks.len()..];
+    let raw_marks: Vec<(u64, &str)> = new.iter().map(|mark| (mark.raw, mark.name.as_str())).collect();
+    let styled_marks: Vec<(u64, &str)> = new.iter().map(|mark| (mark.styled, mark.name.as_str())).collect();
+    let raw = streamed_now.raw.segments(&output.raw, &raw_marks);
+    let styled = streamed_now.styled.segments(&output.styled, &styled_marks);
+    streamed_now.marks = output.marks;
+    *streamed = Some(streamed_now);
+    (reset || !raw.is_empty() || !styled.is_empty()).then_some(OutputUpdate::Output { reset, styled, raw })
 }
 
 pub async fn info(

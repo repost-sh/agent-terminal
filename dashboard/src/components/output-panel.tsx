@@ -1,42 +1,21 @@
 import { Search } from "lucide-react";
-import { Fragment, memo, useState, type CSSProperties } from "react";
+import { memo, useState } from "react";
 
-import { itemsOf, PLAIN, type Color, type Line, type Style } from "../lib/ansi";
-import { useOutput } from "../lib/output";
+import { runStyle } from "../lib/ansi";
+import { plainItems, rawItems, useOutput, type Line } from "../lib/output";
 import { tabName } from "../lib/tabs";
 import type { PanelProps } from "../panels";
 import { EmptyNote, HEAD_TOGGLE, PanelHead } from "./panel-parts";
-
-const colorOf = (color: Color) => ("index" in color ? `var(--ansi-${color.index})` : color.rgb);
-
-const styleOf = (style: Style): CSSProperties => {
-  const fg = style.fg && colorOf(style.fg);
-  const bg = style.bg && colorOf(style.bg);
-  const [color, background] = style.inverse ? [bg ?? "var(--background)", fg ?? "var(--foreground)"] : [fg, bg];
-  const decoration = [style.underline && "underline", style.strike && "line-through"].filter(Boolean).join(" ");
-  return {
-    color: color ?? undefined,
-    backgroundColor: background ?? undefined,
-    fontWeight: style.bold ? 700 : undefined,
-    opacity: style.dim ? 0.6 : undefined,
-    fontStyle: style.italic ? "italic" : undefined,
-    textDecorationLine: decoration || undefined,
-  };
-};
 
 const LINE = "min-h-[1lh] whitespace-pre-wrap break-all";
 
 const StyledLine = memo(({ line }: { line: Line }) => (
   <div className={LINE}>
-    {line.runs.map((run, index) =>
-      run.style === PLAIN ? (
-        <Fragment key={index}>{run.text}</Fragment>
-      ) : (
-        <span key={index} style={styleOf(run.style)}>
-          {run.text}
-        </span>
-      ),
-    )}
+    {line.runs.map((run, index) => (
+      <span key={index} style={runStyle(run.style)}>
+        {run.text}
+      </span>
+    ))}
   </div>
 ));
 
@@ -69,11 +48,11 @@ const MarkDivider = ({ name }: { name: string }) => (
 );
 
 export const OutputPanel = ({ session, tab }: PanelProps) => {
-  const stream = useOutput(session, tab.tab);
+  const output = useOutput(session, tab.tab);
   const [raw, setRaw] = useState(false);
   const [typed, setTyped] = useState("");
   const query = typed.trim();
-  const items = itemsOf(raw ? stream.raw : stream.plain);
+  const items = raw ? rawItems(output.raw) : plainItems(output.plain);
   const matches = query ? items.reduce((count, item) => count + (item.kind === "line" ? occurrences(item.line.text, query) : 0), 0) : 0;
 
   return (

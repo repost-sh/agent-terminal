@@ -3,13 +3,13 @@ import { useRef, useState, type UIEvent } from "react";
 
 import { resultOf, useActivity } from "../lib/activity";
 import { screenshotUrl } from "../lib/api";
-import { clockMs, duration } from "../lib/format";
+import { clockMs, formatDuration } from "../lib/format";
 import type { ActivityEntry } from "../lib/protocol";
 import { tabName } from "../lib/tabs";
 import type { PanelProps } from "../panels";
 import { announce } from "./announcer";
 import { HEAD_TOGGLE, PanelHead } from "./panel-parts";
-import { Badge, cn } from "./ui";
+import { cn } from "./ui";
 
 const FOLLOWING_WITHIN_PX = 40;
 
@@ -77,7 +77,7 @@ const ActivityRow = ({ session, entry, expanded, onToggle }: RowProps) => {
             </time>
           </span>
           <span className="min-w-0 flex-1 font-mono [overflow-wrap:anywhere]">
-            {entry.command} <span className="whitespace-nowrap text-muted-foreground">{duration(entry.duration_ms)}</span>
+            {entry.command} <span className="whitespace-nowrap text-muted-foreground">{formatDuration(entry.duration_ms)}</span>
             {result && <span className={cn("mt-0.5 flex items-center gap-1", tone?.text)}>{result.label}</span>}
           </span>
           {opens && (
@@ -128,8 +128,7 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
 
   return (
     <>
-      <PanelHead title="Activity">
-        <Badge className="ml-auto">{shown.length}</Badge>
+      <PanelHead title="Activity" count={shown.length}>
         <button ref={followButton} type="button" aria-pressed={follow} onClick={() => setFollow(!follow)} className={HEAD_TOGGLE} title="Follow the newest call">
           <ArrowDownToLine aria-hidden="true" />
           Follow

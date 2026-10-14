@@ -1,5 +1,6 @@
 mod api;
 mod assets;
+mod commands;
 mod details;
 mod guard;
 mod stream;
@@ -129,6 +130,8 @@ fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
         .route("/api/session/{session}/{tab}/info", get(details::info))
         .route("/api/session/{session}/{tab}/restart", post(api::restart))
         .route("/api/session/{session}/{tab}/close", post(api::close))
+        .route("/api/session/{session}/{tab}/commands/stream", get(commands::stream))
+        .route("/api/session/{session}/{tab}/commands/{id}", get(commands::output))
         .fallback(assets::serve)
         .with_state(backend)
         .layer(axum::middleware::from_fn_with_state(port, guard::same_origin))

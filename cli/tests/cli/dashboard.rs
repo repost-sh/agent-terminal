@@ -91,6 +91,30 @@ fn the_api_lists_the_same_sessions_as_session_list() {
 }
 
 #[test]
+fn the_api_serves_a_shell_command_with_its_colors_kept() {
+    let at = AgentTerminal::new();
+    let home = at.home().join("user");
+    std::fs::create_dir_all(&home).expect("create the home folder");
+    let cwd = home.canonicalize().expect("canonical home").to_string_lossy().into_owned();
+    at.run_with_env(&["shell", "--shell", "bash", "--cwd", &cwd], &[("HOME", home.as_path())]).success();
+    at.run(&["exec", "printf '\\033[32mgreen\\033[0m plain\\n'"]).success();
+    let port = start(&at);
+
+    let served = get(port, "/api/session/default/t1/commands/1", &[]);
+    assert_eq!(served.status, 200, "{}", served.head);
+    let mut served: serde_json::Value = serde_json::from_str(&served.body).expect("JSON");
+    assert_eq!(served["output"], "\u{1b}[32mgreen\u{1b}[0m plain\n");
+    let mut shown = at.run(&["--json", "history", "show", "1"]).success().json();
+    assert_eq!(shown["output"], "green plain\n");
+    served["output"] = serde_json::Value::Null;
+    shown["output"] = serde_json::Value::Null;
+    assert_eq!(served, shown);
+
+    let missing = get(port, "/api/session/default/t1/commands/9", &[]);
+    assert_eq!((missing.status, missing.body.as_str()), (404, "no command 9 in default t1"));
+}
+
+#[test]
 fn the_dashboard_refuses_requests_from_other_sites() {
     let at = AgentTerminal::new();
     let port = start(&at);
