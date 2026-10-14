@@ -37,6 +37,7 @@ impl Browser {
         let n = OPENED.fetch_add(1, Ordering::SeqCst);
         let browser = Self { session: format!("agent-terminal-test-{}-{n}", std::process::id()) };
         browser.run(&["set", "viewport", "1440", "900"]);
+        browser.run(&["set", "media", "reduced-motion"]);
         browser.run(&["open", url]);
         browser
     }

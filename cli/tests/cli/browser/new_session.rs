@@ -25,6 +25,19 @@ fn focused_label(browser: &Browser) -> String {
     serde_json::from_str(&label).expect("the focused field's label")
 }
 
+fn submit(browser: &Browser, label: &str) {
+    let button = "[role=dialog] button[type=submit]";
+    assert_eq!(browser.text(button).trim(), label);
+    browser.run(&["click", button]);
+}
+
+fn wait_for_cli_line(browser: &Browser, line: &str) {
+    browser.wait_until(&format!(
+        "document.querySelector('[role=dialog] code')?.textContent === {}",
+        serde_json::to_string(line).unwrap()
+    ));
+}
+
 fn wait_for_dialog(browser: &Browser) {
     browser.wait_until("document.querySelector('[role=dialog]') !== null");
 }
@@ -61,7 +74,7 @@ fn new_session_writes_the_cli_line_as_the_form_fills_then_opens_the_tab_and_goes
         ["Copied", &format!("agent-terminal --session qa open {command} --cwd {cwd} --size 80x24")]
     );
 
-    browser.click_button("Create");
+    submit(&browser, "Create");
     browser.wait_until("location.pathname === '/s/qa/t1'");
     assert_eq!(browser.eval("document.querySelector('[role=dialog]')"), "null");
     browser.wait_for_text("Waiting for first frame...");
@@ -101,7 +114,8 @@ fn new_session_refuses_a_missing_invalid_or_taken_name_a_missing_command_a_size_
     browser.fill("Session name", " ");
     browser.check("Custom");
     browser.fill("Columns", "10");
-    browser.click_button("Create");
+    wait_for_cli_line(&browser, "agent-terminal --session <name> open <program> --size 10x40");
+    submit(&browser, "Create");
     browser.wait_until("document.querySelectorAll('[role=dialog] [role=alert]').length === 3");
     assert_eq!(refusals(&browser), ["Enter a session name.", "Enter a command.", "Columns 20–500, rows 5–200."]);
     assert_eq!(focused_label(&browser), "Session name");
@@ -109,18 +123,21 @@ fn new_session_refuses_a_missing_invalid_or_taken_name_a_missing_command_a_size_
     browser.fill("Session name", "q a");
     browser.fill("Command", "lazygit");
     browser.fill("Columns", "80");
-    browser.click_button("Create");
+    wait_for_cli_line(&browser, "agent-terminal --session q a open lazygit --size 80x40");
+    browser.run(&["press", "Enter"]);
     browser.wait_until("document.querySelectorAll('[role=dialog] [role=alert]').length === 1");
     assert_eq!(refusals(&browser), ["Use letters, numbers, - and _."]);
 
     browser.fill("Session name", "qa");
-    browser.click_button("Create");
+    wait_for_cli_line(&browser, "agent-terminal --session qa open lazygit --size 80x40");
+    submit(&browser, "Create");
     browser.wait_for_text("A session named qa already exists.");
     assert_eq!(refusals(&browser), ["A session named qa already exists."]);
 
     browser.fill("Session name", "fresh");
     browser.fill("Command", "lazyget-46h35 --all");
-    browser.click_button("Create");
+    wait_for_cli_line(&browser, "agent-terminal --session fresh open lazyget-46h35 --all --size 80x40");
+    submit(&browser, "Create");
     browser.wait_for_text("command not found: lazyget-46h35");
     assert_eq!(refusals(&browser), Vec::<String>::new());
     assert_eq!(
@@ -173,7 +190,7 @@ fn new_tab_opens_another_terminal_in_the_session_it_was_asked_from() {
     browser.fill("Command", &command);
     browser.check("200×60");
     assert_eq!(cli_line(&browser), format!("agent-terminal --session qa open {command} --size 200x60"));
-    browser.click_button("Open tab");
+    submit(&browser, "Open tab");
     browser.wait_until("location.pathname === '/s/qa/t2'");
     browser.wait_for_status("Live");
     browser.wait_for_screen("line 2");
@@ -204,7 +221,7 @@ fn shell_integration_is_on_for_shells_and_turns_open_into_shell() {
     browser.run(&["find", "role", "switch", "click", "--name", "Shell integration", "--exact"]);
     assert_eq!(cli_line(&browser), "agent-terminal --session session-1 shell --shell bash --size 120x40");
 
-    browser.click_button("Create");
+    submit(&browser, "Create");
     browser.wait_until("location.pathname === '/s/session-1/t1'");
     browser.wait_for_status("Live");
     let ran = at.run(&["--session", "session-1", "exec", "echo integrated"]).success();

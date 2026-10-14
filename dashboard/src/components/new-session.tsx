@@ -166,7 +166,7 @@ export const NewSessionDialog = ({ sessions, existing }: NewSessionDialogProps) 
   }));
   const [errors, setErrors] = useState<Errors>({});
   const [opening, setOpening] = useState(false);
-  const set = (change: Partial<Form>) => setForm({ ...form, ...change });
+  const set = (change: Partial<Form>) => setForm((current) => ({ ...current, ...change }));
 
   const shell = shellOf(form.command);
   const integration = shell !== null && (form.integration ?? true);

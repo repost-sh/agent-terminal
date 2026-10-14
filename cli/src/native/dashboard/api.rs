@@ -82,15 +82,16 @@ pub async fn record_stop(
 pub async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
     match tokio::task::spawn_blocking(move || backend.call(request)).await {
         Ok(Ok(reply)) => Json(reply).into_response(),
-        Ok(Err(error)) => {
-            (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({ "error": error }))).into_response()
-        }
+        Ok(Err(error)) => refusal(error),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("the daemon call failed: {e}")).into_response(),
     }
 }
 
 pub fn refused(message: String) -> Response {
-    let error = ErrorBody { code: crate::exit::ERROR, message, snapshot: None };
+    refusal(ErrorBody { code: crate::exit::ERROR, message, snapshot: None })
+}
+
+fn refusal(error: ErrorBody) -> Response {
     (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({ "error": error }))).into_response()
 }
 

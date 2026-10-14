@@ -3,12 +3,11 @@ import { useId, useSyncExternalStore, type FormEvent, type KeyboardEvent, type R
 import { flushSync } from "react-dom";
 
 import type { SessionInfo } from "../lib/protocol";
-import { usePath } from "../lib/route";
 import { Button } from "./ui";
 
 type Render = (sessions: SessionInfo[]) => ReactNode;
 
-type Open = { render: Render; trigger: Element | null; path: string };
+type Open = { render: Render; trigger: Element | null };
 
 let open: Open | null = null;
 const listeners = new Set<() => void>();
@@ -23,7 +22,9 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
-export const showDialog = (render: Render) => publish({ render, trigger: document.activeElement, path: location.pathname });
+window.addEventListener("popstate", () => publish(null));
+
+export const showDialog = (render: Render) => publish({ render, trigger: document.activeElement });
 
 const focusable = (element: Element | null | undefined): element is HTMLElement =>
   element instanceof HTMLElement && element.isConnected && !element.matches(":disabled");
@@ -35,11 +36,7 @@ export const closeDialog = (focus?: HTMLElement | null) => {
   target?.focus({ preventScroll: true });
 };
 
-export const useOpenDialog = () => {
-  const shown = useSyncExternalStore(subscribe, () => open);
-  const path = usePath();
-  return shown?.path === path ? shown : null;
-};
+export const useOpenDialog = () => useSyncExternalStore(subscribe, () => open);
 
 export const DialogLayer = ({ sessions }: { sessions: SessionInfo[] }) => {
   const shown = useOpenDialog();
