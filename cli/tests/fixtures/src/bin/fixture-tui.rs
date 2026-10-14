@@ -11,7 +11,8 @@ fn main() -> std::io::Result<()> {
     let mut state = ListState::default().with_selected(Some(0));
     let code = loop {
         terminal.draw(|frame| {
-            let [body, hints] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(frame.area());
+            let area = frame.area();
+            let [body, hints] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
             let [files, details] = Layout::horizontal([Constraint::Percentage(40), Constraint::Fill(1)]).areas(body);
             let list = List::new(ITEMS)
                 .block(Block::bordered().title("Files"))
@@ -19,7 +20,8 @@ fn main() -> std::io::Result<()> {
             frame.render_stateful_widget(list, files, &mut state);
             let selected = ITEMS[state.selected().unwrap_or(0)];
             frame.render_widget(
-                Paragraph::new(format!("Selected: {selected}")).block(Block::bordered().title("Details")),
+                Paragraph::new(format!("Selected: {selected}\nSize: {}x{}", area.width, area.height))
+                    .block(Block::bordered().title("Details")),
                 details,
             );
             frame.render_widget(Line::from("Move: j/k | Quit: q | Crash: x"), hints);

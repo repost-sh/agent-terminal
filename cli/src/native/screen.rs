@@ -74,6 +74,15 @@ impl Screen {
         Self { term: Term::new(Config::default(), &size, replies.clone()), parser: Processor::new(), replies, size }
     }
 
+    pub fn size(&self) -> Size {
+        self.size
+    }
+
+    pub fn resize(&mut self, size: Size) {
+        self.term.resize(size);
+        self.size = size;
+    }
+
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<u8> {
         self.parser.advance(&mut self.term, bytes);
         std::mem::take(&mut *self.replies.0.lock().unwrap())

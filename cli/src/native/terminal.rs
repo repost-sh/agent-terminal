@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use crate::native::pty::{self, Killer};
 use crate::native::screen::Screen;
-use crate::protocol::{Snapshot, Wait};
+use crate::protocol::{Size, Snapshot, TabInfo, Wait};
 
 pub struct Terminal {
     pub program: String,
@@ -14,6 +14,8 @@ pub struct Terminal {
     changed: Condvar,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn Killer>>,
+    master: pty::Master,
+    command: pty::Command,
 }
 
 struct State {
@@ -33,13 +35,15 @@ impl Terminal {
     pub fn start(command: pty::Command) -> Result<Arc<Self>> {
         let program = display_name(&command.program);
         let size = command.size;
-        let spawned = pty::spawn(command)?;
+        let spawned = pty::spawn(command.clone())?;
         let terminal = Arc::new(Self {
             program,
             state: Mutex::new(State { screen: Screen::new(size), frame: 0, last_change: Instant::now(), exit: None }),
             changed: Condvar::new(),
             writer: Mutex::new(spawned.writer),
             killer: Mutex::new(spawned.killer),
+            master: spawned.master,
+            command,
         });
 
         let reading = Arc::clone(&terminal);
@@ -109,6 +113,44 @@ impl Terminal {
             exited: state.exit.is_some(),
             exit_code: state.exit.flatten(),
             lines: view.lines,
+        }
+    }
+
+    pub fn resize(&self, size: Size) -> Result<bool> {
+        let mut state = self.state.lock().unwrap();
+        if state.exit.is_some() || !self.master.resize(size)? {
+            return Ok(false);
+        }
+        state.screen.resize(size);
+        state.frame += 1;
+        state.last_change = Instant::now();
+        drop(state);
+        self.changed.notify_all();
+        Ok(true)
+    }
+
+    pub fn rerun(&self) -> pty::Command {
+        let size = self.state.lock().unwrap().screen.size();
+        pty::Command { size, ..self.command.clone() }
+    }
+
+    pub fn stop(&self, timeout: Duration) -> bool {
+        self.kill();
+        let state = self.state.lock().unwrap();
+        let (state, _) = self.changed.wait_timeout_while(state, timeout, |state| state.exit.is_none()).unwrap();
+        state.exit.is_some()
+    }
+
+    pub fn info(&self, tab: &str) -> TabInfo {
+        let state = self.state.lock().unwrap();
+        let size = state.screen.size();
+        TabInfo {
+            tab: tab.to_string(),
+            program: self.program.clone(),
+            cols: size.cols,
+            rows: size.rows,
+            exited: state.exit.is_some(),
+            exit_code: state.exit.flatten(),
         }
     }
 

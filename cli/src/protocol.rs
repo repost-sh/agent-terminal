@@ -33,10 +33,33 @@ pub enum Request {
     },
     Snapshot {
         session: String,
+        tab: Option<u32>,
     },
     Close {
         session: String,
         all: bool,
+        tab: Option<u32>,
+    },
+    Resize {
+        session: String,
+        tab: Option<u32>,
+        size: Size,
+        wait: Wait,
+        timeout_ms: u64,
+    },
+    Restart {
+        session: String,
+        tab: Option<u32>,
+        wait: Wait,
+        timeout_ms: u64,
+    },
+    Sessions,
+    Tabs {
+        session: String,
+    },
+    SwitchTab {
+        session: String,
+        tab: u32,
     },
     Stop,
 }
@@ -51,7 +74,37 @@ pub enum Response {
 pub enum Reply {
     Snapshot(Snapshot),
     Closed(Closed),
+    Sessions(Sessions),
+    Tabs(SessionInfo),
     Stopped,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct Sessions {
+    pub sessions: Vec<SessionInfo>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SessionInfo {
+    pub session: String,
+    pub current: Option<String>,
+    pub tabs: Vec<TabInfo>,
+}
+
+impl SessionInfo {
+    pub fn empty(session: &str) -> Self {
+        Self { session: session.to_string(), current: None, tabs: Vec::new() }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TabInfo {
+    pub tab: String,
+    pub program: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub exited: bool,
+    pub exit_code: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

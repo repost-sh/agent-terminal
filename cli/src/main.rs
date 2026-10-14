@@ -3,12 +3,14 @@ mod connection;
 mod native;
 mod output;
 mod protocol;
+mod session_id;
 
 use std::fmt;
 
 pub mod exit {
     pub const ERROR: i32 = 1;
     pub const TIMEOUT: i32 = 3;
+    pub const EXITED: i32 = 5;
 }
 
 #[derive(Debug)]

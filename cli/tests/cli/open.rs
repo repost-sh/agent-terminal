@@ -24,7 +24,7 @@ fn snapshot_reads_a_full_screen_app() {
     default t1 · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N
     1│┌Files─────────────┐┌Details─────────────────────┐
     2││alpha.txt         ││Selected: alpha.txt         │
-    3││beta.txt          ││                            │
+    3││beta.txt          ││Size: 50x8                  │
     4││gamma.txt         ││                            │
     5││delta.txt         ││                            │
     6││                  ││                            │

@@ -12,14 +12,22 @@ impl AgentTerminal {
         Self { home }
     }
 
+    pub fn command(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_agent-terminal"));
+        command.args(args).env("AGENT_TERMINAL_HOME", self.home.path()).env_remove("AGENT_TERMINAL_SESSION");
+        command
+    }
+
     pub fn run(&self, args: &[&str]) -> Run {
-        let output = Command::new(env!("CARGO_BIN_EXE_agent-terminal"))
-            .args(args)
-            .env("AGENT_TERMINAL_HOME", self.home.path())
-            .env_remove("AGENT_TERMINAL_SESSION")
-            .output()
-            .expect("run agent-terminal");
-        Run(output)
+        Run(self.command(args).output().expect("run agent-terminal"))
+    }
+
+    pub fn run_with_session_env(&self, session: &str, args: &[&str]) -> Run {
+        Run(self.command(args).env("AGENT_TERMINAL_SESSION", session).output().expect("run agent-terminal"))
+    }
+
+    pub fn run_in(&self, dir: &std::path::Path, args: &[&str]) -> Run {
+        Run(self.command(args).current_dir(dir).output().expect("run agent-terminal"))
     }
 
     pub fn home(&self) -> &std::path::Path {
