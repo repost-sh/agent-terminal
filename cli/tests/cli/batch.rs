@@ -96,6 +96,24 @@ fn commands_take_the_session_and_timeout_of_the_batch_unless_they_set_their_own(
 }
 
 #[test]
+fn commands_act_on_the_tab_of_the_batch_unless_they_name_their_own() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "20x2", "--wait", "one", "sh", "-c", "echo one; read _"]).success();
+    at.run(&["open", "--size", "20x2", "cat"]).success();
+    let run = at.run(&["--tab", "t1", "batch", "snapshot", "snapshot --tab t2"]).success();
+    insta::assert_snapshot!(run.screen(), @r"
+    [1] snapshot · exit 0
+    default t1 · sh · 20x2 · cursor 2,1 · frame N
+    1│one
+    …│ (row 2 blank)
+
+    [2] snapshot --tab t2 · exit 0
+    default t2 · cat · 20x2 · cursor 1,1 · frame N
+    …│ (rows 1-2 blank)
+    ");
+}
+
+#[test]
 fn the_session_variable_applies_to_the_batch_unless_the_batch_names_a_session() {
     let at = AgentTerminal::new();
     let from_env = [("AGENT_TERMINAL_SESSION", "from-env")];

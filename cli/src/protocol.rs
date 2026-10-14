@@ -37,15 +37,39 @@ pub enum Request {
     },
     Snapshot {
         session: String,
+        tab: Option<u32>,
         #[serde(default)]
         options: SnapshotOptions,
     },
     Close {
         session: String,
         all: bool,
+        tab: Option<u32>,
+    },
+    Resize {
+        session: String,
+        tab: Option<u32>,
+        size: Size,
+        wait: Wait,
+        timeout_ms: u64,
+    },
+    Restart {
+        session: String,
+        tab: Option<u32>,
+        wait: Wait,
+        timeout_ms: u64,
+    },
+    Sessions,
+    Tabs {
+        session: String,
+    },
+    SwitchTab {
+        session: String,
+        tab: u32,
     },
     Input {
         session: String,
+        tab: Option<u32>,
         input: Input,
         wait: Option<Wait>,
         timeout_ms: u64,
@@ -57,25 +81,30 @@ pub enum Request {
     },
     Get {
         session: String,
+        tab: Option<u32>,
         what: Get,
     },
     Find {
         session: String,
+        tab: Option<u32>,
         text: String,
         regex: bool,
         all: bool,
     },
     Mark {
         session: String,
+        tab: Option<u32>,
         name: String,
     },
     Output {
         session: String,
+        tab: Option<u32>,
         since: Option<String>,
         raw: bool,
     },
     DiffSnapshot {
         session: String,
+        tab: Option<u32>,
         baseline: Option<Baseline>,
     },
 }
@@ -193,6 +222,8 @@ pub enum Response {
 pub enum Reply {
     Snapshot(Snapshot),
     Closed(Closed),
+    Sessions(Sessions),
+    Tabs(SessionInfo),
     Delivered(Delivered),
     Stopped,
     Batch(Vec<BatchOutcome>),
@@ -302,6 +333,34 @@ pub struct Cursor {
     pub row: u16,
     pub col: u16,
     pub visible: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct Sessions {
+    pub sessions: Vec<SessionInfo>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SessionInfo {
+    pub session: String,
+    pub current: Option<String>,
+    pub tabs: Vec<TabInfo>,
+}
+
+impl SessionInfo {
+    pub fn empty(session: &str) -> Self {
+        Self { session: session.to_string(), current: None, tabs: Vec::new() }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TabInfo {
+    pub tab: String,
+    pub program: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub exited: bool,
+    pub exit_code: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
