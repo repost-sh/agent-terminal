@@ -1,15 +1,39 @@
 use std::path::{Path, PathBuf};
 
-const BANNED: &[(&str, &str)] = &[
-    ("unsafe", "unsafe code"),
-    ("todo!", "todo! placeholder"),
-    ("unimplemented!", "unimplemented! placeholder"),
-    ("dbg!", "dbg! left in"),
-    ("#[allow(", "silenced lint"),
-    ("#![allow(", "silenced lint"),
-    ("#[expect(", "silenced lint"),
-    ("#![expect(", "silenced lint"),
-    ("#[ignore", "skipped test"),
+enum Scope {
+    Everywhere,
+    ProductCode,
+    OutsideOf(&'static str),
+}
+
+impl Scope {
+    fn applies_to(&self, relative: &str) -> bool {
+        match self {
+            Scope::Everywhere => true,
+            Scope::ProductCode => relative.starts_with("src/"),
+            Scope::OutsideOf(home) => relative != *home,
+        }
+    }
+}
+
+const BANNED: &[(&str, &str, Scope)] = &[
+    ("unsafe", "unsafe code", Scope::Everywhere),
+    ("todo!", "todo! placeholder", Scope::Everywhere),
+    ("unimplemented!", "unimplemented! placeholder", Scope::Everywhere),
+    ("dbg!", "dbg! left in", Scope::Everywhere),
+    ("#[allow(", "silenced lint", Scope::Everywhere),
+    ("#![allow(", "silenced lint", Scope::Everywhere),
+    ("#[expect(", "silenced lint", Scope::Everywhere),
+    ("#![expect(", "silenced lint", Scope::Everywhere),
+    ("#[ignore", "skipped test", Scope::Everywhere),
+    ("thread::sleep", "sleep used as synchronization; wait on the event instead", Scope::ProductCode),
+    ("let _ =", "dropped result; return it or log why it can fail", Scope::ProductCode),
+    (
+        "alacritty_terminal",
+        "the screen engine belongs in src/native/screen.rs",
+        Scope::OutsideOf("src/native/screen.rs"),
+    ),
+    ("portable_pty", "the PTY library belongs in src/native/pty.rs", Scope::OutsideOf("src/native/pty.rs")),
 ];
 
 #[test]
@@ -27,7 +51,10 @@ fn source_has_no_comments_and_no_workarounds() {
         for line in scanned.comment_lines {
             violations.push(format!("{relative}:{line}: comment"));
         }
-        for (pattern, reason) in BANNED {
+        for (pattern, reason, scope) in BANNED {
+            if !scope.applies_to(&relative) {
+                continue;
+            }
             for (index, line) in scanned.code.lines().enumerate() {
                 if contains_token(line, pattern) {
                     violations.push(format!("{relative}:{}: {reason} (`{pattern}`)", index + 1));
@@ -51,6 +78,16 @@ fn banned_tokens_match_whole_words_only() {
     assert!(contains_token("    unsafe { x }", "unsafe"));
     assert!(!contains_token("let not_unsafe = 1;", "unsafe"));
     assert!(contains_token("#[allow(dead_code)]", "#[allow("));
+    assert!(contains_token("        let _ = writer.flush();", "let _ ="));
+    assert!(contains_token("use portable_pty::CommandBuilder;", "portable_pty"));
+}
+
+#[test]
+fn scopes_limit_where_a_ban_applies() {
+    assert!(Scope::ProductCode.applies_to("src/native/terminal.rs"));
+    assert!(!Scope::ProductCode.applies_to("tests/fixtures/src/bin/line-printer.rs"));
+    assert!(!Scope::OutsideOf("src/native/pty.rs").applies_to("src/native/pty.rs"));
+    assert!(Scope::OutsideOf("src/native/pty.rs").applies_to("src/native/daemon.rs"));
 }
 
 fn collect_rust_files(dir: &Path, files: &mut Vec<PathBuf>) {

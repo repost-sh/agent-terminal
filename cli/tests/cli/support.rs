@@ -25,10 +25,18 @@ impl AgentTerminal {
     pub fn home(&self) -> &std::path::Path {
         self.home.path()
     }
+
+    pub fn daemon_log(&self) -> String {
+        let path = self.home.path().join("daemon.log");
+        std::fs::read_to_string(&path).unwrap_or_else(|e| format!("(could not read {}: {e})", path.display()))
+    }
 }
 
 impl Drop for AgentTerminal {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("--- daemon.log ---\n{}", self.daemon_log());
+        }
         let _ = Command::new(env!("CARGO_BIN_EXE_agent-terminal"))
             .args(["daemon", "stop"])
             .env("AGENT_TERMINAL_HOME", self.home.path())

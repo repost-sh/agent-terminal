@@ -8,16 +8,19 @@ on:
 jobs:
   commits:
     name: Conventional Commits
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Check every commit message in the pull request
+      - name: Check every new commit message
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          if [[ "$BASE" =~ ^0+$ ]]; then shas=$(git rev-list -1 "$HEAD"); else shas=$(git rev-list "$BASE..$HEAD"); fi
           status=0
-          for sha in $(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
+          for sha in $shas; do
             git log -1 --format=%B "$sha" > "$RUNNER_TEMP/msg"
             .githooks/commit-msg "$RUNNER_TEMP/msg" || status=1
           done
@@ -44,3 +47,5 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: Rerun the CLI tests to surface timing flakes
+        run: for run in 1 2 3 4; do cargo test --quiet --test cli || exit 1; done

@@ -26,15 +26,7 @@ Main job: **QA of TUIs and CLIs by agents** (lazygit-style apps, chat TUIs, inst
 
 ## Concepts
 
-| Term | Meaning |
-|---|---|
-| session | A named workspace (`--session qa`, default `default`). Owns one or more terminals. Isolates history, recordings and screenshots. |
-| terminal (tab) | One PTY running one program. Addressed as `t1`, `t2`, … within its session. |
-| frame | One version of the screen. Increments every time the grid changes. |
-| ref | `@t3`: a stable handle for an on-screen element found by `snapshot -i`. Valid until the next frame that changes its cells. |
-| mark | A named point in a terminal's output stream (`mark set before-login`). `output --since before-login` reads from it. |
-| command | One shell command line, delimited by OSC 133. Has command text, cwd, exit code, start time, duration and output range. |
-| control | Who may send input: `agent` (default) or `human` (taken from the dashboard). |
+The vocabulary (session, terminal, tab, frame, stable, snapshot, ref, mark, command, activity, control) is defined in [`GLOSSARY.md`](../GLOSSARY.md).
 
 ## Command reference
 
