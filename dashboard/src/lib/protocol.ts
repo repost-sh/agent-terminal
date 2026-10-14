@@ -36,3 +36,27 @@ export type ErrorBody = {
   code: number;
   message: string;
 };
+
+export type CommandRecord = {
+  id: number;
+  command: string;
+  cwd: string;
+  started_at_ms: number;
+  ended_at_ms: number | null;
+  duration_ms: number;
+  exit_code: number | null;
+  first_frame: number;
+  last_frame: number | null;
+};
+
+export type CommandsUpdate = {
+  type: "commands";
+  shell: boolean;
+  integration: boolean;
+  home: string | null;
+  commands: CommandRecord[];
+};
+
+export type CommandsStreamUpdate = CommandsUpdate | { type: "closed" };
+
+export type CommandOutput = CommandRecord & { session: string; tab: string; output: string };

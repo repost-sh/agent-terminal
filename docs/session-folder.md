@@ -7,6 +7,7 @@ Every session keeps plain files in `<home>/sessions/<session>/`, where `<home>` 
   sessions/qa/
     activity.jsonl     every CLI call to the session, one JSON object per line
     t1.cast            the recording of tab t1 (asciicast v2), from open to close
+    t1.commands.jsonl  the command log of shell tab t1, one JSON object per finished command
     t2.cast
   recordings/          `record start` files when no path is given: <session>-<tab>-<frame>.cast
 ```
@@ -47,6 +48,22 @@ One line per CLI call addressed to the session, written before the CLI gets its 
 - `frame`: the tab's frame when the call ended, when the tab still exists.
 - Not logged: calls that name no session (`session list`, `skills`, `daemon stop`) and calls to a session that is not open.
 
+## Command log: `<tab>.commands.jsonl`
+
+Only tabs opened with `shell`, which have shell integration. One line per command, written when the command finishes, in the order the commands finish:
+
+```json
+{"id":2,"command":"cargo test","cwd":"/Users/me/agent-terminal","started_at_ms":1791999590006,"ended_at_ms":1791999597418,"duration_ms":7412,"exit_code":101,"first_frame":170,"last_frame":231,"output":"   Compiling agent-terminal v0.1.0\n...\nerror: test failed\n"}
+```
+
+- Each line is what `history show <id> --json` prints for the command, without `session` and `tab`.
+- `id`: the command's number in `history`. `restart` starts the history again at 1 and keeps appending to the same file, so after a restart an id can appear twice; the earlier line is from before the restart.
+- `started_at_ms`, `ended_at_ms`: wall-clock Unix time in milliseconds, so `started_at_ms / 1000 - timestamp` is where the command starts in the tab's recording. `duration_ms`: from start to finish.
+- `exit_code`: what the shell reported; `null` when it started a new prompt without reporting one.
+- `first_frame`, `last_frame`: the tab's frame when the command started and after its last output.
+- `output`: what the command printed, as text without escape codes, exactly as `history show` prints it. A tab keeps the last 4 MiB of its output, so the output of a command that printed more starts with a line saying how many bytes are no longer kept.
+- A command still running when its tab closes is not in the file.
+
 ## `trace export <path>`
 
-A zip of the folder with every entry under `<session folder name>/`. Recordings and the activity log are copied up to their last complete line, so an export taken while a program prints never holds half an event. The `trace export` call itself is logged after the zip is written, so it is not in the zip.
+A zip of the folder with every entry under `<session folder name>/`. Recordings, the activity log and the command logs are copied up to their last complete line, so an export taken while a program prints never holds half an event. The `trace export` call itself is logged after the zip is written, so it is not in the zip.

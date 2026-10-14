@@ -1,3 +1,4 @@
+mod commands;
 mod empty;
 mod sidebar;
 mod split;
