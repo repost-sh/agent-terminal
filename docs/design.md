@@ -57,8 +57,8 @@ qa t1 · lazygit · 120x36 · alt-screen · mouse:sgr · cursor 4,3 · frame 212
 refs:
   @t1 [panel]    "Status"            rows 1-3
   @t2 [panel]    "Unstaged changes"  rows 1-18
-  @t3 [selected] "M  docs/design.md" row 2 col 33
-  @t4 [hint]     "Commit: c"         row 36
+  @t3 [selected] "M  docs/design.md" row 2 col 32
+  @t4 [hint]     "Commit: c"         row 36 col 19
 ```
 
 ## Dashboard

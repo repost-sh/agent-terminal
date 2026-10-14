@@ -13,6 +13,17 @@ fn main() -> std::io::Result<()> {
             "--reads" => reads = true,
             "--app-cursor" => modes.push_str("\x1b[?1h"),
             "--bracketed-paste" => modes.push_str("\x1b[?2004h"),
+            "--mouse" => match args.next().as_deref() {
+                Some("click") => modes.push_str("\x1b[?1000h"),
+                Some("drag") => modes.push_str("\x1b[?1002h"),
+                Some("motion") => modes.push_str("\x1b[?1003h"),
+                other => panic!("--mouse click|drag|motion, not {other:?}"),
+            },
+            "--mouse-encoding" => match args.next().as_deref() {
+                Some("sgr") => modes.push_str("\x1b[?1006h"),
+                Some("utf8") => modes.push_str("\x1b[?1005h"),
+                other => panic!("--mouse-encoding sgr|utf8, not {other:?}"),
+            },
             "--kitty" => {
                 let flags: u8 = args.next().and_then(|v| v.parse().ok()).expect("--kitty FLAGS");
                 modes.push_str(&format!("\x1b[>{flags}u"));

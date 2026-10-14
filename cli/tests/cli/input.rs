@@ -7,7 +7,7 @@ fn open_input_echo(at: &AgentTerminal, modes: &[&str]) {
     at.run(&args).success();
 }
 
-fn received(at: &AgentTerminal) -> String {
+pub fn received(at: &AgentTerminal) -> String {
     let snapshot = at.run(&["--json", "snapshot"]).success().json();
     snapshot["lines"][1].as_str().expect("the second row").to_string()
 }

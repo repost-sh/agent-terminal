@@ -4,16 +4,18 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
-use crate::key::Key;
+use crate::key::{Key, KeyCode, Mods};
 use crate::native::keyboard;
+use crate::native::mouse::{self, Action};
 use crate::native::output_log::OutputLog;
 use crate::native::pty::{self, Killer, Signaller, Spawned};
 use crate::native::recording::Recording;
+use crate::native::refs::{self, Found};
 use crate::native::screen::Screen;
 use crate::native::wait::{self, Condition, Moment, Verdict};
 use crate::protocol::{
-    Baseline, Cell, Cursor, Delivery, DiffBase, Exit, Fact, Get, Input, Match, RowChange, RowRange, Scrollback, Size,
-    Snapshot, SnapshotDiff, SnapshotOptions, TabInfo,
+    Baseline, Cell, ClickTarget, Cursor, Delivery, DiffBase, Direction, Exit, Fact, Get, Input, Match, MouseButton,
+    MouseEvent, Ref, RowChange, RowRange, ScrollBy, Scrollback, Size, Snapshot, SnapshotDiff, SnapshotOptions, TabInfo,
 };
 
 pub struct Terminal {
@@ -40,8 +42,15 @@ struct State {
     exit: Option<Option<i32>>,
     log: OutputLog,
     last_shown: Option<Shown>,
+    listed: Option<Listed>,
+    mouse_held: Option<MouseButton>,
     watches: Vec<Watch>,
     next_watch: u64,
+}
+
+struct Listed {
+    frame: u64,
+    refs: Vec<Found>,
 }
 
 struct Shown {
@@ -110,6 +119,8 @@ impl Terminal {
                 exit: None,
                 log: OutputLog::default(),
                 last_shown: None,
+                listed: None,
+                mouse_held: None,
                 watches: Vec::new(),
                 next_watch: 0,
             }),
@@ -207,6 +218,7 @@ impl Terminal {
     ) -> Snapshot {
         let view = state.screen.view();
         state.last_shown = Some(Shown { frame: state.frame, lines: view.lines.clone() });
+        let refs = options.refs.then(|| list_refs(state));
         let history = state.screen.scrollback_len();
         let scrollback = match options.scrollback {
             Scrollback::None => None,
@@ -229,6 +241,7 @@ impl Terminal {
             first_row: range.first,
             scrollback: scrollback.map(|n| state.screen.rows(-(n as i32)..0, options.ansi)),
             lines: state.screen.rows(range.first as i32 - 1..range.last as i32, options.ansi),
+            refs,
         }
     }
 
@@ -308,17 +321,7 @@ impl Terminal {
         let pattern = wait::compile(text, regex)?;
         let state = self.state.lock().unwrap();
         let first = if all { -(state.screen.scrollback_len() as i32) } else { 0 };
-        let mut matches = Vec::new();
-        for line in first..state.screen.view().size.rows as i32 {
-            let (row, columns) = state.screen.located_row(line);
-            for found in pattern.find_iter(&row).filter(|m| !m.is_empty()) {
-                matches.push(Match {
-                    row: if line < 0 { line } else { line + 1 },
-                    col: columns[found.start()] + 1,
-                    text: found.as_str().to_string(),
-                });
-            }
-        }
+        let matches = matches_on(&state.screen, &pattern, first);
         if matches.is_empty() {
             let place = if all { "on the screen or in its scrollback" } else { "on the screen" };
             return Err(format!("{text:?} is not {place}"));
@@ -432,6 +435,88 @@ impl Terminal {
                 let process_group = self.signaller.signal(*signal)?;
                 Ok(Delivery::Signal { signal: *signal, process_group })
             }
+            Input::Click { target, button, double } => {
+                let (row, col, bytes) = {
+                    let mut state = self.running()?;
+                    let reporting = state.screen.mouse_reporting().ok_or_else(no_mouse)?;
+                    let (row, col) = click_target(&state, target)?;
+                    let press =
+                        mouse::encode(Action::Press(*button), row, col, reporting).map_err(anyhow::Error::msg)?;
+                    let release =
+                        mouse::encode(Action::Release(*button), row, col, reporting).map_err(anyhow::Error::msg)?;
+                    state.mouse_held = None;
+                    (row, col, [press, release].concat().repeat(if *double { 2 } else { 1 }))
+                };
+                self.write(&bytes)?;
+                Ok(Delivery::Click {
+                    target: target.clone(),
+                    row,
+                    col,
+                    button: *button,
+                    double: *double,
+                    bytes: bytes.len(),
+                })
+            }
+            Input::Mouse { event } => {
+                let bytes = {
+                    let mut state = self.running()?;
+                    let reporting = state.screen.mouse_reporting().ok_or_else(no_mouse)?;
+                    let (row, col) = event.at();
+                    cell_at(&state.screen, row, col).map_err(anyhow::Error::msg)?;
+                    let action = match *event {
+                        MouseEvent::Move { .. } => Action::Move { held: state.mouse_held },
+                        MouseEvent::Down { button, .. } => Action::Press(button),
+                        MouseEvent::Up { button, .. } => Action::Release(button),
+                        MouseEvent::Wheel { direction, .. } => Action::Wheel(direction),
+                    };
+                    let bytes = mouse::encode(action, row, col, reporting).map_err(anyhow::Error::msg)?;
+                    match *event {
+                        MouseEvent::Down { button, .. } => state.mouse_held = Some(button),
+                        MouseEvent::Up { .. } => state.mouse_held = None,
+                        MouseEvent::Move { .. } | MouseEvent::Wheel { .. } => {}
+                    }
+                    bytes
+                };
+                if !bytes.is_empty() {
+                    self.write(&bytes)?;
+                }
+                Ok(Delivery::Mouse { event: *event, bytes: bytes.len() })
+            }
+            Input::Scroll { direction, count, keys } => {
+                let (bytes, by) = {
+                    let state = self.running()?;
+                    match state.screen.mouse_reporting().filter(|_| !keys) {
+                        Some(reporting) => {
+                            let size = state.screen.size();
+                            let (row, col) = (size.rows.div_ceil(2), size.cols.div_ceil(2));
+                            let notch = mouse::encode(Action::Wheel(*direction), row, col, reporting)
+                                .map_err(anyhow::Error::msg)?;
+                            (notch, ScrollBy::Wheel)
+                        }
+                        None => {
+                            let code = match direction {
+                                Direction::Up => KeyCode::PageUp,
+                                Direction::Down => KeyCode::PageDown,
+                            };
+                            let key = Key { code, mods: Mods::default() };
+                            let page =
+                                keyboard::encode(key, state.screen.keyboard_modes()).map_err(anyhow::Error::msg)?;
+                            (page, ScrollBy::Keys)
+                        }
+                    }
+                };
+                let bytes = bytes.repeat(*count as usize);
+                self.write(&bytes)?;
+                Ok(Delivery::Scroll { direction: *direction, count: *count, by, bytes: bytes.len() })
+            }
+        }
+    }
+
+    fn running(&self) -> Result<std::sync::MutexGuard<'_, State>> {
+        let state = self.state.lock().unwrap();
+        match state.exit {
+            None => Ok(state),
+            Some(code) => Err(self.exited(code).into()),
         }
     }
 
@@ -466,10 +551,7 @@ impl Terminal {
     }
 
     fn ensure_running(&self) -> Result<()> {
-        match self.state.lock().unwrap().exit {
-            None => Ok(()),
-            Some(code) => Err(self.exited(code).into()),
-        }
+        self.running().map(drop)
     }
 
     fn exited(&self, code: Option<i32>) -> crate::Error {
@@ -502,6 +584,81 @@ impl Terminal {
         {
             eprintln!("{}: stopping the program failed: {e}", self.program);
         }
+    }
+}
+
+fn matches_on(screen: &Screen, pattern: &regex::Regex, first: i32) -> Vec<Match> {
+    let mut matches = Vec::new();
+    for line in first..screen.size().rows as i32 {
+        let (row, columns) = screen.located_row(line);
+        for found in pattern.find_iter(&row).filter(|m| !m.is_empty()) {
+            matches.push(Match {
+                row: if line < 0 { line } else { line + 1 },
+                col: columns[found.start()] + 1,
+                text: found.as_str().to_string(),
+            });
+        }
+    }
+    matches
+}
+
+fn no_mouse() -> anyhow::Error {
+    anyhow::anyhow!(
+        "this app has no mouse support; use keys instead (`agent-terminal snapshot -i` lists the key hints on screen)"
+    )
+}
+
+fn click_target(state: &State, target: &ClickTarget) -> Result<(u16, u16)> {
+    match target {
+        ClickTarget::Cell { row, col } => {
+            cell_at(&state.screen, *row, *col).map_err(anyhow::Error::msg)?;
+            Ok((*row, *col))
+        }
+        ClickTarget::Text(text) => {
+            let pattern = wait::compile(text, false).map_err(anyhow::Error::msg)?;
+            let found = matches_on(&state.screen, &pattern, 0).into_iter().next();
+            let found = found.ok_or_else(|| anyhow::anyhow!("{text:?} is not on the screen"))?;
+            Ok((found.row as u16, found.col))
+        }
+        ClickTarget::Ref(id) => {
+            let missing = || {
+                anyhow::anyhow!(
+                    "there is no @t{id} in the last `agent-terminal snapshot -i` of this tab; take one and use its refs"
+                )
+            };
+            let listed = state.listed.as_ref().ok_or_else(missing)?;
+            let found = (*id as usize).checked_sub(1).and_then(|index| listed.refs.get(index)).ok_or_else(missing)?;
+            if !found.still_on(&state.screen.grid()) {
+                anyhow::bail!(
+                    "@t{id} is from frame {}, and that part of the screen has changed since; take a new `agent-terminal snapshot -i` and use its refs",
+                    listed.frame
+                );
+            }
+            Ok((found.row as u16 + 1, found.col as u16 + 1))
+        }
+    }
+}
+
+fn list_refs(state: &mut State) -> Vec<Ref> {
+    let found = refs::find(&state.screen.grid());
+    let frame = state.frame;
+    let listed = found.iter().enumerate().map(|(index, found)| listed_ref(index, found, frame)).collect();
+    state.listed = Some(Listed { frame, refs: found });
+    listed
+}
+
+fn listed_ref(index: usize, found: &Found, frame: u64) -> Ref {
+    let place = |at: usize| at as u16 + 1;
+    Ref {
+        id: format!("@t{}", index + 1),
+        kind: found.kind,
+        label: found.label.clone(),
+        row: place(found.row),
+        col: place(found.col),
+        rows: [place(found.area.row), place(found.area.last_row)],
+        cols: [place(found.area.col), place(found.area.last_col)],
+        frame,
+        url: found.url.clone(),
     }
 }
 
