@@ -127,7 +127,7 @@ fn new_session_refuses_a_missing_invalid_or_taken_name_a_missing_command_a_size_
     browser.fill("Session name", "q a");
     browser.fill("Command", "lazygit");
     browser.fill("Columns", "80");
-    wait_for_cli_line(&browser, "agent-terminal --session q a open lazygit --size 80x40");
+    wait_for_cli_line(&browser, "agent-terminal --session 'q a' open lazygit --size 80x40");
     browser.run(&["press", "Enter"]);
     browser.wait_until("document.querySelectorAll('[role=dialog] [role=alert]').length === 1");
     assert_eq!(refusals(&browser), ["Use letters, numbers, - and _."]);
@@ -151,6 +151,32 @@ fn new_session_refuses_a_missing_invalid_or_taken_name_a_missing_command_a_size_
     assert_eq!(title(&browser), "New session");
     assert_eq!(focused_label(&browser), "Command");
     assert_eq!(at.run(&["session", "list"]).success().stdout(), "qa t1 · line-printer · 30x4 · running · current\n");
+}
+
+#[test]
+fn the_cli_line_quotes_a_session_name_the_shell_would_split() {
+    let at = AgentTerminal::new();
+    at.run(&[
+        "--session",
+        "two words",
+        "open",
+        "--size",
+        "30x4",
+        "--wait",
+        "line 1",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--hold",
+    ])
+    .success();
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/"));
+    browser.wait_until("location.pathname === '/s/two%20words/t1'");
+
+    browser.click_button("New tab in two words");
+    wait_for_dialog(&browser);
+    assert_eq!(cli_line(&browser), "agent-terminal --session 'two words' open <program> --size 120x40");
 }
 
 #[test]

@@ -2,6 +2,7 @@ import { Copy } from "lucide-react";
 import { useId, useState } from "react";
 
 import { openTab, reason } from "../lib/api";
+import { shellWord } from "../lib/format";
 import type { SessionInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
 import { closeDialog, Dialog } from "./dialog";
@@ -51,7 +52,7 @@ const sizeOf = (form: Form) => {
 const sessionOf = (form: Form) => (form.mode === "new" ? form.name.trim() : form.existing);
 
 const cliLine = (form: Form, shell: string | null) => {
-  const session = sessionOf(form) || "<name>";
+  const session = sessionOf(form) ? shellWord(sessionOf(form)) : "<name>";
   const { cols, rows } = sizeOf(form);
   const cwd = form.cwd.trim() && form.cwd.trim() !== "~" ? ` --cwd ${form.cwd.trim()}` : "";
   const verb = shell ? `shell --shell ${shell}` : `open ${form.command.trim() || "<program>"}`;
