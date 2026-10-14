@@ -44,9 +44,11 @@ fn the_sidebar_groups_tabs_by_session_with_program_and_status() {
         [
             "build 1 , 1 tab",
             "line-printer , build t1, exited 3 exited 3",
+            "New tab in build",
             "qa 2 , 2 tabs",
             "fixture-tui , qa t1, running",
             "line-printer , qa t2, running",
+            "New tab in qa",
         ]
     );
 
@@ -78,10 +80,13 @@ fn the_sidebar_groups_tabs_by_session_with_program_and_status() {
         [
             "build 1 , 1 tab",
             "line-printer , build t1, exited 3 exited 3",
+            "New tab in build",
             "chat 1 , 1 tab",
             "line-printer , chat t1, running",
+            "New tab in chat",
             "qa 1 , 1 tab",
             "fixture-tui , qa t1, running",
+            "New tab in qa",
         ]
     );
 }

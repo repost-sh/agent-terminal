@@ -1,5 +1,6 @@
 mod close_all;
 mod empty;
+mod new_session;
 mod sidebar;
 mod terminal;
 mod toolbar;
@@ -101,6 +102,28 @@ impl Browser {
 
     pub fn click_button(&self, name: &str) {
         self.run(&["find", "role", "button", "click", "--name", name, "--exact"]);
+    }
+
+    #[track_caller]
+    pub fn click_button_in(&self, scope: &str, name: &str) {
+        let listed = self.run(&["snapshot", "-i", "-s", scope]);
+        let button = format!("button {}", js_string(name));
+        let reference = listed
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("- "))
+            .find(|line| line.strip_prefix(&button).is_some_and(|rest| rest.starts_with(' ')))
+            .and_then(|line| line.split("[ref=").nth(1)?.split(']').next())
+            .unwrap_or_else(|| panic!("no button {name:?} in {scope}:\n{listed}"))
+            .to_string();
+        self.run(&["click", &format!("@{reference}")]);
+    }
+
+    pub fn fill(&self, label: &str, text: &str) {
+        self.run(&["find", "label", label, "fill", text, "--exact"]);
+    }
+
+    pub fn check(&self, label: &str) {
+        self.run(&["find", "label", label, "check", "--exact"]);
     }
 
     pub fn screen(&self) -> Vec<String> {

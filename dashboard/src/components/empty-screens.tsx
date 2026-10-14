@@ -1,6 +1,8 @@
-import { RotateCw } from "lucide-react";
+import { Plus, RotateCw } from "lucide-react";
 
 import { navigate } from "../lib/route";
+import { showDialog } from "./dialog";
+import { NewSessionDialog } from "./new-session";
 import { Button, CliBlock, Dot } from "./ui";
 
 const DEFAULT_PORT = "4849";
@@ -21,6 +23,9 @@ export const NoSessions = () => (
           </li>
         ))}
       </ul>
+      <Button icon={Plus} onClick={() => showDialog((live) => <NewSessionDialog sessions={live} existing={null} />)}>
+        New session
+      </Button>
     </div>
   </div>
 );

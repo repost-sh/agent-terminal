@@ -7,7 +7,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use super::{Backend, tab_id};
-use crate::protocol::{Request, Sessions, Wait};
+use crate::protocol::{ErrorBody, Request, Sessions, Wait};
 
 const RESTART_SETTLES_AFTER_MS: u64 = 300;
 const RESTART_TIMEOUT_MS: u64 = 25_000;
@@ -79,7 +79,7 @@ pub async fn record_stop(
     call(backend, Request::RecordStop { session, tab: Some(id) }).await
 }
 
-async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
+pub async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
     match tokio::task::spawn_blocking(move || backend.call(request)).await {
         Ok(Ok(reply)) => Json(reply).into_response(),
         Ok(Err(error)) => {
@@ -87,6 +87,11 @@ async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("the daemon call failed: {e}")).into_response(),
     }
+}
+
+pub fn refused(message: String) -> Response {
+    let error = ErrorBody { code: crate::exit::ERROR, message, snapshot: None };
+    (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({ "error": error }))).into_response()
 }
 
 fn no_tab(session: &str, tab: &str) -> Response {

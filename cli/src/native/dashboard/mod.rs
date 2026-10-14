@@ -1,6 +1,7 @@
 mod api;
 mod assets;
 mod guard;
+mod open;
 mod stream;
 
 use std::io::ErrorKind;
@@ -118,7 +119,7 @@ async fn serve(app: Router, v4: TcpListener, v6: Option<TcpListener>, stopped: o
 
 fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
     Router::new()
-        .route("/api/sessions", get(api::sessions))
+        .route("/api/sessions", get(api::sessions).post(open::open))
         .route("/api/sessions/stream", get(api::sessions_stream))
         .route("/api/sessions/close", post(api::close_all))
         .route("/api/session/{session}/{tab}/stream", get(stream::tab))

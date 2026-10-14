@@ -15,6 +15,15 @@ pub struct Size {
     pub rows: u16,
 }
 
+impl Size {
+    pub fn new(cols: u16, rows: u16) -> Result<Self, String> {
+        if !(2..=1000).contains(&cols) || !(2..=1000).contains(&rows) {
+            return Err("columns and rows must be between 2 and 1000".into());
+        }
+        Ok(Self { cols, rows })
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "until", rename_all = "kebab-case")]
 pub enum Wait {

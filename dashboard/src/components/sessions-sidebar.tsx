@@ -1,4 +1,4 @@
-import { ChevronRight, Moon, SquareTerminal, Sun, Trash2 } from "lucide-react";
+import { ChevronRight, Moon, Plus, SquareTerminal, Sun, Trash2 } from "lucide-react";
 import { useState, type MouseEvent } from "react";
 
 import type { Connection } from "../lib/daemon";
@@ -8,6 +8,7 @@ import { tabName, tabState } from "../lib/tabs";
 import type { Theme } from "../lib/theme";
 import { CloseAllDialog } from "./close-all";
 import { showDialog } from "./dialog";
+import { NewSessionDialog } from "./new-session";
 import { Badge, Chip, Dot, IconButton, cn } from "./ui";
 
 export type Selected = { session: string; tab: string } | null;
@@ -90,6 +91,16 @@ const SessionGroup = ({ info, selected }: { info: SessionInfo; selected: Selecte
         {info.tabs.map((tab) => (
           <TabRow key={tab.tab} session={info.session} tab={tab} selected={selected?.session === info.session && selected.tab === tab.tab} />
         ))}
+        <li>
+          <button
+            type="button"
+            onClick={() => showDialog((live) => <NewSessionDialog sessions={live} existing={info.session} />)}
+            className="flex w-full items-center gap-2 py-1 pr-1 pl-7 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+          >
+            <Plus aria-hidden="true" className="size-4" />
+            New tab<span className="sr-only"> in {info.session}</span>
+          </button>
+        </li>
       </ul>
     </div>
   );
@@ -130,6 +141,13 @@ export const SessionsSidebar = ({ connection, sessions, selected, theme, onToggl
             icon={Trash2}
             disabled={connection === "down" || !sessions?.length}
             onClick={() => showDialog((live) => <CloseAllDialog sessions={live} />)}
+          />
+          <IconButton
+            kind="head"
+            label="New session"
+            icon={Plus}
+            disabled={connection === "down"}
+            onClick={() => showDialog((live) => <NewSessionDialog sessions={live} existing={null} />)}
           />
         </div>
       </div>

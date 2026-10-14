@@ -95,7 +95,7 @@ export const Dot = ({ tone, className }: { tone: Tone; className?: string }) => 
   <span aria-hidden="true" className={cn("inline-block size-2 shrink-0 rounded-full", DOT[tone], className)} />
 );
 
-const copy = async (value: string) => {
+export const copy = async (value: string) => {
   try {
     await navigator.clipboard.writeText(value);
     toast("success", "Copied", value);
