@@ -132,6 +132,7 @@ agent-terminal expect --cell 2,33 --style inverse   # this row is the selected o
 ```bash
 agent-terminal screenshot ./evidence/step-3.png
 agent-terminal screenshot --annotate ./evidence/refs.png  # refs drawn on the image
+agent-terminal diff screenshot --baseline ./evidence/step-3.png  # exits 2 if any pixel changed (--threshold 0.01 allows 1%)
 agent-terminal mark before-commit
 agent-terminal clip ./evidence/commit.gif --from before-commit
 agent-terminal clip ./evidence/crash.gif --last 10s

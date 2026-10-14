@@ -4,7 +4,7 @@ use std::os::unix::net::UnixStream;
 use serde::Serialize;
 
 use crate::connection;
-use crate::native::{pty, shell};
+use crate::native::{pty, render, shell};
 use crate::protocol::Shell;
 
 #[derive(Serialize)]
@@ -49,7 +49,7 @@ impl Check {
 }
 
 pub fn run(fix: bool, json: bool) -> i32 {
-    let checks = [pty(), shell(fix), daemon(fix)];
+    let checks = [pty(), fonts(), shell(fix), daemon(fix)];
     let healthy = checks.iter().all(|check| check.status != Status::Problem);
     if json {
         println!("{}", serde_json::json!({ "ok": healthy, "checks": checks }));
@@ -72,6 +72,25 @@ fn pty() -> Check {
             format!("{e:#}"),
             "check that /dev/ptmx exists and that you can read and write it (in a container, mount devpts)",
         ),
+    }
+}
+
+fn fonts() -> Check {
+    match render::check_fonts() {
+        Ok(fonts) => Check::ok("fonts", format!("{} are built in", listed(&fonts))),
+        Err(missing) => Check::problem(
+            "fonts",
+            format!("the built-in {missing} did not load, so screenshots show □ for what it draws"),
+            "reinstall agent-terminal (npm i -g agent-terminal, or brew reinstall agent-terminal)",
+        ),
+    }
+}
+
+fn listed(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [only] => only.to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
 }
 

@@ -180,7 +180,7 @@ fn color_sgr(color: Color, base: u16) -> Option<String> {
     }
 }
 
-const COLOR_NAMES: [&str; 16] = [
+pub const COLOR_NAMES: [&str; 16] = [
     "black",
     "red",
     "green",
@@ -230,6 +230,10 @@ fn glyph(cell: &GridCell) -> Glyph {
         inverse: cell.flags.contains(Flags::INVERSE),
         bold: cell.flags.contains(Flags::BOLD),
         underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
+        italic: cell.flags.contains(Flags::ITALIC),
+        dim: cell.flags.contains(Flags::DIM),
+        strikeout: cell.flags.contains(Flags::STRIKEOUT),
+        wide: cell.flags.contains(Flags::WIDE_CHAR),
         link: cell.hyperlink().map(|link| Link { id: link.id().to_string(), url: link.uri().to_string() }),
     }
 }

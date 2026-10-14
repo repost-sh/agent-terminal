@@ -13,7 +13,7 @@ use crate::native::mouse::{self, Action};
 use crate::native::output_log::{Offsets, OutputLog};
 use crate::native::pty::{self, Killer, Signaller, Spawned};
 use crate::native::recording::Recording;
-use crate::native::refs::{self, Found};
+use crate::native::refs::{self, Found, Grid};
 use crate::native::screen::{Screen, ShellReport};
 use crate::native::store::CommandLog;
 use crate::native::wait::{self, Condition, Moment, Verdict};
@@ -120,6 +120,13 @@ impl State {
             }
         }
     }
+}
+
+pub struct Capture {
+    pub grid: Grid,
+    pub rows: RowRange,
+    pub frame: u64,
+    pub refs: Option<Vec<Ref>>,
 }
 
 pub enum Settled {
@@ -268,15 +275,22 @@ impl Terminal {
 
     pub fn snapshot_with(&self, session: &str, tab: &str, options: &SnapshotOptions) -> Result<Snapshot, String> {
         let mut state = self.state.lock().unwrap();
-        let size = state.screen.view().size;
-        let range = match options.rows {
-            None => RowRange { first: 1, last: size.rows },
-            Some(RowRange { first, last }) if first == 0 || first > size.rows || first > last => {
-                return Err(format!("rows {first}:{last} are outside the {}x{} screen", size.cols, size.rows));
-            }
-            Some(RowRange { first, last }) => RowRange { first, last: last.min(size.rows) },
-        };
+        let range = row_range(state.screen.size(), options.rows)?;
         Ok(self.render(&mut state, session, tab, range, options))
+    }
+
+    pub fn capture(&self, rows: Option<RowRange>, refs: bool) -> Result<Capture, String> {
+        let mut state = self.state.lock().unwrap();
+        let rows = row_range(state.screen.size(), rows)?;
+        let grid = state.screen.grid();
+        let refs = refs.then(|| remember_refs(&mut state, &grid));
+        Ok(Capture { grid, rows, frame: state.frame, refs })
+    }
+
+    pub fn text_rows(&self, rows: Option<RowRange>, ansi: bool) -> Result<(u64, Vec<String>), String> {
+        let state = self.state.lock().unwrap();
+        let rows = row_range(state.screen.size(), rows)?;
+        Ok((state.frame, state.screen.rows(rows.first as i32 - 1..rows.last as i32, ansi)))
     }
 
     fn render(
@@ -790,8 +804,23 @@ fn click_target(state: &State, target: &ClickTarget) -> Result<(u16, u16)> {
     }
 }
 
+fn row_range(size: Size, rows: Option<RowRange>) -> Result<RowRange, String> {
+    match rows {
+        None => Ok(RowRange { first: 1, last: size.rows }),
+        Some(RowRange { first, last }) if first == 0 || first > size.rows || first > last => {
+            Err(format!("rows {first}:{last} are outside the {}x{} screen", size.cols, size.rows))
+        }
+        Some(RowRange { first, last }) => Ok(RowRange { first, last: last.min(size.rows) }),
+    }
+}
+
 fn list_refs(state: &mut State) -> Vec<Ref> {
-    let found = refs::find(&state.screen.grid());
+    let grid = state.screen.grid();
+    remember_refs(state, &grid)
+}
+
+fn remember_refs(state: &mut State, grid: &Grid) -> Vec<Ref> {
+    let found = refs::find(grid);
     let frame = state.frame;
     let listed = found.iter().enumerate().map(|(index, found)| listed_ref(index, found, frame)).collect();
     state.listed = Some(Listed { frame, refs: found });

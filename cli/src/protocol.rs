@@ -171,6 +171,8 @@ pub enum Request {
         wait: Option<Wait>,
         #[serde(default)]
         snapshot: bool,
+        #[serde(default)]
+        screenshot: Option<Shot>,
         timeout_ms: u64,
     },
     Wait {
@@ -262,6 +264,18 @@ pub enum Request {
         tab: Option<u32>,
         id: u32,
     },
+    Screenshot {
+        session: String,
+        tab: Option<u32>,
+        shot: Shot,
+    },
+    DiffScreenshot {
+        session: String,
+        tab: Option<u32>,
+        baseline: PathBuf,
+        shot: Shot,
+        threshold: f64,
+    },
 }
 
 impl Request {
@@ -294,7 +308,9 @@ impl Request {
             | Request::RecordStop { session, tab }
             | Request::Exec { session, tab, .. }
             | Request::History { session, tab, .. }
-            | Request::HistoryShow { session, tab, .. } => Addressed::Tab(session, *tab),
+            | Request::HistoryShow { session, tab, .. }
+            | Request::Screenshot { session, tab, .. }
+            | Request::DiffScreenshot { session, tab, .. } => Addressed::Tab(session, *tab),
         }
     }
 }
@@ -323,6 +339,98 @@ impl Shell {
         let name = name.strip_prefix('-').unwrap_or(name);
         Shell::ALL.into_iter().find(|shell| shell.name() == name)
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum Theme {
+    #[default]
+    Dark,
+    Light,
+}
+
+impl FromStr for Theme {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, String> {
+        match text.to_ascii_lowercase().as_str() {
+            "dark" => Ok(Theme::Dark),
+            "light" => Ok(Theme::Light),
+            _ => Err(format!("unknown theme {text}; use dark or light")),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScreenshotFormat {
+    #[default]
+    Png,
+    Svg,
+    Html,
+    Txt,
+    Ansi,
+}
+
+impl ScreenshotFormat {
+    pub const ALL: [ScreenshotFormat; 5] = [
+        ScreenshotFormat::Png,
+        ScreenshotFormat::Svg,
+        ScreenshotFormat::Html,
+        ScreenshotFormat::Txt,
+        ScreenshotFormat::Ansi,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ScreenshotFormat::Png => "png",
+            ScreenshotFormat::Svg => "svg",
+            ScreenshotFormat::Html => "html",
+            ScreenshotFormat::Txt => "txt",
+            ScreenshotFormat::Ansi => "ansi",
+        }
+    }
+}
+
+impl FromStr for ScreenshotFormat {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, String> {
+        let lower = text.to_ascii_lowercase();
+        ScreenshotFormat::ALL
+            .into_iter()
+            .find(|format| format.name() == lower)
+            .ok_or_else(|| format!("unknown format {text}; use png, svg, html, txt or ansi"))
+    }
+}
+
+impl fmt::Display for ScreenshotFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct Look {
+    pub scale: u8,
+    pub theme: Theme,
+    pub cursor: bool,
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Self { scale: 1, theme: Theme::Dark, cursor: true }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct Shot {
+    pub path: Option<PathBuf>,
+    pub dir: Option<PathBuf>,
+    pub format: ScreenshotFormat,
+    pub look: Look,
+    pub rows: Option<RowRange>,
+    pub annotate: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -584,6 +692,51 @@ pub enum Reply {
     DashboardStopped(DashboardStopped),
     History(History),
     Command(CommandOutput),
+    Screenshot(Screenshot),
+    ScreenshotDiff(ScreenshotDiff),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ScreenshotDiff {
+    pub session: String,
+    pub tab: String,
+    pub baseline: PathBuf,
+    pub path: PathBuf,
+    pub frame: u64,
+    pub changed: u64,
+    pub pixels: u64,
+    pub threshold: f64,
+    pub passed: bool,
+}
+
+impl ScreenshotDiff {
+    pub fn summary(&self) -> String {
+        let share = if self.pixels == 0 { 0.0 } else { self.changed as f64 * 100.0 / self.pixels as f64 };
+        let verdict = if self.passed { "within" } else { "above" };
+        format!(
+            "{} of {} pixels ({share:.2}%) differ from {}, {verdict} the threshold {}; diff image {}",
+            self.changed,
+            self.pixels,
+            self.baseline.display(),
+            self.threshold,
+            self.path.display()
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Screenshot {
+    pub session: String,
+    pub tab: String,
+    pub path: PathBuf,
+    pub format: ScreenshotFormat,
+    pub frame: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refs: Option<Vec<Ref>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -885,6 +1038,8 @@ pub struct Delivered {
     #[serde(flatten)]
     pub delivery: Delivery,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screenshot: Option<Box<Screenshot>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot: Option<Box<Snapshot>>,
 }
 
@@ -986,6 +1141,7 @@ impl Reply {
                 .find(|&code| code != 0)
                 .unwrap_or(0),
             Reply::Command(ran) if ran.check => ran.record.exit_code.unwrap_or(crate::exit::ERROR),
+            Reply::ScreenshotDiff(diff) if !diff.passed => crate::exit::ASSERTION,
             _ => 0,
         }
     }

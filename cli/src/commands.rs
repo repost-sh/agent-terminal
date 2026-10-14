@@ -11,9 +11,9 @@ use crate::mcp;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, BatchStep, Call, ClickTarget, DashboardStopped, Direction, Expect, Get, Input, MouseButton, MouseEvent,
-    Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Shell, Signal, Size, SnapshotOptions, Style,
-    TextMatch, Wait,
+    Baseline, BatchStep, Call, ClickTarget, DashboardStopped, Direction, Expect, Get, Input, Look, MouseButton,
+    MouseEvent, Reply, Request, Response, RowRange, ScreenshotFormat, Scrollback, SessionInfo, Sessions, Shell, Shot,
+    Signal, Size, SnapshotOptions, Style, TextMatch, Theme, Wait,
 };
 use crate::session_id;
 use crate::skills;
@@ -49,6 +49,15 @@ struct Cli {
         value_parser = parse_duration
     )]
     idle_timeout: Duration,
+
+    #[arg(
+        long,
+        global = true,
+        help = "Where screenshots go when the command names no file (default: ~/.agent-terminal/screenshots)",
+        env = "AGENT_TERMINAL_SCREENSHOT_DIR",
+        value_name = "PATH"
+    )]
+    screenshot_dir: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Command,
@@ -112,6 +121,8 @@ enum Command {
         #[command(subcommand)]
         what: GetCommand,
     },
+    #[command(about = "Save the screen as a PNG drawn with bundled fonts (or SVG, HTML, text or ANSI)")]
+    Screenshot(ScreenshotArgs),
     #[command(about = "Where the text is on screen (row,col)")]
     Find {
         #[arg(help = "Text to look for")]
@@ -209,7 +220,9 @@ enum Command {
     Batch(BatchArgs),
     #[command(about = "MCP stdio server with the same commands as tools")]
     Mcp,
-    #[command(about = "Check PTY support, shell integration and the daemon socket, and say how to fix each problem")]
+    #[command(
+        about = "Check PTY support, the built-in fonts, shell integration and the daemon socket, and say how to fix each problem"
+    )]
     Doctor {
         #[arg(long, help = "Remove stale sockets and state, bring shell integration scripts up to date")]
         fix: bool,
@@ -378,6 +391,88 @@ impl SnapshotArgs {
     }
 }
 
+#[derive(Args)]
+struct ScreenshotArgs {
+    #[arg(help = "Where to save it (default: <screenshot dir>/<session>-<tab>-<frame>.<format>)", value_name = "PATH")]
+    path: Option<PathBuf>,
+
+    #[arg(long, help = "Draw a box around each @t ref with its name, and a legend of the refs under the screen")]
+    annotate: bool,
+
+    #[arg(
+        long,
+        help = "png, svg, html, txt or ansi (default: from the file's extension, else png)",
+        value_name = "FORMAT",
+        value_parser = clap::value_parser!(ScreenshotFormat)
+    )]
+    format: Option<ScreenshotFormat>,
+
+    #[command(flatten)]
+    look: LookArgs,
+}
+
+impl ScreenshotArgs {
+    fn shot(self, dir: Option<PathBuf>) -> Result<Shot, String> {
+        let format = self.format.or_else(|| format_of(self.path.as_deref())).unwrap_or_default();
+        if self.annotate && !matches!(format, ScreenshotFormat::Png | ScreenshotFormat::Svg) {
+            return Err(format!("--annotate draws on an image, so it needs png or svg, not {format}"));
+        }
+        Ok(Shot {
+            path: self.path.map(|path| absolute(&path)).transpose()?,
+            dir: dir.map(|dir| absolute(&dir)).transpose()?,
+            format,
+            look: self.look.look(),
+            rows: self.look.rows,
+            annotate: self.annotate,
+        })
+    }
+}
+
+fn format_of(path: Option<&std::path::Path>) -> Option<ScreenshotFormat> {
+    let extension = path?.extension()?.to_str()?.to_ascii_lowercase();
+    ScreenshotFormat::ALL.into_iter().find(|format| format.name() == extension)
+}
+
+#[derive(Args)]
+struct LookArgs {
+    #[arg(
+        long,
+        help = "Pixels per cell: 2 for a sharper image, twice as wide and high",
+        value_name = "1|2",
+        default_value_t = 1,
+        value_parser = clap::value_parser!(u8).range(1..=2)
+    )]
+    scale: u8,
+
+    #[arg(
+        long,
+        help = "Colors: dark or light",
+        value_name = "THEME",
+        default_value = "dark",
+        value_parser = clap::value_parser!(Theme)
+    )]
+    theme: Theme,
+
+    #[arg(long, help = "Only rows A to B, counted from 1 at the top", value_name = "A:B", value_parser = parse_rows)]
+    rows: Option<RowRange>,
+
+    #[arg(long, help = "Draw the cursor where the program shows it (the default)", overrides_with = "no_cursor")]
+    cursor: bool,
+
+    #[arg(long, help = "Leave the cursor out", overrides_with = "cursor")]
+    no_cursor: bool,
+}
+
+impl LookArgs {
+    fn plain() -> Self {
+        Self { scale: 1, theme: Theme::Dark, rows: None, cursor: true, no_cursor: false }
+    }
+
+    fn look(&self) -> Look {
+        Look { scale: self.scale, theme: self.theme, cursor: !self.no_cursor }
+    }
+}
+
 #[derive(Subcommand)]
 enum SessionAction {
     #[command(about = "Sessions, their tabs, programs, sizes and status")]
@@ -465,6 +560,29 @@ enum DiffCommand {
     Snapshot {
         #[arg(long, help = "Compare with a snapshot saved to this file instead", value_name = "FILE")]
         baseline: Option<PathBuf>,
+    },
+    #[command(
+        about = "Pixels that differ from a baseline PNG, drawn into a diff image; exits 2 when more differ than --threshold"
+    )]
+    Screenshot {
+        #[arg(long, help = "The PNG to compare with, e.g. an earlier `agent-terminal screenshot`", value_name = "PNG")]
+        baseline: PathBuf,
+        #[arg(
+            long,
+            help = "Where to save the diff image (default: <screenshot dir>/<session>-<tab>-<frame>-diff.png)",
+            value_name = "PATH"
+        )]
+        output: Option<PathBuf>,
+        #[arg(
+            long,
+            help = "Share of pixels that may differ and still pass, from 0 to 1",
+            value_name = "0-1",
+            default_value_t = 0.0,
+            value_parser = parse_threshold
+        )]
+        threshold: f64,
+        #[command(flatten)]
+        look: LookArgs,
     },
 }
 
@@ -826,11 +944,19 @@ struct AfterInput {
 
     #[arg(long, help = "Then print the screen")]
     snapshot: bool,
+
+    #[arg(
+        long,
+        help = "Then save a PNG of the screen (default: <screenshot dir>/<session>-<tab>-<frame>.png)",
+        value_name = "PATH",
+        num_args = 0..=1
+    )]
+    screenshot: Option<Option<PathBuf>>,
 }
 
 impl AfterInput {
-    fn wait(self) -> Option<Wait> {
-        match (self.wait, self.wait_gone, self.wait_stable) {
+    fn wait(&self) -> Option<Wait> {
+        match (self.wait.clone(), self.wait_gone.clone(), self.wait_stable) {
             (Some(text), _, _) => Some(Wait::Text(TextMatch::plain(text))),
             (_, Some(text), _) => Some(Wait::Gone(TextMatch::plain(text))),
             (_, _, Some(quiet_ms)) => Some(Wait::Stable { quiet_ms }),
@@ -904,7 +1030,7 @@ pub fn run() -> i32 {
         Command::Version => return output::version(json),
         Command::Doctor { fix } => return doctor::run(fix, json),
         Command::Upgrade => return upgrade::run(json),
-        Command::Batch(args) => batch(&args, &cli.session, cli.tab, cli.timeout),
+        Command::Batch(args) => batch(&args, &cli.session, cli.tab, cli.timeout, cli.screenshot_dir.as_deref()),
         command => request(Cli { command, ..cli }),
     };
     match request {
@@ -915,6 +1041,7 @@ pub fn run() -> i32 {
 
 fn request(cli: Cli) -> Result<Request, String> {
     let session = cli.session;
+    let dir = cli.screenshot_dir;
     let request = match cli.command {
         Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
         Command::Dashboard { action: Some(DashboardAction::Stop), .. } => Request::DashboardStop,
@@ -959,6 +1086,16 @@ fn request(cli: Cli) -> Result<Request, String> {
             let baseline = baseline.map(|path| read_baseline(&path)).transpose()?;
             Request::DiffSnapshot { session, tab: cli.tab, baseline }
         }
+        Command::Diff { what: DiffCommand::Screenshot { baseline, output, threshold, look } } => {
+            let png = ScreenshotArgs { path: output, annotate: false, format: Some(ScreenshotFormat::Png), look };
+            Request::DiffScreenshot {
+                session,
+                tab: cli.tab,
+                baseline: absolute(&baseline)?,
+                shot: png.shot(dir)?,
+                threshold,
+            }
+        }
         Command::Record { action: RecordAction::Start { path } } => {
             let path = path.map(|path| absolute(&path)).transpose()?;
             Request::RecordStart { session, tab: cli.tab, path }
@@ -967,29 +1104,36 @@ fn request(cli: Cli) -> Result<Request, String> {
         Command::Trace { action: TraceAction::Export { path } } => {
             Request::TraceExport { session, path: absolute(&path)? }
         }
+        Command::Screenshot(args) => Request::Screenshot { session, tab: cli.tab, shot: args.shot(dir)? },
         Command::Type(args) => {
-            input(session, cli.tab, Input::Type { text: args.text, delay_ms: args.delay }, args.after, cli.timeout)
+            let typed = Input::Type { text: args.text, delay_ms: args.delay };
+            input(session, cli.tab, typed, args.after, dir, cli.timeout)?
         }
         Command::Press(args) => {
-            input(session, cli.tab, Input::Press { keys: args.keys, repeat: args.repeat }, args.after, cli.timeout)
+            let pressed = Input::Press { keys: args.keys, repeat: args.repeat };
+            input(session, cli.tab, pressed, args.after, dir, cli.timeout)?
         }
-        Command::Paste(args) => input(session, cli.tab, Input::Paste { text: args.text }, args.after, cli.timeout),
-        Command::Send(args) => input(session, cli.tab, Input::Send { bytes: args.bytes.0 }, args.after, cli.timeout),
+        Command::Paste(args) => {
+            input(session, cli.tab, Input::Paste { text: args.text }, args.after, dir, cli.timeout)?
+        }
+        Command::Send(args) => {
+            input(session, cli.tab, Input::Send { bytes: args.bytes.0 }, args.after, dir, cli.timeout)?
+        }
         Command::Signal(args) => {
-            input(session, cli.tab, Input::Signal { signal: args.signal }, args.after, cli.timeout)
+            input(session, cli.tab, Input::Signal { signal: args.signal }, args.after, dir, cli.timeout)?
         }
         Command::Click(args) => {
             let button = if args.right { MouseButton::Right } else { MouseButton::Left };
             let click = Input::Click { target: args.target, button, double: args.double };
-            input(session, cli.tab, click, args.after, cli.timeout)
+            input(session, cli.tab, click, args.after, dir, cli.timeout)?
         }
         Command::Scroll(args) => {
             let scroll = Input::Scroll { direction: args.direction, count: args.count, keys: args.keys };
-            input(session, cli.tab, scroll, args.after, cli.timeout)
+            input(session, cli.tab, scroll, args.after, dir, cli.timeout)?
         }
         Command::Mouse { event } => {
             let (event, after) = event.event();
-            input(session, cli.tab, Input::Mouse { event }, after, cli.timeout)
+            input(session, cli.tab, Input::Mouse { event }, after, dir, cli.timeout)?
         }
         Command::Wait(args) => Request::Wait { session, tab: cli.tab, wait: args.until(), timeout_ms: cli.timeout },
         Command::Expect(args) => Request::Expect { session, tab: cli.tab, expect: args.check() },
@@ -1009,7 +1153,13 @@ fn request(cli: Cli) -> Result<Request, String> {
     Ok(request)
 }
 
-fn batch(args: &BatchArgs, session: &str, tab: Option<u32>, timeout: u64) -> Result<Request, String> {
+fn batch(
+    args: &BatchArgs,
+    session: &str,
+    tab: Option<u32>,
+    timeout: u64,
+    screenshot_dir: Option<&std::path::Path>,
+) -> Result<Request, String> {
     let parser = Cli::command()
         .no_binary_name(true)
         .mut_arg("session", |arg| arg.env(None::<&str>).default_value(session.to_string()))
@@ -1017,7 +1167,11 @@ fn batch(args: &BatchArgs, session: &str, tab: Option<u32>, timeout: u64) -> Res
             Some(id) => arg.default_value(id.to_string()),
             None => arg,
         })
-        .mut_arg("timeout", |arg| arg.default_value(timeout.to_string()));
+        .mut_arg("timeout", |arg| arg.default_value(timeout.to_string()))
+        .mut_arg("screenshot_dir", |arg| match screenshot_dir {
+            Some(dir) => arg.env(None::<&str>).default_value(dir.as_os_str().to_owned()),
+            None => arg.env(None::<&str>),
+        });
     let mut steps = Vec::new();
     for (index, call) in batch::calls(&args.commands)?.into_iter().enumerate() {
         let request = batch_step(parser.clone(), &call)
@@ -1054,9 +1208,20 @@ fn send(request: Request, json: bool, idle_timeout: Duration) -> i32 {
     }
 }
 
-fn input(session: String, tab: Option<u32>, input: Input, after: AfterInput, timeout_ms: u64) -> Request {
-    let snapshot = after.snapshot;
-    Request::Input { session, tab, input, wait: after.wait(), snapshot, timeout_ms }
+fn input(
+    session: String,
+    tab: Option<u32>,
+    input: Input,
+    after: AfterInput,
+    dir: Option<PathBuf>,
+    timeout_ms: u64,
+) -> Result<Request, String> {
+    let wait = after.wait();
+    let screenshot = after
+        .screenshot
+        .map(|path| ScreenshotArgs { path, annotate: false, format: None, look: LookArgs::plain() }.shot(dir))
+        .transpose()?;
+    Ok(Request::Input { session, tab, input, wait, snapshot: after.snapshot, screenshot, timeout_ms })
 }
 
 fn environment(extra: Vec<(String, String)>) -> Vec<(String, String)> {
@@ -1163,6 +1328,14 @@ fn parse_rows(value: &str) -> Result<RowRange, String> {
         return Err("rows count from 1, and A must not be after B".into());
     }
     Ok(RowRange { first, last })
+}
+
+fn parse_threshold(value: &str) -> Result<f64, String> {
+    value
+        .parse::<f64>()
+        .ok()
+        .filter(|share| (0.0..=1.0).contains(share))
+        .ok_or_else(|| format!("invalid threshold: {value} (expected a share of pixels from 0 to 1, e.g. 0.01)"))
 }
 
 fn parse_position(value: &str) -> Result<(u16, u16), String> {

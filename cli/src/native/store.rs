@@ -1,7 +1,7 @@
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -33,6 +33,8 @@ pub struct ActivityEntry {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frame: Option<u64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub screenshots: Vec<PathBuf>,
 }
 
 impl ActivityEntry {
@@ -45,6 +47,7 @@ impl ActivityEntry {
             exit: 0,
             error: None,
             frame: None,
+            screenshots: Vec::new(),
         }
     }
 }
@@ -120,6 +123,17 @@ fn append_line(path: &Path, line: &str) -> Result<()> {
     let mut log = OpenOptions::new().create(true).append(true).open(path)?;
     log.write_all(format!("{line}\n").as_bytes())?;
     Ok(())
+}
+
+pub fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    let name = path.file_name().with_context(|| format!("{} names no file", path.display()))?;
+    static WRITES: AtomicU64 = AtomicU64::new(0);
+    let write = WRITES.fetch_add(1, Ordering::Relaxed);
+    let partial = parent.join(format!(".{}.{}-{write}.partial", name.to_string_lossy(), std::process::id()));
+    std::fs::write(&partial, bytes).with_context(|| format!("write {}", partial.display()))?;
+    std::fs::rename(&partial, path).with_context(|| format!("move {} to {}", partial.display(), path.display()))
 }
 
 pub struct Exported {
