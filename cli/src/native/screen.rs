@@ -441,6 +441,11 @@ impl Screen {
         std::mem::take(&mut self.events.0.lock().unwrap().replies)
     }
 
+    pub fn draw(&mut self, bytes: &[u8]) {
+        self.parser.advance(&mut self.term, bytes);
+        self.events.0.lock().unwrap().replies.clear();
+    }
+
     pub fn scrollback_len(&self) -> usize {
         self.term.grid().history_size()
     }

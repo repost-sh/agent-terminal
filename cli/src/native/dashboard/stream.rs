@@ -35,7 +35,7 @@ struct Watched {
 
 type Modes = (bool, Option<&'static str>, bool);
 
-struct Shown {
+pub struct Shown {
     size: Size,
     rows: Vec<String>,
     frame: u64,
@@ -44,7 +44,7 @@ struct Shown {
 }
 
 impl Shown {
-    fn of(picture: Picture) -> Self {
+    pub fn of(picture: Picture) -> Self {
         Self {
             modes: modes(&picture),
             size: picture.size,
@@ -52,6 +52,10 @@ impl Shown {
             frame: picture.frame,
             exit: picture.exit,
         }
+    }
+
+    pub fn size(&self) -> Size {
+        self.size
     }
 }
 
@@ -102,13 +106,30 @@ async fn follow_tab(mut socket: WebSocket, backend: Arc<dyn Backend>, session: S
 }
 
 fn update(picture: &Picture, shown: Option<&Shown>) -> Option<Update> {
-    let repaint_all = shown.is_none_or(|shown| shown.size != picture.size);
     let unchanged = shown.is_some_and(|shown| {
-        !repaint_all && shown.frame == picture.frame && shown.exit == picture.exit && shown.modes == modes(picture)
+        shown.size == picture.size
+            && shown.frame == picture.frame
+            && shown.exit == picture.exit
+            && shown.modes == modes(picture)
     });
     if unchanged {
         return None;
     }
+    Some(Update::Frame {
+        frame: picture.frame,
+        cols: picture.size.cols,
+        rows: picture.size.rows,
+        paint: paint(picture, shown),
+        alt_screen: picture.alt_screen,
+        mouse: picture.mouse,
+        bracketed_paste: picture.bracketed_paste,
+        exited: picture.exit.is_some(),
+        exit_code: picture.exit.flatten(),
+    })
+}
+
+pub fn paint(picture: &Picture, shown: Option<&Shown>) -> String {
+    let repaint_all = shown.is_none_or(|shown| shown.size != picture.size);
     let mut paint = String::new();
     for (index, row) in picture.rows.iter().enumerate() {
         let changed = repaint_all || shown.is_some_and(|shown| shown.rows.get(index) != Some(row));
@@ -118,17 +139,7 @@ fn update(picture: &Picture, shown: Option<&Shown>) -> Option<Update> {
     }
     let visibility = if picture.cursor_visible && picture.exit.is_none() { 'h' } else { 'l' };
     paint.push_str(&format!("\x1b[0m\x1b[{};{}H\x1b[?25{visibility}", picture.cursor.0, picture.cursor.1));
-    Some(Update::Frame {
-        frame: picture.frame,
-        cols: picture.size.cols,
-        rows: picture.size.rows,
-        paint,
-        alt_screen: picture.alt_screen,
-        mouse: picture.mouse,
-        bracketed_paste: picture.bracketed_paste,
-        exited: picture.exit.is_some(),
-        exit_code: picture.exit.flatten(),
-    })
+    paint
 }
 
 pub async fn send(socket: &mut WebSocket, update: &impl Serialize) -> bool {

@@ -4,6 +4,7 @@ mod commands;
 mod details;
 mod guard;
 mod stream;
+mod timeline;
 
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, Ipv6Addr, TcpListener};
@@ -125,6 +126,7 @@ fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
         .route("/api/sessions", get(api::sessions))
         .route("/api/sessions/stream", get(api::sessions_stream))
         .route("/api/session/{session}/{tab}/stream", get(stream::tab))
+        .route("/api/session/{session}/{tab}/timeline", get(timeline::tab))
         .route("/api/session/{session}/{tab}/activity", get(details::activity))
         .route("/api/session/{session}/{tab}/output", get(details::output))
         .route("/api/session/{session}/{tab}/info", get(details::info))
