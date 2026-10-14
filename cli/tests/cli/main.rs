@@ -21,6 +21,7 @@ mod resize;
 mod restart;
 mod session_folder;
 mod sessions;
+mod shell;
 mod skills;
 mod snapshot;
 mod support;

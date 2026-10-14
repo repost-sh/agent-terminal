@@ -20,6 +20,8 @@
 
 **command**: one shell command line, delimited by OSC 133 marks. Has its text, cwd, exit code, start time, duration and output range. Not to be confused with a CLI call to agent-terminal, which is an **activity** entry.
 
+**shell integration**: the small startup scripts agent-terminal injects into zsh, bash or fish when `shell` opens a tab, without changing the user's own startup files. They report prompts and commands (OSC 133), the cwd (OSC 7) and the title; the terminal turns those reports into commands. `exec`, `history` and `wait --command` need it.
+
 **activity**: one CLI call to agent-terminal as recorded in the session's log: time, command as typed, duration and result.
 
 **recording**: a tab's output, input and resizes as an asciicast file, written from the moment the tab opens. `record start` saves a copy of it from that point to a file of your choice.
