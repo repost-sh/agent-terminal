@@ -7,11 +7,7 @@ use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::Processor;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Size {
-    pub cols: u16,
-    pub rows: u16,
-}
+use crate::protocol::Size;
 
 impl Dimensions for Size {
     fn total_lines(&self) -> usize {

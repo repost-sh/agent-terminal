@@ -1,4 +1,4 @@
-use crate::protocol::{ErrorBody, Snapshot};
+use crate::protocol::{ErrorBody, Reply, Snapshot};
 
 pub fn screen(s: &Snapshot) -> String {
     let mut header = vec![format!("{} {}", s.session, s.tab), s.program.clone(), format!("{}x{}", s.cols, s.rows)];
@@ -14,8 +14,10 @@ pub fn screen(s: &Snapshot) -> String {
         "cursor hidden".into()
     });
     header.push(format!("frame {}", s.frame));
-    if let Some(code) = s.exit_code {
-        header.push(format!("exited {code}"));
+    match (s.exited, s.exit_code) {
+        (true, Some(code)) => header.push(format!("exited {code}")),
+        (true, None) => header.push("exited".into()),
+        (false, _) => {}
     }
 
     let mut out = header.join(" · ");
@@ -32,6 +34,20 @@ pub fn screen(s: &Snapshot) -> String {
         out.push_str(&format!("{:>width$}│ ({blank})\n", "…"));
     }
     out
+}
+
+pub fn reply(reply: &Reply, json: bool) {
+    match reply {
+        Reply::Snapshot(snapshot) if json => println!("{}", serde_json::json!(snapshot)),
+        Reply::Snapshot(snapshot) => print!("{}", screen(snapshot)),
+        Reply::Closed(closed) if json => println!("{}", serde_json::json!(closed)),
+        Reply::Closed(closed) => {
+            for tab in &closed.closed {
+                println!("closed {} {}", tab.session, tab.tab);
+            }
+        }
+        Reply::Stopped => {}
+    }
 }
 
 pub fn error(error: &ErrorBody, json: bool) -> i32 {

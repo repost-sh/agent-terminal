@@ -6,7 +6,10 @@ mod protocol;
 
 use std::fmt;
 
-pub const EXIT_TIMEOUT: i32 = 3;
+pub mod exit {
+    pub const ERROR: i32 = 1;
+    pub const TIMEOUT: i32 = 3;
+}
 
 #[derive(Debug)]
 pub struct Error {

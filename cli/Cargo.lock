@@ -10,6 +10,7 @@ dependencies = [
  "anyhow",
  "clap",
  "insta",
+ "libc",
  "portable-pty",
  "serde",
  "serde_json",

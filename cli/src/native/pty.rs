@@ -1,10 +1,10 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use portable_pty::{ChildKiller, CommandBuilder, PtySize, native_pty_system};
 
-use crate::native::screen::Size;
+use crate::protocol::Size;
 
 pub struct Command {
     pub program: String,
@@ -18,18 +18,18 @@ pub struct Spawned {
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
     pub killer: Box<dyn Killer>,
-    pub wait: Box<dyn FnOnce() -> i32 + Send>,
+    pub wait: Box<dyn FnOnce() -> Result<i32> + Send>,
 }
 
 pub trait Killer: Send {
-    fn kill(&mut self);
+    fn kill(&mut self) -> std::io::Result<()>;
 }
 
 struct PortableKiller(Box<dyn ChildKiller + Send + Sync>);
 
 impl Killer for PortableKiller {
-    fn kill(&mut self) {
-        let _ = self.0.kill();
+    fn kill(&mut self) -> std::io::Result<()> {
+        self.0.kill()
     }
 }
 
@@ -61,25 +61,20 @@ pub fn spawn(command: Command) -> Result<Spawned> {
         writer,
         killer: Box::new(killer),
         wait: Box::new(move || {
-            let code = child.wait().map(|status| status.exit_code() as i32).unwrap_or(-1);
+            let status = child.wait().context("wait for the program to exit");
             drop(master);
-            code
+            Ok(status?.exit_code() as i32)
         }),
     })
 }
 
 fn resolve(program: &str, cwd: &Path, path_var: &str) -> Result<PathBuf> {
-    if program.contains('/') {
-        let path = cwd.join(program);
-        if path.is_file() {
-            return Ok(path);
-        }
-        bail!(crate::Error::new(1, format!("command not found: {program}")));
-    }
-    std::env::split_paths(path_var)
-        .map(|dir| dir.join(program))
-        .find(|candidate| is_executable(candidate))
-        .ok_or_else(|| crate::Error::new(1, format!("command not found: {program}")).into())
+    let found = if program.contains('/') {
+        Some(cwd.join(program)).filter(|path| is_executable(path))
+    } else {
+        std::env::split_paths(path_var).map(|dir| dir.join(program)).find(|candidate| is_executable(candidate))
+    };
+    found.ok_or_else(|| crate::Error::new(crate::exit::ERROR, format!("command not found: {program}")).into())
 }
 
 fn is_executable(path: &Path) -> bool {

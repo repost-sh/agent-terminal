@@ -1,16 +1,15 @@
 use std::collections::BTreeMap;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 
-use crate::connection::{home, socket_path};
+use crate::connection::{READY, home, socket_path};
 use crate::native::pty;
-use crate::native::screen::Size;
 use crate::native::terminal::{Settled, Terminal};
-use crate::protocol::{self, Closed, ErrorBody, Request, Response, Snapshot, TabRef};
+use crate::protocol::{self, Closed, ErrorBody, Reply, Request, Response, TabRef, Wait};
 
 #[derive(Default)]
 struct Daemon {
@@ -25,26 +24,31 @@ struct Session {
 }
 
 pub fn run() -> Result<()> {
-    let home = home();
+    let home = home()?;
     std::fs::create_dir_all(&home).with_context(|| format!("create {}", home.display()))?;
-    let path = socket_path();
+    let path = socket_path()?;
     let listener = match UnixListener::bind(&path) {
         Ok(listener) => listener,
+        Err(e) if e.kind() == ErrorKind::AddrInUse && UnixStream::connect(&path).is_ok() => return Ok(()),
         Err(e) if e.kind() == ErrorKind::AddrInUse => {
-            if UnixStream::connect(&path).is_ok() {
-                return Ok(());
-            }
-            std::fs::remove_file(&path)?;
-            UnixListener::bind(&path)?
+            std::fs::remove_file(&path).with_context(|| format!("remove the stale socket {}", path.display()))?;
+            UnixListener::bind(&path).with_context(|| format!("listen on {}", path.display()))?
         }
         Err(e) => return Err(e).with_context(|| format!("listen on {}", path.display())),
     };
 
+    let mut stdout = std::io::stdout();
+    writeln!(stdout, "{READY}").and_then(|()| stdout.flush()).context("tell the CLI the daemon is ready")?;
+
     let daemon = Arc::new(Daemon::default());
     for stream in listener.incoming() {
-        let Ok(stream) = stream else { continue };
-        let daemon = Arc::clone(&daemon);
-        std::thread::spawn(move || daemon.serve(stream));
+        match stream {
+            Ok(stream) => {
+                let daemon = Arc::clone(&daemon);
+                std::thread::spawn(move || daemon.serve(stream));
+            }
+            Err(e) => eprintln!("accepting a connection failed: {e}"),
+        }
     }
     Ok(())
 }
@@ -52,84 +56,98 @@ pub fn run() -> Result<()> {
 impl Daemon {
     fn serve(&self, mut stream: UnixStream) {
         let request: Request = match protocol::read(&mut stream) {
-            Ok(request) => request,
-            Err(_) => return,
+            Ok(Some(request)) => request,
+            Ok(None) => return,
+            Err(e) => {
+                eprintln!("reading a request failed: {e:#}");
+                return;
+            }
         };
         let stop = matches!(request, Request::Stop);
         let response = match self.handle(request) {
-            Ok(value) => Response::Ok { ok: value },
-            Err(failure) => Response::Err { error: failure },
+            Ok(reply) => Response::Ok(reply),
+            Err(failure) => Response::Err(failure),
         };
-        let _ = protocol::write(&mut stream, &response);
+        if let Err(e) = protocol::write(&mut stream, &response) {
+            eprintln!("sending a reply failed: {e:#}");
+        }
         if stop {
-            let _ = std::fs::remove_file(socket_path());
             std::process::exit(0);
         }
     }
 
-    fn handle(&self, request: Request) -> Result<serde_json::Value, ErrorBody> {
+    fn handle(&self, request: Request) -> Result<Reply, ErrorBody> {
         match request {
-            Request::Open { session, program, args, cols, rows, cwd, env, wait_stable_ms, timeout_ms } => {
-                let terminal = Terminal::start(pty::Command { program, args, cwd, env, size: Size { cols, rows } })
-                    .map_err(error_body)?;
-                let tab = {
-                    let mut sessions = self.sessions.lock().unwrap();
-                    let session = sessions.entry(session.clone()).or_default();
-                    session.next_id += 1;
-                    let id = session.next_id;
-                    session.tabs.insert(id, Arc::clone(&terminal));
-                    session.current = Some(id);
-                    id
-                };
-                let settled =
-                    terminal.wait_stable(Duration::from_millis(wait_stable_ms), Duration::from_millis(timeout_ms));
-                let snapshot = snapshot_of(&session, tab, &terminal);
-                if let Settled::TimedOut = settled {
-                    return Err(ErrorBody {
-                        code: crate::EXIT_TIMEOUT,
-                        message: format!("timed out after {timeout_ms} ms waiting for the screen to settle"),
-                        snapshot: Some(Box::new(snapshot)),
-                    });
-                }
-                Ok(to_value(snapshot))
+            Request::Open { session, program, args, size, cwd, env, wait, timeout_ms } => {
+                self.open(session, pty::Command { program, args, cwd, env, size }, &wait, timeout_ms)
             }
             Request::Snapshot { session } => {
                 let (tab, terminal) = self.current(&session)?;
-                Ok(to_value(snapshot_of(&session, tab, &terminal)))
+                Ok(Reply::Snapshot(terminal.snapshot(&session, &tab_name(tab))))
             }
             Request::Close { session, all } => {
-                let mut closed = Vec::new();
-                let mut sessions = self.sessions.lock().unwrap();
-                if all {
-                    for (name, session) in std::mem::take(&mut *sessions) {
-                        for (id, terminal) in session.tabs {
-                            terminal.kill();
-                            closed.push(TabRef { session: name.clone(), tab: tab_name(id) });
-                        }
-                    }
-                } else {
-                    let Some(s) = sessions.get_mut(&session) else { return Err(no_terminal(&session)) };
-                    let Some((id, terminal)) = s.current.and_then(|id| s.tabs.remove(&id).map(|t| (id, t))) else {
-                        return Err(no_terminal(&session));
-                    };
-                    terminal.kill();
-                    s.current = s.tabs.keys().next_back().copied();
-                    if s.tabs.is_empty() {
-                        sessions.remove(&session);
-                    }
-                    closed.push(TabRef { session, tab: tab_name(id) });
-                }
-                Ok(to_value(Closed { closed }))
+                let closed = if all { self.close_all() } else { vec![self.close_current(&session)?] };
+                Ok(Reply::Closed(Closed { closed }))
             }
             Request::Stop => {
-                for session in std::mem::take(&mut *self.sessions.lock().unwrap()).into_values() {
-                    for terminal in session.tabs.into_values() {
-                        terminal.kill();
-                    }
+                self.close_all();
+                if let Err(e) = socket_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
+                    eprintln!("removing the socket failed: {e:#}");
                 }
-                Ok(serde_json::json!({ "stopped": true }))
+                Ok(Reply::Stopped)
             }
         }
+    }
+
+    fn open(&self, session: String, command: pty::Command, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+        let terminal = Terminal::start(command).map_err(error_body)?;
+        let tab = {
+            let mut sessions = self.sessions.lock().unwrap();
+            let entry = sessions.entry(session.clone()).or_default();
+            entry.next_id += 1;
+            let id = entry.next_id;
+            entry.tabs.insert(id, Arc::clone(&terminal));
+            entry.current = Some(id);
+            tab_name(id)
+        };
+        let settled = terminal.wait(wait, Duration::from_millis(timeout_ms));
+        let snapshot = terminal.snapshot(&session, &tab);
+        match settled {
+            Settled::Met | Settled::Exited => Ok(Reply::Snapshot(snapshot)),
+            Settled::TimedOut => Err(ErrorBody {
+                code: crate::exit::TIMEOUT,
+                message: format!(
+                    "timed out after {timeout_ms} ms waiting for {}; {session} {tab} is still running (read it with `agent-terminal snapshot`, stop it with `agent-terminal close`)",
+                    describe(wait)
+                ),
+                snapshot: Some(Box::new(snapshot)),
+            }),
+        }
+    }
+
+    fn close_current(&self, session: &str) -> Result<TabRef, ErrorBody> {
+        let mut sessions = self.sessions.lock().unwrap();
+        let entry = sessions.get_mut(session).ok_or_else(|| no_terminal(session))?;
+        let (id, terminal) =
+            entry.current.and_then(|id| entry.tabs.remove(&id).map(|t| (id, t))).ok_or_else(|| no_terminal(session))?;
+        terminal.kill();
+        entry.current = entry.tabs.keys().next_back().copied();
+        if entry.tabs.is_empty() {
+            sessions.remove(session);
+        }
+        Ok(TabRef { session: session.to_string(), tab: tab_name(id) })
+    }
+
+    fn close_all(&self) -> Vec<TabRef> {
+        let sessions = std::mem::take(&mut *self.sessions.lock().unwrap());
+        let mut closed = Vec::new();
+        for (name, session) in sessions {
+            for (id, terminal) in session.tabs {
+                terminal.kill();
+                closed.push(TabRef { session: name.clone(), tab: tab_name(id) });
+            }
+        }
+        closed
     }
 
     fn current(&self, session: &str) -> Result<(u32, Arc<Terminal>), ErrorBody> {
@@ -141,22 +159,10 @@ impl Daemon {
     }
 }
 
-fn snapshot_of(session: &str, tab: u32, terminal: &Terminal) -> Snapshot {
-    let capture = terminal.capture();
-    let view = capture.view;
-    Snapshot {
-        session: session.to_string(),
-        tab: tab_name(tab),
-        program: terminal.program.clone(),
-        cols: view.size.cols,
-        rows: view.size.rows,
-        alt_screen: view.alt_screen,
-        mouse: view.mouse.map(|m| m.as_str().to_string()),
-        cursor: [view.cursor.0 + 1, view.cursor.1 + 1],
-        cursor_visible: view.cursor_visible,
-        frame: capture.frame,
-        exit_code: capture.exit_code,
-        lines: view.lines,
+fn describe(wait: &Wait) -> String {
+    match wait {
+        Wait::Stable { quiet_ms } => format!("the screen to stay unchanged for {quiet_ms} ms"),
+        Wait::Text { text } => format!("\"{text}\" to appear"),
     }
 }
 
@@ -166,17 +172,13 @@ fn tab_name(id: u32) -> String {
 
 fn no_terminal(session: &str) -> ErrorBody {
     ErrorBody {
-        code: 1,
+        code: crate::exit::ERROR,
         message: format!("no terminal is open in session {session}; start one with `agent-terminal open <program>`"),
         snapshot: None,
     }
 }
 
 fn error_body(error: anyhow::Error) -> ErrorBody {
-    let code = error.downcast_ref::<crate::Error>().map_or(1, |e| e.code);
+    let code = error.downcast_ref::<crate::Error>().map_or(crate::exit::ERROR, |e| e.code);
     ErrorBody { code, message: format!("{error:#}"), snapshot: None }
-}
-
-fn to_value<T: serde::Serialize>(value: T) -> serde_json::Value {
-    serde_json::to_value(value).expect("protocol types serialize")
 }

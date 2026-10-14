@@ -12,6 +12,8 @@ Start here (for AI agents):
 
 Start and stop:
   open <program> [args...]     Run a program in a new terminal (prints the first stable screen)
+                               --wait <text>  wait for this text instead of a stable screen
+                               --wait-stable [ms]  how long unchanged counts as stable (default 300)
   shell                        Open your shell, with command history turned on
   exec "<command line>"        Run a command in the shell tab, wait for it, print output + exit code
   restart                      Run the same program again with the same options
@@ -21,6 +23,7 @@ Start and stop:
 
 Read the screen:
   snapshot                     The screen as text: header, numbered rows, cursor
+                               header: session tab · program · size · alt-screen · mouse:<enc> · cursor r,c|hidden · frame n · exited [code]
   snapshot -i                  Same, plus @t refs for things on screen (selected rows, buttons, panels, links, inputs)
   screenshot [path]            PNG of the screen (--annotate draws the refs)
   get text                     Screen text only, no header

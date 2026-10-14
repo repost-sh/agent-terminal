@@ -1,55 +1,80 @@
+use std::io::{BufRead, BufReader, ErrorKind};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 
 use crate::protocol::{self, Request, Response};
 
-pub fn home() -> PathBuf {
+pub const READY: &str = "ready";
+
+pub fn home() -> Result<PathBuf> {
     if let Some(home) = std::env::var_os("AGENT_TERMINAL_HOME") {
-        return PathBuf::from(home);
+        return Ok(PathBuf::from(home));
     }
-    let user_home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
-    user_home.join(".agent-terminal")
+    let user_home = std::env::var_os("HOME").ok_or_else(|| {
+        anyhow!("HOME is not set; set AGENT_TERMINAL_HOME to choose where agent-terminal keeps its files")
+    })?;
+    Ok(PathBuf::from(user_home).join(".agent-terminal"))
 }
 
-pub fn socket_path() -> PathBuf {
-    home().join("daemon.sock")
+pub fn socket_path() -> Result<PathBuf> {
+    Ok(home()?.join("daemon.sock"))
 }
 
 pub fn send(request: &Request, start: bool) -> Result<Option<Response>> {
-    let mut stream = match UnixStream::connect(socket_path()) {
+    let socket = socket_path()?;
+    let mut stream = match UnixStream::connect(&socket) {
         Ok(stream) => stream,
-        Err(_) if !start => return Ok(None),
-        Err(_) => start_daemon()?,
+        Err(e) if is_not_running(&e) && !start => return Ok(None),
+        Err(e) if is_not_running(&e) => connect_or_start()?,
+        Err(e) => return Err(e).with_context(|| format!("connect to the daemon at {}", socket.display())),
     };
     protocol::write(&mut stream, request)?;
-    Ok(Some(protocol::read(&mut stream).context("read the daemon's reply")?))
+    Ok(Some(protocol::read(&mut stream)?.context("the daemon closed the connection without replying")?))
 }
 
-fn start_daemon() -> Result<UnixStream> {
-    let home = home();
+fn connect_or_start() -> Result<UnixStream> {
+    let home = home()?;
     std::fs::create_dir_all(&home).with_context(|| format!("create {}", home.display()))?;
-    let log = std::fs::File::create(home.join("daemon.log"))?;
-    Command::new(std::env::current_exe()?)
+    let lock_path = home.join("start.lock");
+    let lock = std::fs::File::create(&lock_path).with_context(|| format!("create {}", lock_path.display()))?;
+    lock.lock().with_context(|| format!("lock {}", lock_path.display()))?;
+    match UnixStream::connect(socket_path()?) {
+        Ok(stream) => Ok(stream),
+        Err(e) if is_not_running(&e) => start_daemon(&home),
+        Err(e) => Err(e).context("connect to the daemon"),
+    }
+}
+
+fn is_not_running(error: &std::io::Error) -> bool {
+    matches!(error.kind(), ErrorKind::NotFound | ErrorKind::ConnectionRefused)
+}
+
+fn start_daemon(home: &std::path::Path) -> Result<UnixStream> {
+    let log_path = home.join("daemon.log");
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .with_context(|| format!("open {}", log_path.display()))?;
+    let mut daemon = Command::new(std::env::current_exe()?)
         .args(["daemon", "run"])
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(log)
         .process_group(0)
         .spawn()
         .context("start the agent-terminal daemon")?;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Ok(stream) = UnixStream::connect(socket_path()) {
-            return Ok(stream);
-        }
-        if Instant::now() >= deadline {
-            bail!("the daemon did not start; see {}", home.join("daemon.log").display());
-        }
-        std::thread::sleep(Duration::from_millis(2));
+
+    let mut announcement = String::new();
+    BufReader::new(daemon.stdout.take().context("daemon stdout")?)
+        .read_line(&mut announcement)
+        .context("wait for the daemon to start")?;
+    if announcement.trim() != READY {
+        bail!("the daemon did not start; see {}", log_path.display());
     }
+    UnixStream::connect(socket_path()?).context("connect to the daemon")
 }

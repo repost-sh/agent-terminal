@@ -3,7 +3,9 @@ use crate::support::{AgentTerminal, fixture};
 #[test]
 fn open_prints_the_programs_first_stable_screen() {
     let at = AgentTerminal::new();
-    let run = at.run(&["open", "--size", "40x10", &fixture("line-printer"), "--lines", "3", "--hold"]).success();
+    let run = at
+        .run(&["open", "--size", "40x10", "--wait", "line 3", &fixture("line-printer"), "--lines", "3", "--hold"])
+        .success();
     insta::assert_snapshot!(run.screen(), @r"
     default t1 · line-printer · 40x10 · cursor 4,1 · frame N
      1│line 1
@@ -16,7 +18,7 @@ fn open_prints_the_programs_first_stable_screen() {
 #[test]
 fn snapshot_reads_a_full_screen_app() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "50x8", &fixture("fixture-tui")]).success();
+    at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
     let run = at.run(&["snapshot"]).success();
     insta::assert_snapshot!(run.screen(), @r"
     default t1 · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N
@@ -56,7 +58,18 @@ fn close_all_closes_every_session() {
 fn json_output_for_open_snapshot_and_close() {
     let at = AgentTerminal::new();
     let opened = at
-        .run(&["--json", "open", "--size", "30x5", &fixture("line-printer"), "--lines", "2", "--hold"])
+        .run(&[
+            "--json",
+            "open",
+            "--size",
+            "30x5",
+            "--wait",
+            "line 2",
+            &fixture("line-printer"),
+            "--lines",
+            "2",
+            "--hold",
+        ])
         .success()
         .json();
     assert_eq!(opened["session"], "default");
@@ -86,6 +99,8 @@ fn cwd_and_env_reach_the_program() {
             &at.home().to_string_lossy(),
             "--env",
             "GREETING=hello from env",
+            "--wait",
+            "hello from env",
             "sh",
             "-c",
             "basename \"$(pwd -P)\"; echo \"$GREETING\"; read _",
@@ -100,7 +115,20 @@ fn cwd_and_env_reach_the_program() {
 #[test]
 fn a_program_that_exits_shows_its_exit_code() {
     let at = AgentTerminal::new();
-    let run = at.run(&["open", "--size", "20x3", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    let run = at
+        .run(&[
+            "open",
+            "--size",
+            "20x3",
+            "--wait-stable",
+            "5000",
+            &fixture("line-printer"),
+            "--lines",
+            "1",
+            "--exit",
+            "7",
+        ])
+        .success();
     insta::assert_snapshot!(run.screen(), @r"
     default t1 · line-printer · 20x3 · cursor 2,1 · frame N · exited 7
     1│line 1
@@ -125,4 +153,57 @@ fn snapshot_with_nothing_open_explains_how_to_start() {
         run.stderr(),
         "error: no terminal is open in session default; start one with `agent-terminal open <program>`\n"
     );
+}
+
+#[test]
+fn a_program_that_prints_nothing_opens_with_a_blank_screen() {
+    let at = AgentTerminal::new();
+    let started = std::time::Instant::now();
+    let run = at.run(&["open", "--size", "20x2", "cat"]).success();
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "took {:?}", started.elapsed());
+    insta::assert_snapshot!(run.screen(), @r"
+    default t1 · cat · 20x2 · cursor 1,1 · frame N
+    …│ (rows 1-2 blank)
+    ");
+}
+
+#[test]
+fn waiting_for_text_that_never_appears_times_out_and_shows_the_screen() {
+    let at = AgentTerminal::new();
+    let run = at.run(&[
+        "--timeout",
+        "500",
+        "open",
+        "--size",
+        "20x2",
+        "--wait",
+        "never shown",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--hold",
+    ]);
+    assert_eq!(run.code(), 3);
+    assert_eq!(run.stdout(), "");
+    let stderr = run.stderr();
+    assert!(
+        stderr.starts_with(
+            "error: timed out after 500 ms waiting for \"never shown\" to appear; default t1 is still running"
+        ),
+        "{stderr}"
+    );
+    assert!(stderr.contains("1│line 1\n"), "{stderr}");
+    assert_eq!(at.run(&["snapshot"]).success().stdout().lines().nth(1), Some("1│line 1"));
+}
+
+#[test]
+fn simultaneous_first_calls_share_one_daemon() {
+    let at = AgentTerminal::new();
+    std::thread::scope(|scope| {
+        let opens: Vec<_> = (0..6).map(|_| scope.spawn(|| at.run(&["open", "--size", "20x2", "cat"]).code())).collect();
+        let codes: Vec<i32> = opens.into_iter().map(|open| open.join().unwrap()).collect();
+        assert_eq!(codes, vec![0; 6]);
+    });
+    let closed = at.run(&["close", "--all"]).success().stdout();
+    assert_eq!(closed.lines().count(), 6, "every open must land in the same daemon:\n{closed}");
 }

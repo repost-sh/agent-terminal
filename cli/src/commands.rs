@@ -5,7 +5,7 @@ use clap::{Args, Parser, Subcommand};
 use crate::connection;
 use crate::native::daemon;
 use crate::output;
-use crate::protocol::{Closed, Request, Response, Snapshot};
+use crate::protocol::{Request, Response, Size, Wait};
 
 #[derive(Parser)]
 #[command(name = "agent-terminal", version, about = "Fast terminal automation CLI for AI agents")]
@@ -21,6 +21,9 @@ struct Cli {
 
     #[arg(long, global = true, help = "JSON output")]
     json: bool,
+
+    #[arg(long, global = true, help = "Give up waiting after this long", value_name = "MS", default_value_t = 25_000)]
+    timeout: u64,
 
     #[command(subcommand)]
     command: Command,
@@ -47,7 +50,7 @@ enum Command {
 #[derive(Args)]
 struct OpenArgs {
     #[arg(long, help = "Terminal size", value_name = "COLSxROWS", default_value = "120x40", value_parser = parse_size)]
-    size: (u16, u16),
+    size: Size,
 
     #[arg(long, help = "Working directory (default: the current directory)")]
     cwd: Option<PathBuf>,
@@ -55,16 +58,17 @@ struct OpenArgs {
     #[arg(long = "env", help = "Extra environment variable (repeatable)", value_name = "K=V", value_parser = parse_env)]
     env: Vec<(String, String)>,
 
+    #[arg(long, help = "Wait until this text is on screen, not just until the screen is stable", value_name = "TEXT")]
+    wait: Option<String>,
+
     #[arg(
         long,
         help = "How long the screen must stay unchanged to count as stable",
         value_name = "MS",
-        default_value_t = 300
+        default_value_t = 300,
+        conflicts_with = "wait"
     )]
     wait_stable: u64,
-
-    #[arg(long, help = "Give up waiting after this long", value_name = "MS", default_value_t = 25_000)]
-    timeout: u64,
 
     #[arg(
         help = "The program and its arguments",
@@ -89,14 +93,14 @@ pub fn run() -> i32 {
         Command::Daemon { action: DaemonAction::Run } => {
             return match daemon::run() {
                 Ok(()) => 0,
-                Err(e) => output::fail(&format!("{e:#}"), 1),
+                Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
             };
         }
         Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
         Command::Open(args) => {
             let cwd = match args.cwd.map_or_else(std::env::current_dir, Ok) {
                 Ok(cwd) => cwd,
-                Err(e) => return output::fail(&format!("current directory: {e}"), 1),
+                Err(e) => return output::fail(&format!("current directory: {e}"), crate::exit::ERROR),
             };
             let mut env: Vec<(String, String)> =
                 std::env::vars().filter(|(k, _)| !args.env.iter().any(|(o, _)| o == k)).collect();
@@ -106,12 +110,14 @@ pub fn run() -> i32 {
                 session,
                 program: command.next().expect("clap requires a program"),
                 args: command.collect(),
-                cols: args.size.0,
-                rows: args.size.1,
+                size: args.size,
                 cwd,
                 env,
-                wait_stable_ms: args.wait_stable,
-                timeout_ms: args.timeout,
+                wait: match args.wait {
+                    Some(text) => Wait::Text { text },
+                    None => Wait::Stable { quiet_ms: args.wait_stable },
+                },
+                timeout_ms: cli.timeout,
             }
         }
         Command::Snapshot => Request::Snapshot { session },
@@ -122,41 +128,25 @@ pub fn run() -> i32 {
     let response = match connection::send(&request, !is_stop) {
         Ok(Some(response)) => response,
         Ok(None) => return 0,
-        Err(e) => return output::fail(&format!("{e:#}"), 1),
+        Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
     };
     match response {
-        Response::Err { error } => output::error(&error, cli.json),
-        Response::Ok { ok } if cli.json => {
-            println!("{ok}");
-            0
-        }
-        Response::Ok { ok } => {
-            match request {
-                Request::Open { .. } | Request::Snapshot { .. } => {
-                    let snapshot: Snapshot = serde_json::from_value(ok).expect("daemon sends a snapshot");
-                    print!("{}", output::screen(&snapshot));
-                }
-                Request::Close { .. } => {
-                    let closed: Closed = serde_json::from_value(ok).expect("daemon sends closed tabs");
-                    for tab in closed.closed {
-                        println!("closed {} {}", tab.session, tab.tab);
-                    }
-                }
-                Request::Stop => {}
-            }
+        Response::Err(error) => output::error(&error, cli.json),
+        Response::Ok(reply) => {
+            output::reply(&reply, cli.json);
             0
         }
     }
 }
 
-fn parse_size(value: &str) -> Result<(u16, u16), String> {
+fn parse_size(value: &str) -> Result<Size, String> {
     let (cols, rows) = value.split_once('x').ok_or("expected COLSxROWS, e.g. 120x40")?;
     let cols: u16 = cols.parse().map_err(|_| format!("invalid column count: {cols}"))?;
     let rows: u16 = rows.parse().map_err(|_| format!("invalid row count: {rows}"))?;
     if !(2..=1000).contains(&cols) || !(2..=1000).contains(&rows) {
         return Err("columns and rows must be between 2 and 1000".into());
     }
-    Ok((cols, rows))
+    Ok(Size { cols, rows })
 }
 
 fn parse_env(value: &str) -> Result<(String, String), String> {

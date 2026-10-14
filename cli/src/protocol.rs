@@ -5,6 +5,19 @@ use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Size {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "until", rename_all = "kebab-case")]
+pub enum Wait {
+    Stable { quiet_ms: u64 },
+    Text { text: String },
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "command", rename_all = "kebab-case")]
 pub enum Request {
@@ -12,11 +25,10 @@ pub enum Request {
         session: String,
         program: String,
         args: Vec<String>,
-        cols: u16,
-        rows: u16,
+        size: Size,
         cwd: PathBuf,
         env: Vec<(String, String)>,
-        wait_stable_ms: u64,
+        wait: Wait,
         timeout_ms: u64,
     },
     Snapshot {
@@ -30,10 +42,16 @@ pub enum Request {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
 pub enum Response {
-    Ok { ok: serde_json::Value },
-    Err { error: ErrorBody },
+    Ok(Reply),
+    Err(ErrorBody),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum Reply {
+    Snapshot(Snapshot),
+    Closed(Closed),
+    Stopped,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -56,6 +74,7 @@ pub struct Snapshot {
     pub cursor: [u16; 2],
     pub cursor_visible: bool,
     pub frame: u64,
+    pub exited: bool,
     pub exit_code: Option<i32>,
     pub lines: Vec<String>,
 }
@@ -81,14 +100,24 @@ pub fn write<T: Serialize>(stream: &mut impl Write, message: &T) -> Result<()> {
     Ok(())
 }
 
-pub fn read<T: DeserializeOwned>(stream: &mut impl Read) -> Result<T> {
+pub fn read<T: DeserializeOwned>(stream: &mut impl Read) -> Result<Option<T>> {
     let mut len = [0u8; 4];
-    stream.read_exact(&mut len).context("read message length")?;
+    let first = loop {
+        match stream.read(&mut len[..1]) {
+            Ok(n) => break n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e).context("read message length"),
+        }
+    };
+    if first == 0 {
+        return Ok(None);
+    }
+    stream.read_exact(&mut len[1..]).context("read message length")?;
     let len = u32::from_be_bytes(len);
     if len > MAX_MESSAGE {
         bail!("message too large: {len} bytes");
     }
     let mut body = vec![0u8; len as usize];
     stream.read_exact(&mut body).context("read message")?;
-    Ok(serde_json::from_slice(&body)?)
+    Ok(Some(serde_json::from_slice(&body)?))
 }
