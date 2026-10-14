@@ -190,7 +190,9 @@ impl Daemon {
             }
             Request::Clip { session, tab, clip } => {
                 let (id, terminal) = self.target(&session, tab)?;
-                clips::cut(&session, &tab_name(id), &terminal, &clip).map(Reply::Clip).map_err(error_body)
+                let folder = self.sessions.lock().unwrap().get(&session).map(|entry| Arc::clone(&entry.folder));
+                let folder = folder.ok_or_else(|| no_terminal(&session))?;
+                clips::cut(&session, &tab_name(id), &terminal, &folder, &clip).map(Reply::Clip).map_err(error_body)
             }
             Request::Wait { session, tab, wait: Wait::Elapsed { ms }, timeout_ms } => {
                 self.wait(session, tab, &Wait::Elapsed { ms }, timeout_ms.max(ms))

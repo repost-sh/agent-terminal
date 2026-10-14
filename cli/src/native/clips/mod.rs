@@ -2,18 +2,16 @@ mod cast;
 mod gif;
 mod mp4;
 
-use std::io::ErrorKind;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 
-use crate::connection::home;
 use crate::native::refs::Grid;
 use crate::native::render::{self, Image};
 use crate::native::screen::Screen;
 use crate::native::screenshots;
-use crate::native::store;
+use crate::native::store::{self, SessionFolder};
 use crate::native::terminal::Terminal;
 use crate::protocol::{Clip, ClipFormat, ClipPoint, ClipRange, ClipSpec, CommandRecord, Look, RowRange, Size};
 use cast::{Cast, Change};
@@ -40,11 +38,11 @@ struct Shown {
     start_ms: u64,
 }
 
-pub fn cut(session: &str, tab: &str, terminal: &Terminal, spec: &ClipSpec) -> Result<Clip> {
+pub fn cut(session: &str, tab: &str, terminal: &Terminal, folder: &SessionFolder, spec: &ClipSpec) -> Result<Clip> {
     let frame = terminal.frame();
     let position = terminal.recording().position()?;
     let cast = cast::read(&position.path, position.seconds)?;
-    let timeline = Timeline { cast: &cast, now: position.seconds, session, tab, terminal };
+    let timeline = Timeline { cast: &cast, now: position.seconds, session, tab, terminal, folder };
     let (from, to) = timeline.span(&spec.range)?;
     let duration_ms = ((to - from) * 1000.0).round() as u64;
     if duration_ms == 0 {
@@ -81,6 +79,7 @@ struct Timeline<'a> {
     session: &'a str,
     tab: &'a str,
     terminal: &'a Terminal,
+    folder: &'a SessionFolder,
 }
 
 impl Timeline<'_> {
@@ -131,7 +130,7 @@ impl Timeline<'_> {
                     )
                 }),
             ClipPoint::Activity(entry) => {
-                let (began, took) = call(self.session, *entry)?;
+                let (began, took) = call(self.folder, self.session, *entry)?;
                 self.seconds(match edge {
                     Edge::Start => began,
                     Edge::End => began + took + 2 * TRUNCATED,
@@ -172,23 +171,15 @@ struct Call {
     duration_ms: u64,
 }
 
-fn call(session: &str, entry: usize) -> Result<(SystemTime, Duration)> {
-    let path = store::folder(&home()?, session).join("activity.jsonl");
-    let log = match std::fs::read_to_string(&path) {
-        Ok(log) => log,
-        Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e).with_context(|| format!("read the activity log {}", path.display())),
-    };
-    let complete = &log[..log.rfind('\n').map_or(0, |end| end + 1)];
-    let calls: Vec<&str> = complete.lines().collect();
-    let line = calls.get(entry - 1).ok_or_else(|| {
+fn call(folder: &SessionFolder, session: &str, entry: usize) -> Result<(SystemTime, Duration)> {
+    let (calls, _) = folder.activity_since(0)?;
+    let logged = calls.get(entry - 1).ok_or_else(|| {
         let entries = if calls.len() == 1 { "1 entry".to_string() } else { format!("{} entries", calls.len()) };
         anyhow!("@activity:{entry} is not in the activity log of session {session}, which has {entries}")
     })?;
-    let call: Call = serde_json::from_str(line)
-        .with_context(|| format!("read entry {entry} of the activity log {}", path.display()))?;
+    let call = Call::deserialize(logged).with_context(|| format!("read entry {entry} of the activity log"))?;
     let began = humantime::parse_rfc3339(&call.time)
-        .with_context(|| format!("read the time of entry {entry} of the activity log {}", path.display()))?;
+        .with_context(|| format!("read the time of entry {entry} of the activity log"))?;
     Ok((began, Duration::from_millis(call.duration_ms)))
 }
 
