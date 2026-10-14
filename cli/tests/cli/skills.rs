@@ -259,21 +259,8 @@ fn simultaneous_installs_leave_one_complete_stub() {
     assert_eq!(installed, at.run(&["skills", "get", "agent-terminal"]).success().stdout());
 }
 
-const NOT_YET_BUILT: &[&str] = &[
-    "clip",
-    "click",
-    "dashboard",
-    "doctor",
-    "exec",
-    "history",
-    "resize",
-    "screenshot",
-    "scroll",
-    "session",
-    "shell",
-    "tab",
-    "trace",
-];
+const NOT_YET_BUILT: &[&str] =
+    &["clip", "click", "dashboard", "exec", "history", "screenshot", "scroll", "shell", "trace"];
 
 fn code_in(markdown: &str) -> Vec<&str> {
     let mut code = Vec::new();

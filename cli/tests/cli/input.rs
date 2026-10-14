@@ -318,7 +318,7 @@ fn input_to_a_program_that_has_exited_fails_with_exit_code_5() {
     assert_eq!(sent.code(), 5, "{}", sent.stderr());
     assert_eq!(
         sent.stderr(),
-        "error: default t1: line-printer has exited with code 7; nothing more can be sent to it (read its last screen with `agent-terminal snapshot`)\n"
+        "error: default t1: line-printer has exited with code 7; nothing more can be sent to it (read its last screen with `agent-terminal snapshot`, run it again with `agent-terminal restart`)\n"
     );
 }
 

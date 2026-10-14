@@ -9,6 +9,7 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 
 use crate::protocol::{Signal, Size};
 
+#[derive(Clone)]
 pub struct Command {
     pub program: String,
     pub args: Vec<String>,
@@ -21,9 +22,29 @@ pub struct Spawned {
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
     pub killer: Box<dyn Killer>,
+    pub master: Master,
     pub pid: Option<u32>,
     pub signaller: Box<dyn Signaller>,
     pub wait: Box<dyn FnOnce() -> Result<i32> + Send>,
+}
+
+type SharedMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
+
+pub struct Master(SharedMaster);
+
+impl Master {
+    pub fn resize(&self, size: Size) -> Result<bool> {
+        let master = self.0.lock().unwrap();
+        let Some(master) = master.as_ref() else {
+            return Ok(false);
+        };
+        master.resize(pty_size(size)).context("resize the pseudo-terminal")?;
+        Ok(true)
+    }
+}
+
+fn pty_size(size: Size) -> PtySize {
+    PtySize { rows: size.rows, cols: size.cols, pixel_width: 0, pixel_height: 0 }
 }
 
 pub trait Killer: Send {
@@ -41,8 +62,6 @@ impl Killer for PortableKiller {
         self.0.kill()
     }
 }
-
-type SharedMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
 
 struct ForegroundSignaller(SharedMaster);
 
@@ -77,9 +96,7 @@ pub fn spawn(command: Command) -> Result<Spawned> {
     let path_var = command.env.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.as_str()).unwrap_or("");
     let program = resolve(&command.program, &command.cwd, path_var)?;
 
-    let pair = native_pty_system()
-        .openpty(PtySize { rows: command.size.rows, cols: command.size.cols, pixel_width: 0, pixel_height: 0 })
-        .context("open a pseudo-terminal")?;
+    let pair = native_pty_system().openpty(pty_size(command.size)).context("open a pseudo-terminal")?;
     let mut builder = CommandBuilder::new(program);
     builder.args(&command.args);
     builder.cwd(&command.cwd);
@@ -100,6 +117,7 @@ pub fn spawn(command: Command) -> Result<Spawned> {
         reader,
         writer,
         killer: Box::new(killer),
+        master: Master(Arc::clone(&master)),
         pid: child.process_id(),
         signaller: Box::new(ForegroundSignaller(Arc::clone(&master))),
         wait: Box::new(move || {
@@ -108,6 +126,13 @@ pub fn spawn(command: Command) -> Result<Spawned> {
             Ok(status?.exit_code() as i32)
         }),
     })
+}
+
+pub fn check() -> Result<()> {
+    native_pty_system()
+        .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+        .map(drop)
+        .context("open a pseudo-terminal")
 }
 
 fn resolve(program: &str, cwd: &Path, path_var: &str) -> Result<PathBuf> {

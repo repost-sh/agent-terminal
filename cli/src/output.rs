@@ -1,6 +1,8 @@
 use crate::protocol::{
-    Checked, Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Snapshot, SnapshotDiff, Waited,
+    BatchOutcome, Checked, Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Response, SessionInfo,
+    Snapshot, SnapshotDiff, Waited,
 };
+use crate::session_id::SessionId;
 
 pub fn screen(s: &Snapshot) -> String {
     let mut header = vec![format!("{} {}", s.session, s.tab), s.program.clone(), format!("{}x{}", s.cols, s.rows)];
@@ -58,6 +60,18 @@ pub fn reply(reply: &Reply, json: bool) {
                 println!("closed {} {}", tab.session, tab.tab);
             }
         }
+        Reply::Sessions(sessions) if json => println!("{}", serde_json::json!(sessions)),
+        Reply::Sessions(sessions) if sessions.sessions.is_empty() => println!("no sessions are open"),
+        Reply::Sessions(sessions) => {
+            for session in &sessions.sessions {
+                print!("{}", tab_lines(session));
+            }
+        }
+        Reply::Tabs(session) if json => println!("{}", serde_json::json!(session)),
+        Reply::Tabs(session) if session.tabs.is_empty() => {
+            println!("no tabs are open in session {}", session.session)
+        }
+        Reply::Tabs(session) => print!("{}", tab_lines(session)),
         Reply::Delivered(delivered) if json => println!("{}", serde_json::json!(delivered)),
         Reply::Delivered(delivered) => {
             println!("{}", delivery(delivered));
@@ -73,6 +87,8 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Checked(checked) if json => println!("{}", serde_json::json!(checked)),
         Reply::Checked(Checked { session, tab, fact }) => println!("{fact} in {session} {tab}"),
         Reply::Stopped => {}
+        Reply::Batch(outcomes) if json => println!("{}", batch_json(outcomes)),
+        Reply::Batch(outcomes) => batch(outcomes),
         Reply::Fact(fact) if json => println!("{}", serde_json::json!(fact)),
         Reply::Fact(fact) => print!("{}", fact_text(fact)),
         Reply::Matches(matches) if json => println!("{}", serde_json::json!(matches)),
@@ -151,6 +167,41 @@ fn fact_text(fact: &Fact) -> String {
     }
 }
 
+fn tab_lines(session: &SessionInfo) -> String {
+    let mut out = String::new();
+    for tab in &session.tabs {
+        let mut line =
+            vec![format!("{} {}", session.session, tab.tab), tab.program.clone(), format!("{}x{}", tab.cols, tab.rows)];
+        line.push(match (tab.exited, tab.exit_code) {
+            (true, Some(code)) => format!("exited {code}"),
+            (true, None) => "exited".into(),
+            (false, _) => "running".into(),
+        });
+        if session.current.as_ref() == Some(&tab.tab) {
+            line.push("current".into());
+        }
+        out.push_str(&line.join(" · "));
+        out.push('\n');
+    }
+    out
+}
+
+pub fn session(name: &str, json: bool) {
+    if json {
+        println!("{}", serde_json::json!({ "session": name }));
+    } else {
+        println!("{name}");
+    }
+}
+
+pub fn session_id(id: &SessionId, json: bool) {
+    if json {
+        println!("{}", serde_json::json!(id));
+    } else {
+        println!("{}", id.session);
+    }
+}
+
 fn delivery(d: &Delivered) -> String {
     let target = format!("{} {}", d.session, d.tab);
     match &d.delivery {
@@ -186,6 +237,55 @@ fn count(n: usize, noun: &str) -> String {
     if n == 1 { format!("1 {noun}") } else { format!("{n} {noun}s") }
 }
 
+fn batch_json(outcomes: &[BatchOutcome]) -> serde_json::Value {
+    outcomes
+        .iter()
+        .map(|outcome| {
+            let mut entry = serde_json::json!({
+                "args": outcome.args,
+                "exit_code": outcome.response.as_ref().map(Response::exit_code),
+            });
+            match &outcome.response {
+                Some(Response::Ok(ok)) => entry["result"] = serde_json::json!(ok)["data"].take(),
+                Some(Response::Err(error)) => entry["error"] = serde_json::json!(error),
+                None => {}
+            }
+            entry
+        })
+        .collect()
+}
+
+fn batch(outcomes: &[BatchOutcome]) {
+    for (index, outcome) in outcomes.iter().enumerate() {
+        if index > 0 {
+            println!();
+        }
+        let call = format!("[{}] {}", index + 1, call_line(&outcome.args));
+        let Some(response) = &outcome.response else {
+            println!("{call} · not run");
+            continue;
+        };
+        println!("{call} · exit {}", response.exit_code());
+        match response {
+            Response::Ok(ok) => reply(ok, false),
+            Response::Err(error) => {
+                println!("error: {}", error.message);
+                if let Some(snapshot) = &error.snapshot {
+                    print!("{}", screen(snapshot));
+                }
+            }
+        }
+    }
+}
+
+pub fn call_line(args: &[String]) -> String {
+    let words: Vec<String> = args
+        .iter()
+        .map(|arg| shlex::try_quote(arg).map_or_else(|_| format!("{arg:?}"), |quoted| quoted.into_owned()))
+        .collect();
+    words.join(" ")
+}
+
 pub fn error(error: &ErrorBody, json: bool) -> i32 {
     if json {
         println!("{}", serde_json::json!({ "error": error }));
@@ -201,4 +301,14 @@ pub fn error(error: &ErrorBody, json: bool) -> i32 {
 pub fn fail(message: &str, code: i32) -> i32 {
     eprintln!("error: {message}");
     code
+}
+
+pub fn version(json: bool) -> i32 {
+    let version = env!("CARGO_PKG_VERSION");
+    if json {
+        println!("{}", serde_json::json!({ "version": version }));
+    } else {
+        println!("agent-terminal {version}");
+    }
+    0
 }

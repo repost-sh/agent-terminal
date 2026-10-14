@@ -317,6 +317,15 @@ impl Screen {
         }
     }
 
+    pub fn size(&self) -> Size {
+        self.size
+    }
+
+    pub fn resize(&mut self, size: Size) {
+        self.term.resize(size);
+        self.size = size;
+    }
+
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<u8> {
         self.parser.advance(&mut self.term, bytes);
         self.stream_parser.advance(&mut self.stream, bytes);

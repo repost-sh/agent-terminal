@@ -1,3 +1,8 @@
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
+
 use crate::support::{AgentTerminal, fixture};
 
 #[test]
@@ -24,7 +29,7 @@ fn snapshot_reads_a_full_screen_app() {
     default t1 · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N
     1│┌Files─────────────┐┌Details─────────────────────┐
     2││alpha.txt         ││Selected: alpha.txt         │
-    3││beta.txt          ││                            │
+    3││beta.txt          ││Size: 50x8                  │
     4││gamma.txt         ││                            │
     5││delta.txt         ││                            │
     6││                  ││                            │
@@ -258,29 +263,27 @@ fn open_no_wait_goes_alone() {
 }
 
 #[test]
-fn open_wait_fails_with_exit_code_5_when_the_program_exits_without_the_text() {
+fn open_wait_prints_the_last_screen_when_the_program_exits_without_the_text() {
     let at = AgentTerminal::new();
-    let run = at.run(&[
-        "open",
-        "--size",
-        "20x3",
-        "--wait",
-        "never shown",
-        &fixture("line-printer"),
-        "--lines",
-        "1",
-        "--exit",
-        "7",
-    ]);
-    assert_eq!(run.code(), 5, "{}", run.stderr());
-    let stderr = run.stderr();
-    assert!(
-        stderr.starts_with(
-            "error: stopped waiting for \"never shown\" to appear: line-printer in default t1 has exited with code 7\n"
-        ),
-        "{stderr}"
-    );
-    assert!(stderr.contains("1│line 1\n"), "{stderr}");
+    let run = at
+        .run(&[
+            "open",
+            "--size",
+            "20x3",
+            "--wait",
+            "never shown",
+            &fixture("line-printer"),
+            "--lines",
+            "1",
+            "--exit",
+            "7",
+        ])
+        .success();
+    insta::assert_snapshot!(run.screen(), @r"
+    default t1 · line-printer · 20x3 · cursor 2,1 · frame N · exited 7
+    1│line 1
+    …│ (rows 2-3 blank)
+    ");
 }
 
 #[test]
@@ -293,4 +296,29 @@ fn simultaneous_first_calls_share_one_daemon() {
     });
     let closed = at.run(&["close", "--all"]).success().stdout();
     assert_eq!(closed.lines().count(), 6, "every open must land in the same daemon:\n{closed}");
+}
+
+#[test]
+fn a_pipe_the_caller_hands_to_open_reaches_end_of_file_when_open_exits() {
+    let at = AgentTerminal::new();
+    let mut open = Command::new("sh")
+        .args(["-c", r#"exec "$0" "$@" 3>&1"#, env!("CARGO_BIN_EXE_agent-terminal"), "open", "--size", "20x2", "cat"])
+        .env("AGENT_TERMINAL_HOME", at.home())
+        .env_remove("AGENT_TERMINAL_SESSION")
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("run agent-terminal open with its stdout pipe also on descriptor 3");
+    let mut pipe = open.stdout.take().expect("the stdout pipe");
+    let (sender, end_of_file) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut printed = String::new();
+        let read = pipe.read_to_string(&mut printed).map(|_| printed);
+        sender.send(read).expect("hand back what open printed");
+    });
+    assert!(open.wait().expect("wait for open").success());
+    let printed = end_of_file
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the pipe stayed open after open exited, so the daemon holds a descriptor of it")
+        .expect("read the pipe");
+    assert!(printed.starts_with("default t1 · cat · 20x2"), "{printed}");
 }

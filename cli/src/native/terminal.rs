@@ -11,8 +11,8 @@ use crate::native::pty::{self, Killer, Signaller};
 use crate::native::screen::Screen;
 use crate::native::wait::{self, Condition, Moment, Verdict};
 use crate::protocol::{
-    Baseline, Cell, Cursor, Delivery, DiffBase, Exit, Fact, Get, Input, Match, RowChange, RowRange, Scrollback,
-    Snapshot, SnapshotDiff, SnapshotOptions,
+    Baseline, Cell, Cursor, Delivery, DiffBase, Exit, Fact, Get, Input, Match, RowChange, RowRange, Scrollback, Size,
+    Snapshot, SnapshotDiff, SnapshotOptions, TabInfo,
 };
 
 pub struct Terminal {
@@ -24,7 +24,9 @@ pub struct Terminal {
     input_turn: Mutex<()>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn Killer>>,
+    master: pty::Master,
     signaller: Box<dyn Signaller>,
+    command: pty::Command,
 }
 
 struct State {
@@ -56,6 +58,16 @@ impl State {
         Moment::new(&self.screen, self.frame, self.last_change, self.last_output, self.exit.is_some())
     }
 
+    fn refresh(&mut self, now: Instant) {
+        let look = self.screen.fingerprint();
+        if look != self.look {
+            self.look = look;
+            self.frame += 1;
+            self.last_change = now;
+        }
+        self.publish();
+    }
+
     fn publish(&mut self) {
         let State { screen, frame, last_change, last_output, exit, watches, .. } = self;
         if watches.iter().all(|watch| watch.met.is_some()) {
@@ -81,7 +93,7 @@ impl Terminal {
         let program = display_name(&command.program);
         let size = command.size;
         let cwd = command.cwd.to_string_lossy().into_owned();
-        let spawned = pty::spawn(command)?;
+        let spawned = pty::spawn(command.clone())?;
         let screen = Screen::new(size);
         let started = Instant::now();
         let terminal = Arc::new(Self {
@@ -104,7 +116,9 @@ impl Terminal {
             input_turn: Mutex::new(()),
             writer: Mutex::new(spawned.writer),
             killer: Mutex::new(spawned.killer),
+            master: spawned.master,
             signaller: spawned.signaller,
+            command,
         });
 
         let reading = Arc::clone(&terminal);
@@ -149,13 +163,7 @@ impl Terminal {
             state.log.record(frame, bytes, printed.as_bytes());
             let now = Instant::now();
             state.last_output = now;
-            let look = state.screen.fingerprint();
-            if look != state.look {
-                state.look = look;
-                state.frame += 1;
-                state.last_change = now;
-            }
-            state.publish();
+            state.refresh(now);
             replies
         };
         self.changed.notify_all();
@@ -218,6 +226,46 @@ impl Terminal {
             first_row: range.first,
             scrollback: scrollback.map(|n| state.screen.rows(-(n as i32)..0, options.ansi)),
             lines: state.screen.rows(range.first as i32 - 1..range.last as i32, options.ansi),
+        }
+    }
+
+    pub fn resize(&self, size: Size) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(code) = state.exit {
+            return Err(self.exited(code).into());
+        }
+        if !self.master.resize(size)? {
+            return Err(self.exited(None).into());
+        }
+        state.screen.resize(size);
+        state.refresh(Instant::now());
+        drop(state);
+        self.changed.notify_all();
+        Ok(())
+    }
+
+    pub fn rerun(&self) -> pty::Command {
+        let size = self.state.lock().unwrap().screen.size();
+        pty::Command { size, ..self.command.clone() }
+    }
+
+    pub fn stop(&self, timeout: Duration) -> bool {
+        self.kill();
+        let state = self.state.lock().unwrap();
+        let (state, _) = self.changed.wait_timeout_while(state, timeout, |state| state.exit.is_none()).unwrap();
+        state.exit.is_some()
+    }
+
+    pub fn info(&self, tab: &str) -> TabInfo {
+        let state = self.state.lock().unwrap();
+        let size = state.screen.size();
+        TabInfo {
+            tab: tab.to_string(),
+            program: self.program.clone(),
+            cols: size.cols,
+            rows: size.rows,
+            exited: state.exit.is_some(),
+            exit_code: state.exit.flatten(),
         }
     }
 
@@ -415,7 +463,7 @@ impl Terminal {
         crate::Error::new(
             crate::exit::EXITED,
             format!(
-                "{} has exited{how}; nothing more can be sent to it (read its last screen with `agent-terminal snapshot`)",
+                "{} has exited{how}; nothing more can be sent to it (read its last screen with `agent-terminal snapshot`, run it again with `agent-terminal restart`)",
                 self.program
             ),
         )

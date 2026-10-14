@@ -78,6 +78,7 @@ fn expect_gone_fails_with_exit_code_2_and_the_rows_that_show_the_text() {
 fn expect_exit_code_passes_when_the_program_exited_with_it() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "20x3", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    at.run(&["wait", "--exit"]).success();
     let checked = at.run(&["expect", "--exit-code", "7"]).success();
     assert_eq!(checked.stdout(), "line-printer exited with code 7 in default t1\n");
 }
@@ -86,6 +87,7 @@ fn expect_exit_code_passes_when_the_program_exited_with_it() {
 fn expect_exit_code_fails_with_exit_code_2_when_the_program_exited_with_another_code() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "20x3", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    at.run(&["wait", "--exit"]).success();
     let checked = at.run(&["expect", "--exit-code", "0"]);
     assert_eq!(checked.code(), 2, "{}", checked.stderr());
     insta::assert_snapshot!(without_frame(&checked.stderr()), @r"

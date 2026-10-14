@@ -121,15 +121,39 @@ pub enum Request {
     },
     Snapshot {
         session: String,
+        tab: Option<u32>,
         #[serde(default)]
         options: SnapshotOptions,
     },
     Close {
         session: String,
         all: bool,
+        tab: Option<u32>,
+    },
+    Resize {
+        session: String,
+        tab: Option<u32>,
+        size: Size,
+        wait: Wait,
+        timeout_ms: u64,
+    },
+    Restart {
+        session: String,
+        tab: Option<u32>,
+        wait: Wait,
+        timeout_ms: u64,
+    },
+    Sessions,
+    Tabs {
+        session: String,
+    },
+    SwitchTab {
+        session: String,
+        tab: u32,
     },
     Input {
         session: String,
+        tab: Option<u32>,
         input: Input,
         wait: Option<Wait>,
         #[serde(default)]
@@ -138,35 +162,46 @@ pub enum Request {
     },
     Wait {
         session: String,
+        tab: Option<u32>,
         wait: Wait,
         timeout_ms: u64,
     },
     Expect {
         session: String,
+        tab: Option<u32>,
         expect: Expect,
     },
     Stop,
+    Batch {
+        steps: Vec<BatchStep>,
+        bail: bool,
+    },
     Get {
         session: String,
+        tab: Option<u32>,
         what: Get,
     },
     Find {
         session: String,
+        tab: Option<u32>,
         text: String,
         regex: bool,
         all: bool,
     },
     Mark {
         session: String,
+        tab: Option<u32>,
         name: String,
     },
     Output {
         session: String,
+        tab: Option<u32>,
         since: Option<String>,
         raw: bool,
     },
     DiffSnapshot {
         session: String,
+        tab: Option<u32>,
         baseline: Option<Baseline>,
     },
 }
@@ -280,13 +315,17 @@ pub enum Response {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "reply", content = "data")]
 pub enum Reply {
     Snapshot(Snapshot),
     Closed(Closed),
+    Sessions(Sessions),
+    Tabs(SessionInfo),
     Delivered(Delivered),
     Waited(Waited),
     Checked(Checked),
     Stopped,
+    Batch(Vec<BatchOutcome>),
     Fact(Fact),
     Matches(Matches),
     Marked(Marked),
@@ -407,6 +446,34 @@ pub struct Cursor {
     pub visible: bool,
 }
 
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct Sessions {
+    pub sessions: Vec<SessionInfo>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SessionInfo {
+    pub session: String,
+    pub current: Option<String>,
+    pub tabs: Vec<TabInfo>,
+}
+
+impl SessionInfo {
+    pub fn empty(session: &str) -> Self {
+        Self { session: session.to_string(), current: None, tabs: Vec::new() }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TabInfo {
+    pub tab: String,
+    pub program: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub exited: bool,
+    pub exit_code: Option<i32>,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ErrorBody {
     pub code: i32,
@@ -482,6 +549,41 @@ pub struct Checked {
 pub struct TabRef {
     pub session: String,
     pub tab: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BatchStep {
+    pub args: Vec<String>,
+    pub request: Request,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BatchOutcome {
+    pub args: Vec<String>,
+    pub response: Option<Response>,
+}
+
+impl Response {
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            Response::Ok(reply) => reply.exit_code(),
+            Response::Err(error) => error.code,
+        }
+    }
+}
+
+impl Reply {
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            Reply::Batch(outcomes) => outcomes
+                .iter()
+                .filter_map(|outcome| outcome.response.as_ref())
+                .map(Response::exit_code)
+                .find(|&code| code != 0)
+                .unwrap_or(0),
+            _ => 0,
+        }
+    }
 }
 
 const MAX_MESSAGE: u32 = 64 * 1024 * 1024;

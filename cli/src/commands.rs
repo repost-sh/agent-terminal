@@ -1,16 +1,21 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
-use clap::{ArgGroup, Args, CommandFactory, Parser, Subcommand};
+use clap::{ArgGroup, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
-use crate::connection;
+use crate::batch;
+use crate::connection::{self, IfNotRunning, Launch};
+use crate::doctor;
 use crate::key::Key;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, Expect, Get, Input, Request, Response, RowRange, Scrollback, Signal, Size, SnapshotOptions, Style,
-    TextMatch, Wait,
+    Baseline, BatchStep, Expect, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions,
+    Signal, Size, SnapshotOptions, Style, TextMatch, Wait,
 };
+use crate::session_id;
 use crate::skills;
+use crate::upgrade;
 
 #[derive(Parser)]
 #[command(name = "agent-terminal", version, about = "Fast terminal automation CLI for AI agents")]
@@ -30,6 +35,19 @@ struct Cli {
     #[arg(long, global = true, help = "Give up waiting after this long", value_name = "MS", default_value_t = 25_000)]
     timeout: u64,
 
+    #[arg(long, global = true, help = "Act on this tab instead of the current one", value_name = "ID", value_parser = parse_tab)]
+    tab: Option<u32>,
+
+    #[arg(
+        long,
+        global = true,
+        help = "Stop an unused daemon after this long: 30s, 10m, 1h or raw ms, 0 = never (set when a call starts the daemon)",
+        value_name = "TIME",
+        default_value = "1h",
+        value_parser = parse_duration
+    )]
+    idle_timeout: Duration,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -44,6 +62,27 @@ enum Command {
     Close {
         #[arg(long, help = "Close every tab in every session")]
         all: bool,
+    },
+    #[command(about = "Run the same program again with the same options (prints its first stable screen)")]
+    Restart(WaitArgs),
+    #[command(about = "Resize the terminal, e.g. resize 80x24 (the app gets SIGWINCH)")]
+    Resize {
+        #[arg(value_parser = parse_size, value_name = "COLSxROWS")]
+        size: Size,
+        #[command(flatten)]
+        wait: WaitArgs,
+    },
+    #[command(about = "Current session name (list: every session with its tabs)")]
+    Session {
+        #[command(subcommand)]
+        action: Option<SessionAction>,
+    },
+    #[command(about = "List tabs in this session (tab <id> switches to one)", args_conflicts_with_subcommands = true)]
+    Tab {
+        #[arg(help = "Switch to this tab", value_name = "ID", value_parser = parse_tab)]
+        id: Option<u32>,
+        #[command(subcommand)]
+        action: Option<TabAction>,
     },
     #[command(about = "One fact about the terminal, e.g. get text, get cursor, get cell 4 3")]
     Get {
@@ -90,6 +129,10 @@ enum Command {
     Send(SendArgs),
     #[command(about = "Send a signal to the program in the foreground: INT, TERM, KILL, HUP, TSTP, CONT, WINCH")]
     Signal(SignalArgs),
+    #[command(about = "Wait until the text is on screen, the screen is stable, or the program exits")]
+    Wait(UntilArgs),
+    #[command(about = "Fail now (exit 2) unless the screen or the program is as expected")]
+    Expect(ExpectArgs),
     #[command(about = "Guides that ship with this version (core, tui-qa, cli-qa)")]
     Skills {
         #[command(subcommand)]
@@ -100,15 +143,34 @@ enum Command {
         #[arg(long, help = "Install the agent skill stub (the default)")]
         skills: bool,
     },
-    #[command(about = "Wait until the text is on screen")]
-    Wait(WaitArgs),
-    #[command(about = "Fail now (exit 2) unless the screen or the program is as expected")]
-    Expect(ExpectArgs),
     #[command(hide = true)]
     Daemon {
         #[command(subcommand)]
         action: DaemonAction,
     },
+    #[command(
+        about = "Several commands in one call (args or stdin)",
+        long_about = "Run several commands in order in one call to the daemon.\n\nPass each command as one quoted argument, e.g. batch \"open htop\" \"snapshot\", or pipe a JSON array to stdin whose items are command lines or argument arrays, e.g. [[\"open\", \"htop\"], \"snapshot\"]. Commands use the batch's --session, --tab and --timeout unless they set their own. Every command is parsed before any of them runs. Each command's output and exit code are printed in order, and batch exits with the code of the first command that failed."
+    )]
+    Batch(BatchArgs),
+    #[command(about = "Check PTY support and the daemon socket, and say how to fix each problem")]
+    Doctor {
+        #[arg(long, help = "Remove stale sockets and state")]
+        fix: bool,
+    },
+    #[command(about = "Upgrade to the latest version, with npm or Homebrew, whichever installed it")]
+    Upgrade,
+    #[command(about = "Print the version")]
+    Version,
+}
+
+#[derive(Args)]
+struct BatchArgs {
+    #[arg(long, help = "Stop at the first command that fails")]
+    bail: bool,
+
+    #[arg(help = "The commands, each as one quoted argument", value_name = "COMMAND")]
+    commands: Vec<String>,
 }
 
 #[derive(Args)]
@@ -122,18 +184,8 @@ struct OpenArgs {
     #[arg(long = "env", help = "Extra environment variable (repeatable)", value_name = "K=V", value_parser = parse_env)]
     env: Vec<(String, String)>,
 
-    #[arg(long, help = "Wait until this text is on screen, not just until the screen is stable", value_name = "TEXT")]
-    wait: Option<String>,
-
-    #[arg(
-        long,
-        help = "How long the screen must stay unchanged to count as stable (default 300)",
-        value_name = "MS",
-        num_args = 0..=1,
-        default_missing_value = "300",
-        conflicts_with = "wait"
-    )]
-    wait_stable: Option<u64>,
+    #[command(flatten)]
+    wait: WaitArgs,
 
     #[arg(long, help = "Print the screen right away, without waiting", conflicts_with_all = ["wait", "wait_stable"])]
     no_wait: bool,
@@ -146,6 +198,32 @@ struct OpenArgs {
         value_name = "PROGRAM"
     )]
     command: Vec<String>,
+}
+
+#[derive(Args)]
+struct WaitArgs {
+    #[arg(long, help = "Wait until this text is on screen, not just until the screen is stable", value_name = "TEXT")]
+    wait: Option<String>,
+
+    #[arg(
+        long,
+        help = "How long the screen must stay unchanged to count as stable",
+        value_name = "MS",
+        num_args = 0..=1,
+        default_value_t = 300,
+        default_missing_value = "300",
+        conflicts_with = "wait"
+    )]
+    wait_stable: u64,
+}
+
+impl WaitArgs {
+    fn until(self) -> Wait {
+        match self.wait {
+            Some(text) => Wait::Text(TextMatch::plain(text)),
+            None => Wait::Stable { quiet_ms: self.wait_stable },
+        }
+    }
 }
 
 #[derive(Args)]
@@ -177,6 +255,38 @@ impl SnapshotArgs {
             ansi: self.ansi,
         }
     }
+}
+
+#[derive(Subcommand)]
+enum SessionAction {
+    #[command(about = "Sessions, their tabs, programs, sizes and status")]
+    List,
+    #[command(about = "A name unique to this checkout, for AGENT_TERMINAL_SESSION")]
+    Id {
+        #[arg(long, value_enum, default_value_t = Scope::Worktree, help = "What the name is unique to")]
+        scope: Scope,
+        #[arg(long, help = "Put this before the name, e.g. the project or task")]
+        prefix: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum TabAction {
+    #[command(about = "List tabs in this session")]
+    List,
+    #[command(about = "Another terminal in the same session (e.g. a server next to the app)")]
+    New(OpenArgs),
+    #[command(about = "Close a tab (the current one when no id is given)")]
+    Close {
+        #[arg(value_parser = parse_tab, value_name = "ID")]
+        id: Option<u32>,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Scope {
+    #[value(help = "The git checkout or worktree around the current directory (else the directory itself)")]
+    Worktree,
 }
 
 #[derive(Subcommand)]
@@ -304,7 +414,7 @@ struct SignalArgs {
 
 #[derive(Args)]
 #[command(group(ArgGroup::new("until").required(true).args(["text", "stable", "idle", "exit", "cursor", "frame"])))]
-struct WaitArgs {
+struct UntilArgs {
     #[arg(
         help = "The text to wait for; a plain number pauses that many milliseconds",
         value_name = "TEXT|MS",
@@ -358,7 +468,7 @@ struct WaitArgs {
     frame: Option<u64>,
 }
 
-impl WaitArgs {
+impl UntilArgs {
     fn until(self) -> Wait {
         if let Some(quiet_ms) = self.stable {
             return Wait::Stable { quiet_ms };
@@ -485,85 +595,191 @@ pub fn run() -> i32 {
             return code;
         }
     };
-    let session = cli.session;
+    let json = cli.json;
+    let idle_timeout = cli.idle_timeout;
     let request = match cli.command {
         Command::Daemon { action: DaemonAction::Run } => {
-            return match daemon::run() {
+            return match daemon::run(idle_timeout) {
                 Ok(()) => 0,
                 Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
             };
         }
-        Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
-        Command::Skills { action } => return skills::run(action, cli.json, Cli::command()),
-        Command::Install { .. } => return skills::install(cli.json),
-        Command::Open(args) => {
-            let cwd = match args.cwd.map_or_else(std::env::current_dir, Ok) {
-                Ok(cwd) => cwd,
-                Err(e) => return output::fail(&format!("current directory: {e}"), crate::exit::ERROR),
-            };
-            let mut env: Vec<(String, String)> =
-                std::env::vars().filter(|(k, _)| !args.env.iter().any(|(o, _)| o == k)).collect();
-            env.extend(args.env);
-            let mut command = args.command.into_iter();
-            Request::Open {
-                session,
-                program: command.next().expect("clap requires a program"),
-                args: command.collect(),
-                size: args.size,
-                cwd,
-                env,
-                wait: match (args.wait, args.no_wait) {
-                    (_, true) => None,
-                    (Some(text), false) => Some(Wait::Text(TextMatch::plain(text))),
-                    (None, false) => Some(Wait::Stable { quiet_ms: args.wait_stable.unwrap_or(300) }),
-                },
-                timeout_ms: cli.timeout,
-            }
+        Command::Skills { action } => return skills::run(action, json, Cli::command()),
+        Command::Install { .. } => return skills::install(json),
+        Command::Session { action: None } => {
+            output::session(&cli.session, json);
+            return 0;
         }
-        Command::Snapshot(args) => Request::Snapshot { session, options: args.options() },
-        Command::Close { all } => Request::Close { session, all },
-        Command::Get { what } => Request::Get { session, what: what.request() },
-        Command::Find { text, regex, all } => Request::Find { session, text, regex, all },
-        Command::Mark { name } => Request::Mark { session, name },
-        Command::Output { since, raw } => Request::Output { session, since, raw },
-        Command::Diff { what: DiffCommand::Snapshot { baseline } } => {
-            let baseline = match baseline.map(|path| read_baseline(&path)).transpose() {
-                Ok(baseline) => baseline,
-                Err(message) => return output::fail(&message, crate::exit::ERROR),
+        Command::Session { action: Some(SessionAction::Id { scope: Scope::Worktree, prefix }) } => {
+            let id = std::env::current_dir()
+                .map_err(anyhow::Error::from)
+                .and_then(|cwd| session_id::for_worktree(&cwd, prefix.as_deref()));
+            return match id {
+                Ok(id) => {
+                    output::session_id(&id, json);
+                    0
+                }
+                Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
             };
-            Request::DiffSnapshot { session, baseline }
+        }
+        Command::Version => return output::version(json),
+        Command::Doctor { fix } => return doctor::run(fix, json),
+        Command::Upgrade => return upgrade::run(json),
+        Command::Batch(args) => batch(&args, &cli.session, cli.tab, cli.timeout),
+        command => request(Cli { command, ..cli }),
+    };
+    match request {
+        Ok(request) => send(&request, json, idle_timeout),
+        Err(message) => output::fail(&message, crate::exit::ERROR),
+    }
+}
+
+fn request(cli: Cli) -> Result<Request, String> {
+    let session = cli.session;
+    let request = match cli.command {
+        Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
+        Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
+            open(session, args, cli.timeout)?
+        }
+        Command::Tab { id: Some(tab), .. } => Request::SwitchTab { session, tab },
+        Command::Tab { id: None, action: None | Some(TabAction::List) } => Request::Tabs { session },
+        Command::Tab { action: Some(TabAction::Close { id }), .. } => {
+            Request::Close { session, all: false, tab: id.or(cli.tab) }
+        }
+        Command::Session { action: Some(SessionAction::List) } => Request::Sessions,
+        Command::Restart(wait) => {
+            Request::Restart { session, tab: cli.tab, wait: wait.until(), timeout_ms: cli.timeout }
+        }
+        Command::Resize { size, wait } => {
+            Request::Resize { session, tab: cli.tab, size, wait: wait.until(), timeout_ms: cli.timeout }
+        }
+        Command::Snapshot(args) => Request::Snapshot { session, tab: cli.tab, options: args.options() },
+        Command::Close { all } => Request::Close { session, all, tab: cli.tab },
+        Command::Get { what } => Request::Get { session, tab: cli.tab, what: what.request() },
+        Command::Find { text, regex, all } => Request::Find { session, tab: cli.tab, text, regex, all },
+        Command::Mark { name } => Request::Mark { session, tab: cli.tab, name },
+        Command::Output { since, raw } => Request::Output { session, tab: cli.tab, since, raw },
+        Command::Diff { what: DiffCommand::Snapshot { baseline } } => {
+            let baseline = baseline.map(|path| read_baseline(&path)).transpose()?;
+            Request::DiffSnapshot { session, tab: cli.tab, baseline }
         }
         Command::Type(args) => {
-            input(session, Input::Type { text: args.text, delay_ms: args.delay }, args.after, cli.timeout)
+            input(session, cli.tab, Input::Type { text: args.text, delay_ms: args.delay }, args.after, cli.timeout)
         }
         Command::Press(args) => {
-            input(session, Input::Press { keys: args.keys, repeat: args.repeat }, args.after, cli.timeout)
+            input(session, cli.tab, Input::Press { keys: args.keys, repeat: args.repeat }, args.after, cli.timeout)
         }
-        Command::Paste(args) => input(session, Input::Paste { text: args.text }, args.after, cli.timeout),
-        Command::Send(args) => input(session, Input::Send { bytes: args.bytes.0 }, args.after, cli.timeout),
-        Command::Signal(args) => input(session, Input::Signal { signal: args.signal }, args.after, cli.timeout),
-        Command::Wait(args) => Request::Wait { session, wait: args.until(), timeout_ms: cli.timeout },
-        Command::Expect(args) => Request::Expect { session, expect: args.check() },
+        Command::Paste(args) => input(session, cli.tab, Input::Paste { text: args.text }, args.after, cli.timeout),
+        Command::Send(args) => input(session, cli.tab, Input::Send { bytes: args.bytes.0 }, args.after, cli.timeout),
+        Command::Signal(args) => {
+            input(session, cli.tab, Input::Signal { signal: args.signal }, args.after, cli.timeout)
+        }
+        Command::Wait(args) => Request::Wait { session, tab: cli.tab, wait: args.until(), timeout_ms: cli.timeout },
+        Command::Expect(args) => Request::Expect { session, tab: cli.tab, expect: args.check() },
+        Command::Daemon { action: DaemonAction::Run }
+        | Command::Skills { .. }
+        | Command::Install { .. }
+        | Command::Session { action: None | Some(SessionAction::Id { .. }) }
+        | Command::Batch(_)
+        | Command::Doctor { .. }
+        | Command::Upgrade
+        | Command::Version => {
+            return Err("this command runs on its own, not inside batch".into());
+        }
     };
 
-    let is_stop = matches!(request, Request::Stop);
-    let response = match connection::send(&request, !is_stop) {
-        Ok(Some(response)) => response,
-        Ok(None) => return 0,
+    Ok(request)
+}
+
+fn batch(args: &BatchArgs, session: &str, tab: Option<u32>, timeout: u64) -> Result<Request, String> {
+    let parser = Cli::command()
+        .no_binary_name(true)
+        .mut_arg("session", |arg| arg.env(None::<&str>).default_value(session.to_string()))
+        .mut_arg("tab", |arg| match tab {
+            Some(id) => arg.default_value(id.to_string()),
+            None => arg,
+        })
+        .mut_arg("timeout", |arg| arg.default_value(timeout.to_string()));
+    let mut steps = Vec::new();
+    for (index, call) in batch::calls(&args.commands)?.into_iter().enumerate() {
+        let request = batch_step(parser.clone(), &call)
+            .map_err(|reason| batch::not_valid(index, &output::call_line(&call), &reason))?;
+        steps.push(BatchStep { args: call, request });
+    }
+    Ok(Request::Batch { steps, bail: args.bail })
+}
+
+fn batch_step(parser: clap::Command, call: &[String]) -> Result<Request, String> {
+    let matches = parser.try_get_matches_from(call).map_err(|e| e.render().to_string())?;
+    request(Cli::from_arg_matches(&matches).map_err(|e| e.render().to_string())?)
+}
+
+fn send(request: &Request, json: bool, idle_timeout: Duration) -> i32 {
+    let if_not_running = match request {
+        Request::Stop => IfNotRunning::Answer(Reply::Stopped),
+        Request::Sessions => IfNotRunning::Answer(Reply::Sessions(Sessions::default())),
+        Request::Tabs { session } => IfNotRunning::Answer(Reply::Tabs(SessionInfo::empty(session))),
+        _ => IfNotRunning::Start(Launch { idle_timeout }),
+    };
+    let response = match connection::send(request, if_not_running) {
+        Ok(response) => response,
         Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
     };
     match response {
-        Response::Err(error) => output::error(&error, cli.json),
+        Response::Err(error) => output::error(&error, json),
         Response::Ok(reply) => {
-            output::reply(&reply, cli.json);
-            0
+            output::reply(&reply, json);
+            reply.exit_code()
         }
     }
 }
 
-fn input(session: String, input: Input, after: AfterInput, timeout_ms: u64) -> Request {
+fn input(session: String, tab: Option<u32>, input: Input, after: AfterInput, timeout_ms: u64) -> Request {
     let snapshot = after.snapshot;
-    Request::Input { session, input, wait: after.wait(), snapshot, timeout_ms }
+    Request::Input { session, tab, input, wait: after.wait(), snapshot, timeout_ms }
+}
+
+fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, String> {
+    let cwd = args.cwd.map_or_else(std::env::current_dir, Ok).map_err(|e| format!("current directory: {e}"))?;
+    let mut env: Vec<(String, String)> =
+        std::env::vars().filter(|(k, _)| !args.env.iter().any(|(o, _)| o == k)).collect();
+    env.extend(args.env);
+    let mut command = args.command.into_iter();
+    Ok(Request::Open {
+        session,
+        program: command.next().expect("clap requires a program"),
+        args: command.collect(),
+        size: args.size,
+        cwd,
+        env,
+        wait: (!args.no_wait).then(|| args.wait.until()),
+        timeout_ms,
+    })
+}
+
+fn parse_tab(value: &str) -> Result<u32, String> {
+    value
+        .strip_prefix('t')
+        .unwrap_or(value)
+        .parse()
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or_else(|| format!("invalid tab id: {value} (expected t1, t2, ...)"))
+}
+
+fn parse_duration(value: &str) -> Result<Duration, String> {
+    let refused = || format!("invalid time: {value} (expected a duration like 30s, 10m, 1h or raw ms (0 = never))");
+    let unit_at = value.find(|c: char| !c.is_ascii_digit()).unwrap_or(value.len());
+    let (number, unit) = value.split_at(unit_at);
+    let number: u64 = number.parse().map_err(|_| refused())?;
+    let millis_per_unit = match unit {
+        "" | "ms" => 1,
+        "s" => 1_000,
+        "m" => 60_000,
+        "h" => 3_600_000,
+        _ => return Err(refused()),
+    };
+    number.checked_mul(millis_per_unit).map(Duration::from_millis).ok_or_else(refused)
 }
 
 fn parse_size(value: &str) -> Result<Size, String> {

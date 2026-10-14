@@ -17,9 +17,10 @@ Start and stop:
                                --no-wait  print the screen right away
   shell                        Open your shell, with command history turned on
   exec "<command line>"        Run a command in the shell tab, wait for it, print output + exit code
-  restart                      Run the same program again with the same options
+  restart                      Run the same program again with the same options (cwd, env, current size)
   signal <INT|TERM|KILL|...>   Send a signal to the program in the foreground (INT TERM KILL HUP TSTP CONT WINCH)
   resize <cols>x<rows>         Resize the terminal, e.g. resize 80x24 (the app gets SIGWINCH)
+                               restart and resize print the screen and take --wait <text> / --wait-stable [ms] like open
   close [--all]                Close the current tab (--all closes every session)
 
 Read the screen:
@@ -106,7 +107,8 @@ Options:
   --env <K=V>                  Extra environment variable (repeatable)
   --timeout <ms>               For waits (default 25000)
   --json                       JSON output
-  --idle-timeout <time>        Stop an unused daemon after this long (default 1h, 0 = never)
+  --idle-timeout <time>        Stop an unused daemon after this long (default 1h, 0 = never; 30s, 10m, 1h or raw ms;
+                               set by the call that starts the daemon)
   --screenshot-dir <path>      Where screenshots and clips go (or AGENT_TERMINAL_SCREENSHOT_DIR)
 
 Exit codes:

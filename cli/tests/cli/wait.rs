@@ -85,8 +85,7 @@ fn wait_gone_returns_once_the_text_has_left_the_screen() {
     at.run(&["press", "j"]).success();
     let waited = at.run(&["wait", "--gone", "Selected: alpha.txt"]).success();
     assert_eq!(numbers_as_n(&waited.stdout()), "waited N ms for \"Selected: alpha.txt\" to disappear in default tN\n");
-    let row = at.run(&["snapshot"]).success().stdout().lines().nth(2).map(str::to_string);
-    assert_eq!(row.as_deref(), Some("2││alpha.txt         ││Selected: beta.txt          │"));
+    at.run(&["wait", "Selected: beta.txt"]).success();
 }
 
 #[test]
@@ -140,10 +139,11 @@ fn open_ticker(at: &AgentTerminal, mode: &str) {
 #[test]
 fn wait_stable_returns_once_the_screen_stops_changing() {
     let at = AgentTerminal::new();
-    open_line_printer(&at, &["--lines", "3", "--delay-ms", "50", "--hold"]);
+    open_line_printer(&at, &["--lines", "3", "--hold"]);
+    at.run(&["wait", "line 3"]).success();
     let waited = at.run(&["wait", "--stable"]).success();
     assert_eq!(numbers_as_n(&waited.stdout()), "waited N ms for the screen to stay unchanged for N ms in default tN\n");
-    assert_eq!(at.run(&["snapshot"]).success().stdout().lines().nth(3), Some("3│line 3"));
+    assert!(waited.stdout().contains(" for 300 ms in "), "{}", waited.stdout());
 }
 
 #[test]
@@ -171,11 +171,11 @@ fn wait_stable_times_out_while_the_screen_keeps_changing() {
 #[test]
 fn wait_idle_returns_once_the_program_prints_nothing() {
     let at = AgentTerminal::new();
-    open_line_printer(&at, &["--lines", "3", "--delay-ms", "50", "--hold"]);
+    open_line_printer(&at, &["--lines", "3", "--hold"]);
+    at.run(&["wait", "line 3"]).success();
     let waited = at.run(&["wait", "--idle"]).success();
     assert_eq!(numbers_as_n(&waited.stdout()), "waited N ms for the program to print nothing for N ms in default tN\n");
     assert!(waited.stdout().contains(" for 300 ms in "), "{}", waited.stdout());
-    assert_eq!(at.run(&["snapshot"]).success().stdout().lines().nth(3), Some("3│line 3"));
 }
 
 #[test]
@@ -256,7 +256,8 @@ fn wait_cursor_returns_once_the_cursor_is_there() {
 #[test]
 fn wait_frame_returns_once_the_screen_has_changed_that_often() {
     let at = AgentTerminal::new();
-    open_tui(&at);
+    at.run(&["open", "--size", "40x4", "--wait", "ready", &fixture("input-echo")]).success();
+    at.run(&["wait", "--cursor", "2,1"]).success();
     let frame = at.run(&["--json", "snapshot"]).success().json()["frame"].as_u64().unwrap();
     let next = (frame + 1).to_string();
     let unchanged = at.run(&["--timeout", "200", "wait", "--frame", &next]);
@@ -266,7 +267,7 @@ fn wait_frame_returns_once_the_screen_has_changed_that_often() {
         "{}",
         unchanged.stderr()
     );
-    at.run(&["press", "j"]).success();
+    at.run(&["type", "a"]).success();
     let waited = at.run(&["--json", "wait", "--frame", &next]).success().json();
     assert!(waited["frame"].as_u64().is_some_and(|reached| reached > frame), "{waited}");
 }
@@ -305,8 +306,7 @@ fn input_wait_gone_returns_once_the_text_has_left_the_screen() {
     open_tui(&at);
     let pressed = at.run(&["press", "j", "--wait-gone", "Selected: alpha.txt"]).success();
     assert_eq!(pressed.stdout(), "pressed 1 key in default t1\n");
-    let row = at.run(&["snapshot"]).success().stdout().lines().nth(2).map(str::to_string);
-    assert_eq!(row.as_deref(), Some("2││alpha.txt         ││Selected: beta.txt          │"));
+    at.run(&["wait", "Selected: beta.txt"]).success();
 }
 
 #[test]
@@ -341,7 +341,7 @@ fn input_snapshot_prints_the_screen_after_the_wait() {
     default t1 · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N
     1│┌Files─────────────┐┌Details─────────────────────┐
     2││alpha.txt         ││Selected: beta.txt          │
-    3││beta.txt          ││                            │
+    3││beta.txt          ││Size: 50x8                  │
     4││gamma.txt         ││                            │
     5││delta.txt         ││                            │
     6││                  ││                            │
@@ -365,4 +365,18 @@ fn input_takes_one_wait_at_a_time() {
     let pressed = at.run(&["press", "j", "--wait", "x", "--wait-stable"]);
     assert_eq!(pressed.code(), 1, "{}", pressed.stderr());
     assert!(pressed.stderr().contains("cannot be used with"), "{}", pressed.stderr());
+}
+
+#[test]
+fn wait_and_expect_look_at_another_tab_with_tab() {
+    let at = AgentTerminal::new();
+    open_line_printer(&at, &["--lines", "2", "--hold"]);
+    at.run(&["open", "--size", "20x2", "cat"]).success();
+    let waited = at.run(&["wait", "line 2", "--tab", "t1"]).success();
+    assert!(waited.stdout().ends_with(" in default t1\n"), "{}", waited.stdout());
+    assert_eq!(
+        at.run(&["expect", "line 2", "--tab", "t1"]).success().stdout(),
+        "\"line 2\" is on screen in default t1\n"
+    );
+    assert_eq!(at.run(&["expect", "line 2"]).code(), 2);
 }

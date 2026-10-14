@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{ErrorKind, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -11,13 +11,17 @@ use crate::native::pty;
 use crate::native::terminal::{Settled, Terminal};
 use crate::native::wait::{Condition, Pattern};
 use crate::protocol::{
-    self, Checked, Closed, Delivered, ErrorBody, Expect, Input, Marked, Matches, Printed, Reply, Request, Response,
-    RowRange, Snapshot, SnapshotOptions, Style, TabRef, TextMatch, Wait, Waited,
+    self, BatchOutcome, BatchStep, Checked, Closed, Delivered, ErrorBody, Expect, Input, Marked, Matches, Printed,
+    Reply, Request, Response, RowRange, SessionInfo, Sessions, Size, Snapshot, SnapshotOptions, Style, TabRef,
+    TextMatch, Wait, Waited,
 };
 
 #[derive(Default)]
 struct Daemon {
     sessions: Mutex<BTreeMap<String, Session>>,
+    restarting: Mutex<()>,
+    activity: Mutex<Activity>,
+    quiet: Condvar,
 }
 
 #[derive(Default)]
@@ -27,7 +31,30 @@ struct Session {
     next_id: u32,
 }
 
-pub fn run() -> Result<()> {
+struct Activity {
+    in_flight: usize,
+    last: Instant,
+    stopping: bool,
+}
+
+impl Default for Activity {
+    fn default() -> Self {
+        Self { in_flight: 0, last: Instant::now(), stopping: false }
+    }
+}
+
+struct Busy<'a>(&'a Daemon);
+
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        let mut activity = self.0.activity.lock().unwrap();
+        activity.in_flight -= 1;
+        activity.last = Instant::now();
+        self.0.quiet.notify_all();
+    }
+}
+
+pub fn run(idle_timeout: Duration) -> Result<()> {
     close_inherited_files()?;
     let home = home()?;
     std::fs::create_dir_all(&home).with_context(|| format!("create {}", home.display()))?;
@@ -46,6 +73,10 @@ pub fn run() -> Result<()> {
     writeln!(stdout, "{READY}").and_then(|()| stdout.flush()).context("tell the CLI the daemon is ready")?;
 
     let daemon = Arc::new(Daemon::default());
+    if !idle_timeout.is_zero() {
+        let watching = Arc::clone(&daemon);
+        std::thread::spawn(move || watching.stop_when_idle(idle_timeout));
+    }
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
@@ -77,6 +108,7 @@ fn close_inherited_files() -> Result<()> {
 
 impl Daemon {
     fn serve(&self, mut stream: UnixStream) {
+        let busy = self.busy();
         let request: Request = match protocol::read(&mut stream) {
             Ok(Some(request)) => request,
             Ok(None) => return,
@@ -86,7 +118,15 @@ impl Daemon {
             }
         };
         let stop = matches!(request, Request::Stop);
-        let response = match self.handle(request) {
+        let handled = match &busy {
+            Some(_) => self.handle(request),
+            None => Err(ErrorBody {
+                code: crate::exit::ERROR,
+                message: "the daemon is stopping because it was idle; run the command again to start a new one".into(),
+                snapshot: None,
+            }),
+        };
+        let response = match handled {
             Ok(reply) => Response::Ok(reply),
             Err(failure) => Response::Err(failure),
         };
@@ -103,53 +143,137 @@ impl Daemon {
             Request::Open { session, program, args, size, cwd, env, wait, timeout_ms } => {
                 self.open(session, pty::Command { program, args, cwd, env, size }, wait.as_ref(), timeout_ms)
             }
-            Request::Snapshot { session, options } => {
-                let (tab, terminal) = self.current(&session)?;
+            Request::Snapshot { session, tab, options } => {
+                let (tab, terminal) = self.target(&session, tab)?;
                 terminal.snapshot_with(&session, &tab_name(tab), &options).map(Reply::Snapshot).map_err(failure)
             }
-            Request::Close { session, all } => {
-                let closed = if all { self.close_all() } else { vec![self.close_current(&session)?] };
+            Request::Close { session, all, tab } => {
+                let closed = if all { self.close_all() } else { vec![self.close(&session, tab)?] };
                 Ok(Reply::Closed(Closed { closed }))
             }
-            Request::Get { session, what } => {
-                let (_, terminal) = self.current(&session)?;
+            Request::Resize { session, tab, size, wait, timeout_ms } => {
+                self.resize(&session, tab, size, &wait, timeout_ms)
+            }
+            Request::Restart { session, tab, wait, timeout_ms } => self.restart(&session, tab, &wait, timeout_ms),
+            Request::Sessions => {
+                let sessions = self.sessions.lock().unwrap();
+                Ok(Reply::Sessions(Sessions {
+                    sessions: sessions.iter().map(|(name, session)| session.info(name)).collect(),
+                }))
+            }
+            Request::Tabs { session } => {
+                let sessions = self.sessions.lock().unwrap();
+                Ok(Reply::Tabs(
+                    sessions.get(&session).map_or_else(|| SessionInfo::empty(&session), |s| s.info(&session)),
+                ))
+            }
+            Request::SwitchTab { session, tab } => {
+                let mut sessions = self.sessions.lock().unwrap();
+                let entry = sessions
+                    .get_mut(&session)
+                    .filter(|s| s.tabs.contains_key(&tab))
+                    .ok_or_else(|| no_tab(&session, tab))?;
+                entry.current = Some(tab);
+                Ok(Reply::Tabs(entry.info(&session)))
+            }
+            Request::Input { session, tab, input, wait, snapshot, timeout_ms } => {
+                self.input(session, tab, &input, wait.as_ref(), snapshot, timeout_ms)
+            }
+            Request::Wait { session, tab, wait: Wait::Elapsed { ms }, timeout_ms } => {
+                self.wait(session, tab, &Wait::Elapsed { ms }, timeout_ms.max(ms))
+            }
+            Request::Wait { session, tab, wait, timeout_ms } => self.wait(session, tab, &wait, timeout_ms),
+            Request::Expect { session, tab, expect } => self.expect(session, tab, &expect),
+            Request::Get { session, tab, what } => {
+                let (_, terminal) = self.target(&session, tab)?;
                 terminal.fact(what).map(Reply::Fact).map_err(failure)
             }
-            Request::Find { session, text, regex, all } => {
-                let (_, terminal) = self.current(&session)?;
+            Request::Find { session, tab, text, regex, all } => {
+                let (_, terminal) = self.target(&session, tab)?;
                 let matches = terminal.find(&text, regex, all).map_err(failure)?;
                 Ok(Reply::Matches(Matches { matches }))
             }
-            Request::Mark { session, name } => {
-                let (_, terminal) = self.current(&session)?;
+            Request::Mark { session, tab, name } => {
+                let (_, terminal) = self.target(&session, tab)?;
                 let frame = terminal.mark(name.clone());
                 Ok(Reply::Marked(Marked { mark: name, frame }))
             }
-            Request::Output { session, since, raw } => {
-                let (_, terminal) = self.current(&session)?;
+            Request::Output { session, tab, since, raw } => {
+                let (_, terminal) = self.target(&session, tab)?;
                 let output = terminal.printed(since.as_deref(), raw).map_err(failure)?;
                 Ok(Reply::Printed(Printed { output }))
             }
-            Request::DiffSnapshot { session, baseline } => {
-                let (_, terminal) = self.current(&session)?;
+            Request::DiffSnapshot { session, tab, baseline } => {
+                let (_, terminal) = self.target(&session, tab)?;
                 terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(failure)
             }
-            Request::Input { session, input, wait, snapshot, timeout_ms } => {
-                self.input(session, &input, wait.as_ref(), snapshot, timeout_ms)
-            }
-            Request::Wait { session, wait: Wait::Elapsed { ms }, timeout_ms } => {
-                self.wait(session, &Wait::Elapsed { ms }, timeout_ms.max(ms))
-            }
-            Request::Wait { session, wait, timeout_ms } => self.wait(session, &wait, timeout_ms),
-            Request::Expect { session, expect } => self.expect(session, &expect),
             Request::Stop => {
-                self.close_all();
-                if let Err(e) = socket_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
-                    eprintln!("removing the socket failed: {e:#}");
-                }
+                self.shut_down();
                 Ok(Reply::Stopped)
             }
+            Request::Batch { steps, bail } => Ok(Reply::Batch(self.batch(steps, bail))),
         }
+    }
+
+    fn batch(&self, steps: Vec<BatchStep>, bail: bool) -> Vec<BatchOutcome> {
+        let mut outcomes = Vec::with_capacity(steps.len());
+        let mut failed = false;
+        for step in steps {
+            let response = if bail && failed { None } else { Some(self.batch_step(step.request)) };
+            failed |= response.as_ref().is_some_and(|response| response.exit_code() != 0);
+            outcomes.push(BatchOutcome { args: step.args, response });
+        }
+        outcomes
+    }
+
+    fn batch_step(&self, request: Request) -> Response {
+        if matches!(request, Request::Stop) {
+            return Response::Err(ErrorBody {
+                code: crate::exit::ERROR,
+                message: "stopping the daemon cannot be part of a batch".into(),
+                snapshot: None,
+            });
+        }
+        match self.handle(request) {
+            Ok(reply) => Response::Ok(reply),
+            Err(failure) => Response::Err(failure),
+        }
+    }
+
+    fn busy(&self) -> Option<Busy<'_>> {
+        let mut activity = self.activity.lock().unwrap();
+        if activity.stopping {
+            return None;
+        }
+        activity.in_flight += 1;
+        Some(Busy(self))
+    }
+
+    fn stop_when_idle(&self, timeout: Duration) {
+        let mut activity = self.activity.lock().unwrap();
+        loop {
+            let quiet_for = activity.last.elapsed();
+            if activity.in_flight == 0 && quiet_for >= timeout {
+                break;
+            }
+            activity = if activity.in_flight > 0 {
+                self.quiet.wait(activity).unwrap()
+            } else {
+                self.quiet.wait_timeout(activity, timeout - quiet_for).unwrap().0
+            };
+        }
+        activity.stopping = true;
+        drop(activity);
+        eprintln!("no call for {} ms, stopping", timeout.as_millis());
+        self.shut_down();
+        std::process::exit(0);
+    }
+
+    fn shut_down(&self) {
+        if let Err(e) = socket_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
+            eprintln!("removing the socket failed: {e:#}");
+        }
+        self.close_all();
     }
 
     fn open(
@@ -159,7 +283,6 @@ impl Daemon {
         wait: Option<&Wait>,
         timeout_ms: u64,
     ) -> Result<Reply, ErrorBody> {
-        let condition = wait.map(condition).transpose()?;
         let terminal = Terminal::start(command).map_err(error_body)?;
         let tab = {
             let mut sessions = self.sessions.lock().unwrap();
@@ -168,39 +291,82 @@ impl Daemon {
             let id = entry.next_id;
             entry.tabs.insert(id, Arc::clone(&terminal));
             entry.current = Some(id);
-            tab_name(id)
+            id
         };
-        if let Some((wait, condition)) = wait.zip(condition) {
-            settle(&terminal, &session, &tab, wait, condition, timeout_ms)?;
+        match wait {
+            Some(wait) => settle(&session, tab, &terminal, wait, timeout_ms),
+            None => Ok(Reply::Snapshot(terminal.snapshot(&session, &tab_name(tab)))),
         }
-        Ok(Reply::Snapshot(terminal.snapshot(&session, &tab)))
+    }
+
+    fn resize(
+        &self,
+        session: &str,
+        tab: Option<u32>,
+        size: Size,
+        wait: &Wait,
+        timeout_ms: u64,
+    ) -> Result<Reply, ErrorBody> {
+        let (tab, terminal) = self.target(session, tab)?;
+        terminal.resize(size).map_err(|e| error_body(e.context(format!("{session} {}", tab_name(tab)))))?;
+        settle(session, tab, &terminal, wait, timeout_ms)
+    }
+
+    fn restart(&self, session: &str, tab: Option<u32>, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+        let restarting = self.restarting.lock().unwrap();
+        let (tab, old) = self.target(session, tab)?;
+        if !old.stop(Duration::from_millis(timeout_ms)) {
+            return Err(ErrorBody {
+                code: crate::exit::TIMEOUT,
+                message: format!(
+                    "{} in {session} {} did not stop within {timeout_ms} ms, so it was not restarted",
+                    old.program,
+                    tab_name(tab)
+                ),
+                snapshot: None,
+            });
+        }
+        let terminal = Terminal::start(old.rerun()).map_err(error_body)?;
+        {
+            let mut sessions = self.sessions.lock().unwrap();
+            match sessions.get_mut(session).and_then(|s| s.tabs.get_mut(&tab)) {
+                Some(slot) if Arc::ptr_eq(slot, &old) => *slot = Arc::clone(&terminal),
+                _ => {
+                    terminal.kill();
+                    return Err(no_tab(session, tab));
+                }
+            }
+        }
+        drop(restarting);
+        settle(session, tab, &terminal, wait, timeout_ms)
     }
 
     fn input(
         &self,
         session: String,
+        tab: Option<u32>,
         input: &Input,
         wait: Option<&Wait>,
         snapshot: bool,
         timeout_ms: u64,
     ) -> Result<Reply, ErrorBody> {
-        let (id, terminal) = self.current(&session)?;
+        let (id, terminal) = self.target(&session, tab)?;
         let tab = tab_name(id);
         let condition = wait.map(condition).transpose()?;
         let delivery = terminal.input(input).map_err(|e| error_body(e.context(format!("{session} {tab}"))))?;
         if let Some((wait, condition)) = wait.zip(condition) {
-            settle(&terminal, &session, &tab, wait, condition, timeout_ms)?;
+            wait_for(&terminal, &session, &tab, wait, condition, timeout_ms)?;
         }
         let snapshot = snapshot.then(|| Box::new(terminal.snapshot(&session, &tab)));
         Ok(Reply::Delivered(Delivered { session, tab, delivery, snapshot }))
     }
 
-    fn wait(&self, session: String, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
-        let (id, terminal) = self.current(&session)?;
+    fn wait(&self, session: String, tab: Option<u32>, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+        let (id, terminal) = self.target(&session, tab)?;
         let tab = tab_name(id);
         let condition = condition(wait)?;
         let started = Instant::now();
-        let frame = settle(&terminal, &session, &tab, wait, condition, timeout_ms)?;
+        let frame = wait_for(&terminal, &session, &tab, wait, condition, timeout_ms)?;
         let waited_ms = started.elapsed().as_millis() as u64;
         let exit_code = match wait {
             Wait::Exit { .. } => terminal.exit_status().flatten(),
@@ -209,8 +375,8 @@ impl Daemon {
         Ok(Reply::Waited(Waited { session, tab, until: describe(wait), waited_ms, frame, exit_code }))
     }
 
-    fn expect(&self, session: String, expect: &Expect) -> Result<Reply, ErrorBody> {
-        let (id, terminal) = self.current(&session)?;
+    fn expect(&self, session: String, tab: Option<u32>, expect: &Expect) -> Result<Reply, ErrorBody> {
+        let (id, terminal) = self.target(&session, tab)?;
         let tab = tab_name(id);
         let place = format!("{session} {tab}");
         let excerpt = |rows: Option<RowRange>| {
@@ -257,13 +423,16 @@ impl Daemon {
         Ok(Reply::Checked(Checked { session, tab, fact }))
     }
 
-    fn close_current(&self, session: &str) -> Result<TabRef, ErrorBody> {
+    fn close(&self, session: &str, tab: Option<u32>) -> Result<TabRef, ErrorBody> {
         let mut sessions = self.sessions.lock().unwrap();
-        let entry = sessions.get_mut(session).ok_or_else(|| no_terminal(session))?;
-        let (id, terminal) =
-            entry.current.and_then(|id| entry.tabs.remove(&id).map(|t| (id, t))).ok_or_else(|| no_terminal(session))?;
+        let missing = || tab.map_or_else(|| no_terminal(session), |id| no_tab(session, id));
+        let entry = sessions.get_mut(session).ok_or_else(missing)?;
+        let id = tab.or(entry.current).ok_or_else(missing)?;
+        let terminal = entry.tabs.remove(&id).ok_or_else(missing)?;
         terminal.kill();
-        entry.current = entry.tabs.keys().next_back().copied();
+        if entry.current == Some(id) {
+            entry.current = entry.tabs.keys().next_back().copied();
+        }
         if entry.tabs.is_empty() {
             sessions.remove(session);
         }
@@ -282,12 +451,37 @@ impl Daemon {
         closed
     }
 
-    fn current(&self, session: &str) -> Result<(u32, Arc<Terminal>), ErrorBody> {
+    fn target(&self, session: &str, tab: Option<u32>) -> Result<(u32, Arc<Terminal>), ErrorBody> {
         let sessions = self.sessions.lock().unwrap();
-        sessions
-            .get(session)
-            .and_then(|s| s.current.and_then(|id| s.tabs.get(&id).map(|t| (id, Arc::clone(t)))))
-            .ok_or_else(|| no_terminal(session))
+        let entry = sessions.get(session);
+        match tab {
+            Some(id) => {
+                entry.and_then(|s| s.tabs.get(&id)).map(|t| (id, Arc::clone(t))).ok_or_else(|| no_tab(session, id))
+            }
+            None => entry
+                .and_then(|s| s.current.and_then(|id| s.tabs.get(&id).map(|t| (id, Arc::clone(t)))))
+                .ok_or_else(|| no_terminal(session)),
+        }
+    }
+}
+
+impl Session {
+    fn info(&self, name: &str) -> SessionInfo {
+        SessionInfo {
+            session: name.to_string(),
+            current: self.current.map(tab_name),
+            tabs: self.tabs.iter().map(|(id, terminal)| terminal.info(&tab_name(*id))).collect(),
+        }
+    }
+}
+
+fn settle(session: &str, tab: u32, terminal: &Terminal, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+    let tab = tab_name(tab);
+    let settled = terminal.wait(condition(wait)?, Duration::from_millis(timeout_ms));
+    let snapshot = terminal.snapshot(session, &tab);
+    match settled {
+        Settled::Met { .. } | Settled::Exited => Ok(Reply::Snapshot(snapshot)),
+        Settled::TimedOut => Err(timed_out(wait, timeout_ms, snapshot)),
     }
 }
 
@@ -295,7 +489,7 @@ fn condition(wait: &Wait) -> Result<Condition, ErrorBody> {
     Condition::new(wait).map_err(failure)
 }
 
-fn settle(
+fn wait_for(
     terminal: &Terminal,
     session: &str,
     tab: &str,
@@ -389,6 +583,10 @@ fn no_terminal(session: &str) -> ErrorBody {
         message: format!("no terminal is open in session {session}; start one with `agent-terminal open <program>`"),
         snapshot: None,
     }
+}
+
+fn no_tab(session: &str, id: u32) -> ErrorBody {
+    failure(format!("no tab {} in session {session}; list tabs with `agent-terminal tab`", tab_name(id)))
 }
 
 fn failure(message: String) -> ErrorBody {
