@@ -87,7 +87,7 @@ jobs:
       - if: runner.os != 'Linux'
         run: agent-browser install
       - run: cargo clippy --all-targets --features browser-tests -- -D warnings
-      - run: cargo test --features browser-tests --test cli browser::
+      - run: "cargo test --features browser-tests --test cli browser::"
 
   cli:
     name: CLI (${{ matrix.os }})
