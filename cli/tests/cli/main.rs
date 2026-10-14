@@ -1,5 +1,8 @@
 mod activity;
 mod batch;
+#[cfg(feature = "browser-tests")]
+mod browser;
+mod dashboard;
 mod diff;
 mod doctor;
 mod expect;
@@ -19,6 +22,7 @@ mod restart;
 mod screenshot;
 mod session_folder;
 mod sessions;
+mod shell;
 mod skills;
 mod snapshot;
 mod support;

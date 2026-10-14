@@ -1,0 +1,264 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist/wght.css";
+@import "@fontsource-variable/geist-mono/wght.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/700.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-heading: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --background: #fff;
+  --foreground: #0a0a0a;
+  --card: #fff;
+  --card-foreground: #0a0a0a;
+  --popover: #fff;
+  --popover-foreground: #0a0a0a;
+  --primary: #171717;
+  --primary-foreground: #fafafa;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #171717;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --accent: #f5f5f5;
+  --accent-foreground: #171717;
+  --destructive: #e40014;
+  --border: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #a1a1a1;
+  --radius: 0.625rem;
+  --sidebar: #fafafa;
+  --sidebar-foreground: #0a0a0a;
+  --success: #22c55e;
+  --warning: #eab308;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #e5e5e5;
+  --card: #141414;
+  --card-foreground: #e5e5e5;
+  --popover: #141414;
+  --popover-foreground: #e5e5e5;
+  --primary: #e5e5e5;
+  --primary-foreground: #171717;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #e5e5e5;
+  --muted: #1a1a1a;
+  --muted-foreground: #737373;
+  --accent: #1a1a1a;
+  --accent-foreground: #e5e5e5;
+  --destructive: #ef4444;
+  --border: #ffffff1a;
+  --input: #ffffff26;
+  --ring: #737373;
+  --sidebar: #141414;
+  --sidebar-foreground: #e5e5e5;
+  --success: #22c55e;
+  --warning: #eab308;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  summary {
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+    animation: none !important;
+  }
+}
+
+.shell {
+  container-type: inline-size;
+  container-name: shell;
+}
+
+@container shell (max-width: 899px) {
+  .shell-cols {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .shell-cols > .col-left,
+  .shell-cols > .col-right {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+  .shell-cols > .col-left {
+    max-height: 16rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .shell-cols > .col-center {
+    min-height: 32rem;
+    flex: none;
+  }
+  .shell-cols > .col-right {
+    min-height: 28rem;
+    flex: none;
+    border-top: 1px solid var(--border);
+  }
+  .shell-cols > [role="separator"] {
+    display: none;
+  }
+  .split-grid {
+    grid-template-columns: 1fr !important;
+    grid-auto-rows: minmax(14rem, 1fr) !important;
+  }
+}
+
+.term-frame {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08);
+  background: #111113;
+}
+
+.term-frame.is-dim {
+  opacity: 0.45;
+}
+
+.term-frame .xterm .xterm-viewport {
+  overflow-y: hidden;
+}
+
+.toaster {
+  position: fixed;
+  top: 3rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 360px;
+  max-width: calc(100vw - 2rem);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border-radius: calc(var(--radius) * 1.4);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
+    0 8px 24px rgb(0 0 0 / 0.25);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.toast[data-type="error"] {
+  color: var(--destructive);
+  background: color-mix(in oklab, var(--destructive) 12%, var(--popover));
+}
+
+.toast[data-type="warning"] {
+  background: color-mix(in oklab, var(--warning) 12%, var(--popover));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .toast {
+    animation: toast-in 160ms ease-out both;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+:root {
+  --ansi-0: #3f3f46;
+  --ansi-1: #dc2626;
+  --ansi-2: #16a34a;
+  --ansi-3: #ca8a04;
+  --ansi-4: #2563eb;
+  --ansi-5: #9333ea;
+  --ansi-6: #0891b2;
+  --ansi-7: #71717a;
+  --ansi-8: #52525b;
+  --ansi-9: #ef4444;
+  --ansi-10: #22c55e;
+  --ansi-11: #eab308;
+  --ansi-12: #3b82f6;
+  --ansi-13: #a855f7;
+  --ansi-14: #06b6d4;
+  --ansi-15: #a1a1aa;
+}
+
+.dark {
+  --ansi-0: #27272a;
+  --ansi-1: #f87171;
+  --ansi-2: #4ade80;
+  --ansi-3: #facc15;
+  --ansi-4: #60a5fa;
+  --ansi-5: #c084fc;
+  --ansi-6: #22d3ee;
+  --ansi-7: #d4d4d8;
+  --ansi-8: #71717a;
+  --ansi-9: #fca5a5;
+  --ansi-10: #86efac;
+  --ansi-11: #fde047;
+  --ansi-12: #93c5fd;
+  --ansi-13: #d8b4fe;
+  --ansi-14: #67e8f9;
+  --ansi-15: #fafafa;
+}

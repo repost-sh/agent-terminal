@@ -26,6 +26,7 @@ pub enum Wait {
     Cursor { row: u16, col: u16 },
     Frame { frame: u64 },
     Elapsed { ms: u64 },
+    Command,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -231,6 +232,38 @@ pub enum Request {
         session: String,
         path: PathBuf,
     },
+    DashboardStart {
+        port: u16,
+    },
+    DashboardStop,
+    Shell {
+        session: String,
+        shell: Shell,
+        program: String,
+        size: Size,
+        cwd: PathBuf,
+        env: Vec<(String, String)>,
+        wait: Option<Wait>,
+        timeout_ms: u64,
+    },
+    Exec {
+        session: String,
+        tab: Option<u32>,
+        line: String,
+        check: bool,
+        timeout_ms: u64,
+    },
+    History {
+        session: String,
+        tab: Option<u32>,
+        last: Option<usize>,
+        failed: bool,
+    },
+    HistoryShow {
+        session: String,
+        tab: Option<u32>,
+        id: u32,
+    },
     Screenshot {
         session: String,
         tab: Option<u32>,
@@ -248,8 +281,13 @@ pub enum Request {
 impl Request {
     pub fn addressed(&self) -> Addressed<'_> {
         match self {
-            Request::Sessions | Request::Stop | Request::Batch { .. } => Addressed::Nothing,
+            Request::Sessions
+            | Request::Stop
+            | Request::Batch { .. }
+            | Request::DashboardStart { .. }
+            | Request::DashboardStop => Addressed::Nothing,
             Request::Open { session, .. }
+            | Request::Shell { session, .. }
             | Request::Tabs { session }
             | Request::Close { session, all: true, .. }
             | Request::TraceExport { session, .. } => Addressed::Session(session),
@@ -268,9 +306,38 @@ impl Request {
             | Request::DiffSnapshot { session, tab, .. }
             | Request::RecordStart { session, tab, .. }
             | Request::RecordStop { session, tab }
+            | Request::Exec { session, tab, .. }
+            | Request::History { session, tab, .. }
+            | Request::HistoryShow { session, tab, .. }
             | Request::Screenshot { session, tab, .. }
             | Request::DiffScreenshot { session, tab, .. } => Addressed::Tab(session, *tab),
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Shell {
+    Zsh,
+    Bash,
+    Fish,
+}
+
+impl Shell {
+    pub const ALL: [Shell; 3] = [Shell::Zsh, Shell::Bash, Shell::Fish];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Shell::Zsh => "zsh",
+            Shell::Bash => "bash",
+            Shell::Fish => "fish",
+        }
+    }
+
+    pub fn of_program(program: &str) -> Option<Shell> {
+        let name = std::path::Path::new(program).file_name()?.to_str()?;
+        let name = name.strip_prefix('-').unwrap_or(name);
+        Shell::ALL.into_iter().find(|shell| shell.name() == name)
     }
 }
 
@@ -621,6 +688,10 @@ pub enum Reply {
     Recording(RecordingFile),
     Saved(SavedRecording),
     Exported(Export),
+    Dashboard(Dashboard),
+    DashboardStopped(DashboardStopped),
+    History(History),
+    Command(CommandOutput),
     Screenshot(Screenshot),
     ScreenshotDiff(ScreenshotDiff),
 }
@@ -669,6 +740,17 @@ pub struct Screenshot {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct Dashboard {
+    pub url: String,
+    pub port: u16,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DashboardStopped {
+    pub stopped: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Export {
     pub session: String,
     pub path: PathBuf,
@@ -690,6 +772,48 @@ pub struct SavedRecording {
     pub path: PathBuf,
     pub duration_ms: u64,
     pub bytes: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct History {
+    pub session: String,
+    pub tab: String,
+    pub total: usize,
+    pub commands: Vec<CommandRecord>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CommandOutput {
+    pub session: String,
+    pub tab: String,
+    #[serde(flatten)]
+    pub record: CommandRecord,
+    pub output: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub check: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CommandRecord {
+    pub id: u32,
+    pub command: String,
+    pub cwd: String,
+    pub started_at_ms: u64,
+    pub ended_at_ms: Option<u64>,
+    pub duration_ms: u64,
+    pub exit_code: Option<i32>,
+    pub first_frame: u64,
+    pub last_frame: Option<u64>,
+}
+
+impl CommandRecord {
+    pub fn finished(&self) -> bool {
+        self.ended_at_ms.is_some()
+    }
+
+    pub fn failed(&self) -> bool {
+        self.finished() && self.exit_code.is_some_and(|code| code != 0)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -1016,6 +1140,7 @@ impl Reply {
                 .map(Response::exit_code)
                 .find(|&code| code != 0)
                 .unwrap_or(0),
+            Reply::Command(ran) if ran.check => ran.record.exit_code.unwrap_or(crate::exit::ERROR),
             Reply::ScreenshotDiff(diff) if !diff.passed => crate::exit::ASSERTION,
             _ => 0,
         }

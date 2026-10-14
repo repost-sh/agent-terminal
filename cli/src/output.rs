@@ -1,7 +1,7 @@
 use crate::protocol::{
-    BatchOutcome, Checked, ClickTarget, Delivered, Delivery, DiffBase, Direction, ErrorBody, Exit, Fact, Modes,
-    MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, Screenshot, ScrollBy, SessionInfo,
-    Snapshot, SnapshotDiff, Waited,
+    BatchOutcome, Checked, ClickTarget, CommandRecord, DashboardStopped, Delivered, Delivery, DiffBase, Direction,
+    ErrorBody, Exit, Fact, Modes, MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, Screenshot,
+    ScrollBy, SessionInfo, Snapshot, SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
 
@@ -149,6 +149,31 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Screenshot(screenshot) => print!("{}", screenshot_text(screenshot)),
         Reply::ScreenshotDiff(diff) if json => println!("{}", serde_json::json!(diff)),
         Reply::ScreenshotDiff(diff) => println!("{}", diff.summary()),
+        Reply::Dashboard(dashboard) if json => println!("{}", serde_json::json!(dashboard)),
+        Reply::Dashboard(dashboard) => println!("dashboard running at {}", dashboard.url),
+        Reply::DashboardStopped(stopped) if json => println!("{}", serde_json::json!(stopped)),
+        Reply::DashboardStopped(DashboardStopped { stopped: true }) => println!("dashboard stopped"),
+        Reply::DashboardStopped(DashboardStopped { stopped: false }) => println!("no dashboard is running"),
+        Reply::History(history) if json => println!("{}", serde_json::json!(history)),
+        Reply::History(history) if history.total == 0 => {
+            println!("no commands have run in {} {}", history.session, history.tab)
+        }
+        Reply::History(history) if history.commands.is_empty() => {
+            println!("no command matches in {} {} ({} in all)", history.session, history.tab, history.total)
+        }
+        Reply::History(history) => {
+            for record in &history.commands {
+                println!("{}", record_line(record));
+            }
+        }
+        Reply::Command(ran) if json => println!("{}", serde_json::json!(ran)),
+        Reply::Command(ran) => {
+            print!("{}", ran.output);
+            if !ran.output.is_empty() && !ran.output.ends_with('\n') {
+                println!();
+            }
+            println!("{}", record_line(&ran.record));
+        }
     }
 }
 
@@ -168,6 +193,15 @@ fn screenshot_text(screenshot: &Screenshot) -> String {
 
 fn saved_text(saved: &SavedRecording) -> String {
     format!("saved {} ({}, {} KB)", saved.path.display(), duration(saved.duration_ms), saved.bytes.div_ceil(1024))
+}
+
+fn record_line(record: &CommandRecord) -> String {
+    let status = match (record.finished(), record.exit_code) {
+        (false, _) => "running".to_string(),
+        (true, Some(code)) => format!("exit {code}"),
+        (true, None) => "exit unknown".to_string(),
+    };
+    format!("{} · {status} · {} · {} · {}", record.id, duration(record.duration_ms), record.cwd, record.command)
 }
 
 fn duration(ms: u64) -> String {

@@ -31,22 +31,37 @@ impl Kept {
         let start = offset.checked_sub(self.dropped)?;
         Some(self.bytes.range(start as usize..).copied().collect())
     }
+
+    fn between(&self, from: u64, to: u64) -> (Vec<u8>, u64) {
+        let start = from.max(self.dropped);
+        let end = to.clamp(start, self.end());
+        let kept = self.bytes.range((start - self.dropped) as usize..(end - self.dropped) as usize).copied().collect();
+        (kept, start - from)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Offsets {
+    pub text: u64,
+    pub styled: u64,
 }
 
 #[derive(Default)]
 pub struct OutputLog {
     raw: Kept,
     text: Kept,
+    styled: Kept,
     chunks: VecDeque<Point>,
     forgot_chunks: bool,
     marks: HashMap<String, Point>,
 }
 
 impl OutputLog {
-    pub fn record(&mut self, frame: u64, raw: &[u8], text: &[u8]) {
+    pub fn record(&mut self, frame: u64, raw: &[u8], text: &[u8], styled: &[u8]) {
         self.chunks.push_back(self.here(frame));
         self.raw.push(raw);
         self.text.push(text);
+        self.styled.push(styled);
         while self.chunks.front().is_some_and(|chunk| chunk.raw < self.raw.dropped) {
             self.chunks.pop_front();
             self.forgot_chunks = true;
@@ -78,6 +93,18 @@ impl OutputLog {
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
+    pub fn end(&self) -> Offsets {
+        Offsets { text: self.text.end(), styled: self.styled.end() }
+    }
+
+    pub fn text_between(&self, from: Offsets, to: Option<Offsets>) -> String {
+        kept_between(&self.text, from.text, to.map(|to| to.text))
+    }
+
+    pub fn styled_between(&self, from: Offsets, to: Option<Offsets>) -> String {
+        kept_between(&self.styled, from.styled, to.map(|to| to.styled))
+    }
+
     fn here(&self, frame: u64) -> Point {
         Point { frame, raw: self.raw.end(), text: self.text.end() }
     }
@@ -89,4 +116,16 @@ impl OutputLog {
             None => Some(self.here(frame)),
         }
     }
+}
+
+fn kept_between(kept: &Kept, from: u64, to: Option<u64>) -> String {
+    let (bytes, lost) = kept.between(from, to.unwrap_or_else(|| kept.end()));
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    if lost == 0 {
+        return text;
+    }
+    format!(
+        "… (the first {lost} bytes are no longer kept; agent-terminal keeps the last {} MiB of output)\n{text}",
+        KEPT_BYTES / (1024 * 1024)
+    )
 }

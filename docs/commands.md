@@ -15,8 +15,10 @@ Start and stop:
                                --wait <text>  wait for this text instead of a stable screen
                                --wait-stable [ms]  how long unchanged counts as stable (default 300)
                                --no-wait  print the screen right away
-  shell                        Open your shell, with command history turned on
+  shell [--shell zsh|bash|fish]   Open your shell (default: $SHELL) with command history turned on
+                               (prints the screen at its first prompt; takes --wait / --wait-stable / --no-wait like open)
   exec "<command line>"        Run a command in the shell tab, wait for it, print output + exit code
+                               --check  exit with the command's own exit code
   restart                      Run the same program again with the same options (cwd, env, current size)
   signal <INT|TERM|KILL|...>   Send a signal to the program in the foreground (INT TERM KILL HUP TSTP CONT WINCH)
   resize <cols>x<rows>         Resize the terminal, e.g. resize 80x24 (the app gets SIGWINCH)
@@ -40,6 +42,7 @@ Read the screen:
   find <text>                  Where the text is on screen (row,col); --regex, --all includes scrollback
   output [--since <mark|frame>]   What the program printed since a point (--raw keeps escape codes)
   history                      Commands run in the shell tab, with exit codes (history show <id> for output)
+                               --last <n>  only the last n; --failed  only those that exited with a code other than 0
   mark <name>                  Name this point in the output, to read or clip from later
 
 Send input:
@@ -97,14 +100,14 @@ Sessions and tabs:
   tab close [id]               Close a tab
 
 Watch and take over:
-  dashboard [start|stop]       The live dashboard on http://localhost:4849
+  dashboard [start|stop]       The live dashboard on http://localhost:4849 (--port <n>; 0 picks a free port)
   attach [--read-only]         Watch or drive a session from your own terminal (detach: Ctrl-p Ctrl-q)
 
 Everything else:
   batch [--bail] ["cmd" ...]   Several commands in one call (args or stdin)
   skills [list|get <name>|path]   Guides that ship with this version (core, tui-qa, cli-qa)
   mcp                          MCP stdio server with the same commands as tools
-  doctor [--fix]               Check PTY, fonts, shell integration, daemon
+  doctor [--fix]               Check PTY, fonts, shell integration, daemon (--fix: stale socket, old integration scripts)
   install [--skills]           Install the agent skill stub into ~/.claude/skills
   upgrade                      Upgrade to the latest version
   version

@@ -8,7 +8,7 @@ use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::{Cell as GridCell, Flags};
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor};
-use alacritty_terminal::vte::{Parser, Perform};
+use alacritty_terminal::vte::{Params, Parser, Perform};
 
 use crate::native::refs::{Glyph, Grid, Link};
 use crate::protocol::{Cell, Modes, Mouse, Size};
@@ -279,28 +279,89 @@ impl EventListener for Events {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShellReport {
+    Prompt,
+    Ready,
+    Started { command: String, cwd: Option<String> },
+    Finished { exit_code: Option<i32> },
+}
+
+#[derive(Clone, Copy)]
+pub struct At {
+    pub text: usize,
+    pub styled: usize,
+}
+
+pub struct Printed {
+    pub text: String,
+    pub styled: String,
+}
+
 #[derive(Default)]
 struct Stream {
     cwd: Option<String>,
     printed: String,
+    styled: String,
+    reports: Vec<(At, ShellReport)>,
+}
+
+impl Stream {
+    fn report(&mut self, params: &[&[u8]]) {
+        let report = match params {
+            [b"A", ..] => ShellReport::Prompt,
+            [b"B", ..] => ShellReport::Ready,
+            [b"C", options @ ..] => ShellReport::Started {
+                command: options.iter().find_map(|option| command_line(option)).unwrap_or_default(),
+                cwd: self.cwd.clone(),
+            },
+            [b"D", code @ ..] => ShellReport::Finished {
+                exit_code: code.first().and_then(|code| std::str::from_utf8(code).ok()?.parse().ok()),
+            },
+            _ => return,
+        };
+        self.reports.push((At { text: self.printed.len(), styled: self.styled.len() }, report));
+    }
+}
+
+fn command_line(option: &[u8]) -> Option<String> {
+    if let Some(encoded) = option.strip_prefix(b"cmdline_url=") {
+        return Some(String::from_utf8_lossy(&percent_decoded(encoded)).into_owned());
+    }
+    option.strip_prefix(b"cmdline=").map(|text| String::from_utf8_lossy(text).into_owned())
 }
 
 impl Perform for Stream {
     fn print(&mut self, c: char) {
         self.printed.push(c);
+        self.styled.push(c);
     }
 
     fn execute(&mut self, byte: u8) {
         if matches!(byte, b'\n' | b'\t') {
             self.printed.push(byte as char);
+            self.styled.push(byte as char);
         }
     }
 
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        if action != 'm' || ignore || !intermediates.is_empty() {
+            return;
+        }
+        let params: Vec<String> =
+            params.iter().map(|group| group.iter().map(u16::to_string).collect::<Vec<_>>().join(":")).collect();
+        self.styled.push_str(&format!("\x1b[{}m", params.join(";")));
+    }
+
     fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
-        if let [b"7", url @ ..] = params
-            && let Some(cwd) = file_url_path(&url.join(&b';'))
-        {
-            self.cwd = Some(cwd);
+        match params {
+            [b"7", url @ ..] => {
+                if let Some(cwd) = file_url_path(&url.join(&b';')) {
+                    self.cwd = Some(cwd);
+                }
+            }
+            [b"133", mark @ ..] => self.report(mark),
+            _ => {}
         }
     }
 }
@@ -308,6 +369,10 @@ impl Perform for Stream {
 fn file_url_path(url: &[u8]) -> Option<String> {
     let rest = url.strip_prefix(b"file://")?;
     let path = &rest[rest.iter().position(|&b| b == b'/')?..];
+    Some(String::from_utf8_lossy(&percent_decoded(path)).into_owned())
+}
+
+fn percent_decoded(path: &[u8]) -> Vec<u8> {
     let mut decoded = Vec::with_capacity(path.len());
     let mut i = 0;
     while i < path.len() {
@@ -326,7 +391,7 @@ fn file_url_path(url: &[u8]) -> Option<String> {
             }
         }
     }
-    Some(String::from_utf8_lossy(&decoded).into_owned())
+    decoded
 }
 
 pub struct Screen {
@@ -470,8 +535,12 @@ impl Screen {
         self.events.0.lock().unwrap().title.clone()
     }
 
-    pub fn take_printed(&mut self) -> String {
-        std::mem::take(&mut self.stream.printed)
+    pub fn take_printed(&mut self) -> Printed {
+        Printed { text: std::mem::take(&mut self.stream.printed), styled: std::mem::take(&mut self.stream.styled) }
+    }
+
+    pub fn take_shell_reports(&mut self) -> Vec<(At, ShellReport)> {
+        std::mem::take(&mut self.stream.reports)
     }
 
     pub fn reported_cwd(&self) -> Option<String> {

@@ -12,6 +12,7 @@ use zip::write::SimpleFileOptions;
 use crate::native::pty;
 use crate::native::recording::Recording;
 use crate::output::call_line;
+use crate::protocol::CommandRecord;
 
 pub struct SessionFolder {
     session: String,
@@ -71,9 +72,7 @@ impl SessionFolder {
         let path = self.path.join("activity.jsonl");
         let appended = serde_json::to_string(entry).map_err(anyhow::Error::from).and_then(|line| {
             let _turn = self.activity.lock().unwrap();
-            let mut log = OpenOptions::new().create(true).append(true).open(&path)?;
-            log.write_all(format!("{line}\n").as_bytes())?;
-            Ok(())
+            append_line(&path, &line)
         });
         if let Err(e) = appended {
             eprintln!("adding `{}` to the activity log {} failed: {e:#}", entry.command, path.display());
@@ -86,6 +85,44 @@ impl SessionFolder {
         let path = self.path.join(format!("{tab}.cast"));
         Recording::start(format!("{} {tab}", self.session), path, command.size, call_line(&typed))
     }
+
+    pub fn command_log(&self, tab: &str) -> CommandLog {
+        CommandLog { path: self.path.join(format!("{tab}.commands.jsonl")) }
+    }
+}
+
+#[derive(Clone)]
+pub struct CommandLog {
+    path: PathBuf,
+}
+
+#[derive(Serialize)]
+struct LoggedCommand<'a> {
+    #[serde(flatten)]
+    record: &'a CommandRecord,
+    output: &'a str,
+}
+
+impl CommandLog {
+    pub fn append(&self, record: &CommandRecord, output: &str) {
+        let appended = serde_json::to_string(&LoggedCommand { record, output })
+            .map_err(anyhow::Error::from)
+            .and_then(|line| append_line(&self.path, &line));
+        if let Err(e) = appended {
+            eprintln!(
+                "adding command {} `{}` to the command log {} failed: {e:#}",
+                record.id,
+                record.command,
+                self.path.display()
+            );
+        }
+    }
+}
+
+fn append_line(path: &Path, line: &str) -> Result<()> {
+    let mut log = OpenOptions::new().create(true).append(true).open(path)?;
+    log.write_all(format!("{line}\n").as_bytes())?;
+    Ok(())
 }
 
 pub fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {

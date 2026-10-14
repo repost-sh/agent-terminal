@@ -1,4 +1,7 @@
+pub mod changes;
+pub mod commands;
 pub mod daemon;
+pub mod dashboard;
 pub mod keyboard;
 pub mod mouse;
 pub mod output_log;
@@ -8,6 +11,7 @@ pub mod refs;
 pub mod render;
 pub mod screen;
 pub mod screenshots;
+pub mod shell;
 pub mod store;
 pub mod terminal;
 pub mod wait;
