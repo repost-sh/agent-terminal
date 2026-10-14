@@ -36,11 +36,16 @@ const BANNED: &[(&str, &str, Scope)] = &[
     ("portable_pty", "the PTY library belongs in src/native/pty.rs", Scope::OutsideOf("src/native/pty.rs")),
 ];
 
+const EFFECT_HOOK: &str = "effect hook; use useSyncExternalStore, a ref callback with cleanup, an event handler, a value derived during render, or a key";
+
+const BANNED_IN_DASHBOARD: &[(&str, &str)] =
+    &[("useEffect", EFFECT_HOOK), ("useLayoutEffect", EFFECT_HOOK), ("useInsertionEffect", EFFECT_HOOK)];
+
 #[test]
 fn source_has_no_comments_and_no_workarounds() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut files = Vec::new();
-    collect_rust_files(root, &mut files);
+    collect_files(root, &["rs"], &mut files);
     assert!(!files.is_empty(), "no Rust files found under {}", root.display());
 
     let mut violations = Vec::new();
@@ -63,6 +68,32 @@ fn source_has_no_comments_and_no_workarounds() {
         }
     }
     assert!(violations.is_empty(), "comments and workarounds are not allowed:\n{}", violations.join("\n"));
+}
+
+#[test]
+fn dashboard_has_no_effect_hooks() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("cli/ sits in the repository root");
+    let mut files = Vec::new();
+    collect_files(&repo.join("dashboard/src"), &["ts", "tsx"], &mut files);
+    assert!(!files.is_empty(), "no TypeScript files found under {}", repo.join("dashboard/src").display());
+
+    let mut violations = Vec::new();
+    for file in &files {
+        let source = std::fs::read_to_string(file).unwrap_or_else(|e| panic!("read {}: {e}", file.display()));
+        let relative = file.strip_prefix(repo).unwrap_or(file).display().to_string();
+        violations.extend(
+            banned_in_dashboard(&source)
+                .map(|(line, pattern, reason)| format!("{relative}:{line}: {reason} (`{pattern}`)")),
+        );
+    }
+    assert!(violations.is_empty(), "effect hooks are not allowed in the dashboard:\n{}", violations.join("\n"));
+}
+
+#[test]
+fn effect_hook_ban_covers_aliased_namespaced_and_quoted_uses() {
+    let source = "import { useEffect as run } from \"react\";\nReact.useLayoutEffect(() => {});\nconst insert = React[\"useInsertionEffect\"];\nconst width = useEffectiveWidth(box);\nconst stored = useSyncExternalStore(subscribe, read);\n";
+    let found: Vec<(usize, &str)> = banned_in_dashboard(source).map(|(line, pattern, _)| (line, pattern)).collect();
+    assert_eq!(found, vec![(1, "useEffect"), (2, "useLayoutEffect"), (3, "useInsertionEffect")]);
 }
 
 #[test]
@@ -90,15 +121,24 @@ fn scopes_limit_where_a_ban_applies() {
     assert!(Scope::OutsideOf("src/native/pty.rs").applies_to("src/native/daemon.rs"));
 }
 
-fn collect_rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
+fn banned_in_dashboard(source: &str) -> impl Iterator<Item = (usize, &'static str, &'static str)> + '_ {
+    source.lines().enumerate().flat_map(|(index, line)| {
+        BANNED_IN_DASHBOARD
+            .iter()
+            .filter(move |(pattern, _)| contains_token(line, pattern))
+            .map(move |&(pattern, reason)| (index + 1, pattern, reason))
+    })
+}
+
+fn collect_files(dir: &Path, extensions: &[&str], files: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap_or_else(|e| panic!("read {}: {e}", dir.display())) {
         let path = entry.expect("directory entry").path();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
         if path.is_dir() {
             if name != "target" && !name.starts_with('.') {
-                collect_rust_files(&path, files);
+                collect_files(&path, extensions, files);
             }
-        } else if name.ends_with(".rs") {
+        } else if path.extension().and_then(|e| e.to_str()).is_some_and(|e| extensions.contains(&e)) {
             files.push(path);
         }
     }
