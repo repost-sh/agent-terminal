@@ -6,11 +6,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use zip::write::SimpleFileOptions;
 
 use crate::native::pty;
 use crate::native::recording::Recording;
+use crate::native::render::Cells;
 use crate::output::call_line;
 use crate::protocol::CommandRecord;
 
@@ -19,6 +20,7 @@ pub struct SessionFolder {
     path: PathBuf,
     last_tab: AtomicU32,
     activity: Mutex<()>,
+    screenshots: Mutex<()>,
 }
 
 #[derive(Serialize)]
@@ -35,6 +37,19 @@ pub struct ActivityEntry {
     pub frame: Option<u64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub screenshots: Vec<PathBuf>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ScreenshotEntry {
+    pub time: String,
+    pub tab: String,
+    pub frame: u64,
+    pub path: PathBuf,
+    pub by: Option<String>,
+    pub width: u32,
+    pub height: u32,
+    #[serde(flatten)]
+    pub cells: Cells,
 }
 
 impl ActivityEntry {
@@ -61,7 +76,13 @@ impl SessionFolder {
             Err(e) => return Err(e).with_context(|| format!("clear the previous session folder {}", path.display())),
         }
         std::fs::create_dir_all(&path).with_context(|| format!("create the session folder {}", path.display()))?;
-        Ok(Self { session: session.to_string(), path, last_tab: AtomicU32::new(0), activity: Mutex::new(()) })
+        Ok(Self {
+            session: session.to_string(),
+            path,
+            last_tab: AtomicU32::new(0),
+            activity: Mutex::new(()),
+            screenshots: Mutex::new(()),
+        })
     }
 
     pub fn next_tab(&self) -> u32 {
@@ -76,6 +97,17 @@ impl SessionFolder {
         });
         if let Err(e) = appended {
             eprintln!("adding `{}` to the activity log {} failed: {e:#}", entry.command, path.display());
+        }
+    }
+
+    pub fn keep_screenshot(&self, entry: &ScreenshotEntry) {
+        let path = self.path.join("screenshots.jsonl");
+        let appended = serde_json::to_string(entry).map_err(anyhow::Error::from).and_then(|line| {
+            let _turn = self.screenshots.lock().unwrap();
+            append_line(&path, &line)
+        });
+        if let Err(e) = appended {
+            eprintln!("adding {} to the screenshot list {} failed: {e:#}", entry.path.display(), path.display());
         }
     }
 

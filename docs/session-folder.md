@@ -6,6 +6,7 @@ Every session keeps plain files in `<home>/sessions/<session>/`, where `<home>` 
 ~/.agent-terminal/
   sessions/qa/
     activity.jsonl     every CLI call to the session, one JSON object per line
+    screenshots.jsonl  every PNG screenshot of the session, one JSON object per line
     t1.cast            the recording of tab t1 (asciicast v2), from open to close
     t1.commands.jsonl  the command log of shell tab t1, one JSON object per finished command
     t2.cast
@@ -51,6 +52,22 @@ One line per CLI call addressed to the session, written before the CLI gets its 
 - `screenshots`: absolute paths of the files the call saved: the screenshot of `screenshot` or of an input command's `--screenshot`, the diff image of `diff screenshot`. Left out when the call saved none. The files live where the call put them, outside the session folder.
 - Not logged: calls that name no session (`session list`, `skills`, `daemon stop`) and calls to a session that is not open.
 
+## Screenshot list: `screenshots.jsonl`
+
+One line per PNG screenshot saved for the session, by a CLI call or from the dashboard, written once the file is saved. The dashboard's Screenshots tab is built from it.
+
+```json
+{"time":"2026-10-14T14:01:46.412Z","tab":"t1","frame":212,"path":"/home/me/.agent-terminal/screenshots/qa-t1-212.png","by":"screenshot","width":1100,"height":820,"scale":1,"cols":120,"rows":{"first":1,"last":40}}
+```
+
+- `time`: when the file was saved, UTC to the millisecond.
+- `tab`, `frame`: the tab shown and its frame at that moment.
+- `path`: the absolute path of the PNG. A later screenshot saved to the same path replaces the file, and the later line is the one that describes it.
+- `by`: the call that took it, as typed, quoted like the activity log's `command`; `null` when it was taken from the dashboard.
+- `width`, `height`: the picture's size in pixels.
+- `scale`, `cols`, `rows`: the cells drawn: `cols` columns of the screen rows `first` to `last`, each cell 9 by 20 pixels times `scale`, inside a margin of 10 pixels times `scale`. Two screenshots with the same cells can be compared cell by cell.
+- Not listed: screenshots in another format (`--format svg|html|txt|ansi`) and the diff images of `diff screenshot`.
+
 ## Command log: `<tab>.commands.jsonl`
 
 Only tabs opened with `shell`, which have shell integration. One line per command, written when the command finishes, in the order the commands finish:
@@ -69,4 +86,4 @@ Only tabs opened with `shell`, which have shell integration. One line per comman
 
 ## `trace export <path>`
 
-A zip of the folder with every entry under `<session folder name>/`. Recordings, the activity log and the command logs are copied up to their last complete line, so an export taken while a program prints never holds half an event. The `trace export` call itself is logged after the zip is written, so it is not in the zip.
+A zip of the folder with every entry under `<session folder name>/`. Recordings, the activity log, the screenshot list and the command logs are copied up to their last complete line, so an export taken while a program prints never holds half an event. The `trace export` call itself is logged after the zip is written, so it is not in the zip.
