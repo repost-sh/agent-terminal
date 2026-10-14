@@ -12,7 +12,7 @@ use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
     Baseline, BatchStep, Call, ClickTarget, DashboardStopped, Direction, Expect, Get, Input, MouseButton, MouseEvent,
-    Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Signal, Size, SnapshotOptions, Style,
+    Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Shell, Signal, Size, SnapshotOptions, Style,
     TextMatch, Wait,
 };
 use crate::session_id;
@@ -58,6 +58,27 @@ struct Cli {
 enum Command {
     #[command(about = "Run a program in a new terminal (prints the first stable screen)")]
     Open(OpenArgs),
+    #[command(about = "Open your shell with command history turned on (prints the screen at its first prompt)")]
+    Shell(ShellArgs),
+    #[command(about = "Run a command in the shell tab, wait for it, print its output and exit code")]
+    Exec {
+        #[arg(help = "The command line, as you would type it at the prompt", value_name = "COMMAND LINE")]
+        line: String,
+        #[arg(long, help = "Exit with the command's own exit code")]
+        check: bool,
+    },
+    #[command(
+        about = "Commands run in the shell tab, with exit codes (history show <id> for output)",
+        args_conflicts_with_subcommands = true
+    )]
+    History {
+        #[arg(long, help = "Only the last N commands", value_name = "N")]
+        last: Option<usize>,
+        #[arg(long, help = "Only commands that exited with a code other than 0")]
+        failed: bool,
+        #[command(subcommand)]
+        action: Option<HistoryAction>,
+    },
     #[command(about = "The screen as text: header, numbered rows, cursor")]
     Snapshot(SnapshotArgs),
     #[command(about = "Close the current tab (--all closes every session)")]
@@ -188,9 +209,9 @@ enum Command {
     Batch(BatchArgs),
     #[command(about = "MCP stdio server with the same commands as tools")]
     Mcp,
-    #[command(about = "Check PTY support and the daemon socket, and say how to fix each problem")]
+    #[command(about = "Check PTY support, shell integration and the daemon socket, and say how to fix each problem")]
     Doctor {
-        #[arg(long, help = "Remove stale sockets and state")]
+        #[arg(long, help = "Remove stale sockets and state, bring shell integration scripts up to date")]
         fix: bool,
     },
     #[command(about = "Upgrade to the latest version, with npm or Homebrew, whichever installed it")]
@@ -233,6 +254,63 @@ struct OpenArgs {
         value_name = "PROGRAM"
     )]
     command: Vec<String>,
+}
+
+#[derive(Args)]
+struct ShellArgs {
+    #[arg(long, value_enum, help = "The shell to open (default: your SHELL)")]
+    shell: Option<ShellName>,
+
+    #[arg(long, help = "Terminal size", value_name = "COLSxROWS", default_value = "120x40", value_parser = parse_size)]
+    size: Size,
+
+    #[arg(long, help = "Working directory (default: the current directory)")]
+    cwd: Option<PathBuf>,
+
+    #[arg(long = "env", help = "Extra environment variable (repeatable)", value_name = "K=V", value_parser = parse_env)]
+    env: Vec<(String, String)>,
+
+    #[arg(long, help = "Wait until this text is on screen instead of the first prompt", value_name = "TEXT")]
+    wait: Option<String>,
+
+    #[arg(
+        long,
+        help = "Wait until the screen has not changed for this long instead of the first prompt",
+        value_name = "MS",
+        num_args = 0..=1,
+        default_missing_value = "300",
+        conflicts_with = "wait"
+    )]
+    wait_stable: Option<u64>,
+
+    #[arg(long, help = "Print the screen right away, without waiting", conflicts_with_all = ["wait", "wait_stable"])]
+    no_wait: bool,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum ShellName {
+    Zsh,
+    Bash,
+    Fish,
+}
+
+impl ShellName {
+    fn shell(self) -> Shell {
+        match self {
+            ShellName::Zsh => Shell::Zsh,
+            ShellName::Bash => Shell::Bash,
+            ShellName::Fish => Shell::Fish,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum HistoryAction {
+    #[command(about = "One command's output, exit code, duration and working directory")]
+    Show {
+        #[arg(help = "The command's id, as listed by history")]
+        id: u32,
+    },
 }
 
 #[derive(Args)]
@@ -593,7 +671,7 @@ impl ButtonArgs {
 }
 
 #[derive(Args)]
-#[command(group(ArgGroup::new("until").required(true).args(["text", "stable", "idle", "exit", "cursor", "frame"])))]
+#[command(group(ArgGroup::new("until").required(true).args(["text", "stable", "idle", "exit", "cursor", "frame", "command"])))]
 struct UntilArgs {
     #[arg(
         help = "The text to wait for; a plain number pauses that many milliseconds",
@@ -646,6 +724,9 @@ struct UntilArgs {
 
     #[arg(long, help = "Until the screen reaches this frame number", value_name = "N")]
     frame: Option<u64>,
+
+    #[arg(long, help = "Until the shell command finishes and the shell shows its prompt (shell tabs)")]
+    command: bool,
 }
 
 impl UntilArgs {
@@ -664,6 +745,9 @@ impl UntilArgs {
         }
         if let Some(frame) = self.frame {
             return Wait::Frame { frame };
+        }
+        if self.command {
+            return Wait::Command;
         }
         let text = self.text.expect("clap requires one thing to wait for");
         let plain = !self.regex && !self.gone && self.rows.is_none();
@@ -839,6 +923,20 @@ fn request(cli: Cli) -> Result<Request, String> {
         Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
             open(session, args, cli.timeout)?
         }
+        Command::Shell(args) => shell(session, args, cli.timeout)?,
+        Command::Exec { line, check } => {
+            if line.trim().is_empty() {
+                return Err("exec needs a command line, e.g. exec \"cargo test\"".into());
+            }
+            if line.contains(['\n', '\r']) {
+                return Err("exec runs one command line; join commands with ; or && instead of newlines".into());
+            }
+            Request::Exec { session, tab: cli.tab, line, check, timeout_ms: cli.timeout }
+        }
+        Command::History { action: Some(HistoryAction::Show { id }), .. } => {
+            Request::HistoryShow { session, tab: cli.tab, id }
+        }
+        Command::History { last, failed, action: None } => Request::History { session, tab: cli.tab, last, failed },
         Command::Tab { id: Some(tab), .. } => Request::SwitchTab { session, tab },
         Command::Tab { id: None, action: None | Some(TabAction::List) } => Request::Tabs { session },
         Command::Tab { action: Some(TabAction::Close { id }), .. } => {
@@ -961,11 +1059,42 @@ fn input(session: String, tab: Option<u32>, input: Input, after: AfterInput, tim
     Request::Input { session, tab, input, wait: after.wait(), snapshot, timeout_ms }
 }
 
+fn environment(extra: Vec<(String, String)>) -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = std::env::vars().filter(|(k, _)| !extra.iter().any(|(o, _)| o == k)).collect();
+    env.extend(extra);
+    env
+}
+
+fn shell(session: String, args: ShellArgs, timeout_ms: u64) -> Result<Request, String> {
+    let current = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
+    let cwd = args.cwd.map_or_else(|| current.clone(), |cwd| current.join(cwd));
+    let env = environment(args.env);
+    let (shell, program) = match args.shell {
+        Some(name) => (name.shell(), name.shell().name().to_string()),
+        None => {
+            let program = env.iter().find(|(key, _)| key == "SHELL").map(|(_, value)| value.clone()).ok_or(
+                "SHELL is not set, so agent-terminal does not know your shell; choose one with --shell zsh, --shell bash or --shell fish",
+            )?;
+            let shell = Shell::of_program(&program).ok_or_else(|| {
+                format!(
+                    "your SHELL is {program}, which has no shell integration; choose --shell zsh, --shell bash or --shell fish"
+                )
+            })?;
+            (shell, program)
+        }
+    };
+    let wait = match (args.no_wait, args.wait, args.wait_stable) {
+        (true, _, _) => None,
+        (false, Some(text), _) => Some(Wait::Text(TextMatch::plain(text))),
+        (false, None, Some(quiet_ms)) => Some(Wait::Stable { quiet_ms }),
+        (false, None, None) => Some(Wait::Command),
+    };
+    Ok(Request::Shell { session, shell, program, size: args.size, cwd, env, wait, timeout_ms })
+}
+
 fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, String> {
     let cwd = args.cwd.map_or_else(std::env::current_dir, Ok).map_err(|e| format!("current directory: {e}"))?;
-    let mut env: Vec<(String, String)> =
-        std::env::vars().filter(|(k, _)| !args.env.iter().any(|(o, _)| o == k)).collect();
-    env.extend(args.env);
+    let env = environment(args.env);
     let mut command = args.command.into_iter();
     Ok(Request::Open {
         session,
