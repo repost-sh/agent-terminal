@@ -1,9 +1,9 @@
 import { ChevronRight, Moon, Plus, SquareTerminal, Sun, Trash2 } from "lucide-react";
-import { useState, type MouseEvent } from "react";
+import { useState } from "react";
 
 import type { Connection } from "../lib/daemon";
 import type { SessionInfo, TabInfo } from "../lib/protocol";
-import { navigate, tabRoute } from "../lib/route";
+import { followLink, tabRoute } from "../lib/route";
 import { tabName, tabState } from "../lib/tabs";
 import type { Theme } from "../lib/theme";
 import { CloseAllDialog } from "./close-all";
@@ -29,19 +29,15 @@ export const TabChip = ({ tab }: { tab: TabInfo }) => {
   return state.kind === "running" ? null : <Chip tone={state.tone}>{state.label}</Chip>;
 };
 
-const follow = (event: MouseEvent<HTMLAnchorElement>, to: string) => {
-  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-  event.preventDefault();
-  navigate(to);
-};
+export type RouteOf = (session: string, tab: string) => string;
 
-const TabRow = ({ session, tab, selected }: { session: string; tab: TabInfo; selected: boolean }) => {
+const TabRow = ({ session, tab, selected, routeOf }: { session: string; tab: TabInfo; selected: boolean; routeOf: RouteOf }) => {
   const to = tabRoute(session, tab.tab);
   return (
     <li>
       <a
         href={to}
-        onClick={(event) => follow(event, to)}
+        onClick={(event) => followLink(event, routeOf(session, tab.tab))}
         aria-current={selected ? "page" : undefined}
         className={cn(
           "flex w-full min-w-0 items-center gap-2 py-1 pr-1 pl-7 text-left text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset",
@@ -59,7 +55,7 @@ const TabRow = ({ session, tab, selected }: { session: string; tab: TabInfo; sel
   );
 };
 
-const SessionGroup = ({ info, selected }: { info: SessionInfo; selected: Selected }) => {
+const SessionGroup = ({ info, selected, routeOf }: { info: SessionInfo; selected: Selected; routeOf: RouteOf }) => {
   const [open, setOpen] = useState(true);
   const listId = `tabs-${info.session}`;
   const count = info.tabs.length;
@@ -89,7 +85,13 @@ const SessionGroup = ({ info, selected }: { info: SessionInfo; selected: Selecte
       </button>
       <ul id={listId} hidden={!open} className="pb-1">
         {info.tabs.map((tab) => (
-          <TabRow key={tab.tab} session={info.session} tab={tab} selected={selected?.session === info.session && selected.tab === tab.tab} />
+          <TabRow
+            key={tab.tab}
+            session={info.session}
+            tab={tab}
+            selected={selected?.session === info.session && selected.tab === tab.tab}
+            routeOf={routeOf}
+          />
         ))}
         <li>
           <button
@@ -113,14 +115,15 @@ type SidebarProps = {
   theme: Theme;
   onToggleTheme: () => void;
   width: number;
+  routeOf?: RouteOf;
 };
 
-export const SessionsSidebar = ({ connection, sessions, selected, theme, onToggleTheme, width }: SidebarProps) => {
+export const SessionsSidebar = ({ connection, sessions, selected, theme, onToggleTheme, width, routeOf = tabRoute }: SidebarProps) => {
   const list =
     connection === "down" ? (
       <p className="py-4 text-center text-xs text-muted-foreground">Not connected</p>
     ) : sessions === null ? null : sessions.length ? (
-      sessions.map((info) => <SessionGroup key={info.session} info={info} selected={selected} />)
+      sessions.map((info) => <SessionGroup key={info.session} info={info} selected={selected} routeOf={routeOf} />)
     ) : (
       <p className="py-4 text-center text-xs text-muted-foreground">No sessions</p>
     );

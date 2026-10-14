@@ -1,16 +1,31 @@
 import { RotateCw } from "lucide-react";
 
+import { reason, restartTab } from "../lib/api";
+import type { TabInfo } from "../lib/protocol";
 import { tabName } from "../lib/tabs";
 import type { ToolbarActionProps } from "../toolbar-actions";
+import { announce } from "./announcer";
 import { closeDialog, Dialog, showDialog } from "./dialog";
+import { toast } from "./toaster";
 import { Button, IconButton } from "./ui";
 
-const RestartDialog = ({ name, program, onRestart }: { name: string; program: string; onRestart: () => Promise<boolean> }) => (
+export const restartProgram = async (session: string, tab: TabInfo) => {
+  try {
+    await restartTab(session, tab.tab);
+    announce(`${tab.program} restarted`);
+    return true;
+  } catch (error) {
+    toast("error", `Could not restart ${tab.program}`, reason(error));
+    return false;
+  }
+};
+
+const RestartDialog = ({ session, tab }: { session: string; tab: TabInfo }) => (
   <Dialog
     alert
     width={24}
-    title={`Restart ${program}?`}
-    description={`${name} is killed and started again with the same command, size and working directory.`}
+    title={`Restart ${tab.program}?`}
+    description={`${tabName(session, tab.tab)} is killed and started again with the same command, size and working directory.`}
     footer={
       <>
         <Button variant="ghost" data-autofocus onClick={() => closeDialog()}>
@@ -19,7 +34,7 @@ const RestartDialog = ({ name, program, onRestart }: { name: string; program: st
         <Button
           onClick={() => {
             closeDialog();
-            void onRestart();
+            void restartProgram(session, tab);
           }}
         >
           Restart
@@ -29,11 +44,11 @@ const RestartDialog = ({ name, program, onRestart }: { name: string; program: st
   />
 );
 
-export const RestartButton = ({ session, tab, stream, shown, onRestart }: ToolbarActionProps) => {
+export const RestartButton = ({ session, tab, stream, shown }: ToolbarActionProps) => {
   const drawn = shown !== null && (shown.frame > 0 || shown.exited);
   const restart = () => {
-    if (shown?.exited) void onRestart();
-    else showDialog(() => <RestartDialog name={tabName(session, tab.tab)} program={tab.program} onRestart={onRestart} />);
+    if (shown?.exited) void restartProgram(session, tab);
+    else showDialog(() => <RestartDialog session={session} tab={tab} />);
   };
   return <IconButton label={`Restart ${tab.program}`} tooltip="Restart" icon={RotateCw} disabled={stream !== "open" || !drawn} onClick={restart} />;
 };

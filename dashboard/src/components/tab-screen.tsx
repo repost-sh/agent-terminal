@@ -1,35 +1,24 @@
-import { closeTab, reason, restartTab } from "../lib/api";
+import { closeTab, reason } from "../lib/api";
 import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
+import type { Layout } from "../lib/split";
 import { useTabStream } from "../lib/stream";
 import { firstTab, tabName } from "../lib/tabs";
-import { useXterm } from "../lib/xterm";
 import { announce } from "./announcer";
+import { restartProgram } from "./restart-button";
 import { StatusBar } from "./status-bar";
 import { Viewport } from "./terminal-view";
 import { toast } from "./toaster";
 import { Toolbar } from "./toolbar";
 
-type TabScreenProps = { session: string; tab: TabInfo; sessions: SessionInfo[] };
+type TabScreenProps = { session: string; tab: TabInfo; sessions: SessionInfo[]; onLayout: (count: Layout) => void };
 
-export const TabScreen = ({ session, tab, sessions }: TabScreenProps) => {
-  const terminal = useXterm();
-  const { state, shown } = useTabStream(session, tab.tab, terminal);
+export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) => {
+  const { state, shown, paint } = useTabStream(session, tab.tab);
   const name = tabName(session, tab.tab);
 
   const restart = async () => {
-    try {
-      await restartTab(session, tab.tab);
-      announce(`${tab.program} restarted`);
-      return true;
-    } catch (error) {
-      toast("error", `Could not restart ${tab.program}`, reason(error));
-      return false;
-    }
-  };
-
-  const restartFromExitBar = async () => {
-    if (await restart()) document.getElementById("main-content")?.focus({ preventScroll: true });
+    if (await restartProgram(session, tab)) document.getElementById("main-content")?.focus({ preventScroll: true });
   };
 
   const close = async () => {
@@ -46,15 +35,15 @@ export const TabScreen = ({ session, tab, sessions }: TabScreenProps) => {
 
   return (
     <>
-      <Toolbar session={session} tab={tab} stream={state} shown={shown} onRestart={restart} />
+      <Toolbar layout={1} onLayout={onLayout} current={{ session, tab, stream: state, shown }} />
       <div className="h-px shrink-0 bg-border" role="none" />
       <Viewport
-        terminal={terminal}
+        paint={paint}
         state={state}
         shown={shown}
         program={tab.program}
         label={`${name} ${tab.program}, live frame ${shown?.frame ?? 0}`}
-        onRestart={restartFromExitBar}
+        onRestart={restart}
         onClose={close}
       />
       <div className="h-px shrink-0 bg-border" role="none" />

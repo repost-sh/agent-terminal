@@ -1,5 +1,5 @@
 import { Copy, type LucideIcon } from "lucide-react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode, Ref } from "react";
 
 import { toast } from "./toaster";
 
@@ -40,6 +40,7 @@ const ICON_BUTTON = {
 };
 
 type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  ref?: Ref<HTMLButtonElement>;
   label: string;
   icon: LucideIcon;
   glyph?: ReactNode;
@@ -52,6 +53,20 @@ export const IconButton = ({ label, icon: Icon, glyph, tooltip, kind = "tool", c
     {glyph ?? <Icon aria-hidden="true" />}
     <span className="sr-only">{label}</span>
   </button>
+);
+
+type IconLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  tooltip?: string;
+};
+
+export const IconLink = ({ label, icon: Icon, tooltip, className, ...rest }: IconLinkProps) => (
+  <a data-tooltip={tooltip ?? label} className={cn(ICON_BUTTON.tool, className)} {...rest}>
+    <Icon aria-hidden="true" />
+    <span className="sr-only">{label}</span>
+  </a>
 );
 
 const BADGE = {

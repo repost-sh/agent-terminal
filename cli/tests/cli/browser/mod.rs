@@ -2,6 +2,7 @@ mod close_all;
 mod empty;
 mod new_session;
 mod sidebar;
+mod split;
 mod terminal;
 mod toolbar;
 
@@ -74,8 +75,14 @@ impl Browser {
 
     #[track_caller]
     pub fn wait_for_screen(&self, text: &str) {
+        self.wait_for_screen_in("main", text);
+    }
+
+    #[track_caller]
+    pub fn wait_for_screen_in(&self, scope: &str, text: &str) {
         self.wait_until(&format!(
-            "document.querySelector('.xterm-accessibility-tree')?.textContent.includes({})",
+            "document.querySelector({})?.textContent.includes({})",
+            js_string(&format!("{scope} .xterm-accessibility-tree")),
             js_string(text)
         ));
     }
@@ -127,8 +134,12 @@ impl Browser {
     }
 
     pub fn screen(&self) -> Vec<String> {
+        self.screen_in("main")
+    }
+
+    pub fn screen_in(&self, scope: &str) -> Vec<String> {
         let mut rows: Vec<String> = Vec::new();
-        for line in self.snapshot(".xterm-accessibility-tree").lines().map(str::trim) {
+        for line in self.snapshot(&format!("{scope} .xterm-accessibility-tree")).lines().map(str::trim) {
             if line.starts_with("- listitem") {
                 rows.push(String::new());
             } else if let (Some(row), Some(text)) = (rows.last_mut(), line.strip_prefix("- StaticText ")) {
