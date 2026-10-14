@@ -16,15 +16,18 @@ const BUTTON_VARIANT = {
 
 const BUTTON_SIZE = {
   sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] [&_svg]:size-3.5",
+  "icon-sm": "size-7 rounded-[min(var(--radius-md),12px)] text-sm [&_svg]:size-4",
 };
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  ref?: Ref<HTMLButtonElement>;
   variant?: keyof typeof BUTTON_VARIANT;
+  size?: keyof typeof BUTTON_SIZE;
   icon?: LucideIcon;
 };
 
-export const Button = ({ variant = "default", icon: Icon, className, children, ...rest }: ButtonProps) => (
-  <button type="button" className={cn(BUTTON_BASE, BUTTON_VARIANT[variant], BUTTON_SIZE.sm, className)} {...rest}>
+export const Button = ({ variant = "default", size = "sm", icon: Icon, className, children, ...rest }: ButtonProps) => (
+  <button type="button" className={cn(BUTTON_BASE, BUTTON_VARIANT[variant], BUTTON_SIZE[size], className)} {...rest}>
     {Icon && <Icon aria-hidden="true" />}
     {children}
   </button>
@@ -105,7 +108,7 @@ export const Dot = ({ tone, className }: { tone: Tone; className?: string }) => 
   <span aria-hidden="true" className={cn("inline-block size-2 shrink-0 rounded-full", DOT[tone], className)} />
 );
 
-const copy = async (value: string) => {
+export const copy = async (value: string) => {
   try {
     await navigator.clipboard.writeText(value);
     toast("success", "Copied", value);

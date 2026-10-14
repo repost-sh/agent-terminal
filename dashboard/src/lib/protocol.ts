@@ -74,3 +74,22 @@ export type CommandsUpdate = {
 export type CommandsStreamUpdate = CommandsUpdate | { type: "closed" };
 
 export type CommandOutput = CommandRecord & { session: string; tab: string; output: string };
+
+export type Screenshot = {
+  time: string;
+  tab: string;
+  frame: number;
+  path: string;
+  by: string | null;
+  width: number;
+  height: number;
+  scale: number;
+  cols: number;
+  rows: { first: number; last: number };
+};
+
+export type ScreenshotsUpdate = { type: "screenshots"; screenshots: Screenshot[] } | { type: "closed" };
+
+export type CellBox = { x: number; y: number; width: number; height: number };
+
+export type Compared = { changed: number | null; boxes: CellBox[] };

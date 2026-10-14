@@ -204,7 +204,7 @@ fn a_screenshot_call_shows_the_picture_it_saved_as_a_thumbnail() {
     at.run(&["screenshot", &shot.to_string_lossy()]).success();
     wait_for_calls(&browser, 2);
 
-    let thumbnail = format!("document.querySelector(\"{CALLS}:nth-child(2) a img\")");
+    let thumbnail = format!("document.querySelector(\"{CALLS}:nth-child(2) button img\")");
     browser.wait_until(&format!("{thumbnail}?.complete === true && {thumbnail}.naturalWidth > 0"));
     let png = std::fs::read(&shot).expect("the saved screenshot");
     let size = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
@@ -212,6 +212,6 @@ fn a_screenshot_call_shows_the_picture_it_saved_as_a_thumbnail() {
         browser.eval(&format!("[{thumbnail}.naturalWidth, {thumbnail}.naturalHeight].join('x')")),
         format!("\"{}x{}\"", size(16), size(20))
     );
-    browser.run(&["find", "role", "link", "hover", "--name", "Open screenshot evidence.png", "--exact"]);
-    assert_eq!(browser.eval(&format!("document.querySelectorAll(\"{CALLS}:nth-child(1) a img\").length")), "0");
+    browser.run(&["find", "role", "button", "hover", "--name", "Open screenshot evidence.png", "--exact"]);
+    assert_eq!(browser.eval(&format!("document.querySelectorAll(\"{CALLS}:nth-child(1) img\").length")), "0");
 }

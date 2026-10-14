@@ -3,6 +3,7 @@ mod commands;
 mod empty;
 mod info;
 mod output;
+mod screenshots;
 mod sidebar;
 mod split;
 mod terminal;
