@@ -51,6 +51,25 @@ pub enum Request {
         regex: bool,
         all: bool,
     },
+    Mark {
+        session: String,
+        name: String,
+    },
+    Output {
+        session: String,
+        since: Option<String>,
+        raw: bool,
+    },
+    DiffSnapshot {
+        session: String,
+        baseline: Option<Baseline>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Baseline {
+    pub name: String,
+    pub lines: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default)]
@@ -104,6 +123,41 @@ pub enum Reply {
     Stopped,
     Fact(Fact),
     Matches(Matches),
+    Marked(Marked),
+    Printed(Printed),
+    Diff(SnapshotDiff),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SnapshotDiff {
+    pub since: DiffBase,
+    pub frame: u64,
+    pub changes: Vec<RowChange>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum DiffBase {
+    Frame(u64),
+    Baseline(String),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RowChange {
+    pub row: u16,
+    pub before: String,
+    pub after: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Marked {
+    pub mark: String,
+    pub frame: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Printed {
+    pub output: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

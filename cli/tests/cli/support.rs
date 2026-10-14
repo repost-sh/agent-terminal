@@ -82,6 +82,31 @@ impl Run {
     }
 }
 
+pub struct Cue {
+    dir: tempfile::TempDir,
+}
+
+impl Cue {
+    pub fn new() -> Self {
+        let dir = tempfile::Builder::new().prefix("cue-").tempdir_in("/tmp").expect("temp cue folder");
+        for fifo in ["cue", "ack"] {
+            let status = Command::new("mkfifo").arg(dir.path().join(fifo)).status().expect("run mkfifo");
+            assert!(status.success(), "mkfifo {fifo} failed");
+        }
+        Self { dir }
+    }
+
+    pub fn dir(&self) -> String {
+        self.dir.path().to_string_lossy().into_owned()
+    }
+
+    pub fn print(&self, text: &str) {
+        std::fs::write(self.dir.path().join("cue"), text).expect("send the cue");
+        let ack = std::fs::read_to_string(self.dir.path().join("ack")).expect("read the acknowledgement");
+        assert_eq!(ack, "printed\n");
+    }
+}
+
 pub fn fixture(name: &str) -> String {
     static BUILT: OnceLock<PathBuf> = OnceLock::new();
     let dir = BUILT.get_or_init(|| {

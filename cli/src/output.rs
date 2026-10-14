@@ -1,4 +1,4 @@
-use crate::protocol::{ErrorBody, Exit, Fact, Modes, Reply, Snapshot};
+use crate::protocol::{DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Snapshot, SnapshotDiff};
 
 pub fn screen(s: &Snapshot) -> String {
     let mut header = vec![format!("{} {}", s.session, s.tab), s.program.clone(), format!("{}x{}", s.cols, s.rows)];
@@ -22,7 +22,7 @@ pub fn screen(s: &Snapshot) -> String {
 
     let mut out = header.join(" · ");
     out.push('\n');
-    let scrollback = s.scrollback.as_deref().unwrap_or_default();
+    let scrollback = s.scrollback.as_deref().unwrap_or(&[]);
     let width =
         s.rows.to_string().len().max(if scrollback.is_empty() { 0 } else { scrollback.len().to_string().len() + 1 });
     for (i, line) in scrollback.iter().enumerate() {
@@ -65,7 +65,53 @@ pub fn reply(reply: &Reply, json: bool) {
                 println!("{},{} {}", found.row, found.col, found.text);
             }
         }
+        Reply::Marked(marked) if json => println!("{}", serde_json::json!(marked)),
+        Reply::Marked(marked) => println!("marked {} at frame {}", marked.mark, marked.frame),
+        Reply::Printed(printed) if json => println!("{}", serde_json::json!(printed)),
+        Reply::Printed(printed) => print!("{}", printed.output),
+        Reply::Diff(diff) if json => println!("{}", serde_json::json!(diff)),
+        Reply::Diff(diff) => print!("{}", diff_text(diff)),
     }
+}
+
+fn diff_text(diff: &SnapshotDiff) -> String {
+    let from = match &diff.since {
+        DiffBase::Baseline(baseline) => baseline.clone(),
+        DiffBase::Frame(frame) => format!("frame {frame}"),
+    };
+    let changed = match diff.changes.len() {
+        0 => "no rows changed".to_string(),
+        1 => "1 row changed".to_string(),
+        n => format!("{n} rows changed"),
+    };
+    let mut out = format!("{from} → frame {} · {changed}\n", diff.frame);
+    let width = diff.changes.iter().map(|change| change.row.to_string().len()).max().unwrap_or(1);
+    for change in &diff.changes {
+        out.push_str(&format!("-{:>width$}│{}\n+{:>width$}│{}\n", change.row, change.before, change.row, change.after));
+    }
+    out
+}
+
+pub fn saved_rows(saved: &str) -> Option<Vec<String>> {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(saved) {
+        let first = json.get("first_row").and_then(|first| first.as_u64()).unwrap_or(1) as usize;
+        let lines = json.get("lines")?.as_array()?;
+        let mut rows = vec![String::new(); first.saturating_sub(1)];
+        rows.extend(lines.iter().map(|line| line.as_str().map(str::to_string)).collect::<Option<Vec<_>>>()?);
+        return Some(rows);
+    }
+    let mut rows = Vec::new();
+    let mut numbered = false;
+    for (label, text) in saved.lines().filter_map(|line| line.split_once('│')) {
+        numbered = true;
+        if let Ok(row @ 1..) = label.trim().parse::<usize>() {
+            if rows.len() < row {
+                rows.resize(row, String::new());
+            }
+            rows[row - 1] = text.to_string();
+        }
+    }
+    numbered.then_some(rows)
 }
 
 fn fact_text(fact: &Fact) -> String {

@@ -5,7 +5,7 @@ use clap::{Args, Parser, Subcommand};
 use crate::connection;
 use crate::native::daemon;
 use crate::output;
-use crate::protocol::{Get, Request, Response, RowRange, Scrollback, Size, SnapshotOptions, Wait};
+use crate::protocol::{Baseline, Get, Request, Response, RowRange, Scrollback, Size, SnapshotOptions, Wait};
 
 #[derive(Parser)]
 #[command(name = "agent-terminal", version, about = "Fast terminal automation CLI for AI agents")]
@@ -53,6 +53,27 @@ enum Command {
         regex: bool,
         #[arg(long, help = "Also look in the scrollback above the screen (negative rows)")]
         all: bool,
+    },
+    #[command(about = "Name this point in the output, to read or clip from later")]
+    Mark {
+        #[arg(help = "Name of the point, e.g. before-login")]
+        name: String,
+    },
+    #[command(about = "What the program printed since a point (--raw keeps escape codes)")]
+    Output {
+        #[arg(
+            long,
+            help = "A mark name or a frame number (default: since the program started)",
+            value_name = "MARK|FRAME"
+        )]
+        since: Option<String>,
+        #[arg(long, help = "Keep escape codes and carriage returns as the program sent them")]
+        raw: bool,
+    },
+    #[command(about = "Compare the screen with an earlier one")]
+    Diff {
+        #[command(subcommand)]
+        what: DiffCommand,
     },
     #[command(hide = true)]
     Daemon {
@@ -175,6 +196,15 @@ impl GetCommand {
 }
 
 #[derive(Subcommand)]
+enum DiffCommand {
+    #[command(about = "Rows that changed since the last snapshot (or since a saved one)")]
+    Snapshot {
+        #[arg(long, help = "Compare with a snapshot saved to this file instead", value_name = "FILE")]
+        baseline: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 enum DaemonAction {
     Run,
     Stop,
@@ -218,6 +248,15 @@ pub fn run() -> i32 {
         Command::Close { all } => Request::Close { session, all },
         Command::Get { what } => Request::Get { session, what: what.request() },
         Command::Find { text, regex, all } => Request::Find { session, text, regex, all },
+        Command::Mark { name } => Request::Mark { session, name },
+        Command::Output { since, raw } => Request::Output { session, since, raw },
+        Command::Diff { what: DiffCommand::Snapshot { baseline } } => {
+            let baseline = match baseline.map(|path| read_baseline(&path)).transpose() {
+                Ok(baseline) => baseline,
+                Err(message) => return output::fail(&message, crate::exit::ERROR),
+            };
+            Request::DiffSnapshot { session, baseline }
+        }
     };
 
     let is_stop = matches!(request, Request::Stop);
@@ -243,6 +282,14 @@ fn parse_size(value: &str) -> Result<Size, String> {
         return Err("columns and rows must be between 2 and 1000".into());
     }
     Ok(Size { cols, rows })
+}
+
+fn read_baseline(path: &std::path::Path) -> Result<Baseline, String> {
+    let name = path.display().to_string();
+    let saved = std::fs::read_to_string(path).map_err(|e| format!("read the baseline {name}: {e}"))?;
+    let lines = output::saved_rows(&saved)
+        .ok_or_else(|| format!("{name} is not a snapshot; save one with `agent-terminal snapshot > {name}`"))?;
+    Ok(Baseline { name, lines })
 }
 
 fn parse_rows(value: &str) -> Result<RowRange, String> {

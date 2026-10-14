@@ -214,9 +214,20 @@ impl EventListener for Events {
 #[derive(Default)]
 struct Stream {
     cwd: Option<String>,
+    printed: String,
 }
 
 impl Perform for Stream {
+    fn print(&mut self, c: char) {
+        self.printed.push(c);
+    }
+
+    fn execute(&mut self, byte: u8) {
+        if matches!(byte, b'\n' | b'\t') {
+            self.printed.push(byte as char);
+        }
+    }
+
     fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
         if let [b"7", url @ ..] = params
             && let Some(cwd) = file_url_path(&url.join(&b';'))
@@ -356,6 +367,10 @@ impl Screen {
 
     pub fn title(&self) -> Option<String> {
         self.events.0.lock().unwrap().title.clone()
+    }
+
+    pub fn take_printed(&mut self) -> String {
+        std::mem::take(&mut self.stream.printed)
     }
 
     pub fn reported_cwd(&self) -> Option<String> {

@@ -4,9 +4,13 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
+use crate::native::output_log::OutputLog;
 use crate::native::pty::{self, Killer};
 use crate::native::screen::Screen;
-use crate::protocol::{Cursor, Exit, Fact, Get, Match, RowRange, Scrollback, Snapshot, SnapshotOptions, Wait};
+use crate::protocol::{
+    Baseline, Cursor, DiffBase, Exit, Fact, Get, Match, RowChange, RowRange, Scrollback, Snapshot, SnapshotDiff,
+    SnapshotOptions, Wait,
+};
 
 pub struct Terminal {
     pub program: String,
@@ -23,6 +27,13 @@ struct State {
     frame: u64,
     last_change: Instant,
     exit: Option<Option<i32>>,
+    log: OutputLog,
+    last_shown: Option<Shown>,
+}
+
+struct Shown {
+    frame: u64,
+    lines: Vec<String>,
 }
 
 pub enum Settled {
@@ -41,7 +52,14 @@ impl Terminal {
             program,
             pid: spawned.pid,
             cwd,
-            state: Mutex::new(State { screen: Screen::new(size), frame: 0, last_change: Instant::now(), exit: None }),
+            state: Mutex::new(State {
+                screen: Screen::new(size),
+                frame: 0,
+                last_change: Instant::now(),
+                exit: None,
+                log: OutputLog::default(),
+                last_shown: None,
+            }),
             changed: Condvar::new(),
             writer: Mutex::new(spawned.writer),
             killer: Mutex::new(spawned.killer),
@@ -84,6 +102,9 @@ impl Terminal {
         let replies = {
             let mut state = self.state.lock().unwrap();
             let replies = state.screen.feed(bytes);
+            let printed = state.screen.take_printed();
+            let frame = state.frame;
+            state.log.record(frame, bytes, printed.as_bytes());
             state.frame += 1;
             state.last_change = Instant::now();
             replies
@@ -98,13 +119,13 @@ impl Terminal {
     }
 
     pub fn snapshot(&self, session: &str, tab: &str) -> Snapshot {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         let rows = state.screen.view().size.rows;
-        self.render(&state, session, tab, RowRange { first: 1, last: rows }, &SnapshotOptions::default())
+        self.render(&mut state, session, tab, RowRange { first: 1, last: rows }, &SnapshotOptions::default())
     }
 
     pub fn snapshot_with(&self, session: &str, tab: &str, options: &SnapshotOptions) -> Result<Snapshot, String> {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         let size = state.screen.view().size;
         let range = match options.rows {
             None => RowRange { first: 1, last: size.rows },
@@ -113,11 +134,19 @@ impl Terminal {
             }
             Some(RowRange { first, last }) => RowRange { first, last: last.min(size.rows) },
         };
-        Ok(self.render(&state, session, tab, range, options))
+        Ok(self.render(&mut state, session, tab, range, options))
     }
 
-    fn render(&self, state: &State, session: &str, tab: &str, range: RowRange, options: &SnapshotOptions) -> Snapshot {
+    fn render(
+        &self,
+        state: &mut State,
+        session: &str,
+        tab: &str,
+        range: RowRange,
+        options: &SnapshotOptions,
+    ) -> Snapshot {
         let view = state.screen.view();
+        state.last_shown = Some(Shown { frame: state.frame, lines: view.lines.clone() });
         let history = state.screen.scrollback_len();
         let scrollback = match options.scrollback {
             Scrollback::None => None,
@@ -189,6 +218,39 @@ impl Terminal {
             return Err(format!("{text:?} is not {place}"));
         }
         Ok(matches)
+    }
+
+    pub fn diff_snapshot(&self, baseline: Option<Baseline>) -> Result<SnapshotDiff, String> {
+        let mut state = self.state.lock().unwrap();
+        let current = Shown { frame: state.frame, lines: state.screen.view().lines };
+        let (since, before) = match (baseline, state.last_shown.take()) {
+            (Some(baseline), _) => (DiffBase::Baseline(baseline.name), baseline.lines),
+            (None, Some(shown)) => (DiffBase::Frame(shown.frame), shown.lines),
+            (None, None) => {
+                return Err("nothing to compare with; take a snapshot first with `agent-terminal snapshot`".into());
+            }
+        };
+        let rows = before.len().max(current.lines.len());
+        let row = |lines: &[String], i: usize| lines.get(i).map_or("", String::as_str).to_string();
+        let changes = (0..rows)
+            .map(|i| RowChange { row: i as u16 + 1, before: row(&before, i), after: row(&current.lines, i) })
+            .filter(|change| change.before != change.after)
+            .collect();
+        let frame = current.frame;
+        state.last_shown = Some(current);
+        Ok(SnapshotDiff { since, frame, changes })
+    }
+
+    pub fn mark(&self, name: String) -> u64 {
+        let mut state = self.state.lock().unwrap();
+        let frame = state.frame;
+        state.log.mark(name, frame);
+        frame
+    }
+
+    pub fn printed(&self, since: Option<&str>, raw: bool) -> Result<String, String> {
+        let state = self.state.lock().unwrap();
+        state.log.since(since, raw, state.frame)
     }
 
     pub fn wait(&self, until: &Wait, timeout: Duration) -> Settled {

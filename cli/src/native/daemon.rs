@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use crate::connection::{READY, home, socket_path};
 use crate::native::pty;
 use crate::native::terminal::{Settled, Terminal};
-use crate::protocol::{self, Closed, ErrorBody, Matches, Reply, Request, Response, TabRef, Wait};
+use crate::protocol::{self, Closed, ErrorBody, Marked, Matches, Printed, Reply, Request, Response, TabRef, Wait};
 
 #[derive(Default)]
 struct Daemon {
@@ -97,6 +97,20 @@ impl Daemon {
                 let (_, terminal) = self.current(&session)?;
                 let matches = terminal.find(&text, regex, all).map_err(failure)?;
                 Ok(Reply::Matches(Matches { matches }))
+            }
+            Request::Mark { session, name } => {
+                let (_, terminal) = self.current(&session)?;
+                let frame = terminal.mark(name.clone());
+                Ok(Reply::Marked(Marked { mark: name, frame }))
+            }
+            Request::Output { session, since, raw } => {
+                let (_, terminal) = self.current(&session)?;
+                let output = terminal.printed(since.as_deref(), raw).map_err(failure)?;
+                Ok(Reply::Printed(Printed { output }))
+            }
+            Request::DiffSnapshot { session, baseline } => {
+                let (_, terminal) = self.current(&session)?;
+                terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(failure)
             }
             Request::Stop => {
                 self.close_all();
