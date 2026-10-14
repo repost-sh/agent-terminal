@@ -7,17 +7,19 @@ use tokio::sync::watch;
 
 use crate::key::{Key, KeyCode, Mods};
 use crate::native::changes::Changes;
+use crate::native::commands::{Commands, Point, Submitted};
 use crate::native::keyboard;
 use crate::native::mouse::{self, Action};
 use crate::native::output_log::OutputLog;
 use crate::native::pty::{self, Killer, Signaller, Spawned};
 use crate::native::recording::Recording;
 use crate::native::refs::{self, Found};
-use crate::native::screen::Screen;
+use crate::native::screen::{Screen, ShellReport};
 use crate::native::wait::{self, Condition, Moment, Verdict};
 use crate::protocol::{
-    Baseline, Cell, ClickTarget, Cursor, Delivery, DiffBase, Direction, Exit, Fact, Get, Input, Match, MouseButton,
-    MouseEvent, Ref, RowChange, RowRange, ScrollBy, Scrollback, Size, Snapshot, SnapshotDiff, SnapshotOptions, TabInfo,
+    Baseline, Cell, ClickTarget, CommandRecord, Cursor, Delivery, DiffBase, Direction, Exit, Fact, Get, Input, Match,
+    MouseButton, MouseEvent, Ref, RowChange, RowRange, ScrollBy, Scrollback, Shell, Size, Snapshot, SnapshotDiff,
+    SnapshotOptions, TabInfo,
 };
 
 pub struct Terminal {
@@ -32,6 +34,7 @@ pub struct Terminal {
     master: pty::Master,
     signaller: Box<dyn Signaller>,
     command: pty::Command,
+    shell: Option<Shell>,
     recording: Arc<Recording>,
     frames: Changes,
     lifecycle: Changes,
@@ -62,6 +65,7 @@ struct State {
     mouse_held: Option<MouseButton>,
     watches: Vec<Watch>,
     next_watch: u64,
+    commands: Option<Commands>,
 }
 
 struct Listed {
@@ -82,25 +86,31 @@ struct Watch {
 
 impl State {
     fn moment(&self) -> Moment<'_> {
-        Moment::new(&self.screen, self.frame, self.last_change, self.last_output, self.exit.is_some())
+        let prompt = self.commands.as_ref().map(Commands::prompt);
+        Moment::new(&self.screen, self.frame, self.last_change, self.last_output, self.exit.is_some(), prompt)
     }
 
     fn refresh(&mut self, now: Instant) {
+        self.advance(now);
+        self.publish();
+    }
+
+    fn advance(&mut self, now: Instant) {
         let look = self.screen.fingerprint();
         if look != self.look {
             self.look = look;
             self.frame += 1;
             self.last_change = now;
         }
-        self.publish();
     }
 
     fn publish(&mut self) {
-        let State { screen, frame, last_change, last_output, exit, watches, .. } = self;
+        let State { screen, frame, last_change, last_output, exit, watches, commands, .. } = self;
         if watches.iter().all(|watch| watch.met.is_some()) {
             return;
         }
-        let moment = Moment::new(screen, *frame, *last_change, *last_output, exit.is_some());
+        let prompt = commands.as_ref().map(Commands::prompt);
+        let moment = Moment::new(screen, *frame, *last_change, *last_output, exit.is_some(), prompt);
         for watch in watches.iter_mut().filter(|watch| watch.met.is_none()) {
             if let Verdict::Met = watch.condition.judge(&moment) {
                 watch.met = Some(*frame);
@@ -116,12 +126,19 @@ pub enum Settled {
 }
 
 impl Terminal {
-    pub fn start(command: pty::Command, spawned: Spawned, recording: Arc<Recording>, lifecycle: Changes) -> Arc<Self> {
+    pub fn start(
+        command: pty::Command,
+        shell: Option<Shell>,
+        spawned: Spawned,
+        recording: Arc<Recording>,
+        lifecycle: Changes,
+    ) -> Arc<Self> {
         let program = display_name(&command.program);
         let size = command.size;
         let cwd = command.cwd.to_string_lossy().into_owned();
         let screen = Screen::new(size);
         let started = Instant::now();
+        let commands = shell.map(|_| Commands::new(cwd.clone()));
         let terminal = Arc::new(Self {
             program,
             pid: spawned.pid,
@@ -139,6 +156,7 @@ impl Terminal {
                 mouse_held: None,
                 watches: Vec::new(),
                 next_watch: 0,
+                commands,
             }),
             changed: Condvar::new(),
             input_turn: Mutex::new(()),
@@ -147,6 +165,7 @@ impl Terminal {
             master: spawned.master,
             signaller: spawned.signaller,
             command,
+            shell,
             recording,
             frames: Changes::default(),
             lifecycle,
@@ -193,11 +212,21 @@ impl Terminal {
             self.recording.output(bytes);
             let replies = state.screen.feed(bytes);
             let printed = state.screen.take_printed();
+            let reports = state.screen.take_shell_reports();
             let frame = state.frame;
+            let start = state.log.text_end();
             state.log.record(frame, bytes, printed.as_bytes());
             let now = Instant::now();
             state.last_output = now;
-            state.refresh(now);
+            state.advance(now);
+            let shown = state.frame;
+            if let Some(commands) = &mut state.commands {
+                for (at, report) in reports {
+                    let frame = if matches!(report, ShellReport::Started { .. }) { frame } else { shown };
+                    commands.report(report, Point { output: start + at as u64, frame });
+                }
+            }
+            state.publish();
             replies
         };
         self.changed.notify_all();
@@ -589,7 +618,14 @@ impl Terminal {
     }
 
     fn write(&self, bytes: &[u8]) -> Result<()> {
-        self.ensure_running()?;
+        {
+            let mut state = self.running()?;
+            if let Some(commands) = &mut state.commands
+                && bytes.iter().any(|byte| matches!(byte, b'\r' | b'\n'))
+            {
+                commands.entered();
+            }
+        }
         let mut writer = self.writer.lock().unwrap();
         writer.write_all(bytes).and_then(|()| writer.flush()).with_context(|| format!("write to {}", self.program))?;
         self.recording.input(bytes);
@@ -609,6 +645,43 @@ impl Terminal {
                 self.program
             ),
         )
+    }
+
+    pub fn shell(&self) -> Option<Shell> {
+        self.shell
+    }
+
+    pub fn submit(&self, line: &str) -> Result<Option<Submitted>> {
+        let _turn = self.input_turn.lock().unwrap();
+        let submitted = {
+            let state = self.state.lock().unwrap();
+            match &state.commands {
+                Some(commands) if commands.prompt().ready => commands.submitted(),
+                _ => return Ok(None),
+            }
+        };
+        let mut bytes = line.as_bytes().to_vec();
+        bytes.push(b'\r');
+        self.write(&bytes)?;
+        Ok(Some(submitted))
+    }
+
+    pub fn running_command(&self) -> Option<String> {
+        self.state.lock().unwrap().commands.as_ref().and_then(|commands| commands.running().map(str::to_string))
+    }
+
+    pub fn last_exit_code(&self) -> Option<i32> {
+        self.state.lock().unwrap().commands.as_ref().and_then(Commands::last_exit_code)
+    }
+
+    pub fn commands(&self) -> Option<Vec<CommandRecord>> {
+        self.state.lock().unwrap().commands.as_ref().map(Commands::records)
+    }
+
+    pub fn command(&self, id: u32) -> Option<(CommandRecord, String)> {
+        let state = self.state.lock().unwrap();
+        let (record, from, to) = state.commands.as_ref()?.record(id)?;
+        Some((record, state.log.text_between(from, to)))
     }
 
     pub fn exit_status(&self) -> Option<Option<i32>> {
