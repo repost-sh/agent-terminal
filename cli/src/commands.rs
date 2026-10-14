@@ -1,0 +1,168 @@
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+
+use crate::connection;
+use crate::native::daemon;
+use crate::output;
+use crate::protocol::{Closed, Request, Response, Snapshot};
+
+#[derive(Parser)]
+#[command(name = "agent-terminal", version, about = "Fast terminal automation CLI for AI agents")]
+struct Cli {
+    #[arg(
+        long,
+        global = true,
+        help = "Use a named session (or AGENT_TERMINAL_SESSION)",
+        env = "AGENT_TERMINAL_SESSION",
+        default_value = "default"
+    )]
+    session: String,
+
+    #[arg(long, global = true, help = "JSON output")]
+    json: bool,
+
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    #[command(about = "Run a program in a new terminal (prints the first stable screen)")]
+    Open(OpenArgs),
+    #[command(about = "The screen as text: header, numbered rows, cursor")]
+    Snapshot,
+    #[command(about = "Close the current tab (--all closes every session)")]
+    Close {
+        #[arg(long, help = "Close every tab in every session")]
+        all: bool,
+    },
+    #[command(hide = true)]
+    Daemon {
+        #[command(subcommand)]
+        action: DaemonAction,
+    },
+}
+
+#[derive(Args)]
+struct OpenArgs {
+    #[arg(long, help = "Terminal size", value_name = "COLSxROWS", default_value = "120x40", value_parser = parse_size)]
+    size: (u16, u16),
+
+    #[arg(long, help = "Working directory (default: the current directory)")]
+    cwd: Option<PathBuf>,
+
+    #[arg(long = "env", help = "Extra environment variable (repeatable)", value_name = "K=V", value_parser = parse_env)]
+    env: Vec<(String, String)>,
+
+    #[arg(
+        long,
+        help = "How long the screen must stay unchanged to count as stable",
+        value_name = "MS",
+        default_value_t = 300
+    )]
+    wait_stable: u64,
+
+    #[arg(long, help = "Give up waiting after this long", value_name = "MS", default_value_t = 25_000)]
+    timeout: u64,
+
+    #[arg(
+        help = "The program and its arguments",
+        required = true,
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        value_name = "PROGRAM"
+    )]
+    command: Vec<String>,
+}
+
+#[derive(Subcommand)]
+enum DaemonAction {
+    Run,
+    Stop,
+}
+
+pub fn run() -> i32 {
+    let cli = Cli::parse();
+    let session = cli.session;
+    let request = match cli.command {
+        Command::Daemon { action: DaemonAction::Run } => {
+            return match daemon::run() {
+                Ok(()) => 0,
+                Err(e) => output::fail(&format!("{e:#}"), 1),
+            };
+        }
+        Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
+        Command::Open(args) => {
+            let cwd = match args.cwd.map_or_else(std::env::current_dir, Ok) {
+                Ok(cwd) => cwd,
+                Err(e) => return output::fail(&format!("current directory: {e}"), 1),
+            };
+            let mut env: Vec<(String, String)> =
+                std::env::vars().filter(|(k, _)| !args.env.iter().any(|(o, _)| o == k)).collect();
+            env.extend(args.env);
+            let mut command = args.command.into_iter();
+            Request::Open {
+                session,
+                program: command.next().expect("clap requires a program"),
+                args: command.collect(),
+                cols: args.size.0,
+                rows: args.size.1,
+                cwd,
+                env,
+                wait_stable_ms: args.wait_stable,
+                timeout_ms: args.timeout,
+            }
+        }
+        Command::Snapshot => Request::Snapshot { session },
+        Command::Close { all } => Request::Close { session, all },
+    };
+
+    let is_stop = matches!(request, Request::Stop);
+    let response = match connection::send(&request, !is_stop) {
+        Ok(Some(response)) => response,
+        Ok(None) => return 0,
+        Err(e) => return output::fail(&format!("{e:#}"), 1),
+    };
+    match response {
+        Response::Err { error } => output::error(&error, cli.json),
+        Response::Ok { ok } if cli.json => {
+            println!("{ok}");
+            0
+        }
+        Response::Ok { ok } => {
+            match request {
+                Request::Open { .. } | Request::Snapshot { .. } => {
+                    let snapshot: Snapshot = serde_json::from_value(ok).expect("daemon sends a snapshot");
+                    print!("{}", output::screen(&snapshot));
+                }
+                Request::Close { .. } => {
+                    let closed: Closed = serde_json::from_value(ok).expect("daemon sends closed tabs");
+                    for tab in closed.closed {
+                        println!("closed {} {}", tab.session, tab.tab);
+                    }
+                }
+                Request::Stop => {}
+            }
+            0
+        }
+    }
+}
+
+fn parse_size(value: &str) -> Result<(u16, u16), String> {
+    let (cols, rows) = value.split_once('x').ok_or("expected COLSxROWS, e.g. 120x40")?;
+    let cols: u16 = cols.parse().map_err(|_| format!("invalid column count: {cols}"))?;
+    let rows: u16 = rows.parse().map_err(|_| format!("invalid row count: {rows}"))?;
+    if !(2..=1000).contains(&cols) || !(2..=1000).contains(&rows) {
+        return Err("columns and rows must be between 2 and 1000".into());
+    }
+    Ok((cols, rows))
+}
+
+fn parse_env(value: &str) -> Result<(String, String), String> {
+    let (key, value) = value.split_once('=').ok_or("expected K=V")?;
+    if key.is_empty() {
+        return Err("expected K=V".into());
+    }
+    Ok((key.to_string(), value.to_string()))
+}

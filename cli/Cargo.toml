@@ -1,0 +1,41 @@
+[package]
+name = "agent-terminal"
+version = "0.1.0"
+edition = "2024"
+description = "Fast terminal automation CLI for AI agents"
+license = "Apache-2.0"
+repository = "https://github.com/repost-sh/agent-terminal"
+readme = "../README.md"
+keywords = ["terminal", "tui", "automation", "ai", "pty"]
+categories = ["command-line-utilities", "development-tools::testing"]
+
+[workspace]
+members = ["tests/fixtures"]
+
+[dependencies]
+alacritty_terminal = "0.26"
+anyhow = "1"
+clap = { version = "4.6", features = ["derive", "env"] }
+portable-pty = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+insta = "1.49"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+allow_attributes = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[lints]
+workspace = true
