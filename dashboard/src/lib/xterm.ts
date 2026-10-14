@@ -2,7 +2,6 @@ import "@xterm/xterm/css/xterm.css";
 
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type ITheme } from "@xterm/xterm";
-import { useEffect, useState } from "react";
 
 export const LARGEST_FONT_PX = 13;
 
@@ -37,34 +36,7 @@ const fontsReady = () =>
     console.warn("agent-terminal: the terminal font did not load; using a fallback", error),
   );
 
-export const useXterm = () => {
-  const [terminal, setTerminal] = useState<Terminal | null>(null);
-  useEffect(() => {
-    let created: Terminal | null = null;
-    let disposed = false;
-    fontsReady().then(() => {
-      if (disposed) return;
-      created = new Terminal({
-        fontFamily: FONT,
-        fontSize: LARGEST_FONT_PX,
-        scrollback: 0,
-        disableStdin: true,
-        screenReaderMode: true,
-        cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches,
-        cursorInactiveStyle: "block",
-        theme: PALETTE,
-      });
-      setTerminal(created);
-    });
-    return () => {
-      disposed = true;
-      created?.dispose();
-    };
-  }, []);
-  return terminal;
-};
-
-export const drawWithWebgl = (terminal: Terminal) => {
+const drawWithWebgl = (terminal: Terminal) => {
   try {
     const webgl = new WebglAddon();
     webgl.onContextLoss(() => webgl.dispose());
@@ -72,4 +44,31 @@ export const drawWithWebgl = (terminal: Terminal) => {
   } catch (error) {
     console.warn("agent-terminal: WebGL is not available; drawing the terminal with the DOM renderer", error);
   }
+};
+
+export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () => void) => {
+  let terminal: Terminal | null = null;
+  let release = () => {};
+  let disposed = false;
+  fontsReady().then(() => {
+    if (disposed) return;
+    terminal = new Terminal({
+      fontFamily: FONT,
+      fontSize: LARGEST_FONT_PX,
+      scrollback: 0,
+      disableStdin: true,
+      screenReaderMode: true,
+      cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches,
+      cursorInactiveStyle: "block",
+      theme: PALETTE,
+    });
+    terminal.open(host);
+    drawWithWebgl(terminal);
+    release = use(terminal);
+  });
+  return () => {
+    disposed = true;
+    release();
+    terminal?.dispose();
+  };
 };

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Announcers } from "./components/announcer";
 import { Disconnected, NoSessions, NotFound, NotOpen } from "./components/empty-screens";
@@ -9,8 +9,8 @@ import { TabScreen } from "./components/tab-screen";
 import { Toaster } from "./components/toaster";
 import { TooltipLayer } from "./components/tooltip";
 import { useDaemon } from "./lib/daemon";
-import { navigate, parseRoute, tabRoute, usePath } from "./lib/route";
-import { findTab, firstTab, tabName } from "./lib/tabs";
+import { navigate, parseRoute, usePath } from "./lib/route";
+import { findTab, tabName } from "./lib/tabs";
 import { useTheme } from "./lib/theme";
 
 type Screen = { title: string | null; center: ReactNode; right?: ReactNode; selected?: Selected };
@@ -20,12 +20,6 @@ export const App = () => {
   const { theme, toggle } = useTheme();
   const [sidebarPct, setSidebarPct] = useState(15);
   const route = parseRoute(usePath());
-
-  const first = sessions ? firstTab(sessions) : null;
-  const redirect = route.kind === "home" && connection === "connected" && first ? tabRoute(first.session, first.tab) : null;
-  useEffect(() => {
-    if (redirect) navigate(redirect, { replace: true });
-  }, [redirect]);
 
   const screen = ((): Screen => {
     if (connection === "down") {
@@ -49,12 +43,9 @@ export const App = () => {
     };
   })();
 
-  useEffect(() => {
-    document.title = screen.title ? `${screen.title} · agent-terminal` : "agent-terminal";
-  }, [screen.title]);
-
   return (
     <>
+      <title>{screen.title ? `${screen.title} · agent-terminal` : "agent-terminal"}</title>
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:shadow-md"

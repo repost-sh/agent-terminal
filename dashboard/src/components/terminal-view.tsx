@@ -1,37 +1,35 @@
 import type { Terminal } from "@xterm/xterm";
 import { LoaderCircle, RotateCw } from "lucide-react";
-import { useEffect, useRef, type RefObject } from "react";
+import { useCallback, useRef, type RefObject } from "react";
 
 import type { StreamState, Shown } from "../lib/stream";
-import { drawWithWebgl, LARGEST_FONT_PX } from "../lib/xterm";
+import { LARGEST_FONT_PX, openTerminal } from "../lib/xterm";
 import { Button, cn } from "./ui";
 
 const PADDING_PX = 32;
 const FONT_STEP_PX = 0.25;
 
-const useFit = (terminal: Terminal | null, box: RefObject<HTMLDivElement | null>) => {
-  useEffect(() => {
-    const area = box.current;
-    const screen = terminal?.element?.querySelector<HTMLElement>(".xterm-screen");
-    if (!terminal || !area || !screen) return;
-    const fit = () => {
-      const drawn = screen.getBoundingClientRect();
-      if (!drawn.width || !drawn.height) return;
-      const current = terminal.options.fontSize ?? LARGEST_FONT_PX;
-      const room = Math.min((area.clientWidth - PADDING_PX) / drawn.width, (area.clientHeight - PADDING_PX) / drawn.height);
-      const wanted = Math.floor((current * room) / FONT_STEP_PX) * FONT_STEP_PX;
-      const next = Math.max(FONT_STEP_PX * 16, Math.min(LARGEST_FONT_PX, wanted));
-      if (Math.abs(next - current) >= FONT_STEP_PX) terminal.options.fontSize = next;
-    };
-    const observer = new ResizeObserver(fit);
-    observer.observe(area);
-    observer.observe(screen);
-    return () => observer.disconnect();
-  }, [terminal, box]);
+const fitFont = (terminal: Terminal, box: RefObject<HTMLDivElement | null>) => {
+  const area = box.current;
+  const screen = terminal.element?.querySelector<HTMLElement>(".xterm-screen");
+  if (!area || !screen) return () => {};
+  const fit = () => {
+    const drawn = screen.getBoundingClientRect();
+    if (!drawn.width || !drawn.height) return;
+    const current = terminal.options.fontSize ?? LARGEST_FONT_PX;
+    const room = Math.min((area.clientWidth - PADDING_PX) / drawn.width, (area.clientHeight - PADDING_PX) / drawn.height);
+    const wanted = Math.floor((current * room) / FONT_STEP_PX) * FONT_STEP_PX;
+    const next = Math.max(FONT_STEP_PX * 16, Math.min(LARGEST_FONT_PX, wanted));
+    if (Math.abs(next - current) >= FONT_STEP_PX) terminal.options.fontSize = next;
+  };
+  const observer = new ResizeObserver(fit);
+  observer.observe(area);
+  observer.observe(screen);
+  return () => observer.disconnect();
 };
 
 type ViewportProps = {
-  terminal: Terminal | null;
+  paint: (terminal: Terminal) => () => void;
   state: StreamState;
   shown: Shown | null;
   program: string;
@@ -40,16 +38,20 @@ type ViewportProps = {
   onClose: () => void;
 };
 
-export const Viewport = ({ terminal, state, shown, program, label, onRestart, onClose }: ViewportProps) => {
+export const Viewport = ({ paint, state, shown, program, label, onRestart, onClose }: ViewportProps) => {
   const box = useRef<HTMLDivElement>(null);
-  const host = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!terminal || !host.current || terminal.element) return;
-    terminal.open(host.current);
-    drawWithWebgl(terminal);
-  }, [terminal]);
-  useFit(terminal, box);
+  const host = useCallback(
+    (node: HTMLDivElement) =>
+      openTerminal(node, (terminal) => {
+        const stopFitting = fitFont(terminal, box);
+        const stopPainting = paint(terminal);
+        return () => {
+          stopPainting();
+          stopFitting();
+        };
+      }),
+    [paint],
+  );
 
   const loading = !shown || (shown.frame === 0 && !shown.exited);
   const dim = shown?.exited || state === "reconnecting";

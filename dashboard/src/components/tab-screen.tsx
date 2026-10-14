@@ -3,7 +3,6 @@ import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
 import { useTabStream } from "../lib/stream";
 import { firstTab, tabName } from "../lib/tabs";
-import { useXterm } from "../lib/xterm";
 import { announce } from "./announcer";
 import { StatusBar } from "./status-bar";
 import { Viewport } from "./terminal-view";
@@ -14,8 +13,7 @@ const reason = (error: unknown) => (error instanceof Error ? error.message : Str
 type TabScreenProps = { session: string; tab: TabInfo; sessions: SessionInfo[] };
 
 export const TabScreen = ({ session, tab, sessions }: TabScreenProps) => {
-  const terminal = useXterm();
-  const { state, shown } = useTabStream(session, tab.tab, terminal);
+  const { state, shown, paint } = useTabStream(session, tab.tab);
   const name = tabName(session, tab.tab);
 
   const restart = async () => {
@@ -43,7 +41,7 @@ export const TabScreen = ({ session, tab, sessions }: TabScreenProps) => {
   return (
     <>
       <Viewport
-        terminal={terminal}
+        paint={paint}
         state={state}
         shown={shown}
         program={tab.program}
