@@ -1,7 +1,7 @@
 use crate::protocol::{
     BatchOutcome, Checked, ClickTarget, CommandRecord, DashboardStopped, Delivered, Delivery, DiffBase, Direction,
-    ErrorBody, Exit, Fact, Modes, MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, ScrollBy,
-    SessionInfo, Snapshot, SnapshotDiff, Waited,
+    ErrorBody, Exit, Fact, Modes, MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, Screenshot,
+    ScrollBy, SessionInfo, Snapshot, SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
 
@@ -98,6 +98,8 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Recording(recording) => println!("{}", serde_json::json!(recording)),
         Reply::Saved(saved) => println!("{}", serde_json::json!(saved)),
         Reply::Exported(export) => println!("{}", serde_json::json!(export)),
+        Reply::Screenshot(screenshot) => println!("{}", serde_json::json!(screenshot)),
+        Reply::ScreenshotDiff(diff) => println!("{}", serde_json::json!(diff)),
         Reply::Dashboard(dashboard) => println!("{}", serde_json::json!(dashboard)),
         Reply::DashboardStopped(stopped) => println!("{}", serde_json::json!(stopped)),
         Reply::History(history) => println!("{}", serde_json::json!(history)),
@@ -118,8 +120,9 @@ pub fn reply_text(reply: &Reply) -> String {
         }
         Reply::Tabs(session) => tab_lines(session),
         Reply::Delivered(delivered) => {
+            let shot = delivered.screenshot.as_deref().map(screenshot_text).unwrap_or_default();
             let shown = delivered.snapshot.as_deref().map(screen).unwrap_or_default();
-            format!("{}\n{shown}", delivery(delivered))
+            format!("{}\n{shot}{shown}", delivery(delivered))
         }
         Reply::Waited(Waited { session, tab, until, waited_ms, exit_code, .. }) => {
             let code = exit_code.map_or_else(String::new, |code| format!(" (exit code {code})"));
@@ -146,6 +149,8 @@ pub fn reply_text(reply: &Reply) -> String {
             count(export.files, "file"),
             export.bytes.div_ceil(1024)
         ),
+        Reply::Screenshot(screenshot) => screenshot_text(screenshot),
+        Reply::ScreenshotDiff(diff) => format!("{}\n", diff.summary()),
         Reply::Dashboard(dashboard) => format!("dashboard running at {}\n", dashboard.url),
         Reply::DashboardStopped(DashboardStopped { stopped: true }) => "dashboard stopped\n".into(),
         Reply::DashboardStopped(DashboardStopped { stopped: false }) => "no dashboard is running\n".into(),
@@ -161,6 +166,20 @@ pub fn reply_text(reply: &Reply) -> String {
             format!("{}{gap}{}\n", ran.output, record_line(&ran.record))
         }
     }
+}
+
+fn screenshot_text(screenshot: &Screenshot) -> String {
+    let mut out = format!(
+        "saved {} ({} {}, frame {})\n",
+        screenshot.path.display(),
+        screenshot.session,
+        screenshot.tab,
+        screenshot.frame
+    );
+    if let Some(refs) = &screenshot.refs {
+        out.push_str(&refs_text(refs));
+    }
+    out
 }
 
 fn saved_text(saved: &SavedRecording) -> String {

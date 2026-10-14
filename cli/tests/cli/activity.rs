@@ -134,6 +134,29 @@ fn an_entry_keeps_the_first_64_kib_of_a_long_output() {
 }
 
 #[test]
+fn every_screenshot_a_call_saves_is_linked_from_its_entry() {
+    let at = AgentTerminal::new();
+    let printer = fixture("line-printer");
+    let shots = at.home().join("shots");
+    let (first, second, diff) = (shots.join("first.png"), shots.join("second.png"), shots.join("diff.png"));
+    at.run(&["open", "--size", "20x4", "--wait", "line 3", &printer, "--hold"]).success();
+    at.run(&["screenshot", &first.to_string_lossy()]).success();
+    at.run(&["type", "x", "--wait", "x", "--screenshot", &second.to_string_lossy()]).success();
+    let failed =
+        at.run(&["diff", "screenshot", "--baseline", &first.to_string_lossy(), "--output", &diff.to_string_lossy()]);
+    at.run(&["get", "frame"]).success();
+
+    assert_eq!(failed.code(), 2);
+    let log = activity(&at, "default");
+    assert_eq!(
+        field(&log, "screenshots"),
+        json!([null, [first.to_string_lossy()], [second.to_string_lossy()], [diff.to_string_lossy()], null])
+    );
+    assert_eq!(field(&log, "exit"), json!([0, 0, 0, 2, 0]));
+    assert_eq!(log[3]["error"], failed.stdout().trim_end());
+}
+
+#[test]
 fn calls_that_reach_no_session_leave_no_folder() {
     let at = AgentTerminal::new();
     assert_eq!(at.run(&["--session", "ghost", "snapshot"]).code(), 1);
