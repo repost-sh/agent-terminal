@@ -1,5 +1,6 @@
 use crate::protocol::{
-    Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, SessionInfo, Snapshot, SnapshotDiff,
+    DashboardStopped, Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, SessionInfo, Snapshot,
+    SnapshotDiff,
 };
 use crate::session_id::SessionId;
 
@@ -88,6 +89,11 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Printed(printed) => print!("{}", printed.output),
         Reply::Diff(diff) if json => println!("{}", serde_json::json!(diff)),
         Reply::Diff(diff) => print!("{}", diff_text(diff)),
+        Reply::Dashboard(dashboard) if json => println!("{}", serde_json::json!(dashboard)),
+        Reply::Dashboard(dashboard) => println!("dashboard running at {}", dashboard.url),
+        Reply::DashboardStopped(stopped) if json => println!("{}", serde_json::json!(stopped)),
+        Reply::DashboardStopped(DashboardStopped { stopped: true }) => println!("dashboard stopped"),
+        Reply::DashboardStopped(DashboardStopped { stopped: false }) => println!("no dashboard is running"),
     }
 }
 

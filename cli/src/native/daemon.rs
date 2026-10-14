@@ -1,17 +1,20 @@
 use std::collections::BTreeMap;
 use std::io::{ErrorKind, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use tokio::sync::watch;
 
 use crate::connection::{READY, home, socket_path};
+use crate::native::changes::Changes;
+use crate::native::dashboard::{self, Backend};
 use crate::native::pty;
 use crate::native::terminal::{Settled, Terminal};
 use crate::protocol::{
-    self, Closed, Delivered, ErrorBody, Input, Marked, Matches, Printed, Reply, Request, Response, SessionInfo,
-    Sessions, Size, Snapshot, TabRef, Wait,
+    self, Closed, Dashboard, DashboardStopped, Delivered, ErrorBody, Input, Marked, Matches, Printed, Reply, Request,
+    Response, SessionInfo, Sessions, Size, Snapshot, TabRef, Wait,
 };
 
 #[derive(Default)]
@@ -20,6 +23,9 @@ struct Daemon {
     restarting: Mutex<()>,
     activity: Mutex<Activity>,
     quiet: Condvar,
+    changes: Changes,
+    dashboard: Mutex<Option<dashboard::Server>>,
+    me: Weak<Daemon>,
 }
 
 #[derive(Default)]
@@ -69,7 +75,7 @@ pub fn run(idle_timeout: Duration) -> Result<()> {
     let mut stdout = std::io::stdout();
     writeln!(stdout, "{READY}").and_then(|()| stdout.flush()).context("tell the CLI the daemon is ready")?;
 
-    let daemon = Arc::new(Daemon::default());
+    let daemon = Arc::new_cyclic(|me| Daemon { me: me.clone(), ..Daemon::default() });
     if !idle_timeout.is_zero() {
         let watching = Arc::clone(&daemon);
         std::thread::spawn(move || watching.stop_when_idle(idle_timeout));
@@ -100,11 +106,7 @@ impl Daemon {
         let stop = matches!(request, Request::Stop);
         let handled = match &busy {
             Some(_) => self.handle(request),
-            None => Err(ErrorBody {
-                code: crate::exit::ERROR,
-                message: "the daemon is stopping because it was idle; run the command again to start a new one".into(),
-                snapshot: None,
-            }),
+            None => Err(stopping()),
         };
         let response = match handled {
             Ok(reply) => Response::Ok(reply),
@@ -135,12 +137,7 @@ impl Daemon {
                 self.resize(&session, tab, size, &wait, timeout_ms)
             }
             Request::Restart { session, tab, wait, timeout_ms } => self.restart(&session, tab, &wait, timeout_ms),
-            Request::Sessions => {
-                let sessions = self.sessions.lock().unwrap();
-                Ok(Reply::Sessions(Sessions {
-                    sessions: sessions.iter().map(|(name, session)| session.info(name)).collect(),
-                }))
-            }
+            Request::Sessions => Ok(Reply::Sessions(self.list())),
             Request::Tabs { session } => {
                 let sessions = self.sessions.lock().unwrap();
                 Ok(Reply::Tabs(
@@ -186,7 +183,38 @@ impl Daemon {
                 self.shut_down();
                 Ok(Reply::Stopped)
             }
+            Request::DashboardStart { port } => self.start_dashboard(port).map(Reply::Dashboard),
+            Request::DashboardStop => Ok(Reply::DashboardStopped(DashboardStopped { stopped: self.stop_dashboard() })),
         }
+    }
+
+    fn list(&self) -> Sessions {
+        let sessions = self.sessions.lock().unwrap();
+        Sessions { sessions: sessions.iter().map(|(name, session)| session.info(name)).collect() }
+    }
+
+    fn start_dashboard(&self, port: u16) -> Result<Dashboard, ErrorBody> {
+        let mut running = self.dashboard.lock().unwrap();
+        if let Some(server) = running.as_ref() {
+            if port == 0 || port == server.port() {
+                return Ok(server.info());
+            }
+            return Err(failure(format!(
+                "the dashboard already runs at {}; stop it first with `agent-terminal dashboard stop`",
+                server.info().url
+            )));
+        }
+        let backend: Arc<dyn Backend> =
+            self.me.upgrade().ok_or_else(|| failure("the daemon is shutting down".into()))?;
+        let server = dashboard::Server::start(port, backend).map_err(error_body)?;
+        let info = server.info();
+        *running = Some(server);
+        Ok(info)
+    }
+
+    fn stop_dashboard(&self) -> bool {
+        let server = self.dashboard.lock().unwrap().take();
+        server.is_some()
     }
 
     fn busy(&self) -> Option<Busy<'_>> {
@@ -219,6 +247,7 @@ impl Daemon {
     }
 
     fn shut_down(&self) {
+        self.stop_dashboard();
         if let Err(e) = socket_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
             eprintln!("removing the socket failed: {e:#}");
         }
@@ -226,7 +255,7 @@ impl Daemon {
     }
 
     fn open(&self, session: String, command: pty::Command, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
-        let terminal = Terminal::start(command).map_err(error_body)?;
+        let terminal = Terminal::start(command, self.changes.clone()).map_err(error_body)?;
         let tab = {
             let mut sessions = self.sessions.lock().unwrap();
             let entry = sessions.entry(session.clone()).or_default();
@@ -236,6 +265,7 @@ impl Daemon {
             entry.current = Some(id);
             id
         };
+        self.changes.notify();
         settle(&session, tab, &terminal, wait, timeout_ms)
     }
 
@@ -266,7 +296,7 @@ impl Daemon {
                 snapshot: None,
             });
         }
-        let terminal = Terminal::start(old.rerun()).map_err(error_body)?;
+        let terminal = Terminal::start(old.rerun(), self.changes.clone()).map_err(error_body)?;
         {
             let mut sessions = self.sessions.lock().unwrap();
             match sessions.get_mut(session).and_then(|s| s.tabs.get_mut(&tab)) {
@@ -277,6 +307,7 @@ impl Daemon {
                 }
             }
         }
+        self.changes.notify();
         drop(restarting);
         settle(session, tab, &terminal, wait, timeout_ms)
     }
@@ -313,11 +344,14 @@ impl Daemon {
         if entry.tabs.is_empty() {
             sessions.remove(session);
         }
+        drop(sessions);
+        self.changes.notify();
         Ok(TabRef { session: session.to_string(), tab: tab_name(id) })
     }
 
     fn close_all(&self) -> Vec<TabRef> {
         let sessions = std::mem::take(&mut *self.sessions.lock().unwrap());
+        self.changes.notify();
         let mut closed = Vec::new();
         for (name, session) in sessions {
             for (id, terminal) in session.tabs {
@@ -339,6 +373,27 @@ impl Daemon {
                 .and_then(|s| s.current.and_then(|id| s.tabs.get(&id).map(|t| (id, Arc::clone(t)))))
                 .ok_or_else(|| no_terminal(session)),
         }
+    }
+}
+
+impl Backend for Daemon {
+    fn call(&self, request: Request) -> Result<Reply, ErrorBody> {
+        match self.busy() {
+            Some(_busy) => self.handle(request),
+            None => Err(stopping()),
+        }
+    }
+
+    fn sessions(&self) -> Sessions {
+        self.list()
+    }
+
+    fn terminal(&self, session: &str, tab: u32) -> Option<Arc<Terminal>> {
+        self.sessions.lock().unwrap().get(session).and_then(|entry| entry.tabs.get(&tab)).cloned()
+    }
+
+    fn changes(&self) -> watch::Receiver<u64> {
+        self.changes.subscribe()
     }
 }
 
@@ -380,6 +435,10 @@ fn describe(wait: &Wait) -> String {
         Wait::Stable { quiet_ms } => format!("the screen to stay unchanged for {quiet_ms} ms"),
         Wait::Text { text } => format!("\"{text}\" to appear"),
     }
+}
+
+fn stopping() -> ErrorBody {
+    failure("the daemon is stopping because it was idle; run the command again to start a new one".into())
 }
 
 fn tab_name(id: u32) -> String {

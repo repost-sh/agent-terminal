@@ -8,8 +8,8 @@ use crate::key::Key;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Signal, Size,
-    SnapshotOptions, Wait,
+    Baseline, DashboardStopped, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions,
+    Signal, Size, SnapshotOptions, Wait,
 };
 use crate::session_id;
 use crate::skills;
@@ -130,6 +130,16 @@ enum Command {
     Skills {
         #[command(subcommand)]
         action: Option<skills::Action>,
+    },
+    #[command(
+        about = "The live dashboard on http://localhost:4849 (dashboard start, dashboard stop)",
+        args_conflicts_with_subcommands = true
+    )]
+    Dashboard {
+        #[command(flatten)]
+        start: DashboardArgs,
+        #[command(subcommand)]
+        action: Option<DashboardAction>,
     },
     #[command(about = "Install the agent skill stub into ~/.claude/skills")]
     Install {
@@ -385,6 +395,20 @@ struct AfterInput {
     wait: Option<String>,
 }
 
+#[derive(Subcommand)]
+enum DashboardAction {
+    #[command(about = "Serve the dashboard and print its address (the default)")]
+    Start(DashboardArgs),
+    #[command(about = "Stop serving the dashboard")]
+    Stop,
+}
+
+#[derive(Args)]
+struct DashboardArgs {
+    #[arg(long, help = "Port to serve on (0 picks a free one)", value_name = "N", default_value_t = 4849)]
+    port: u16,
+}
+
 #[derive(Clone)]
 struct RawBytes(Vec<u8>);
 
@@ -414,6 +438,9 @@ pub fn run() -> i32 {
             };
         }
         Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
+        Command::Dashboard { action: Some(DashboardAction::Stop), .. } => Request::DashboardStop,
+        Command::Dashboard { action: Some(DashboardAction::Start(DashboardArgs { port })), .. }
+        | Command::Dashboard { start: DashboardArgs { port }, action: None } => Request::DashboardStart { port },
         Command::Skills { action } => return skills::run(action, cli.json, Cli::command()),
         Command::Install { .. } => return skills::install(cli.json),
         Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
@@ -478,6 +505,7 @@ pub fn run() -> i32 {
 
     let if_not_running = match &request {
         Request::Stop => IfNotRunning::Answer(Reply::Stopped),
+        Request::DashboardStop => IfNotRunning::Answer(Reply::DashboardStopped(DashboardStopped { stopped: false })),
         Request::Sessions => IfNotRunning::Answer(Reply::Sessions(Sessions::default())),
         Request::Tabs { session } => IfNotRunning::Answer(Reply::Tabs(SessionInfo::empty(session))),
         _ => IfNotRunning::Start(Launch { idle_timeout: cli.idle_timeout }),

@@ -82,7 +82,7 @@ Sessions and tabs:
   tab close [id]               Close a tab
 
 Watch and take over:
-  dashboard [start|stop]       The live dashboard on http://localhost:4849
+  dashboard [start|stop]       The live dashboard on http://localhost:4849 (--port <n>; 0 picks a free port)
   attach [--read-only]         Watch or drive a session from your own terminal (detach: Ctrl-p Ctrl-q)
 
 Everything else:

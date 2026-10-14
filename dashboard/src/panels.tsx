@@ -1,0 +1,9 @@
+import type { ComponentType } from "react";
+
+import type { TabInfo } from "./lib/protocol";
+
+export type PanelProps = { session: string; tab: TabInfo };
+
+export type Panel = { id: string; label: string; Body: ComponentType<PanelProps> };
+
+export const PANELS: Panel[] = [];

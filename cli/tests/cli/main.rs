@@ -1,3 +1,6 @@
+#[cfg(feature = "browser-tests")]
+mod browser;
+mod dashboard;
 mod diff;
 mod find;
 mod get;

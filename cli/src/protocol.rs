@@ -103,6 +103,10 @@ pub enum Request {
         tab: Option<u32>,
         baseline: Option<Baseline>,
     },
+    DashboardStart {
+        port: u16,
+    },
+    DashboardStop,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -226,6 +230,19 @@ pub enum Reply {
     Marked(Marked),
     Printed(Printed),
     Diff(SnapshotDiff),
+    Dashboard(Dashboard),
+    DashboardStopped(DashboardStopped),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Dashboard {
+    pub url: String,
+    pub port: u16,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DashboardStopped {
+    pub stopped: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

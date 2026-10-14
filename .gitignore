@@ -1,4 +1,5 @@
 .superpowers/
 target/
+node_modules/
 *.pending-snap
 *.snap.new
