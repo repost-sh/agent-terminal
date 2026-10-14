@@ -37,9 +37,9 @@ Every session keeps plain files in `<home>/sessions/<session>/`, where `<home>` 
 One line per CLI call addressed to the session, written before the CLI gets its answer:
 
 ```json
-{"time":"2026-10-14T14:01:22.051Z","tab":"t1","command":"press 2 --wait 'Unstaged changes'","duration_ms":38,"exit":0,"frame":19}
-{"time":"2026-10-14T14:01:31.110Z","tab":"t1","command":"wait Pushed --timeout 5000","duration_ms":5003,"exit":3,"error":"timed out after 5000 ms waiting for ...","frame":176}
-{"time":"2026-10-14T14:01:46.400Z","tab":"t1","command":"screenshot","duration_ms":30,"exit":0,"frame":212,"screenshots":["/home/me/.agent-terminal/screenshots/qa-t1-212.png"]}
+{"time":"2026-10-14T14:01:22.051Z","tab":"t1","command":"press 2 --wait 'Unstaged changes'","duration_ms":38,"exit":0,"frame":19,"output":"pressed 1 key in qa t1\n"}
+{"time":"2026-10-14T14:01:31.110Z","tab":"t1","command":"wait Pushed --timeout 5000","duration_ms":5003,"exit":3,"error":"timed out after 5000 ms waiting for ...","frame":176,"output":"error: timed out after 5000 ms waiting for ...\nqa t1 · lazygit · ..."}
+{"time":"2026-10-14T14:01:46.400Z","tab":"t1","command":"screenshot","duration_ms":30,"exit":0,"frame":212,"screenshots":["/home/me/.agent-terminal/screenshots/qa-t1-212.png"],"output":"..."}
 ```
 
 - `time`: when the daemon received the call, UTC to the millisecond.
@@ -49,6 +49,7 @@ One line per CLI call addressed to the session, written before the CLI gets its 
 - `exit`: the CLI's exit code (0 ok, 1 error, 3 timeout, 5 exited, ...); `error`: the message when it is not 0.
 - `frame`: the tab's frame when the call ended, when the tab still exists.
 - `screenshots`: absolute paths of the files the call saved: the screenshot of `screenshot` or of an input command's `--screenshot`, the diff image of `diff screenshot`. Left out when the call saved none. The files live where the call put them, outside the session folder.
+- `output`: what the call printed without `--json` (its result, or `error: ...` and the screen it last saw when it failed). Only the first 64 KiB are kept; a longer output ends with `… N more bytes not kept`.
 - Not logged: calls that name no session (`session list`, `skills`, `daemon stop`) and calls to a session that is not open.
 
 ## Command log: `<tab>.commands.jsonl`

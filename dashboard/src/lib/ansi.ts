@@ -92,9 +92,13 @@ const applied = (style: Style, params: string): Style => {
   return next;
 };
 
-export const styledLines = (text: string): Run[][] => {
-  const lines: Run[][] = [[]];
-  let style: Style = {};
+export type Styling = { lines: Run[][]; style: Style };
+
+export const UNSTYLED: Styling = { lines: [[]], style: {} };
+
+export const moreStyled = (from: Styling, text: string): Styling => {
+  const lines: Run[][] = [...from.lines.slice(0, -1), [...(from.lines.at(-1) ?? [])]];
+  let style = from.style;
   let at = 0;
   const add = (chunk: string) =>
     chunk.split("\n").forEach((part, n) => {
@@ -107,6 +111,11 @@ export const styledLines = (text: string): Run[][] => {
     at = index + length;
   }
   add(text.slice(at));
+  return { lines, style };
+};
+
+export const styledLines = (text: string): Run[][] => {
+  const { lines } = moreStyled(UNSTYLED, text);
   if (lines.length > 1 && !lines.at(-1)?.length) lines.pop();
   return lines;
 };
