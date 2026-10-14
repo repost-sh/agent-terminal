@@ -61,7 +61,7 @@ fn installed(shell: &str) -> bool {
 }
 
 fn timeless(text: &str) -> String {
-    let duration = regex::Regex::new(r" · (\d+ ms|\d+\.\d s|\d+m \d{2}s) · ").unwrap();
+    let duration = regex::Regex::new(r" · (\d+ ms|\d+\.\d s|\d+ min \d{2} s) · ").unwrap();
     duration.replace_all(text, " · <time> · ").into_owned()
 }
 

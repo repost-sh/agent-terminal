@@ -10,6 +10,7 @@ use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor};
 use alacritty_terminal::vte::{Parser, Perform};
 
+use crate::native::refs::{Glyph, Grid, Link};
 use crate::protocol::{Cell, Modes, Mouse, Size};
 
 impl Dimensions for Size {
@@ -41,6 +42,29 @@ impl MouseMode {
             MouseMode::Utf8 => "utf8",
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseTracking {
+    Click,
+    Drag,
+    Motion,
+}
+
+impl MouseTracking {
+    fn as_str(self) -> &'static str {
+        match self {
+            MouseTracking::Click => "click",
+            MouseTracking::Drag => "drag",
+            MouseTracking::Motion => "motion",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MouseReporting {
+    pub tracking: MouseTracking,
+    pub encoding: MouseMode,
 }
 
 #[derive(Clone, Debug)]
@@ -191,6 +215,22 @@ fn color_name(color: Color) -> String {
             other => COLOR_NAMES.get(other as usize).copied().unwrap_or("default"),
         }
         .to_string(),
+    }
+}
+
+fn glyph(cell: &GridCell) -> Glyph {
+    let mut text = String::new();
+    if !is_spacer(cell) {
+        push_cell(&mut text, cell);
+    }
+    Glyph {
+        text,
+        fg: color_name(cell.fg),
+        bg: color_name(cell.bg),
+        inverse: cell.flags.contains(Flags::INVERSE),
+        bold: cell.flags.contains(Flags::BOLD),
+        underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
+        link: cell.hyperlink().map(|link| Link { id: link.id().to_string(), url: link.uri().to_string() }),
     }
 }
 
@@ -390,22 +430,27 @@ impl Screen {
         located_row(&self.term.grid()[Line(line)], self.size.cols as usize)
     }
 
-    pub fn modes(&self) -> Modes {
+    pub fn mouse_reporting(&self) -> Option<MouseReporting> {
         let mode = *self.term.mode();
         let tracking = if mode.contains(TermMode::MOUSE_MOTION) {
-            Some("motion")
+            Some(MouseTracking::Motion)
         } else if mode.contains(TermMode::MOUSE_DRAG) {
-            Some("drag")
+            Some(MouseTracking::Drag)
         } else if mode.contains(TermMode::MOUSE_REPORT_CLICK) {
-            Some("click")
+            Some(MouseTracking::Click)
         } else {
             None
         };
+        tracking.zip(mouse_encoding(mode)).map(|(tracking, encoding)| MouseReporting { tracking, encoding })
+    }
+
+    pub fn modes(&self) -> Modes {
+        let mode = *self.term.mode();
         Modes {
             alt_screen: mode.contains(TermMode::ALT_SCREEN),
-            mouse: tracking.zip(mouse_encoding(mode)).map(|(tracking, encoding)| Mouse {
-                tracking: tracking.to_string(),
-                encoding: encoding.as_str().to_string(),
+            mouse: self.mouse_reporting().map(|reporting| Mouse {
+                tracking: reporting.tracking.as_str().to_string(),
+                encoding: reporting.encoding.as_str().to_string(),
             }),
             bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
             app_cursor: mode.contains(TermMode::APP_CURSOR),
@@ -473,6 +518,17 @@ impl Screen {
 
     pub fn reported_cwd(&self) -> Option<String> {
         self.stream.cwd.clone()
+    }
+
+    pub fn grid(&self) -> Grid {
+        let grid = self.term.grid();
+        let cols = self.size.cols as usize;
+        let rows = (0..self.size.rows as i32)
+            .map(|line| (0..cols).map(|col| glyph(&grid[Line(line)][Column(col)])).collect())
+            .collect();
+        let point = grid.cursor.point;
+        let shown = self.term.mode().contains(TermMode::SHOW_CURSOR) && point.line.0 >= 0;
+        Grid { rows, cursor: shown.then_some((point.line.0 as usize, point.column.0)) }
     }
 
     pub fn view(&self) -> ScreenView {

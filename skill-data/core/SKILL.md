@@ -46,7 +46,7 @@ agent-terminal output --since before-commit   # everything printed since a mark
 A snapshot looks like this:
 
 ```
-qa t1 · lazygit · 120x36 · alt-screen · mouse · cursor 2,33 · frame 212
+qa t1 · lazygit · 120x36 · alt-screen · mouse:sgr · cursor 2,33 · frame 212
  1│┌─ Status ──────────────────┐┌─ Unstaged changes ──────────────────┐
  2││ app → main                ││ M  docs/design.md                   │
  3│└───────────────────────────┘│ ?? .gitignore                       │
@@ -55,13 +55,13 @@ qa t1 · lazygit · 120x36 · alt-screen · mouse · cursor 2,33 · frame 212
 refs:
   @t1 [panel]    "Status"            rows 1-3
   @t2 [panel]    "Unstaged changes"  rows 1-18
-  @t3 [selected] "M  docs/design.md" row 2
-  @t4 [hint]     "Commit: c"         row 36
+  @t3 [selected] "M  docs/design.md" row 2 col 32
+  @t4 [hint]     "Commit: c"         row 36 col 19
 ```
 
 The header tells you the size, whether the app took over the whole screen (`alt-screen`), whether it accepts the mouse, where the cursor is, and the `frame` number. The frame goes up every time the screen changes.
 
-Refs are guesses made from what is on screen: highlighted rows, `[ OK ]` buttons, box titles, links, the input under the cursor. A ref is only valid while the frame it came from is current. After the screen changes, take a new `snapshot -i`.
+Refs are guesses made from what is on screen: box titles (`panel`), highlighted rows (`selected`), `[ OK ]` and `< Yes >` buttons, OSC 8 links, key hints, the input under the cursor. Each one says where it is: `row r col c` is where a click lands. A ref stays valid while the cells it was found on are unchanged; once they change, using it fails and tells you to take a new `snapshot -i`.
 
 Use `snapshot` (text) to understand and decide. Use `screenshot` only for proof, or when colors and layout matter and text cannot show them.
 
@@ -74,11 +74,16 @@ agent-terminal press Ctrl+c
 agent-terminal press g g                 # several keys in order
 agent-terminal press Down --repeat 5
 agent-terminal paste "$(cat notes.txt)"  # paste, not typed key by key
-agent-terminal click @t3                 # only if the header says mouse
-agent-terminal scroll down 3
+agent-terminal click @t3                 # only if the header says mouse:...
+agent-terminal click 4,12 --right        # a cell (row,col); --double for a double click
+agent-terminal click "Save"              # the first match of the text
+agent-terminal scroll down 3             # mouse wheel if the app takes the mouse, else PageDown
+agent-terminal mouse down 4,3            # low level, e.g. a drag: down, move, up
+agent-terminal mouse move 4,20
+agent-terminal mouse up 4,20
 ```
 
-Most terminal apps are driven by keys, not the mouse. Read the key hints the app shows (often on the last row) and use them. `click` refuses when the app has no mouse support; that is not a bug in your command.
+Most terminal apps are driven by keys, not the mouse. Read the key hints the app shows (often on the last row) and use them. `click` and `mouse` refuse when the app has no mouse support; that is not a bug in your command. `scroll --keys` presses PageUp/PageDown even when the app takes the mouse.
 
 Key names: `Enter`, `Tab`, `Shift+Tab`, `Esc`, `Backspace`, `Delete`, `Up`, `Down`, `Left`, `Right`, `Home`, `End`, `PageUp`, `PageDown`, `F1`–`F12`, `Space`, and any letter with `Ctrl+`, `Alt+`, `Shift+`.
 
@@ -130,6 +135,8 @@ agent-terminal screenshot --annotate ./evidence/refs.png  # refs drawn on the im
 agent-terminal mark before-commit
 agent-terminal clip ./evidence/commit.gif --from before-commit
 agent-terminal clip ./evidence/crash.gif --last 10s
+agent-terminal record start ./evidence/login.cast         # save the tab as an asciicast from here on
+agent-terminal record stop                                # prints the file, its length and size
 agent-terminal trace export ./evidence/session.zip        # everything, for a bug report
 ```
 

@@ -28,7 +28,8 @@ Start and stop:
 Read the screen:
   snapshot                     The screen as text: header, numbered rows, cursor
                                header: session tab · program · size · alt-screen · mouse:<enc> · cursor r,c|hidden · frame n · exited [code]
-  snapshot -i                  Same, plus @t refs for things on screen (selected rows, buttons, panels, links, inputs)
+  snapshot -i                  Same, plus @t refs for things on screen (panels, selected rows, buttons, links, key hints, the input)
+                               each ref: @tN [kind] "label" row r col c (panels: rows a-b); it fails once its cells change
   snapshot --rows <a:b>        Only rows a to b; --scrollback [n] adds n lines (all if no n) above as rows -n..-1; --ansi keeps colors
   screenshot [path]            PNG of the screen (--annotate draws the refs)
   get text                     Screen text only, no header
@@ -47,8 +48,10 @@ Send input:
                                --repeat <n>  press the whole sequence n times
                                keys follow the app's modes: application cursor keys, Kitty keyboard protocol
   click <@ref|row,col|text>    Mouse click (refused if the app has no mouse support; use keys instead)
-  scroll <up|down> [n]         Scroll (mouse wheel if supported, else PageUp/PageDown)
-  mouse <move|down|up|wheel>   Low-level mouse events
+                               --right  the right button; --double  a double click
+  scroll <up|down> [n]         Scroll (mouse wheel if supported, else PageUp/PageDown; --keys always uses the keys)
+  mouse <move|down|up|wheel>   Low-level mouse events: mouse move|down|up <row,col>, mouse wheel <up|down> <row,col>
+                               down and up take --right or --middle
   send <bytes>                 Raw bytes with escapes (\e \xHH \n \r \t \0 \\), last resort
 
   Any input command also takes:
@@ -90,7 +93,7 @@ Sessions and tabs:
   tab close [id]               Close a tab
 
 Watch and take over:
-  dashboard [start|stop]       The live dashboard on http://localhost:4849
+  dashboard [start|stop]       The live dashboard on http://localhost:4849 (--port <n>; 0 picks a free port)
   attach [--read-only]         Watch or drive a session from your own terminal (detach: Ctrl-p Ctrl-q)
 
 Everything else:

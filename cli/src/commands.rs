@@ -7,11 +7,13 @@ use crate::batch;
 use crate::connection::{self, IfNotRunning, Launch};
 use crate::doctor;
 use crate::key::Key;
+use crate::mcp;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, BatchStep, Expect, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions,
-    Shell, Signal, Size, SnapshotOptions, Style, TextMatch, Wait,
+    Baseline, BatchStep, Call, ClickTarget, DashboardStopped, Direction, Expect, Get, Input, MouseButton, MouseEvent,
+    Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Shell, Signal, Size, SnapshotOptions, Style,
+    TextMatch, Wait,
 };
 use crate::session_id;
 use crate::skills;
@@ -140,6 +142,16 @@ enum Command {
         #[command(subcommand)]
         what: DiffCommand,
     },
+    #[command(about = "Save the tab as an asciicast (.cast) file that plays in asciinema")]
+    Record {
+        #[command(subcommand)]
+        action: RecordAction,
+    },
+    #[command(about = "Everything about this session in one file, for a bug report")]
+    Trace {
+        #[command(subcommand)]
+        action: TraceAction,
+    },
     #[command(about = "Type text, key by key")]
     Type(TypeArgs),
     #[command(about = "Press keys: Enter, Tab, Esc, Up, F5, Ctrl+c, Alt+x, Shift+Tab; several keys run in order")]
@@ -150,6 +162,17 @@ enum Command {
     Send(SendArgs),
     #[command(about = "Send a signal to the program in the foreground: INT, TERM, KILL, HUP, TSTP, CONT, WINCH")]
     Signal(SignalArgs),
+    #[command(
+        about = "Mouse click on a ref, a cell or text (refused if the app has no mouse support; use keys instead)"
+    )]
+    Click(ClickArgs),
+    #[command(about = "Scroll: the mouse wheel when the app tracks the mouse, else PageUp/PageDown")]
+    Scroll(ScrollArgs),
+    #[command(about = "Low-level mouse events at a cell: move, down, up, wheel")]
+    Mouse {
+        #[command(subcommand)]
+        event: MouseCommand,
+    },
     #[command(about = "Wait until the text is on screen, the screen is stable, or the program exits")]
     Wait(UntilArgs),
     #[command(about = "Fail now (exit 2) unless the screen or the program is as expected")]
@@ -158,6 +181,16 @@ enum Command {
     Skills {
         #[command(subcommand)]
         action: Option<skills::Action>,
+    },
+    #[command(
+        about = "The live dashboard on http://localhost:4849 (dashboard start, dashboard stop)",
+        args_conflicts_with_subcommands = true
+    )]
+    Dashboard {
+        #[command(flatten)]
+        start: DashboardArgs,
+        #[command(subcommand)]
+        action: Option<DashboardAction>,
     },
     #[command(about = "Install the agent skill stub into ~/.claude/skills")]
     Install {
@@ -174,6 +207,8 @@ enum Command {
         long_about = "Run several commands in order in one call to the daemon.\n\nPass each command as one quoted argument, e.g. batch \"open htop\" \"snapshot\", or pipe a JSON array to stdin whose items are command lines or argument arrays, e.g. [[\"open\", \"htop\"], \"snapshot\"]. Commands use the batch's --session, --tab and --timeout unless they set their own. Every command is parsed before any of them runs. Each command's output and exit code are printed in order, and batch exits with the code of the first command that failed."
     )]
     Batch(BatchArgs),
+    #[command(about = "MCP stdio server with the same commands as tools")]
+    Mcp,
     #[command(about = "Check PTY support, shell integration and the daemon socket, and say how to fix each problem")]
     Doctor {
         #[arg(long, help = "Remove stale sockets and state, bring shell integration scripts up to date")]
@@ -319,6 +354,13 @@ struct SnapshotArgs {
 
     #[arg(long, help = "Keep colors and styles as ANSI escape codes")]
     ansi: bool,
+
+    #[arg(
+        short,
+        long,
+        help = "Also list @t refs for what is on screen: panels, selected rows, buttons, links, key hints, the input under the cursor"
+    )]
+    interactive: bool,
 }
 
 impl SnapshotArgs {
@@ -331,6 +373,7 @@ impl SnapshotArgs {
                 Some(Some(n)) => Scrollback::Last(n),
             },
             ansi: self.ansi,
+            refs: self.interactive,
         }
     }
 }
@@ -425,6 +468,28 @@ enum DiffCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum RecordAction {
+    #[command(
+        about = "Save the tab to a .cast file from now on, starting from the screen as it is (default: ~/.agent-terminal/recordings/<session>-<tab>-<frame>.cast)"
+    )]
+    Start {
+        #[arg(help = "Where to save it", value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+    #[command(about = "Stop saving and print the file, its length and its size")]
+    Stop,
+}
+
+#[derive(Subcommand)]
+enum TraceAction {
+    #[command(about = "Zip the session folder (activity log of every call, tab recordings) into one file")]
+    Export {
+        #[arg(help = "Where to write the zip file", value_name = "PATH")]
+        path: PathBuf,
+    },
+}
+
 #[derive(Args)]
 struct TypeArgs {
     #[arg(help = "The text; a newline presses Enter, a tab presses Tab", allow_hyphen_values = true)]
@@ -488,6 +553,121 @@ struct SignalArgs {
 
     #[command(flatten)]
     after: AfterInput,
+}
+
+#[derive(Args)]
+struct ClickArgs {
+    #[arg(
+        help = "A ref from snapshot -i (@t3), a cell (ROW,COL, from 1,1 at the top left) or text (its first match)",
+        value_name = "@REF|ROW,COL|TEXT",
+        value_parser = clap::value_parser!(ClickTarget),
+        allow_hyphen_values = true
+    )]
+    target: ClickTarget,
+
+    #[arg(long, help = "Click with the right button")]
+    right: bool,
+
+    #[arg(long, help = "Click twice, as a double click")]
+    double: bool,
+
+    #[command(flatten)]
+    after: AfterInput,
+}
+
+#[derive(Args)]
+struct ScrollArgs {
+    #[arg(help = "up or down", value_name = "up|down", value_parser = clap::value_parser!(Direction))]
+    direction: Direction,
+
+    #[arg(
+        help = "How many wheel notches or pages",
+        value_name = "N",
+        default_value_t = 1,
+        value_parser = clap::value_parser!(u32).range(1..)
+    )]
+    count: u32,
+
+    #[arg(long, help = "Press PageUp/PageDown even when the app tracks the mouse")]
+    keys: bool,
+
+    #[command(flatten)]
+    after: AfterInput,
+}
+
+#[derive(Subcommand)]
+enum MouseCommand {
+    #[command(about = "Move the mouse to a cell (the app sees it only when it tracks motion, or drags)")]
+    Move {
+        #[arg(help = "Row,column, from 1,1 at the top left", value_name = "ROW,COL", value_parser = parse_position)]
+        at: (u16, u16),
+        #[command(flatten)]
+        after: AfterInput,
+    },
+    #[command(about = "Press a mouse button at a cell")]
+    Down {
+        #[arg(help = "Row,column, from 1,1 at the top left", value_name = "ROW,COL", value_parser = parse_position)]
+        at: (u16, u16),
+        #[command(flatten)]
+        button: ButtonArgs,
+        #[command(flatten)]
+        after: AfterInput,
+    },
+    #[command(about = "Release a mouse button at a cell")]
+    Up {
+        #[arg(help = "Row,column, from 1,1 at the top left", value_name = "ROW,COL", value_parser = parse_position)]
+        at: (u16, u16),
+        #[command(flatten)]
+        button: ButtonArgs,
+        #[command(flatten)]
+        after: AfterInput,
+    },
+    #[command(about = "Turn the mouse wheel one notch at a cell")]
+    Wheel {
+        #[arg(help = "up or down", value_name = "up|down", value_parser = clap::value_parser!(Direction))]
+        direction: Direction,
+        #[arg(help = "Row,column, from 1,1 at the top left", value_name = "ROW,COL", value_parser = parse_position)]
+        at: (u16, u16),
+        #[command(flatten)]
+        after: AfterInput,
+    },
+}
+
+impl MouseCommand {
+    fn event(self) -> (MouseEvent, AfterInput) {
+        match self {
+            MouseCommand::Move { at: (row, col), after } => (MouseEvent::Move { row, col }, after),
+            MouseCommand::Down { at: (row, col), button, after } => {
+                (MouseEvent::Down { row, col, button: button.button() }, after)
+            }
+            MouseCommand::Up { at: (row, col), button, after } => {
+                (MouseEvent::Up { row, col, button: button.button() }, after)
+            }
+            MouseCommand::Wheel { direction, at: (row, col), after } => {
+                (MouseEvent::Wheel { row, col, direction }, after)
+            }
+        }
+    }
+}
+
+#[derive(Args)]
+#[command(group(ArgGroup::new("which").args(["right", "middle"])))]
+struct ButtonArgs {
+    #[arg(long, help = "The right button instead of the left one")]
+    right: bool,
+
+    #[arg(long, help = "The middle button instead of the left one")]
+    middle: bool,
+}
+
+impl ButtonArgs {
+    fn button(self) -> MouseButton {
+        match (self.right, self.middle) {
+            (true, _) => MouseButton::Right,
+            (_, true) => MouseButton::Middle,
+            _ => MouseButton::Left,
+        }
+    }
 }
 
 #[derive(Args)]
@@ -659,6 +839,20 @@ impl AfterInput {
     }
 }
 
+#[derive(Subcommand)]
+enum DashboardAction {
+    #[command(about = "Serve the dashboard and print its address (the default)")]
+    Start(DashboardArgs),
+    #[command(about = "Stop serving the dashboard")]
+    Stop,
+}
+
+#[derive(Args)]
+struct DashboardArgs {
+    #[arg(long, help = "Port to serve on (0 picks a free one)", value_name = "N", default_value_t = 4849)]
+    port: u16,
+}
+
 #[derive(Clone)]
 struct RawBytes(Vec<u8>);
 
@@ -690,6 +884,7 @@ pub fn run() -> i32 {
         }
         Command::Skills { action } => return skills::run(action, json, Cli::command()),
         Command::Install { .. } => return skills::install(json),
+        Command::Mcp => return mcp::run(Cli::command()),
         Command::Session { action: None } => {
             output::session(&cli.session, json);
             return 0;
@@ -713,7 +908,7 @@ pub fn run() -> i32 {
         command => request(Cli { command, ..cli }),
     };
     match request {
-        Ok(request) => send(&request, json, idle_timeout),
+        Ok(request) => send(request, json, idle_timeout),
         Err(message) => output::fail(&message, crate::exit::ERROR),
     }
 }
@@ -722,6 +917,9 @@ fn request(cli: Cli) -> Result<Request, String> {
     let session = cli.session;
     let request = match cli.command {
         Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
+        Command::Dashboard { action: Some(DashboardAction::Stop), .. } => Request::DashboardStop,
+        Command::Dashboard { action: Some(DashboardAction::Start(DashboardArgs { port })), .. }
+        | Command::Dashboard { start: DashboardArgs { port }, action: None } => Request::DashboardStart { port },
         Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
             open(session, args, cli.timeout)?
         }
@@ -761,6 +959,14 @@ fn request(cli: Cli) -> Result<Request, String> {
             let baseline = baseline.map(|path| read_baseline(&path)).transpose()?;
             Request::DiffSnapshot { session, tab: cli.tab, baseline }
         }
+        Command::Record { action: RecordAction::Start { path } } => {
+            let path = path.map(|path| absolute(&path)).transpose()?;
+            Request::RecordStart { session, tab: cli.tab, path }
+        }
+        Command::Record { action: RecordAction::Stop } => Request::RecordStop { session, tab: cli.tab },
+        Command::Trace { action: TraceAction::Export { path } } => {
+            Request::TraceExport { session, path: absolute(&path)? }
+        }
         Command::Type(args) => {
             input(session, cli.tab, Input::Type { text: args.text, delay_ms: args.delay }, args.after, cli.timeout)
         }
@@ -772,6 +978,19 @@ fn request(cli: Cli) -> Result<Request, String> {
         Command::Signal(args) => {
             input(session, cli.tab, Input::Signal { signal: args.signal }, args.after, cli.timeout)
         }
+        Command::Click(args) => {
+            let button = if args.right { MouseButton::Right } else { MouseButton::Left };
+            let click = Input::Click { target: args.target, button, double: args.double };
+            input(session, cli.tab, click, args.after, cli.timeout)
+        }
+        Command::Scroll(args) => {
+            let scroll = Input::Scroll { direction: args.direction, count: args.count, keys: args.keys };
+            input(session, cli.tab, scroll, args.after, cli.timeout)
+        }
+        Command::Mouse { event } => {
+            let (event, after) = event.event();
+            input(session, cli.tab, Input::Mouse { event }, after, cli.timeout)
+        }
         Command::Wait(args) => Request::Wait { session, tab: cli.tab, wait: args.until(), timeout_ms: cli.timeout },
         Command::Expect(args) => Request::Expect { session, tab: cli.tab, expect: args.check() },
         Command::Daemon { action: DaemonAction::Run }
@@ -779,6 +998,7 @@ fn request(cli: Cli) -> Result<Request, String> {
         | Command::Install { .. }
         | Command::Session { action: None | Some(SessionAction::Id { .. }) }
         | Command::Batch(_)
+        | Command::Mcp
         | Command::Doctor { .. }
         | Command::Upgrade
         | Command::Version => {
@@ -812,14 +1032,16 @@ fn batch_step(parser: clap::Command, call: &[String]) -> Result<Request, String>
     request(Cli::from_arg_matches(&matches).map_err(|e| e.render().to_string())?)
 }
 
-fn send(request: &Request, json: bool, idle_timeout: Duration) -> i32 {
-    let if_not_running = match request {
+fn send(request: Request, json: bool, idle_timeout: Duration) -> i32 {
+    let if_not_running = match &request {
         Request::Stop => IfNotRunning::Answer(Reply::Stopped),
+        Request::DashboardStop => IfNotRunning::Answer(Reply::DashboardStopped(DashboardStopped { stopped: false })),
         Request::Sessions => IfNotRunning::Answer(Reply::Sessions(Sessions::default())),
         Request::Tabs { session } => IfNotRunning::Answer(Reply::Tabs(SessionInfo::empty(session))),
         _ => IfNotRunning::Start(Launch { idle_timeout }),
     };
-    let response = match connection::send(request, if_not_running) {
+    let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
+    let response = match connection::send(&Call { typed: Some(typed), request }, if_not_running) {
         Ok(response) => response,
         Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
     };
@@ -884,6 +1106,10 @@ fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, Str
         wait: (!args.no_wait).then(|| args.wait.until()),
         timeout_ms,
     })
+}
+
+fn absolute(path: &std::path::Path) -> Result<PathBuf, String> {
+    std::path::absolute(path).map_err(|e| format!("current directory: {e}"))
 }
 
 fn parse_tab(value: &str) -> Result<u32, String> {

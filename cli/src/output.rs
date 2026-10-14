@@ -1,5 +1,6 @@
 use crate::protocol::{
-    BatchOutcome, Checked, CommandRecord, Delivered, Delivery, DiffBase, ErrorBody, Exit, Fact, Modes, Reply, Response,
+    BatchOutcome, Checked, ClickTarget, CommandRecord, DashboardStopped, Delivered, Delivery, DiffBase, Direction,
+    ErrorBody, Exit, Fact, Modes, MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, ScrollBy,
     SessionInfo, Snapshot, SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
@@ -46,6 +47,30 @@ pub fn screen(s: &Snapshot) -> String {
             format!("rows {}-{last} blank", first + shown)
         };
         out.push_str(&format!("{:>width$}│ ({blank})\n", "…"));
+    }
+    if let Some(refs) = &s.refs {
+        out.push_str(&refs_text(refs));
+    }
+    out
+}
+
+fn refs_text(refs: &[Ref]) -> String {
+    if refs.is_empty() {
+        return "refs: none\n".into();
+    }
+    let kinds: Vec<String> = refs.iter().map(|r| format!("[{}]", r.kind)).collect();
+    let labels: Vec<String> = refs.iter().map(|r| format!("\"{}\"", r.label)).collect();
+    let widest = |texts: &mut dyn Iterator<Item = usize>| texts.max().unwrap_or(0);
+    let id_width = widest(&mut refs.iter().map(|r| r.id.chars().count()));
+    let kind_width = widest(&mut kinds.iter().map(|kind| kind.chars().count()));
+    let label_width = widest(&mut labels.iter().map(|label| label.chars().count()));
+    let mut out = String::from("refs:\n");
+    for ((r, kind), label) in refs.iter().zip(&kinds).zip(&labels) {
+        let place = match r.kind {
+            RefKind::Panel => format!("rows {}-{}", r.rows[0], r.rows[1]),
+            _ => format!("row {} col {}", r.row, r.col),
+        };
+        out.push_str(&format!("  {:<id_width$} {kind:<kind_width$} {label:<label_width$} {place}\n", r.id));
     }
     out
 }
@@ -103,6 +128,25 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Printed(printed) => print!("{}", printed.output),
         Reply::Diff(diff) if json => println!("{}", serde_json::json!(diff)),
         Reply::Diff(diff) => print!("{}", diff_text(diff)),
+        Reply::Recording(recording) if json => println!("{}", serde_json::json!(recording)),
+        Reply::Recording(recording) => {
+            println!("recording {} {} to {}", recording.session, recording.tab, recording.path.display())
+        }
+        Reply::Saved(saved) if json => println!("{}", serde_json::json!(saved)),
+        Reply::Saved(saved) => println!("{}", saved_text(saved)),
+        Reply::Exported(export) if json => println!("{}", serde_json::json!(export)),
+        Reply::Exported(export) => println!(
+            "exported session {} to {} ({}, {} KB)",
+            export.session,
+            export.path.display(),
+            count(export.files, "file"),
+            export.bytes.div_ceil(1024)
+        ),
+        Reply::Dashboard(dashboard) if json => println!("{}", serde_json::json!(dashboard)),
+        Reply::Dashboard(dashboard) => println!("dashboard running at {}", dashboard.url),
+        Reply::DashboardStopped(stopped) if json => println!("{}", serde_json::json!(stopped)),
+        Reply::DashboardStopped(DashboardStopped { stopped: true }) => println!("dashboard stopped"),
+        Reply::DashboardStopped(DashboardStopped { stopped: false }) => println!("no dashboard is running"),
         Reply::History(history) if json => println!("{}", serde_json::json!(history)),
         Reply::History(history) if history.total == 0 => {
             println!("no commands have run in {} {}", history.session, history.tab)
@@ -126,6 +170,10 @@ pub fn reply(reply: &Reply, json: bool) {
     }
 }
 
+fn saved_text(saved: &SavedRecording) -> String {
+    format!("saved {} ({}, {} KB)", saved.path.display(), duration(saved.duration_ms), saved.bytes.div_ceil(1024))
+}
+
 fn record_line(record: &CommandRecord) -> String {
     let status = match (record.finished(), record.exit_code) {
         (false, _) => "running".to_string(),
@@ -138,8 +186,8 @@ fn record_line(record: &CommandRecord) -> String {
 fn duration(ms: u64) -> String {
     match ms {
         0..1_000 => format!("{ms} ms"),
-        1_000..60_000 => format!("{}.{} s", ms / 1_000, ms % 1_000 / 100),
-        _ => format!("{}m {:02}s", ms / 60_000, ms % 60_000 / 1_000),
+        1_000..60_000 => format!("{:.1} s", ms as f64 / 1000.0),
+        _ => format!("{} min {:02} s", ms / 60_000, ms % 60_000 / 1000),
     }
 }
 
@@ -254,7 +302,52 @@ fn delivery(d: &Delivered) -> String {
         Delivery::Signal { signal, process_group } => {
             format!("sent {signal} to {target} (process group {process_group})")
         }
+        Delivery::Click { target: clicked, row, col, button, double, .. } => {
+            let what = match clicked {
+                ClickTarget::Cell { .. } => format!("{row},{col}"),
+                ClickTarget::Ref(_) => format!("{clicked} at {row},{col}"),
+                ClickTarget::Text(text) => format!("{text:?} at {row},{col}"),
+            };
+            let mut notes = button_note(*button);
+            if *double {
+                notes.push("double click".into());
+            }
+            format!("clicked {what} in {target}{}", noted(&notes))
+        }
+        Delivery::Mouse { event, bytes } => {
+            let (what, mut notes) = match event {
+                MouseEvent::Move { row, col } => (format!("mouse move to {row},{col}"), Vec::new()),
+                MouseEvent::Down { row, col, button } => (format!("mouse down at {row},{col}"), button_note(*button)),
+                MouseEvent::Up { row, col, button } => (format!("mouse up at {row},{col}"), button_note(*button)),
+                MouseEvent::Wheel { row, col, direction } => {
+                    (format!("mouse wheel {direction} at {row},{col}"), Vec::new())
+                }
+            };
+            if *bytes == 0 {
+                notes.push("not sent: the app does not track this event".into());
+            }
+            format!("{what} in {target}{}", noted(&notes))
+        }
+        Delivery::Scroll { direction, count, by, .. } => {
+            let with = match (by, direction) {
+                (ScrollBy::Wheel, _) => "the mouse wheel",
+                (ScrollBy::Keys, Direction::Up) => "PageUp",
+                (ScrollBy::Keys, Direction::Down) => "PageDown",
+            };
+            format!("scrolled {direction} {count} in {target} with {with}")
+        }
     }
+}
+
+fn button_note(button: MouseButton) -> Vec<String> {
+    match button {
+        MouseButton::Left => Vec::new(),
+        other => vec![format!("{other} button")],
+    }
+}
+
+fn noted(notes: &[String]) -> String {
+    if notes.is_empty() { String::new() } else { format!(" ({})", notes.join(", ")) }
 }
 
 fn modes_text(modes: &Modes) -> String {

@@ -1,20 +1,25 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{ErrorKind, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
+use tokio::sync::watch;
 
 use crate::connection::{READY, home, socket_path};
+use crate::native::changes::Changes;
+use crate::native::dashboard::{self, Backend};
 use crate::native::pty;
 use crate::native::shell;
+use crate::native::store::{self, ActivityEntry, SessionFolder};
 use crate::native::terminal::{Settled, Terminal};
 use crate::native::wait::{Condition, Pattern};
 use crate::protocol::{
-    self, BatchOutcome, BatchStep, Checked, Closed, CommandOutput, CommandRecord, Delivered, ErrorBody, Expect,
-    History, Input, Marked, Matches, Printed, Reply, Request, Response, RowRange, SessionInfo, Sessions, Shell, Size,
-    Snapshot, SnapshotOptions, Style, TabRef, TextMatch, Wait, Waited,
+    self, Addressed, BatchOutcome, BatchStep, Call, Checked, Closed, CommandOutput, CommandRecord, Dashboard,
+    DashboardStopped, Delivered, ErrorBody, Expect, Export, History, Input, Marked, Matches, Printed, RecordingFile,
+    Reply, Request, Response, RowRange, SavedRecording, SessionInfo, Sessions, Shell, Size, Snapshot, SnapshotOptions,
+    Style, TabRef, TextMatch, Wait, Waited,
 };
 
 #[derive(Default)]
@@ -23,13 +28,25 @@ struct Daemon {
     restarting: Mutex<()>,
     activity: Mutex<Activity>,
     quiet: Condvar,
+    folders: Mutex<HashMap<String, Weak<SessionFolder>>>,
+    changes: Changes,
+    dashboard: Mutex<Option<dashboard::Server>>,
+    me: Weak<Daemon>,
 }
 
-#[derive(Default)]
 struct Session {
     tabs: BTreeMap<u32, Arc<Terminal>>,
     current: Option<u32>,
-    next_id: u32,
+    folder: Arc<SessionFolder>,
+}
+
+struct Logged {
+    session: String,
+    tab: Option<u32>,
+    folder: Option<Arc<SessionFolder>>,
+    typed: Vec<String>,
+    time: SystemTime,
+    started: Instant,
 }
 
 struct Activity {
@@ -72,7 +89,7 @@ pub fn run(idle_timeout: Duration) -> Result<()> {
     let mut stdout = std::io::stdout();
     writeln!(stdout, "{READY}").and_then(|()| stdout.flush()).context("tell the CLI the daemon is ready")?;
 
-    let daemon = Arc::new(Daemon::default());
+    let daemon = Arc::new_cyclic(|me| Daemon { me: me.clone(), ..Daemon::default() });
     if !idle_timeout.is_zero() {
         let watching = Arc::clone(&daemon);
         std::thread::spawn(move || watching.stop_when_idle(idle_timeout));
@@ -92,23 +109,23 @@ pub fn run(idle_timeout: Duration) -> Result<()> {
 impl Daemon {
     fn serve(&self, mut stream: UnixStream) {
         let busy = self.busy();
-        let request: Request = match protocol::read(&mut stream) {
-            Ok(Some(request)) => request,
+        let call: Call = match protocol::read(&mut stream) {
+            Ok(Some(call)) => call,
             Ok(None) => return,
             Err(e) => {
                 eprintln!("reading a request failed: {e:#}");
                 return;
             }
         };
-        let stop = matches!(request, Request::Stop);
+        let stop = matches!(call.request, Request::Stop);
+        let logged = call.typed.and_then(|typed| self.about_to_handle(typed, &call.request));
         let handled = match &busy {
-            Some(_) => self.handle(request),
-            None => Err(ErrorBody {
-                code: crate::exit::ERROR,
-                message: "the daemon is stopping because it was idle; run the command again to start a new one".into(),
-                snapshot: None,
-            }),
+            Some(_) => self.handle(call.request),
+            None => Err(stopping()),
         };
+        if let Some(logged) = logged {
+            self.log(logged, &handled);
+        }
         let response = match handled {
             Ok(reply) => Response::Ok(reply),
             Err(failure) => Response::Err(failure),
@@ -138,12 +155,7 @@ impl Daemon {
                 self.resize(&session, tab, size, &wait, timeout_ms)
             }
             Request::Restart { session, tab, wait, timeout_ms } => self.restart(&session, tab, &wait, timeout_ms),
-            Request::Sessions => {
-                let sessions = self.sessions.lock().unwrap();
-                Ok(Reply::Sessions(Sessions {
-                    sessions: sessions.iter().map(|(name, session)| session.info(name)).collect(),
-                }))
-            }
+            Request::Sessions => Ok(Reply::Sessions(self.list())),
             Request::Tabs { session } => {
                 let sessions = self.sessions.lock().unwrap();
                 Ok(Reply::Tabs(
@@ -190,6 +202,35 @@ impl Daemon {
                 let (_, terminal) = self.target(&session, tab)?;
                 terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(failure)
             }
+            Request::RecordStart { session, tab, path } => {
+                let (id, terminal) = self.target(&session, tab)?;
+                let tab = tab_name(id);
+                let path = match path {
+                    Some(path) => path,
+                    None => home().map_err(error_body)?.join("recordings").join(format!(
+                        "{}-{tab}-{}.cast",
+                        store::file_name(&session),
+                        terminal.frame()
+                    )),
+                };
+                terminal.recording().save_to(&path).map_err(error_body)?;
+                Ok(Reply::Recording(RecordingFile { session, tab, path }))
+            }
+            Request::RecordStop { session, tab } => {
+                let (id, terminal) = self.target(&session, tab)?;
+                let saved = terminal.recording().stop_saving().map_err(error_body)?;
+                Ok(Reply::Saved(SavedRecording {
+                    session,
+                    tab: tab_name(id),
+                    path: saved.path,
+                    duration_ms: saved.duration.as_millis() as u64,
+                    bytes: saved.bytes,
+                }))
+            }
+            Request::TraceExport { session, path } => {
+                let exported = home().and_then(|home| store::export(&home, &session, &path)).map_err(error_body)?;
+                Ok(Reply::Exported(Export { session, path, files: exported.files, bytes: exported.bytes }))
+            }
             Request::Shell { session, shell, program, size, cwd, env, wait, timeout_ms } => self.open_shell(
                 session,
                 shell,
@@ -229,21 +270,52 @@ impl Daemon {
                 Ok(Reply::Stopped)
             }
             Request::Batch { steps, bail } => Ok(Reply::Batch(self.batch(steps, bail))),
+            Request::DashboardStart { port } => self.start_dashboard(port).map(Reply::Dashboard),
+            Request::DashboardStop => Ok(Reply::DashboardStopped(DashboardStopped { stopped: self.stop_dashboard() })),
         }
+    }
+
+    fn list(&self) -> Sessions {
+        let sessions = self.sessions.lock().unwrap();
+        Sessions { sessions: sessions.iter().map(|(name, session)| session.info(name)).collect() }
+    }
+
+    fn start_dashboard(&self, port: u16) -> Result<Dashboard, ErrorBody> {
+        let mut running = self.dashboard.lock().unwrap();
+        if let Some(server) = running.as_ref() {
+            if port == 0 || port == server.port() {
+                return Ok(server.info());
+            }
+            return Err(failure(format!(
+                "the dashboard already runs at {}; stop it first with `agent-terminal dashboard stop`",
+                server.info().url
+            )));
+        }
+        let backend: Arc<dyn Backend> =
+            self.me.upgrade().ok_or_else(|| failure("the daemon is shutting down".into()))?;
+        let server = dashboard::Server::start(port, backend).map_err(error_body)?;
+        let info = server.info();
+        *running = Some(server);
+        Ok(info)
+    }
+
+    fn stop_dashboard(&self) -> bool {
+        let server = self.dashboard.lock().unwrap().take();
+        server.is_some()
     }
 
     fn batch(&self, steps: Vec<BatchStep>, bail: bool) -> Vec<BatchOutcome> {
         let mut outcomes = Vec::with_capacity(steps.len());
         let mut failed = false;
         for step in steps {
-            let response = if bail && failed { None } else { Some(self.batch_step(step.request)) };
+            let response = if bail && failed { None } else { Some(self.batch_step(&step.args, step.request)) };
             failed |= response.as_ref().is_some_and(|response| response.exit_code() != 0);
             outcomes.push(BatchOutcome { args: step.args, response });
         }
         outcomes
     }
 
-    fn batch_step(&self, request: Request) -> Response {
+    fn batch_step(&self, args: &[String], request: Request) -> Response {
         if matches!(request, Request::Stop) {
             return Response::Err(ErrorBody {
                 code: crate::exit::ERROR,
@@ -251,10 +323,57 @@ impl Daemon {
                 snapshot: None,
             });
         }
-        match self.handle(request) {
+        let logged = self.about_to_handle(args.to_vec(), &request);
+        let handled = self.handle(request);
+        if let Some(logged) = logged {
+            self.log(logged, &handled);
+        }
+        match handled {
             Ok(reply) => Response::Ok(reply),
             Err(failure) => Response::Err(failure),
         }
+    }
+
+    fn about_to_handle(&self, typed: Vec<String>, request: &Request) -> Option<Logged> {
+        let sessions = self.sessions.lock().unwrap();
+        let (session, tab) = match request.addressed() {
+            Addressed::Nothing => return None,
+            Addressed::Session(session) => (session, None),
+            Addressed::Tab(session, Some(id)) => (session, Some(id)),
+            Addressed::Tab(session, None) => (session, sessions.get(session).and_then(|s| s.current)),
+        };
+        Some(Logged {
+            session: session.to_string(),
+            tab,
+            folder: sessions.get(session).map(|s| Arc::clone(&s.folder)),
+            typed,
+            time: SystemTime::now(),
+            started: Instant::now(),
+        })
+    }
+
+    fn log(&self, logged: Logged, handled: &Result<Reply, ErrorBody>) {
+        let mut entry = ActivityEntry::at(logged.time, &logged.typed, logged.started.elapsed());
+        let folder =
+            logged.folder.or_else(|| self.sessions.lock().unwrap().get(&logged.session).map(|s| Arc::clone(&s.folder)));
+        let Some(folder) = folder else {
+            return;
+        };
+        let shown = match handled {
+            Ok(Reply::Snapshot(snapshot)) => Some(snapshot),
+            Err(failure) => failure.snapshot.as_deref(),
+            Ok(_) => None,
+        };
+        entry.tab = shown.map(|snapshot| snapshot.tab.clone()).or_else(|| logged.tab.map(tab_name));
+        entry.frame = shown.map(|snapshot| snapshot.frame).or_else(|| {
+            let (_, terminal) = self.target(&logged.session, Some(logged.tab?)).ok()?;
+            Some(terminal.frame())
+        });
+        if let Err(failure) = handled {
+            entry.exit = failure.code;
+            entry.error = Some(failure.message.clone());
+        }
+        folder.log(&entry);
     }
 
     fn busy(&self) -> Option<Busy<'_>> {
@@ -287,6 +406,7 @@ impl Daemon {
     }
 
     fn shut_down(&self) {
+        self.stop_dashboard();
         if let Err(e) = socket_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
             eprintln!("removing the socket failed: {e:#}");
         }
@@ -300,8 +420,7 @@ impl Daemon {
         wait: Option<&Wait>,
         timeout_ms: u64,
     ) -> Result<Reply, ErrorBody> {
-        let terminal = Terminal::start(command).map_err(error_body)?;
-        let tab = self.add_tab(&session, &terminal);
+        let (tab, terminal) = self.open_tab(&session, command, None)?;
         first_screen(&session, tab, &terminal, wait, timeout_ms)
     }
 
@@ -313,10 +432,8 @@ impl Daemon {
         wait: Option<&Wait>,
         timeout_ms: u64,
     ) -> Result<Reply, ErrorBody> {
-        let terminal = shell::prepare(shell, command)
-            .and_then(|command| Terminal::launch(command, Some(shell)))
-            .map_err(error_body)?;
-        let tab = self.add_tab(&session, &terminal);
+        let command = shell::prepare(shell, command).map_err(error_body)?;
+        let (tab, terminal) = self.open_tab(&session, command, Some(shell))?;
         first_screen(&session, tab, &terminal, wait, timeout_ms).map_err(|mut error| {
             if matches!(wait, Some(Wait::Command)) && error.code == crate::exit::TIMEOUT {
                 error.message = format!(
@@ -329,14 +446,42 @@ impl Daemon {
         })
     }
 
-    fn add_tab(&self, session: &str, terminal: &Arc<Terminal>) -> u32 {
-        let mut sessions = self.sessions.lock().unwrap();
-        let entry = sessions.entry(session.to_string()).or_default();
-        entry.next_id += 1;
-        let id = entry.next_id;
-        entry.tabs.insert(id, Arc::clone(terminal));
-        entry.current = Some(id);
-        id
+    fn open_tab(
+        &self,
+        session: &str,
+        command: pty::Command,
+        shell: Option<Shell>,
+    ) -> Result<(u32, Arc<Terminal>), ErrorBody> {
+        let spawned = pty::spawn(command.clone()).map_err(error_body)?;
+        let folder = match self.folder(session) {
+            Ok(folder) => folder,
+            Err(e) => {
+                spawned.abandon();
+                return Err(error_body(e));
+            }
+        };
+        let tab = folder.next_tab();
+        let recording = folder.record(&tab_name(tab), &command);
+        let terminal = Terminal::start(command, shell, spawned, recording, self.changes.clone());
+        {
+            let mut sessions = self.sessions.lock().unwrap();
+            let entry = sessions.entry(session.to_string()).or_insert_with(|| Session::new(Arc::clone(&folder)));
+            entry.tabs.insert(tab, Arc::clone(&terminal));
+            entry.current = Some(tab);
+        }
+        self.changes.notify();
+        Ok((tab, terminal))
+    }
+
+    fn folder(&self, session: &str) -> Result<Arc<SessionFolder>> {
+        let mut folders = self.folders.lock().unwrap();
+        if let Some(folder) = folders.get(session).and_then(Weak::upgrade) {
+            return Ok(folder);
+        }
+        let folder = Arc::new(SessionFolder::start(&home()?, session)?);
+        folders.retain(|_, folder| folder.strong_count() > 0);
+        folders.insert(session.to_string(), Arc::downgrade(&folder));
+        Ok(folder)
     }
 
     fn resize(
@@ -366,7 +511,11 @@ impl Daemon {
                 snapshot: None,
             });
         }
-        let terminal = old.start_again().map_err(error_body)?;
+        let command = old.rerun();
+        let spawned = pty::spawn(command.clone()).map_err(error_body)?;
+        let recording = old.recording();
+        recording.restart();
+        let terminal = Terminal::start(command, old.shell(), spawned, recording, self.changes.clone());
         {
             let mut sessions = self.sessions.lock().unwrap();
             match sessions.get_mut(session).and_then(|s| s.tabs.get_mut(&tab)) {
@@ -377,6 +526,7 @@ impl Daemon {
                 }
             }
         }
+        self.changes.notify();
         drop(restarting);
         settle(session, tab, &terminal, wait, timeout_ms)
     }
@@ -535,11 +685,14 @@ impl Daemon {
         if entry.tabs.is_empty() {
             sessions.remove(session);
         }
+        drop(sessions);
+        self.changes.notify();
         Ok(TabRef { session: session.to_string(), tab: tab_name(id) })
     }
 
     fn close_all(&self) -> Vec<TabRef> {
         let sessions = std::mem::take(&mut *self.sessions.lock().unwrap());
+        self.changes.notify();
         let mut closed = Vec::new();
         for (name, session) in sessions {
             for (id, terminal) in session.tabs {
@@ -564,7 +717,32 @@ impl Daemon {
     }
 }
 
+impl Backend for Daemon {
+    fn call(&self, request: Request) -> Result<Reply, ErrorBody> {
+        match self.busy() {
+            Some(_busy) => self.handle(request),
+            None => Err(stopping()),
+        }
+    }
+
+    fn sessions(&self) -> Sessions {
+        self.list()
+    }
+
+    fn terminal(&self, session: &str, tab: u32) -> Option<Arc<Terminal>> {
+        self.sessions.lock().unwrap().get(session).and_then(|entry| entry.tabs.get(&tab)).cloned()
+    }
+
+    fn changes(&self) -> watch::Receiver<u64> {
+        self.changes.subscribe()
+    }
+}
+
 impl Session {
+    fn new(folder: Arc<SessionFolder>) -> Self {
+        Self { tabs: BTreeMap::new(), current: None, folder }
+    }
+
     fn info(&self, name: &str) -> SessionInfo {
         SessionInfo {
             session: name.to_string(),
@@ -695,6 +873,10 @@ fn describe_text(text: &TextMatch, plain: &str, pattern: &str) -> String {
         Some(RowRange { first, last }) => format!("{what} in rows {first}-{last}"),
         None => what,
     }
+}
+
+fn stopping() -> ErrorBody {
+    failure("the daemon is stopping because it was idle; run the command again to start a new one".into())
 }
 
 fn tab_name(id: u32) -> String {

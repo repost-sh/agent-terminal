@@ -259,7 +259,7 @@ fn simultaneous_installs_leave_one_complete_stub() {
     assert_eq!(installed, at.run(&["skills", "get", "agent-terminal"]).success().stdout());
 }
 
-const NOT_YET_BUILT: &[&str] = &["clip", "click", "dashboard", "screenshot", "scroll", "trace"];
+const NOT_YET_BUILT: &[&str] = &["clip", "screenshot"];
 
 fn code_in(markdown: &str) -> Vec<&str> {
     let mut code = Vec::new();
