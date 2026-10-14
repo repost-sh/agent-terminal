@@ -14,7 +14,16 @@ export type Style = {
 
 export type Run = { text: string; style: Style };
 
-const SGR = /\x1b\[([\d;:]*)m/g;
+const CSI = "\x1b[";
+
+function* sgrSequences(text: string) {
+  const params = /([\d;:]*)m/y;
+  for (let index = text.indexOf(CSI); index !== -1; index = text.indexOf(CSI, index + 1)) {
+    params.lastIndex = index + CSI.length;
+    const match = params.exec(text);
+    if (match) yield { index, length: CSI.length + match[0].length, params: match[1] ?? "" };
+  }
+}
 
 const CUBE = [0, 95, 135, 175, 215, 255];
 
@@ -92,10 +101,10 @@ export const styledLines = (text: string): Run[][] => {
       if (n > 0) lines.push([]);
       if (part) lines.at(-1)?.push({ text: part, style });
     });
-  for (const match of text.matchAll(SGR)) {
-    add(text.slice(at, match.index));
-    style = applied(style, match[1] ?? "");
-    at = match.index + match[0].length;
+  for (const { index, length, params } of sgrSequences(text)) {
+    add(text.slice(at, index));
+    style = applied(style, params);
+    at = index + length;
   }
   add(text.slice(at));
   if (lines.length > 1 && !lines.at(-1)?.length) lines.pop();
