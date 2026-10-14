@@ -1,5 +1,8 @@
+mod activity;
 mod commands;
 mod empty;
+mod info;
+mod output;
 mod sidebar;
 mod split;
 mod terminal;
@@ -142,7 +145,7 @@ impl Drop for Browser {
     }
 }
 
-fn js_string(text: &str) -> String {
+pub fn js_string(text: &str) -> String {
     serde_json::to_string(text).expect("a JSON string")
 }
 

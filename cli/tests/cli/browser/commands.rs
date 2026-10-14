@@ -30,6 +30,10 @@ impl ShellTab {
     }
 }
 
+fn wait_for_listed(browser: &Browser, text: &str) {
+    browser.wait_until(&format!("document.querySelector(\"{COMMANDS}\")?.innerText.includes({text:?})"));
+}
+
 fn open_commands(browser: &Browser) {
     browser.run(&["find", "role", "tab", "click", "--name", "Commands", "--exact"]);
     browser.wait_until("document.querySelector('[role=tab][aria-selected=true]')?.textContent === 'Commands'");
@@ -90,7 +94,7 @@ fn the_commands_tab_lists_each_command_with_its_exit_status_and_expands_to_its_o
     let browser = Browser::open(&dashboard.url("/s/default/t1"));
     open_commands(&browser);
 
-    browser.wait_for_text("echo failing; false");
+    wait_for_listed(&browser, "echo failing; false");
     assert_eq!(
         rows(&browser),
         [
@@ -101,7 +105,9 @@ fn the_commands_tab_lists_each_command_with_its_exit_status_and_expands_to_its_o
     assert_eq!(browser.text("#ppanel-commands [data-slot=badge]").trim(), "2");
 
     browser.run(&["click", &format!("{COMMANDS} > li:nth-child(1) button")]);
-    browser.wait_for_text("green passing");
+    browser.wait_until(&format!(
+        "document.querySelector(\"{COMMANDS} > li:nth-child(1) > div > button + div\")?.innerText.trim() === 'green passing'"
+    ));
     assert_eq!(expanded_output(&browser, 1).trim(), "green passing");
     assert_eq!(color_of(&browser, 1, "green"), "rgb(74, 222, 128)");
     assert_ne!(output_color(&browser, 1), "rgb(74, 222, 128)");
@@ -136,7 +142,7 @@ fn new_commands_appear_as_they_finish_and_a_running_one_shows_as_running() {
     let status = std::process::Command::new("mkfifo").arg(&hold).status().expect("run mkfifo");
     assert!(status.success(), "mkfifo failed");
     assert_eq!(tab.run(&["exec", "cat hold", "--timeout", "300"]).code(), 3);
-    browser.wait_for_text("cat hold");
+    wait_for_listed(&browser, "cat hold");
     assert_eq!(rows(&browser), [vec!["running", "cat hold", "~/p/demo-app · running · <time>", "+"]]);
 
     std::fs::write(&hold, "released\n").expect("release the command");
@@ -147,7 +153,7 @@ fn new_commands_appear_as_they_finish_and_a_running_one_shows_as_running() {
     assert_eq!(rows(&browser), [vec!["✓", "exit 0", "cat hold", "~/p/demo-app · <duration> · <time>", "+"]]);
 
     tab.run(&["exec", "echo later"]).success();
-    browser.wait_for_text("echo later");
+    wait_for_listed(&browser, "echo later");
     assert_eq!(
         rows(&browser),
         [
