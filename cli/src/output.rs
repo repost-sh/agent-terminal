@@ -1,7 +1,7 @@
 use crate::protocol::{
-    BatchOutcome, Checked, ClickTarget, CommandRecord, DashboardStopped, Delivered, Delivery, DiffBase, Direction,
-    ErrorBody, Exit, Fact, Modes, MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording, Screenshot,
-    ScrollBy, SessionInfo, Snapshot, SnapshotDiff, Waited,
+    BatchOutcome, Checked, ClickTarget, Clip, CommandRecord, DashboardStopped, Delivered, Delivery, DiffBase,
+    Direction, ErrorBody, Exit, Fact, Modes, MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording,
+    Screenshot, ScrollBy, SessionInfo, Snapshot, SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
 
@@ -149,6 +149,8 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Screenshot(screenshot) => print!("{}", screenshot_text(screenshot)),
         Reply::ScreenshotDiff(diff) if json => println!("{}", serde_json::json!(diff)),
         Reply::ScreenshotDiff(diff) => println!("{}", diff.summary()),
+        Reply::Clip(clip) if json => println!("{}", serde_json::json!(clip)),
+        Reply::Clip(clip) => println!("{}", clip_text(clip)),
         Reply::Dashboard(dashboard) if json => println!("{}", serde_json::json!(dashboard)),
         Reply::Dashboard(dashboard) => println!("dashboard running at {}", dashboard.url),
         Reply::DashboardStopped(stopped) if json => println!("{}", serde_json::json!(stopped)),
@@ -189,6 +191,17 @@ fn screenshot_text(screenshot: &Screenshot) -> String {
         out.push_str(&refs_text(refs));
     }
     out
+}
+
+fn clip_text(clip: &Clip) -> String {
+    format!(
+        "saved {} ({} {}, {}, {})",
+        clip.path.display(),
+        clip.session,
+        clip.tab,
+        count(clip.frames, "frame"),
+        duration(clip.duration_ms)
+    )
 }
 
 fn saved_text(saved: &SavedRecording) -> String {

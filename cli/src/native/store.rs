@@ -35,6 +35,8 @@ pub struct ActivityEntry {
     pub frame: Option<u64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub screenshots: Vec<PathBuf>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub clips: Vec<PathBuf>,
 }
 
 impl ActivityEntry {
@@ -48,6 +50,7 @@ impl ActivityEntry {
             error: None,
             frame: None,
             screenshots: Vec::new(),
+            clips: Vec::new(),
         }
     }
 }

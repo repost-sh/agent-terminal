@@ -468,6 +468,7 @@ impl Terminal {
     pub fn mark(&self, name: String) -> u64 {
         let mut state = self.state.lock().unwrap();
         let frame = state.frame;
+        self.recording.mark(&name);
         state.log.mark(name, frame);
         frame
     }

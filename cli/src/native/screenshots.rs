@@ -97,7 +97,7 @@ pub fn diff(
     })
 }
 
-fn folder(dir: Option<&Path>) -> Result<PathBuf> {
+pub fn folder(dir: Option<&Path>) -> Result<PathBuf> {
     match dir {
         Some(dir) => Ok(dir.to_path_buf()),
         None => Ok(home()?.join("screenshots")),
