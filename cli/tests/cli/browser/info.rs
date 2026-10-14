@@ -103,7 +103,9 @@ fn info_shows_the_setup_modes_recording_and_the_environment_with_secrets_masked_
     at.run(&["record", "stop"]).success();
     browser.wait_until("[...document.querySelectorAll('#ppanel-info dt')].find((term) => term.textContent === 'recording').nextElementSibling.textContent === 'off'");
     at.run(&["resize", "50x8"]).success();
-    browser.wait_for_text("50 × 8");
+    browser.wait_until(
+        "[...document.querySelectorAll('#ppanel-info dt')].find((term) => term.textContent === 'size').nextElementSibling.textContent === '50 × 8'",
+    );
 
     assert_eq!(browser.eval("document.querySelector('#ppanel-info details').open"), "false");
     browser.run(&["click", "#ppanel-info summary"]);

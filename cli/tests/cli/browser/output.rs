@@ -9,6 +9,13 @@ fn stream(browser: &Browser) -> Vec<String> {
     serde_json::from_str(&lines).expect("the Output lines")
 }
 
+fn wait_for_output(browser: &Browser, text: &str) {
+    browser.wait_until(&format!(
+        "document.querySelector(\"[aria-label='Output of default t1']\")?.textContent.includes({})",
+        js_string(text)
+    ));
+}
+
 fn open_output(browser: &Browser) {
     browser.run(&["find", "role", "tab", "click", "--name", "Output", "--exact"]);
 }
@@ -37,7 +44,7 @@ fn output_shows_the_text_stream_with_marks_as_dividers_escapes_on_raw_and_search
     let browser = Browser::open(&dashboard.url("/s/default/t1"));
     open_output(&browser);
 
-    browser.wait_for_text("red alert");
+    wait_for_output(&browser, "red alert");
     assert_eq!(stream(&browser), ["line 1", "line 2", "mark: before-alert", "red alert"]);
     assert_eq!(at.run(&["output"]).success().stdout(), "line 1\nline 2\nred alert\n");
     assert_eq!(
@@ -53,7 +60,7 @@ fn output_shows_the_text_stream_with_marks_as_dividers_escapes_on_raw_and_search
     );
 
     cue.print("alert again\n");
-    browser.wait_for_text("alert again");
+    wait_for_output(&browser, "alert again");
     assert_eq!(stream(&browser), ["line 1", "line 2", "mark: before-alert", "red alert", "alert again"]);
 
     browser.run(&["fill", "input[placeholder='Search']", "alert"]);
