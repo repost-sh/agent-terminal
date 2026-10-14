@@ -1,6 +1,7 @@
 import { closeTab, restartTab } from "../lib/api";
 import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
+import type { Layout } from "../lib/split";
 import { useTabStream } from "../lib/stream";
 import { firstTab, tabName } from "../lib/tabs";
 import { useXterm } from "../lib/xterm";
@@ -8,12 +9,13 @@ import { announce } from "./announcer";
 import { StatusBar } from "./status-bar";
 import { Viewport } from "./terminal-view";
 import { toast } from "./toaster";
+import { Toolbar } from "./toolbar";
 
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-type TabScreenProps = { session: string; tab: TabInfo; sessions: SessionInfo[] };
+type TabScreenProps = { session: string; tab: TabInfo; sessions: SessionInfo[]; onLayout: (count: Layout) => void };
 
-export const TabScreen = ({ session, tab, sessions }: TabScreenProps) => {
+export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) => {
   const terminal = useXterm();
   const { state, shown } = useTabStream(session, tab.tab, terminal);
   const name = tabName(session, tab.tab);
@@ -42,6 +44,8 @@ export const TabScreen = ({ session, tab, sessions }: TabScreenProps) => {
 
   return (
     <>
+      <Toolbar layout={1} onLayout={onLayout} />
+      <div className="h-px shrink-0 bg-border" role="none" />
       <Viewport
         terminal={terminal}
         state={state}
