@@ -6,6 +6,7 @@ mod output;
 mod sidebar;
 mod split;
 mod terminal;
+mod timeline;
 
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};

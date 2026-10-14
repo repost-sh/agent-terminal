@@ -6,6 +6,7 @@ import { screenshotUrl } from "../lib/api";
 import { clockMs, formatDuration } from "../lib/format";
 import type { ActivityEntry } from "../lib/protocol";
 import { tabName } from "../lib/tabs";
+import { endOf, goLive, showMoment, useViewingPast } from "../lib/timeline";
 import type { PanelProps } from "../panels";
 import { announce } from "./announcer";
 import { HEAD_TOGGLE, PanelHead } from "./panel-parts";
@@ -103,6 +104,8 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
   const [follow, setFollow] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
   const followButton = useRef<HTMLButtonElement>(null);
+  const past = useViewingPast(session, tab.tab);
+  const following = follow && !past;
   const hidden = clearedAt && entries[0]?.time === clearedAt.first ? clearedAt.count : 0;
   const shown = entries.slice(hidden);
 
@@ -122,20 +125,34 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
     announce("Activity cleared");
   };
 
-  const jumpToLatest = () => {
+  const followLatest = () => {
     setFollow(true);
+    goLive(session, tab.tab);
+  };
+
+  const jumpToLatest = () => {
+    followLatest();
     followButton.current?.focus();
   };
 
   const toggle = (index: number) => {
     setFollow(false);
     setExpanded(expanded === index ? null : index);
+    const entry = entries[index];
+    if (expanded !== index && entry?.frame !== undefined) showMoment(session, tab.tab, entry.frame, endOf(entry));
   };
 
   return (
     <>
       <PanelHead title="Activity" count={shown.length}>
-        <button ref={followButton} type="button" aria-pressed={follow} onClick={() => setFollow(!follow)} className={HEAD_TOGGLE} title="Follow the newest call">
+        <button
+          ref={followButton}
+          type="button"
+          aria-pressed={following}
+          onClick={() => (following ? setFollow(false) : followLatest())}
+          className={HEAD_TOGGLE}
+          title="Follow the newest call"
+        >
           <ArrowDownToLine aria-hidden="true" />
           Follow
         </button>
@@ -148,7 +165,7 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
         <p className="py-8 text-center text-xs text-muted-foreground">Waiting for calls...</p>
       ) : (
         <div className="relative min-h-0 flex-1">
-          <ol ref={stickToLatest} data-follow={String(follow)} onScroll={scrolled} aria-label={`Calls to ${name}`} className="h-full overflow-y-auto">
+          <ol ref={stickToLatest} data-follow={String(following)} onScroll={scrolled} aria-label={`Calls to ${name}`} className="h-full overflow-y-auto">
             {shown.map((entry, index) => (
               <ActivityRow
                 key={hidden + index}
@@ -161,7 +178,7 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
           </ol>
           <button
             type="button"
-            hidden={follow}
+            hidden={following}
             onClick={jumpToLatest}
             className="absolute bottom-3 left-1/2 flex h-6 -translate-x-1/2 items-center gap-1 rounded-4xl border border-border bg-popover px-2.5 text-[11px] text-popover-foreground shadow-md outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-3"
           >
