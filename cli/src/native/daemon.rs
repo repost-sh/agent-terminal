@@ -14,7 +14,7 @@ use crate::native::dashboard::{self, Backend};
 use crate::native::pty;
 use crate::native::screenshots;
 use crate::native::shell;
-use crate::native::store::{self, ActivityEntry, SessionFolder};
+use crate::native::store::{self, ActivityEntry, Pending, SessionFolder};
 use crate::native::terminal::{Picture, Settled, Terminal};
 use crate::native::wait::{Condition, Pattern};
 use crate::output;
@@ -55,6 +55,7 @@ struct Logged {
     session: String,
     tab: Option<u32>,
     folder: Option<Arc<SessionFolder>>,
+    pending: Option<Pending>,
     typed: Vec<String>,
     time: SystemTime,
     started: Instant,
@@ -375,14 +376,10 @@ impl Daemon {
             Addressed::Tab(session, Some(id)) => (session, Some(id)),
             Addressed::Tab(session, None) => (session, sessions.get(session).and_then(|s| s.current)),
         };
-        Some(Logged {
-            session: session.to_string(),
-            tab,
-            folder: sessions.get(session).map(|s| Arc::clone(&s.folder)),
-            typed,
-            time: SystemTime::now(),
-            started: Instant::now(),
-        })
+        let time = SystemTime::now();
+        let folder = sessions.get(session).map(|s| Arc::clone(&s.folder));
+        let pending = folder.as_ref().map(|folder| folder.begin(time, tab.map(tab_name), &typed));
+        Some(Logged { session: session.to_string(), tab, folder, pending, typed, time, started: Instant::now() })
     }
 
     fn log(&self, logged: Logged, handled: &Result<Reply, ErrorBody>) {
@@ -424,7 +421,10 @@ impl Daemon {
             Ok(Reply::Delivered(delivered)) => delivered.screenshot.iter().map(|shot| shot.path.clone()).collect(),
             Ok(_) | Err(_) => Vec::new(),
         };
-        folder.log(&entry);
+        match logged.pending {
+            Some(pending) => pending.log(&entry),
+            None => folder.log(&entry),
+        }
     }
 
     fn busy(&self) -> Option<Busy<'_>> {
@@ -652,46 +652,11 @@ impl Daemon {
         }
     }
 
-    fn take_control(&self, session: &str, tab: Option<u32>) -> Result<(u32, Tab, Hold), ErrorBody> {
-        let (id, tab) = self.tab(session, tab)?;
-        let hold = tab.control.take();
-        Ok((id, tab, hold))
-    }
-
-    fn type_as_human(&self, session: &str, id: u32, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody> {
-        let time = SystemTime::now();
-        let started = Instant::now();
-        let (folder, terminal) = {
-            let sessions = self.sessions.lock().unwrap();
-            let held = sessions.get(session).and_then(|s| {
-                let tab = s.tabs.get(&id).filter(|tab| hold.holds(&tab.control))?;
-                Some((Arc::clone(&s.folder), Arc::clone(&tab.terminal)))
-            });
-            held.ok_or_else(|| failure(format!("{session} {} was closed", tab_name(id))))?
-        };
-        let delivered = terminal.input(&input.input()).map(drop).map_err(|e| {
-            let mut error = error_body(e);
-            error.message = format!("{session} {}: {}", tab_name(id), error.message);
-            error
-        });
-        let mut entry = ActivityEntry::at(time, &input.call(), started.elapsed());
-        entry.tab = Some(tab_name(id));
-        entry.frame = Some(terminal.frame());
-        entry.human = Some(input.clone());
-        if let Err(error) = &delivered {
-            entry.exit = error.code;
-            entry.error = Some(error.message.clone());
-        }
-        folder.log(&entry);
-        delivered
-    }
-
     fn attach(&self, mut stream: UnixStream, session: &str, tab: Option<u32>, read_only: bool) {
-        let taken = if read_only {
-            self.tab(session, tab).map(|(id, tab)| (id, tab, None))
-        } else {
-            self.take_control(session, tab).map(|(id, tab, hold)| (id, tab, Some(hold)))
-        };
+        let taken = self.tab(session, tab).map(|(id, tab)| {
+            let hold = (!read_only).then(|| tab.control.take());
+            (id, tab, hold)
+        });
         let (id, attached, hold) = match taken {
             Ok(taken) => taken,
             Err(error) => {
@@ -963,6 +928,43 @@ impl Backend for Daemon {
 
     fn changes(&self) -> watch::Receiver<u64> {
         self.changes.subscribe()
+    }
+
+    fn take_control(&self, session: &str, tab: u32) -> Result<Hold, ErrorBody> {
+        self.tab(session, Some(tab)).map(|(_, tab)| tab.control.take())
+    }
+
+    fn holds(&self, session: &str, tab: u32, hold: &Hold) -> bool {
+        let sessions = self.sessions.lock().unwrap();
+        sessions.get(session).and_then(|entry| entry.tabs.get(&tab)).is_some_and(|tab| hold.holds(&tab.control))
+    }
+
+    fn type_as_human(&self, session: &str, id: u32, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody> {
+        let time = SystemTime::now();
+        let started = Instant::now();
+        let (folder, terminal) = {
+            let sessions = self.sessions.lock().unwrap();
+            let held = sessions.get(session).and_then(|s| {
+                let tab = s.tabs.get(&id).filter(|tab| hold.holds(&tab.control))?;
+                Some((Arc::clone(&s.folder), Arc::clone(&tab.terminal)))
+            });
+            held.ok_or_else(|| failure(format!("{session} {} was closed", tab_name(id))))?
+        };
+        let delivered = terminal.input(&input.input()).map(drop).map_err(|e| {
+            let mut error = error_body(e);
+            error.message = format!("{session} {}: {}", tab_name(id), error.message);
+            error
+        });
+        let mut entry = ActivityEntry::at(time, &input.call(), started.elapsed());
+        entry.tab = Some(tab_name(id));
+        entry.frame = Some(terminal.frame());
+        entry.human = Some(input.clone());
+        if let Err(error) = &delivered {
+            entry.exit = error.code;
+            entry.error = Some(error.message.clone());
+        }
+        folder.log(&entry);
+        delivered
     }
 }
 

@@ -1,10 +1,14 @@
+import { useState } from "react";
+
 import { closeTab, restartTab } from "../lib/api";
+import { controlKeys, controlTerminal, useControl } from "../lib/control";
 import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
 import type { Layout } from "../lib/split";
 import { useTabStream } from "../lib/stream";
 import { firstTab, tabName } from "../lib/tabs";
 import { announce } from "./announcer";
+import { ControlButton } from "./control-button";
 import { StatusBar } from "./status-bar";
 import { Viewport } from "./terminal-view";
 import { toast } from "./toaster";
@@ -17,6 +21,9 @@ type TabScreenProps = { session: string; tab: TabInfo; sessions: SessionInfo[]; 
 export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) => {
   const { state, shown, paint } = useTabStream(session, tab.tab);
   const name = tabName(session, tab.tab);
+  const [keyboard] = useState(() => controlKeys(session, tab.tab));
+  const held = useControl(session, tab.tab) === "held";
+  const typing = held && !shown?.exited;
 
   const restart = async () => {
     try {
@@ -42,7 +49,9 @@ export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) 
 
   return (
     <>
-      <Toolbar layout={1} onLayout={onLayout} />
+      <Toolbar layout={1} onLayout={onLayout}>
+        <ControlButton session={session} tab={tab} stream={state} shown={shown} />
+      </Toolbar>
       <div className="h-px shrink-0 bg-border" role="none" />
       <Viewport
         paint={paint}
@@ -50,11 +59,22 @@ export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) 
         shown={shown}
         program={tab.program}
         label={`${name} ${tab.program}, live frame ${shown?.frame ?? 0}`}
+        held={
+          held
+            ? { name, focus: controlTerminal(session, tab.tab), keys: typing ? keyboard.keys : undefined, paste: typing ? keyboard.paste : undefined }
+            : null
+        }
         onRestart={restart}
         onClose={close}
       />
       <div className="h-px shrink-0 bg-border" role="none" />
-      <StatusBar session={session} tab={tab} state={state} shown={shown} />
+      <StatusBar
+        session={session}
+        tab={tab}
+        state={state}
+        shown={shown}
+        hint={typing ? `Keys go to ${tab.program} · ctrl+p ctrl+q moves focus out` : null}
+      />
     </>
   );
 };

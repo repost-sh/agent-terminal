@@ -1,10 +1,10 @@
-import { ArrowDown, ArrowDownToLine, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowDownToLine, LoaderCircle, Trash2 } from "lucide-react";
 import { useRef, useState, type UIEvent } from "react";
 
-import { resultOf, useActivity } from "../lib/activity";
+import { activityRows, resultOf, useActivity, type ActivityRow as ActivityRowData } from "../lib/activity";
 import { screenshotUrl } from "../lib/api";
 import { clockMs, formatDuration } from "../lib/format";
-import type { ActivityEntry } from "../lib/protocol";
+import type { PendingCall } from "../lib/protocol";
 import { tabName } from "../lib/tabs";
 import type { PanelProps } from "../panels";
 import { announce } from "./announcer";
@@ -58,14 +58,14 @@ const Thumbnails = ({ session, paths }: { session: string; paths: string[] }) =>
   </>
 );
 
-type RowProps = { session: string; entry: ActivityEntry; expanded: boolean; onToggle: () => void };
+type RowProps = { session: string; row: ActivityRowData; expanded: boolean; onToggle: () => void };
 
-const ActivityRow = ({ session, entry, expanded, onToggle }: RowProps) => {
+const ActivityRow = ({ session, row: { entry, human }, expanded, onToggle }: RowProps) => {
   const result = resultOf(entry);
   const tone = result && RESULT_TONE[result.tone];
   const opens = entry.output !== "";
   return (
-    <li className={cn("border-b border-border", tone?.row, expanded && "bg-muted/60")}>
+    <li className={cn("border-b border-border", tone?.row, human !== null && "bg-violet-500/5", expanded && "bg-muted/60")}>
       <div className="px-3">
         <button
           type="button"
@@ -79,7 +79,15 @@ const ActivityRow = ({ session, entry, expanded, onToggle }: RowProps) => {
             </time>
           </span>
           <span className="min-w-0 flex-1 font-mono [overflow-wrap:anywhere]">
-            {entry.command} <span className="whitespace-nowrap text-muted-foreground">{formatDuration(entry.duration_ms)}</span>
+            {human === null ? (
+              <>
+                {entry.command} <span className="whitespace-nowrap text-muted-foreground">{formatDuration(entry.duration_ms)}</span>
+              </>
+            ) : (
+              <>
+                <span className="text-violet-600 dark:text-violet-400">human:</span> {human}
+              </>
+            )}
             {result && <span className={cn("mt-0.5 flex items-center gap-1", tone?.text)}>{result.label}</span>}
           </span>
           {opens && (
@@ -95,16 +103,35 @@ const ActivityRow = ({ session, entry, expanded, onToggle }: RowProps) => {
   );
 };
 
+const PendingRow = ({ call }: { call: PendingCall }) => (
+  <li aria-busy="true" className="border-b border-border">
+    <div className="flex w-full items-start gap-2 px-3 py-1.5 text-xs">
+      <span className="shrink-0 font-mono text-muted-foreground">
+        <time dateTime={call.time} className="tabular-nums">
+          {clockMs(call.time)}
+        </time>
+      </span>
+      <span className="min-w-0 flex-1 font-mono [overflow-wrap:anywhere]">
+        {call.command}
+        <span className="mt-0.5 flex items-center gap-1 text-muted-foreground">
+          <LoaderCircle aria-hidden="true" className="size-[11px] animate-spin" />
+          waiting
+        </span>
+      </span>
+    </div>
+  </li>
+);
+
 export const ActivityPanel = ({ session, tab }: PanelProps) => {
   const key = `${session}/${tab.tab}`;
   const name = tabName(session, tab.tab);
-  const entries = useActivity(session, tab.tab);
+  const { entries, pending } = useActivity(session, tab.tab);
   const [clearedAt, setClearedAt] = useState(() => cleared.get(key) ?? null);
   const [follow, setFollow] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
   const followButton = useRef<HTMLButtonElement>(null);
   const hidden = clearedAt && entries[0]?.time === clearedAt.first ? clearedAt.count : 0;
-  const shown = entries.slice(hidden);
+  const shown = activityRows(entries.slice(hidden), hidden);
 
   const scrolled = (event: UIEvent<HTMLOListElement>) => {
     const list = event.currentTarget;
@@ -134,7 +161,7 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
 
   return (
     <>
-      <PanelHead title="Activity" count={shown.length}>
+      <PanelHead title="Activity" count={shown.length + pending.length}>
         <button ref={followButton} type="button" aria-pressed={follow} onClick={() => setFollow(!follow)} className={HEAD_TOGGLE} title="Follow the newest call">
           <ArrowDownToLine aria-hidden="true" />
           Follow
@@ -144,19 +171,16 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
           <span className="sr-only">Clear activity</span>
         </button>
       </PanelHead>
-      {shown.length === 0 ? (
+      {shown.length + pending.length === 0 ? (
         <p className="py-8 text-center text-xs text-muted-foreground">Waiting for calls...</p>
       ) : (
         <div className="relative min-h-0 flex-1">
           <ol ref={stickToLatest} data-follow={String(follow)} onScroll={scrolled} aria-label={`Calls to ${name}`} className="h-full overflow-y-auto">
-            {shown.map((entry, index) => (
-              <ActivityRow
-                key={hidden + index}
-                session={session}
-                entry={entry}
-                expanded={expanded === hidden + index}
-                onToggle={() => toggle(hidden + index)}
-              />
+            {shown.map((row) => (
+              <ActivityRow key={row.at} session={session} row={row} expanded={expanded === row.at} onToggle={() => toggle(row.at)} />
+            ))}
+            {pending.map((call, index) => (
+              <PendingRow key={`${call.time} ${index}`} call={call} />
             ))}
           </ol>
           <button

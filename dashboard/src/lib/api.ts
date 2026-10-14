@@ -10,6 +10,8 @@ export const tabStreamUrl = (session: string, tab: string) => socketUrl(`${tabPa
 
 export const commandsStreamUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/commands/stream`);
 
+export const controlUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/control`);
+
 export const screenshotUrl = (session: string, path: string) =>
   `/api/session/${encodeURIComponent(session)}/screenshots/${encodeURIComponent(path)}`;
 

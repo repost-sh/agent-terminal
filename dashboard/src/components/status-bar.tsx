@@ -8,6 +8,7 @@ type StatusBarProps = {
   tab: TabInfo;
   state: StreamState;
   shown: Shown | null;
+  hint?: string | null;
 };
 
 const modesOf = (shown: Shown) =>
@@ -15,7 +16,7 @@ const modesOf = (shown: Shown) =>
     (mode): mode is string => Boolean(mode),
   );
 
-export const StatusBar = ({ session, tab, state, shown }: StatusBarProps) => {
+export const StatusBar = ({ session, tab, state, shown, hint = null }: StatusBarProps) => {
   const waiting = !shown || (shown.frame === 0 && !shown.exited);
   const [tone, label]: [Tone, string] =
     state === "reconnecting" ? ["warning", "Reconnecting…"] : waiting ? ["success", "Connected"] : shown?.exited ?["muted", "Exited"] : ["success", "Live"];
@@ -28,6 +29,11 @@ export const StatusBar = ({ session, tab, state, shown }: StatusBarProps) => {
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="font-mono text-xs break-all text-muted-foreground/60">{tabStreamUrl(session, tab.tab)}</span>
       <div className="ml-auto flex flex-wrap items-center gap-2">
+        {hint && (
+          <span id="control-hint" className="text-[10px] text-muted-foreground">
+            {hint}
+          </span>
+        )}
         {chips.map((chip) => (
           <Badge key={chip} variant="outline">
             {chip}

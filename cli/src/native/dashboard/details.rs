@@ -15,7 +15,7 @@ use super::{Backend, tab_id};
 use crate::native::output_log::{Marked, Output, Slice};
 use crate::native::pty;
 use crate::native::recording;
-use crate::native::store::SessionFolder;
+use crate::native::store::{PendingCall, SessionFolder};
 use crate::native::terminal::Terminal;
 use crate::output::call_line;
 use crate::protocol::{Modes, Shell};
@@ -25,7 +25,7 @@ const SECRET_NAME_PARTS: [&str; 6] = ["TOKEN", "SECRET", "KEY", "PASSWORD", "PAS
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 enum ActivityUpdate {
-    Entries { entries: Vec<Value> },
+    Entries { entries: Vec<Value>, pending: Vec<PendingCall> },
     Closed,
 }
 
@@ -151,31 +151,34 @@ pub async fn activity(
 async fn follow_activity(mut socket: WebSocket, mut follow: Follow) {
     let tab = follow.tab();
     let mut offset = 0;
-    let mut sent_any = false;
+    let mut sent: Option<Vec<PendingCall>> = None;
     loop {
         let (Some(_), Some(folder)) = (follow.terminal(), follow.folder.upgrade()) else {
             send(&mut socket, &ActivityUpdate::Closed).await;
             return;
         };
-        let read = match tokio::task::spawn_blocking(move || folder.activity_since(offset)).await {
+        let read = match tokio::task::spawn_blocking(move || folder.activity_and_pending_since(offset)).await {
             Ok(read) => read,
             Err(e) => Err(e.into()),
         };
-        let entries = match read {
-            Ok((entries, end)) => {
+        let (entries, pending) = match read {
+            Ok((entries, end, pending)) => {
                 offset = end;
-                entries.into_iter().filter(|entry| entry["tab"] == tab).collect::<Vec<_>>()
+                let mine = |entry: &serde_json::Value| entry["tab"] == tab;
+                let pending: Vec<PendingCall> =
+                    pending.into_iter().filter(|call| call.tab.as_deref() == Some(tab.as_str())).collect();
+                (entries.into_iter().filter(mine).collect::<Vec<_>>(), pending)
             }
             Err(e) => {
                 eprintln!("dashboard: reading the activity of {} {tab} failed: {e:#}", follow.session);
                 return;
             }
         };
-        if !sent_any || !entries.is_empty() {
-            if !send(&mut socket, &ActivityUpdate::Entries { entries }).await {
+        if sent.as_ref() != Some(&pending) || !entries.is_empty() {
+            if !send(&mut socket, &ActivityUpdate::Entries { entries, pending: pending.clone() }).await {
                 return;
             }
-            sent_any = true;
+            sent = Some(pending);
         }
         if !follow.changed(&mut socket).await {
             return;
