@@ -78,10 +78,8 @@ impl SessionFolder {
     }
 
     pub fn record(&self, tab: &str, command: &pty::Command) -> Arc<Recording> {
-        let mut typed = vec![command.program.clone()];
-        typed.extend(command.args.iter().cloned());
         let path = self.path.join(format!("{tab}.cast"));
-        Recording::start(format!("{} {tab}", self.session), path, command.size, call_line(&typed))
+        Recording::start(format!("{} {tab}", self.session), path, command.size, command.line())
     }
 }
 

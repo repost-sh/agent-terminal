@@ -1,4 +1,4 @@
-import { ChevronRight, Moon, SquareTerminal, Sun } from "lucide-react";
+import { ChevronRight, Moon, SquareTerminal, Sun, Trash2 } from "lucide-react";
 import { useState, type MouseEvent } from "react";
 
 import type { Connection } from "../lib/daemon";
@@ -6,6 +6,8 @@ import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
 import { tabName, tabState } from "../lib/tabs";
 import type { Theme } from "../lib/theme";
+import { CloseAllDialog } from "./close-all";
+import { showDialog } from "./dialog";
 import { Badge, Chip, Dot, IconButton, cn } from "./ui";
 
 export type Selected = { session: string; tab: string } | null;
@@ -121,6 +123,13 @@ export const SessionsSidebar = ({ connection, sessions, selected, theme, onToggl
             label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             icon={theme === "dark" ? Sun : Moon}
             onClick={onToggleTheme}
+          />
+          <IconButton
+            kind="head"
+            label="Close all sessions"
+            icon={Trash2}
+            disabled={connection === "down" || !sessions?.length}
+            onClick={() => showDialog((live) => <CloseAllDialog sessions={live} />)}
           />
         </div>
       </div>

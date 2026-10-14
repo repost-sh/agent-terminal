@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Announcers } from "./components/announcer";
+import { DialogLayer, useOpenDialog } from "./components/dialog";
 import { Disconnected, NoSessions, NotFound, NotOpen } from "./components/empty-screens";
 import { ResizeHandle } from "./components/resize-handle";
 import { SessionsSidebar, type Selected } from "./components/sessions-sidebar";
@@ -20,6 +21,7 @@ export const App = () => {
   const { theme, toggle } = useTheme();
   const [sidebarPct, setSidebarPct] = useState(15);
   const route = parseRoute(usePath());
+  const dialog = useOpenDialog();
 
   const first = sessions ? firstTab(sessions) : null;
   const redirect = route.kind === "home" && connection === "connected" && first ? tabRoute(first.session, first.tab) : null;
@@ -61,7 +63,7 @@ export const App = () => {
       >
         Skip to content
       </a>
-      <div className="shell fixed inset-0 bg-background">
+      <div className="shell fixed inset-0 bg-background" inert={dialog !== null}>
         <div className="shell-cols flex h-full min-h-0 w-full">
           <SessionsSidebar
             connection={connection}
@@ -79,6 +81,7 @@ export const App = () => {
           {screen.right}
         </div>
       </div>
+      <DialogLayer sessions={sessions ?? []} />
       <Toaster />
       <TooltipLayer />
       <Announcers title={screen.title ?? ""} />

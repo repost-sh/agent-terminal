@@ -1,6 +1,8 @@
+mod close_all;
 mod empty;
 mod sidebar;
 mod terminal;
+mod toolbar;
 
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};

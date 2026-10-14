@@ -170,6 +170,10 @@ impl Recording {
         Ok(())
     }
 
+    pub fn saving_to(&self) -> Option<PathBuf> {
+        self.writer.lock().unwrap().copy.as_ref().map(|copy| copy.tape.path.clone())
+    }
+
     pub fn stop_saving(&self) -> Result<Saved> {
         let copy = self.writer.lock().unwrap().copy.take().ok_or_else(|| {
             anyhow!("{} is not being recorded to a file; start with `agent-terminal record start [path]`", self.tab)

@@ -59,6 +59,26 @@ pub async fn close(State(backend): State<Arc<dyn Backend>>, Path((session, tab))
     call(backend, Request::Close { session, all: false, tab: Some(id) }).await
 }
 
+pub async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
+    call(backend, Request::Close { session: String::new(), all: true, tab: None }).await
+}
+
+pub async fn record_start(
+    State(backend): State<Arc<dyn Backend>>,
+    Path((session, tab)): Path<(String, String)>,
+) -> Response {
+    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
+    call(backend, Request::RecordStart { session, tab: Some(id), path: None }).await
+}
+
+pub async fn record_stop(
+    State(backend): State<Arc<dyn Backend>>,
+    Path((session, tab)): Path<(String, String)>,
+) -> Response {
+    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
+    call(backend, Request::RecordStop { session, tab: Some(id) }).await
+}
+
 async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
     match tokio::task::spawn_blocking(move || backend.call(request)).await {
         Ok(Ok(reply)) => Json(reply).into_response(),

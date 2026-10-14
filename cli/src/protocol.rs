@@ -695,10 +695,13 @@ impl SessionInfo {
 pub struct TabInfo {
     pub tab: String,
     pub program: String,
+    pub command: String,
+    pub cwd: String,
     pub cols: u16,
     pub rows: u16,
     pub exited: bool,
     pub exit_code: Option<i32>,
+    pub recording: Option<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

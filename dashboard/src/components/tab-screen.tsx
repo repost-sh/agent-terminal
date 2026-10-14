@@ -1,4 +1,4 @@
-import { closeTab, restartTab } from "../lib/api";
+import { closeTab, reason, restartTab } from "../lib/api";
 import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
 import { useTabStream } from "../lib/stream";
@@ -8,8 +8,7 @@ import { announce } from "./announcer";
 import { StatusBar } from "./status-bar";
 import { Viewport } from "./terminal-view";
 import { toast } from "./toaster";
-
-const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
+import { Toolbar } from "./toolbar";
 
 type TabScreenProps = { session: string; tab: TabInfo; sessions: SessionInfo[] };
 
@@ -22,10 +21,15 @@ export const TabScreen = ({ session, tab, sessions }: TabScreenProps) => {
     try {
       await restartTab(session, tab.tab);
       announce(`${tab.program} restarted`);
-      document.getElementById("main-content")?.focus({ preventScroll: true });
+      return true;
     } catch (error) {
       toast("error", `Could not restart ${tab.program}`, reason(error));
+      return false;
     }
+  };
+
+  const restartFromExitBar = async () => {
+    if (await restart()) document.getElementById("main-content")?.focus({ preventScroll: true });
   };
 
   const close = async () => {
@@ -42,13 +46,15 @@ export const TabScreen = ({ session, tab, sessions }: TabScreenProps) => {
 
   return (
     <>
+      <Toolbar session={session} tab={tab} stream={state} shown={shown} onRestart={restart} />
+      <div className="h-px shrink-0 bg-border" role="none" />
       <Viewport
         terminal={terminal}
         state={state}
         shown={shown}
         program={tab.program}
         label={`${name} ${tab.program}, live frame ${shown?.frame ?? 0}`}
-        onRestart={restart}
+        onRestart={restartFromExitBar}
         onClose={close}
       />
       <div className="h-px shrink-0 bg-border" role="none" />
