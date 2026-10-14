@@ -10,9 +10,10 @@ use crate::native::output_log::OutputLog;
 use crate::native::pty::{self, Killer, Signaller, Spawned};
 use crate::native::recording::Recording;
 use crate::native::screen::Screen;
+use crate::native::wait::{self, Condition, Moment, Verdict};
 use crate::protocol::{
-    Baseline, Cursor, Delivery, DiffBase, Exit, Fact, Get, Input, Match, RowChange, RowRange, Scrollback, Size,
-    Snapshot, SnapshotDiff, SnapshotOptions, TabInfo, Wait,
+    Baseline, Cell, Cursor, Delivery, DiffBase, Exit, Fact, Get, Input, Match, RowChange, RowRange, Scrollback, Size,
+    Snapshot, SnapshotDiff, SnapshotOptions, TabInfo,
 };
 
 pub struct Terminal {
@@ -33,10 +34,14 @@ pub struct Terminal {
 struct State {
     screen: Screen,
     frame: u64,
+    look: u64,
     last_change: Instant,
+    last_output: Instant,
     exit: Option<Option<i32>>,
     log: OutputLog,
     last_shown: Option<Shown>,
+    watches: Vec<Watch>,
+    next_watch: u64,
 }
 
 struct Shown {
@@ -44,8 +49,43 @@ struct Shown {
     lines: Vec<String>,
 }
 
+struct Watch {
+    id: u64,
+    condition: Arc<Condition>,
+    met: Option<u64>,
+}
+
+impl State {
+    fn moment(&self) -> Moment<'_> {
+        Moment::new(&self.screen, self.frame, self.last_change, self.last_output, self.exit.is_some())
+    }
+
+    fn refresh(&mut self, now: Instant) {
+        let look = self.screen.fingerprint();
+        if look != self.look {
+            self.look = look;
+            self.frame += 1;
+            self.last_change = now;
+        }
+        self.publish();
+    }
+
+    fn publish(&mut self) {
+        let State { screen, frame, last_change, last_output, exit, watches, .. } = self;
+        if watches.iter().all(|watch| watch.met.is_some()) {
+            return;
+        }
+        let moment = Moment::new(screen, *frame, *last_change, *last_output, exit.is_some());
+        for watch in watches.iter_mut().filter(|watch| watch.met.is_none()) {
+            if let Verdict::Met = watch.condition.judge(&moment) {
+                watch.met = Some(*frame);
+            }
+        }
+    }
+}
+
 pub enum Settled {
-    Met,
+    Met { frame: u64 },
     Exited,
     TimedOut,
 }
@@ -55,17 +95,23 @@ impl Terminal {
         let program = display_name(&command.program);
         let size = command.size;
         let cwd = command.cwd.to_string_lossy().into_owned();
+        let screen = Screen::new(size);
+        let started = Instant::now();
         let terminal = Arc::new(Self {
             program,
             pid: spawned.pid,
             cwd,
             state: Mutex::new(State {
-                screen: Screen::new(size),
+                look: screen.fingerprint(),
+                screen,
                 frame: 0,
-                last_change: Instant::now(),
+                last_change: started,
+                last_output: started,
                 exit: None,
                 log: OutputLog::default(),
                 last_shown: None,
+                watches: Vec::new(),
+                next_watch: 0,
             }),
             changed: Condvar::new(),
             input_turn: Mutex::new(()),
@@ -118,8 +164,9 @@ impl Terminal {
             let printed = state.screen.take_printed();
             let frame = state.frame;
             state.log.record(frame, bytes, printed.as_bytes());
-            state.frame += 1;
-            state.last_change = Instant::now();
+            let now = Instant::now();
+            state.last_output = now;
+            state.refresh(now);
             replies
         };
         self.changed.notify_all();
@@ -195,8 +242,7 @@ impl Terminal {
         }
         state.screen.resize(size);
         self.recording.resize(size);
-        state.frame += 1;
-        state.last_change = Instant::now();
+        state.refresh(Instant::now());
         drop(state);
         self.changed.notify_all();
         Ok(())
@@ -254,15 +300,12 @@ impl Terminal {
             Get::Title => Fact::Title(state.screen.title()),
             Get::Cwd => Fact::Cwd(state.screen.reported_cwd().unwrap_or_else(|| self.cwd.clone())),
             Get::Modes => Fact::Modes(state.screen.modes()),
-            Get::Cell { row, col } => Fact::Cell(state.screen.cell(row, col).ok_or_else(|| {
-                format!("cell {row},{col} is outside the {}x{} screen", view.size.cols, view.size.rows)
-            })?),
+            Get::Cell { row, col } => Fact::Cell(cell_at(&state.screen, row, col)?),
         })
     }
 
     pub fn find(&self, text: &str, regex: bool, all: bool) -> Result<Vec<Match>, String> {
-        let source = if regex { text.to_string() } else { regex::escape(text) };
-        let pattern = regex::Regex::new(&source).map_err(|e| format!("invalid regex {text:?}: {e}"))?;
+        let pattern = wait::compile(text, regex)?;
         let state = self.state.lock().unwrap();
         let first = if all { -(state.screen.scrollback_len() as i32) } else { 0 };
         let mut matches = Vec::new();
@@ -316,27 +359,32 @@ impl Terminal {
         state.log.since(since, raw, state.frame)
     }
 
-    pub fn wait(&self, until: &Wait, timeout: Duration) -> Settled {
+    pub fn wait(&self, condition: Condition, timeout: Duration) -> Settled {
         let deadline = Instant::now() + timeout;
+        let condition = Arc::new(condition);
         let mut state = self.state.lock().unwrap();
-        loop {
-            let now = Instant::now();
-            let met_at = match until {
-                Wait::Stable { quiet_ms } => Some(state.last_change + Duration::from_millis(*quiet_ms)),
-                Wait::Text { text } => state.screen.view().lines.iter().any(|line| line.contains(text)).then_some(now),
+        let id = state.next_watch;
+        state.next_watch += 1;
+        state.watches.push(Watch { id, condition: Arc::clone(&condition), met: None });
+        let settled = loop {
+            if let Some(frame) = state.watches.iter().find(|watch| watch.id == id).and_then(|watch| watch.met) {
+                break Settled::Met { frame };
+            }
+            let moment = state.moment();
+            let wake = match condition.judge(&moment) {
+                Verdict::Met => break Settled::Met { frame: state.frame },
+                Verdict::Never => break Settled::Exited,
+                Verdict::Pending(wake) => wake,
             };
-            if met_at.is_some_and(|at| now >= at) {
-                return Settled::Met;
-            }
-            if state.exit.is_some() {
-                return Settled::Exited;
-            }
+            let now = moment.now;
             if now >= deadline {
-                return Settled::TimedOut;
+                break Settled::TimedOut;
             }
-            let wake = met_at.map_or(deadline, |at| at.min(deadline)) - now;
-            state = self.changed.wait_timeout(state, wake).unwrap().0;
-        }
+            let until = wake.map_or(deadline, |wake| wake.min(deadline));
+            state = self.changed.wait_timeout(state, until - now).unwrap().0;
+        };
+        state.watches.retain(|watch| watch.id != id);
+        settled
     }
 
     pub fn input(&self, input: &Input) -> Result<Delivery> {
@@ -435,6 +483,18 @@ impl Terminal {
         )
     }
 
+    pub fn exit_status(&self) -> Option<Option<i32>> {
+        self.state.lock().unwrap().exit
+    }
+
+    pub fn lines(&self) -> Vec<String> {
+        self.state.lock().unwrap().screen.view().lines
+    }
+
+    pub fn cell(&self, row: u16, col: u16) -> Result<Cell, String> {
+        cell_at(&self.state.lock().unwrap().screen, row, col)
+    }
+
     pub fn kill(&self) {
         let still_running = self.state.lock().unwrap().exit.is_none();
         if let Err(e) = self.killer.lock().unwrap().kill()
@@ -443,6 +503,13 @@ impl Terminal {
             eprintln!("{}: stopping the program failed: {e}", self.program);
         }
     }
+}
+
+fn cell_at(screen: &Screen, row: u16, col: u16) -> Result<Cell, String> {
+    screen.cell(row, col).ok_or_else(|| {
+        let size = screen.view().size;
+        format!("cell {row},{col} is outside the {}x{} screen", size.cols, size.rows)
+    })
 }
 
 fn display_name(program: &str) -> String {

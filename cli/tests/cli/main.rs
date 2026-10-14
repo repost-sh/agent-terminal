@@ -1,5 +1,8 @@
 mod activity;
+mod batch;
 mod diff;
+mod doctor;
+mod expect;
 mod find;
 mod get;
 mod idle;
@@ -17,3 +20,5 @@ mod snapshot;
 mod support;
 mod tabs;
 mod trace;
+mod version;
+mod wait;

@@ -1,16 +1,20 @@
+mod batch;
 mod commands;
 mod connection;
+mod doctor;
 mod key;
 mod native;
 mod output;
 mod protocol;
 mod session_id;
 mod skills;
+mod upgrade;
 
 use std::fmt;
 
 pub mod exit {
     pub const ERROR: i32 = 1;
+    pub const ASSERTION: i32 = 2;
     pub const TIMEOUT: i32 = 3;
     pub const EXITED: i32 = 5;
 }

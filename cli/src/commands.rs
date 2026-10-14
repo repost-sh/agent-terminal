@@ -1,18 +1,21 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
+use crate::batch;
 use crate::connection::{self, IfNotRunning, Launch};
+use crate::doctor;
 use crate::key::Key;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, Call, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Signal, Size,
-    SnapshotOptions, Wait,
+    Baseline, BatchStep, Call, Expect, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo,
+    Sessions, Signal, Size, SnapshotOptions, Style, TextMatch, Wait,
 };
 use crate::session_id;
 use crate::skills;
+use crate::upgrade;
 
 #[derive(Parser)]
 #[command(name = "agent-terminal", version, about = "Fast terminal automation CLI for AI agents")]
@@ -136,6 +139,10 @@ enum Command {
     Send(SendArgs),
     #[command(about = "Send a signal to the program in the foreground: INT, TERM, KILL, HUP, TSTP, CONT, WINCH")]
     Signal(SignalArgs),
+    #[command(about = "Wait until the text is on screen, the screen is stable, or the program exits")]
+    Wait(UntilArgs),
+    #[command(about = "Fail now (exit 2) unless the screen or the program is as expected")]
+    Expect(ExpectArgs),
     #[command(about = "Guides that ship with this version (core, tui-qa, cli-qa)")]
     Skills {
         #[command(subcommand)]
@@ -151,6 +158,29 @@ enum Command {
         #[command(subcommand)]
         action: DaemonAction,
     },
+    #[command(
+        about = "Several commands in one call (args or stdin)",
+        long_about = "Run several commands in order in one call to the daemon.\n\nPass each command as one quoted argument, e.g. batch \"open htop\" \"snapshot\", or pipe a JSON array to stdin whose items are command lines or argument arrays, e.g. [[\"open\", \"htop\"], \"snapshot\"]. Commands use the batch's --session, --tab and --timeout unless they set their own. Every command is parsed before any of them runs. Each command's output and exit code are printed in order, and batch exits with the code of the first command that failed."
+    )]
+    Batch(BatchArgs),
+    #[command(about = "Check PTY support and the daemon socket, and say how to fix each problem")]
+    Doctor {
+        #[arg(long, help = "Remove stale sockets and state")]
+        fix: bool,
+    },
+    #[command(about = "Upgrade to the latest version, with npm or Homebrew, whichever installed it")]
+    Upgrade,
+    #[command(about = "Print the version")]
+    Version,
+}
+
+#[derive(Args)]
+struct BatchArgs {
+    #[arg(long, help = "Stop at the first command that fails")]
+    bail: bool,
+
+    #[arg(help = "The commands, each as one quoted argument", value_name = "COMMAND")]
+    commands: Vec<String>,
 }
 
 #[derive(Args)]
@@ -166,6 +196,9 @@ struct OpenArgs {
 
     #[command(flatten)]
     wait: WaitArgs,
+
+    #[arg(long, help = "Print the screen right away, without waiting", conflicts_with_all = ["wait", "wait_stable"])]
+    no_wait: bool,
 
     #[arg(
         help = "The program and its arguments",
@@ -197,7 +230,7 @@ struct WaitArgs {
 impl WaitArgs {
     fn until(self) -> Wait {
         match self.wait {
-            Some(text) => Wait::Text { text },
+            Some(text) => Wait::Text(TextMatch::plain(text)),
             None => Wait::Stable { quiet_ms: self.wait_stable },
         }
     }
@@ -412,9 +445,166 @@ struct SignalArgs {
 }
 
 #[derive(Args)]
+#[command(group(ArgGroup::new("until").required(true).args(["text", "stable", "idle", "exit", "cursor", "frame"])))]
+struct UntilArgs {
+    #[arg(
+        help = "The text to wait for; a plain number pauses that many milliseconds",
+        value_name = "TEXT|MS",
+        allow_hyphen_values = true
+    )]
+    text: Option<String>,
+
+    #[arg(long, requires = "text", help = "Treat the text as a regular expression")]
+    regex: bool,
+
+    #[arg(long, requires = "text", help = "Wait until the text is gone from the screen")]
+    gone: bool,
+
+    #[arg(
+        long,
+        requires = "text",
+        help = "Only look at rows A to B, counted from 1 at the top",
+        value_name = "A:B",
+        value_parser = parse_rows
+    )]
+    rows: Option<RowRange>,
+
+    #[arg(
+        long,
+        help = "Until the screen has not changed for this long (default 300)",
+        value_name = "MS",
+        num_args = 0..=1,
+        default_missing_value = "300"
+    )]
+    stable: Option<u64>,
+
+    #[arg(
+        long,
+        help = "Until the program has printed nothing for this long (default 300)",
+        value_name = "MS",
+        num_args = 0..=1,
+        default_missing_value = "300"
+    )]
+    idle: Option<u64>,
+
+    #[arg(long, help = "Until the program exits")]
+    exit: bool,
+
+    #[arg(long, requires = "exit", help = "Fail (exit 2) unless the program exits with this code", value_name = "N")]
+    code: Option<i32>,
+
+    #[arg(long, help = "Until the cursor is at this row and column", value_name = "ROW,COL", value_parser = parse_position)]
+    cursor: Option<(u16, u16)>,
+
+    #[arg(long, help = "Until the screen reaches this frame number", value_name = "N")]
+    frame: Option<u64>,
+}
+
+impl UntilArgs {
+    fn until(self) -> Wait {
+        if let Some(quiet_ms) = self.stable {
+            return Wait::Stable { quiet_ms };
+        }
+        if let Some(quiet_ms) = self.idle {
+            return Wait::Idle { quiet_ms };
+        }
+        if self.exit {
+            return Wait::Exit { code: self.code };
+        }
+        if let Some((row, col)) = self.cursor {
+            return Wait::Cursor { row, col };
+        }
+        if let Some(frame) = self.frame {
+            return Wait::Frame { frame };
+        }
+        let text = self.text.expect("clap requires one thing to wait for");
+        let plain = !self.regex && !self.gone && self.rows.is_none();
+        match text.parse() {
+            Ok(ms) if plain => Wait::Elapsed { ms },
+            _ => {
+                let text = TextMatch { text, regex: self.regex, rows: self.rows };
+                if self.gone { Wait::Gone(text) } else { Wait::Text(text) }
+            }
+        }
+    }
+}
+
+#[derive(Args)]
+#[command(group(ArgGroup::new("check").required(true).args(["text", "exit_code", "cell"])))]
+struct ExpectArgs {
+    #[arg(help = "Text that must be on screen", allow_hyphen_values = true)]
+    text: Option<String>,
+
+    #[arg(long, requires = "text", help = "Fail if the text is on screen instead")]
+    gone: bool,
+
+    #[arg(long, help = "Fail unless the program has exited with this code", value_name = "N")]
+    exit_code: Option<i32>,
+
+    #[arg(
+        long,
+        requires = "style",
+        help = "The cell to check, counted from 1,1 at the top left",
+        value_name = "ROW,COL",
+        value_parser = parse_position
+    )]
+    cell: Option<(u16, u16)>,
+
+    #[arg(
+        long,
+        requires = "cell",
+        help = "What the cell must look like: bold, inverse, underline, fg=<color>, bg=<color> (comma-separated)",
+        value_name = "STYLE",
+        value_delimiter = ',',
+        value_parser = clap::value_parser!(Style)
+    )]
+    style: Vec<Style>,
+}
+
+impl ExpectArgs {
+    fn check(self) -> Expect {
+        if let Some(code) = self.exit_code {
+            return Expect::ExitCode { code };
+        }
+        if let Some((row, col)) = self.cell {
+            return Expect::Cell { row, col, style: self.style };
+        }
+        let text = TextMatch::plain(self.text.expect("clap requires one thing to check"));
+        if self.gone { Expect::Gone(text) } else { Expect::Text(text) }
+    }
+}
+
+#[derive(Args)]
+#[command(group(ArgGroup::new("then").args(["wait", "wait_gone", "wait_stable"])))]
 struct AfterInput {
     #[arg(long, help = "Then wait until this text is on screen", value_name = "TEXT")]
     wait: Option<String>,
+
+    #[arg(long, help = "Then wait until this text is gone from the screen", value_name = "TEXT")]
+    wait_gone: Option<String>,
+
+    #[arg(
+        long,
+        help = "Then wait until the screen has not changed for this long (default 300)",
+        value_name = "MS",
+        num_args = 0..=1,
+        default_missing_value = "300"
+    )]
+    wait_stable: Option<u64>,
+
+    #[arg(long, help = "Then print the screen")]
+    snapshot: bool,
+}
+
+impl AfterInput {
+    fn wait(self) -> Option<Wait> {
+        match (self.wait, self.wait_gone, self.wait_stable) {
+            (Some(text), _, _) => Some(Wait::Text(TextMatch::plain(text))),
+            (_, Some(text), _) => Some(Wait::Gone(TextMatch::plain(text))),
+            (_, _, Some(quiet_ms)) => Some(Wait::Stable { quiet_ms }),
+            (None, None, None) => None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -437,45 +627,58 @@ pub fn run() -> i32 {
             return code;
         }
     };
-    let session = cli.session;
+    let json = cli.json;
+    let idle_timeout = cli.idle_timeout;
     let request = match cli.command {
         Command::Daemon { action: DaemonAction::Run } => {
-            return match daemon::run(cli.idle_timeout) {
+            return match daemon::run(idle_timeout) {
                 Ok(()) => 0,
                 Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
             };
         }
-        Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
-        Command::Skills { action } => return skills::run(action, cli.json, Cli::command()),
-        Command::Install { .. } => return skills::install(cli.json),
-        Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
-            match open(session, args, cli.timeout) {
-                Ok(request) => request,
-                Err(message) => return output::fail(&message, crate::exit::ERROR),
-            }
-        }
-        Command::Tab { id: Some(tab), .. } => Request::SwitchTab { session, tab },
-        Command::Tab { id: None, action: None | Some(TabAction::List) } => Request::Tabs { session },
-        Command::Tab { action: Some(TabAction::Close { id }), .. } => {
-            Request::Close { session, all: false, tab: id.or(cli.tab) }
-        }
+        Command::Skills { action } => return skills::run(action, json, Cli::command()),
+        Command::Install { .. } => return skills::install(json),
         Command::Session { action: None } => {
-            output::session(&session, cli.json);
+            output::session(&cli.session, json);
             return 0;
         }
-        Command::Session { action: Some(SessionAction::List) } => Request::Sessions,
         Command::Session { action: Some(SessionAction::Id { scope: Scope::Worktree, prefix }) } => {
             let id = std::env::current_dir()
                 .map_err(anyhow::Error::from)
                 .and_then(|cwd| session_id::for_worktree(&cwd, prefix.as_deref()));
             return match id {
                 Ok(id) => {
-                    output::session_id(&id, cli.json);
+                    output::session_id(&id, json);
                     0
                 }
                 Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
             };
         }
+        Command::Version => return output::version(json),
+        Command::Doctor { fix } => return doctor::run(fix, json),
+        Command::Upgrade => return upgrade::run(json),
+        Command::Batch(args) => batch(&args, &cli.session, cli.tab, cli.timeout),
+        command => request(Cli { command, ..cli }),
+    };
+    match request {
+        Ok(request) => send(request, json, idle_timeout),
+        Err(message) => output::fail(&message, crate::exit::ERROR),
+    }
+}
+
+fn request(cli: Cli) -> Result<Request, String> {
+    let session = cli.session;
+    let request = match cli.command {
+        Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
+        Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
+            open(session, args, cli.timeout)?
+        }
+        Command::Tab { id: Some(tab), .. } => Request::SwitchTab { session, tab },
+        Command::Tab { id: None, action: None | Some(TabAction::List) } => Request::Tabs { session },
+        Command::Tab { action: Some(TabAction::Close { id }), .. } => {
+            Request::Close { session, all: false, tab: id.or(cli.tab) }
+        }
+        Command::Session { action: Some(SessionAction::List) } => Request::Sessions,
         Command::Restart(wait) => {
             Request::Restart { session, tab: cli.tab, wait: wait.until(), timeout_ms: cli.timeout }
         }
@@ -489,24 +692,17 @@ pub fn run() -> i32 {
         Command::Mark { name } => Request::Mark { session, tab: cli.tab, name },
         Command::Output { since, raw } => Request::Output { session, tab: cli.tab, since, raw },
         Command::Diff { what: DiffCommand::Snapshot { baseline } } => {
-            let baseline = match baseline.map(|path| read_baseline(&path)).transpose() {
-                Ok(baseline) => baseline,
-                Err(message) => return output::fail(&message, crate::exit::ERROR),
-            };
+            let baseline = baseline.map(|path| read_baseline(&path)).transpose()?;
             Request::DiffSnapshot { session, tab: cli.tab, baseline }
         }
         Command::Record { action: RecordAction::Start { path } } => {
-            let path = match path.map(std::path::absolute).transpose() {
-                Ok(path) => path,
-                Err(e) => return output::fail(&format!("current directory: {e}"), crate::exit::ERROR),
-            };
+            let path = path.map(|path| absolute(&path)).transpose()?;
             Request::RecordStart { session, tab: cli.tab, path }
         }
         Command::Record { action: RecordAction::Stop } => Request::RecordStop { session, tab: cli.tab },
-        Command::Trace { action: TraceAction::Export { path } } => match std::path::absolute(&path) {
-            Ok(path) => Request::TraceExport { session, path },
-            Err(e) => return output::fail(&format!("current directory: {e}"), crate::exit::ERROR),
-        },
+        Command::Trace { action: TraceAction::Export { path } } => {
+            Request::TraceExport { session, path: absolute(&path)? }
+        }
         Command::Type(args) => {
             input(session, cli.tab, Input::Type { text: args.text, delay_ms: args.delay }, args.after, cli.timeout)
         }
@@ -518,13 +714,52 @@ pub fn run() -> i32 {
         Command::Signal(args) => {
             input(session, cli.tab, Input::Signal { signal: args.signal }, args.after, cli.timeout)
         }
+        Command::Wait(args) => Request::Wait { session, tab: cli.tab, wait: args.until(), timeout_ms: cli.timeout },
+        Command::Expect(args) => Request::Expect { session, tab: cli.tab, expect: args.check() },
+        Command::Daemon { action: DaemonAction::Run }
+        | Command::Skills { .. }
+        | Command::Install { .. }
+        | Command::Session { action: None | Some(SessionAction::Id { .. }) }
+        | Command::Batch(_)
+        | Command::Doctor { .. }
+        | Command::Upgrade
+        | Command::Version => {
+            return Err("this command runs on its own, not inside batch".into());
+        }
     };
 
+    Ok(request)
+}
+
+fn batch(args: &BatchArgs, session: &str, tab: Option<u32>, timeout: u64) -> Result<Request, String> {
+    let parser = Cli::command()
+        .no_binary_name(true)
+        .mut_arg("session", |arg| arg.env(None::<&str>).default_value(session.to_string()))
+        .mut_arg("tab", |arg| match tab {
+            Some(id) => arg.default_value(id.to_string()),
+            None => arg,
+        })
+        .mut_arg("timeout", |arg| arg.default_value(timeout.to_string()));
+    let mut steps = Vec::new();
+    for (index, call) in batch::calls(&args.commands)?.into_iter().enumerate() {
+        let request = batch_step(parser.clone(), &call)
+            .map_err(|reason| batch::not_valid(index, &output::call_line(&call), &reason))?;
+        steps.push(BatchStep { args: call, request });
+    }
+    Ok(Request::Batch { steps, bail: args.bail })
+}
+
+fn batch_step(parser: clap::Command, call: &[String]) -> Result<Request, String> {
+    let matches = parser.try_get_matches_from(call).map_err(|e| e.render().to_string())?;
+    request(Cli::from_arg_matches(&matches).map_err(|e| e.render().to_string())?)
+}
+
+fn send(request: Request, json: bool, idle_timeout: Duration) -> i32 {
     let if_not_running = match &request {
         Request::Stop => IfNotRunning::Answer(Reply::Stopped),
         Request::Sessions => IfNotRunning::Answer(Reply::Sessions(Sessions::default())),
         Request::Tabs { session } => IfNotRunning::Answer(Reply::Tabs(SessionInfo::empty(session))),
-        _ => IfNotRunning::Start(Launch { idle_timeout: cli.idle_timeout }),
+        _ => IfNotRunning::Start(Launch { idle_timeout }),
     };
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     let response = match connection::send(&Call { typed: Some(typed), request }, if_not_running) {
@@ -532,16 +767,17 @@ pub fn run() -> i32 {
         Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
     };
     match response {
-        Response::Err(error) => output::error(&error, cli.json),
+        Response::Err(error) => output::error(&error, json),
         Response::Ok(reply) => {
-            output::reply(&reply, cli.json);
-            0
+            output::reply(&reply, json);
+            reply.exit_code()
         }
     }
 }
 
 fn input(session: String, tab: Option<u32>, input: Input, after: AfterInput, timeout_ms: u64) -> Request {
-    Request::Input { session, tab, input, wait: after.wait.map(|text| Wait::Text { text }), timeout_ms }
+    let snapshot = after.snapshot;
+    Request::Input { session, tab, input, wait: after.wait(), snapshot, timeout_ms }
 }
 
 fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, String> {
@@ -557,9 +793,13 @@ fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, Str
         size: args.size,
         cwd,
         env,
-        wait: args.wait.until(),
+        wait: (!args.no_wait).then(|| args.wait.until()),
         timeout_ms,
     })
+}
+
+fn absolute(path: &std::path::Path) -> Result<PathBuf, String> {
+    std::path::absolute(path).map_err(|e| format!("current directory: {e}"))
 }
 
 fn parse_tab(value: &str) -> Result<u32, String> {
@@ -613,6 +853,16 @@ fn parse_rows(value: &str) -> Result<RowRange, String> {
         return Err("rows count from 1, and A must not be after B".into());
     }
     Ok(RowRange { first, last })
+}
+
+fn parse_position(value: &str) -> Result<(u16, u16), String> {
+    let (row, col) = value.split_once(',').ok_or("expected ROW,COL, e.g. 4,3")?;
+    let row: u16 = row.parse().map_err(|_| format!("invalid row: {row}"))?;
+    let col: u16 = col.parse().map_err(|_| format!("invalid column: {col}"))?;
+    if row == 0 || col == 0 {
+        return Err("rows and columns count from 1".into());
+    }
+    Ok((row, col))
 }
 
 fn parse_env(value: &str) -> Result<(String, String), String> {

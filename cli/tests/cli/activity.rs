@@ -41,12 +41,12 @@ fn every_call_is_logged_with_its_command_duration_and_result() {
     assert_eq!(
         field(&log, "command"),
         json!([
-            format!("open --wait \"line 3\" {printer} --hold"),
+            format!("open --wait 'line 3' {printer} --hold"),
             "mark before-typing",
-            "type \"hello world\" --wait \"hello world\"",
+            "type 'hello world' --wait 'hello world'",
             "get frame",
             "get cell 99 1",
-            "--timeout 300 press x --wait \"never shown\"",
+            "--timeout 300 press x --wait 'never shown'",
             "close",
         ])
     );
@@ -76,6 +76,21 @@ fn each_session_logs_its_own_calls_and_the_tab_they_acted_on() {
     let log = activity(&at, "qa");
     assert_eq!(field(&log, "tab"), json!(["t1", "t2", "t1", "t1", null]));
     assert_eq!(activity(&at, "other").len(), 1);
+}
+
+#[test]
+fn a_batch_logs_each_command_it_ran() {
+    let at = AgentTerminal::new();
+    let printer = fixture("line-printer");
+    at.run(&["open", "--wait", "line 3", &printer, "--hold"]).success();
+    assert_eq!(at.run(&["batch", "--bail", "mark before", "get cell 99 1", "get frame"]).code(), 1);
+
+    let log = activity(&at, "default");
+    assert_eq!(
+        field(&log, "command"),
+        json!([format!("open --wait 'line 3' {printer} --hold"), "mark before", "get cell 99 1"])
+    );
+    assert_eq!(field(&log, "exit"), json!([0, 0, 1]));
 }
 
 #[test]

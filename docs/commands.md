@@ -14,6 +14,7 @@ Start and stop:
   open <program> [args...]     Run a program in a new terminal (prints the first stable screen)
                                --wait <text>  wait for this text instead of a stable screen
                                --wait-stable [ms]  how long unchanged counts as stable (default 300)
+                               --no-wait  print the screen right away
   shell                        Open your shell, with command history turned on
   exec "<command line>"        Run a command in the shell tab, wait for it, print output + exit code
   restart                      Run the same program again with the same options (cwd, env, current size)
@@ -55,9 +56,13 @@ Send input:
     --screenshot [path]        then save a PNG
 
 Wait and check:
-  wait <text>                  Until the text is on screen (--regex, --gone, --timeout <ms>)
-  wait --stable [ms]           Until the screen stops changing
-  wait --exit                  Until the program exits (--code <n> to require an exit code)
+  wait <text>                  Until the text is on screen (--regex, --gone, --rows <a:b>, --timeout <ms>)
+  wait --stable [ms]           Until the screen stops changing (default 300)
+  wait --idle [ms]             Until the program prints nothing, even output that leaves the screen as it was (default 300)
+  wait --exit                  Until the program exits (--code <n> to require an exit code; another code exits 2)
+  wait --cursor <r,c>          Until the cursor is at row r, column c
+  wait --frame <n>             Until the screen reaches frame n
+  wait <ms>                    Pause this long, whatever --timeout says (debugging only)
   wait --command               Until the shell command finishes
   wait --control               Until a human hands control back
   expect <text>                Fail now (exit 2) if the text is not on screen

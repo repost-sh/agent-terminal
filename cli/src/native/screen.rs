@@ -1,3 +1,4 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
@@ -190,6 +191,14 @@ fn color_name(color: Color) -> String {
             other => COLOR_NAMES.get(other as usize).copied().unwrap_or("default"),
         }
         .to_string(),
+    }
+}
+
+fn hash_color(color: Color, hasher: &mut DefaultHasher) {
+    match color {
+        Color::Named(named) => (0u8, named as u16).hash(hasher),
+        Color::Spec(rgb) => (1u8, rgb.r, rgb.g, rgb.b).hash(hasher),
+        Color::Indexed(index) => (2u8, index).hash(hasher),
     }
 }
 
@@ -386,6 +395,26 @@ impl Screen {
             inverse: cell.flags.contains(Flags::INVERSE),
             underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
         })
+    }
+
+    pub fn fingerprint(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        let grid = self.term.grid();
+        for line in 0..self.size.rows as i32 {
+            let row = &grid[Line(line)];
+            for col in 0..self.size.cols as usize {
+                let cell = &row[Column(col)];
+                (cell.c, cell.flags.bits()).hash(&mut hasher);
+                hash_color(cell.fg, &mut hasher);
+                hash_color(cell.bg, &mut hasher);
+                if let Some(zerowidth) = cell.zerowidth() {
+                    zerowidth.hash(&mut hasher);
+                }
+            }
+        }
+        let cursor = grid.cursor.point;
+        (cursor.line.0, cursor.column.0, self.term.mode().contains(TermMode::SHOW_CURSOR)).hash(&mut hasher);
+        hasher.finish()
     }
 
     pub fn title(&self) -> Option<String> {

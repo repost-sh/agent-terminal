@@ -11,6 +11,7 @@ use zip::write::SimpleFileOptions;
 
 use crate::native::pty;
 use crate::native::recording::Recording;
+use crate::output::call_line;
 
 pub struct SessionFolder {
     session: String,
@@ -38,7 +39,7 @@ impl ActivityEntry {
         Self {
             time: humantime::format_rfc3339_millis(time).to_string(),
             tab: None,
-            command: quoted(typed),
+            command: call_line(typed),
             duration_ms: duration.as_millis() as u64,
             exit: 0,
             error: None,
@@ -80,7 +81,7 @@ impl SessionFolder {
         let mut typed = vec![command.program.clone()];
         typed.extend(command.args.iter().cloned());
         let path = self.path.join(format!("{tab}.cast"));
-        Recording::start(format!("{} {tab}", self.session), path, command.size, quoted(&typed))
+        Recording::start(format!("{} {tab}", self.session), path, command.size, call_line(&typed))
     }
 }
 
@@ -157,27 +158,4 @@ pub fn file_name(session: &str) -> String {
         }
     }
     name
-}
-
-pub fn quoted(words: &[String]) -> String {
-    words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" ")
-}
-
-fn quote(word: &str) -> String {
-    let plain = !word.is_empty()
-        && word.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ',' | ':' | '=' | '@' | '+' | '%')
-        });
-    if plain {
-        return word.to_string();
-    }
-    let mut quoted = String::from("\"");
-    for c in word.chars() {
-        if matches!(c, '"' | '\\' | '$' | '`') {
-            quoted.push('\\');
-        }
-        quoted.push(c);
-    }
-    quoted.push('"');
-    quoted
 }

@@ -6,3 +6,4 @@ pub mod recording;
 pub mod screen;
 pub mod store;
 pub mod terminal;
+pub mod wait;
