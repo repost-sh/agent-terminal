@@ -18,6 +18,15 @@ if status is-interactive
         end
     end
 
+    function __agent_terminal_cancel --on-event fish_cancel
+        printf '\e]133;A\a'
+    end
+
+    function __agent_terminal_refused --on-event fish_posterror
+        commandline --replace ''
+        printf '\e]133;A\a'
+    end
+
     if functions -q fish_prompt
         functions -c fish_prompt __agent_terminal_user_prompt
     else

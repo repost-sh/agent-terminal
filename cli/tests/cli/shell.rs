@@ -90,6 +90,8 @@ in_every_shell!(
     exec_prints_the_output_and_the_exit_code,
     history_keeps_every_command_with_its_exit_code_cwd_and_output,
     wait_command_waits_for_a_long_running_command,
+    a_cancelled_command_line_leaves_the_shell_ready,
+    exec_after_a_line_the_shell_refused_starts_on_an_empty_command_line,
     the_users_startup_files_load_and_stay_untouched,
 );
 
@@ -197,6 +199,36 @@ fn wait_command_waits_for_a_long_running_command(shell: &'static str) {
     assert_eq!(
         timeless(&tab.run(&["history", "show", "2"]).success().stdout()),
         format!("typed\n2 · exit 0 · <time> · {cwd} · cat hold\n")
+    );
+}
+
+fn a_cancelled_command_line_leaves_the_shell_ready(shell: &'static str) {
+    let Some(tab) = ShellTab::opened(shell) else { return };
+    let cwd = tab.cwd();
+    for cancel in [&["press", "Ctrl+c"][..], &["signal", "INT"]] {
+        tab.run(&["type", "echo 'unfinished\n"]).success();
+        assert_eq!(tab.run(&["wait", "--command", "--timeout", "300"]).code(), 3, "{cancel:?}");
+        tab.run(cancel).success();
+        tab.run(&["wait", "--command"]).success();
+    }
+    assert_eq!(
+        timeless(&tab.run(&["exec", "echo after"]).success().stdout()),
+        format!("after\n1 · exit 0 · <time> · {cwd} · echo after\n")
+    );
+}
+
+fn exec_after_a_line_the_shell_refused_starts_on_an_empty_command_line(shell: &'static str) {
+    let Some(tab) = ShellTab::opened(shell) else { return };
+    let cwd = tab.cwd();
+    let refused = tab.run(&["exec", ")"]);
+    assert_eq!(refused.code(), 1);
+    assert_eq!(
+        refused.stderr().lines().next(),
+        Some("error: the shell in default t1 ran no command for `)`; the screen shows why")
+    );
+    assert_eq!(
+        timeless(&tab.run(&["exec", "echo after"]).success().stdout()),
+        format!("after\n1 · exit 0 · <time> · {cwd} · echo after\n")
     );
 }
 
