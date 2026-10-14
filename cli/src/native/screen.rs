@@ -1,13 +1,15 @@
+use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
 use alacritty_terminal::event::{Event, EventListener};
-use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::grid::{Dimensions, Row};
 use alacritty_terminal::index::{Column, Line};
-use alacritty_terminal::term::cell::Flags;
+use alacritty_terminal::term::cell::{Cell as GridCell, Flags};
 use alacritty_terminal::term::{Config, Term, TermMode};
-use alacritty_terminal::vte::ansi::Processor;
+use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor};
+use alacritty_terminal::vte::{Parser, Perform};
 
-use crate::protocol::Size;
+use crate::protocol::{Cell, Modes, Mouse, Size};
 
 impl Dimensions for Size {
     fn total_lines(&self) -> usize {
@@ -57,37 +59,244 @@ pub struct KeyboardModes {
     pub kitty_flags: u8,
 }
 
-const KITTY_FLAGS: [(TermMode, u8); 5] = [
-    (TermMode::DISAMBIGUATE_ESC_CODES, 1),
-    (TermMode::REPORT_EVENT_TYPES, 2),
-    (TermMode::REPORT_ALTERNATE_KEYS, 4),
-    (TermMode::REPORT_ALL_KEYS_AS_ESC, 8),
-    (TermMode::REPORT_ASSOCIATED_TEXT, 16),
+const KITTY_FLAGS: [(TermMode, u8, &str); 5] = [
+    (TermMode::DISAMBIGUATE_ESC_CODES, 1, "disambiguate"),
+    (TermMode::REPORT_EVENT_TYPES, 2, "report-events"),
+    (TermMode::REPORT_ALTERNATE_KEYS, 4, "report-alternates"),
+    (TermMode::REPORT_ALL_KEYS_AS_ESC, 8, "report-all-keys"),
+    (TermMode::REPORT_ASSOCIATED_TEXT, 16, "report-text"),
 ];
 
-#[derive(Clone, Default)]
-struct Replies(Arc<Mutex<Vec<u8>>>);
+fn is_spacer(cell: &GridCell) -> bool {
+    cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+}
 
-impl EventListener for Replies {
-    fn send_event(&self, event: Event) {
-        if let Event::PtyWrite(text) = event {
-            self.0.lock().unwrap().extend_from_slice(text.as_bytes());
+fn push_cell(text: &mut String, cell: &GridCell) {
+    text.push(cell.c);
+    if let Some(zerowidth) = cell.zerowidth() {
+        text.extend(zerowidth);
+    }
+}
+
+fn plain_row(row: &Row<GridCell>, cols: usize) -> String {
+    located_row(row, cols).0
+}
+
+fn located_row(row: &Row<GridCell>, cols: usize) -> (String, Vec<u16>) {
+    let mut text = String::with_capacity(cols);
+    let mut columns = Vec::with_capacity(cols);
+    for col in (0..cols).filter(|&col| !is_spacer(&row[Column(col)])) {
+        push_cell(&mut text, &row[Column(col)]);
+        columns.resize(text.len(), col as u16);
+    }
+    text.truncate(text.trim_end().len());
+    columns.truncate(text.len());
+    (text, columns)
+}
+
+fn styled_row(row: &Row<GridCell>, cols: usize) -> String {
+    let shows = |cell: &GridCell| {
+        cell.c != ' '
+            || cell.bg != Color::Named(NamedColor::Background)
+            || cell.flags.intersects(Flags::INVERSE | Flags::ALL_UNDERLINES | Flags::STRIKEOUT)
+    };
+    let end = (0..cols).rposition(|col| shows(&row[Column(col)])).map_or(0, |i| i + 1);
+    let mut text = String::new();
+    let mut current = String::new();
+    for cell in (0..end).map(|col| &row[Column(col)]).filter(|cell| !is_spacer(cell)) {
+        let style = sgr(cell);
+        if style != current {
+            if style.is_empty() {
+                text.push_str("\x1b[0m");
+            } else {
+                text.push_str(&format!("\x1b[0;{style}m"));
+            }
+            current = style;
+        }
+        push_cell(&mut text, cell);
+    }
+    if !current.is_empty() {
+        text.push_str("\x1b[0m");
+    }
+    text
+}
+
+fn sgr(cell: &GridCell) -> String {
+    let attributes = [
+        (Flags::BOLD, "1"),
+        (Flags::DIM, "2"),
+        (Flags::ITALIC, "3"),
+        (Flags::ALL_UNDERLINES, "4"),
+        (Flags::INVERSE, "7"),
+        (Flags::HIDDEN, "8"),
+        (Flags::STRIKEOUT, "9"),
+    ];
+    let mut params: Vec<String> =
+        attributes.iter().filter(|(flag, _)| cell.flags.intersects(*flag)).map(|(_, code)| code.to_string()).collect();
+    params.extend(color_sgr(cell.fg, 30));
+    params.extend(color_sgr(cell.bg, 40));
+    params.join(";")
+}
+
+fn color_sgr(color: Color, base: u16) -> Option<String> {
+    match color {
+        Color::Spec(rgb) => Some(format!("{};2;{};{};{}", base + 8, rgb.r, rgb.g, rgb.b)),
+        Color::Indexed(index) => Some(format!("{};5;{index}", base + 8)),
+        Color::Named(named) => {
+            let index = named as u16;
+            let dim_black = NamedColor::DimBlack as u16;
+            match index {
+                0..=7 => Some((base + index).to_string()),
+                8..=15 => Some((base + 60 + index - 8).to_string()),
+                _ if (dim_black..dim_black + 8).contains(&index) => Some((base + index - dim_black).to_string()),
+                _ => None,
+            }
         }
     }
 }
 
+const COLOR_NAMES: [&str; 16] = [
+    "black",
+    "red",
+    "green",
+    "yellow",
+    "blue",
+    "magenta",
+    "cyan",
+    "white",
+    "bright-black",
+    "bright-red",
+    "bright-green",
+    "bright-yellow",
+    "bright-blue",
+    "bright-magenta",
+    "bright-cyan",
+    "bright-white",
+];
+
+fn color_name(color: Color) -> String {
+    match color {
+        Color::Spec(rgb) => format!("#{:02x}{:02x}{:02x}", rgb.r, rgb.g, rgb.b),
+        Color::Indexed(index) => COLOR_NAMES.get(index as usize).map_or_else(|| index.to_string(), |n| n.to_string()),
+        Color::Named(named) => match named {
+            NamedColor::DimBlack => "black",
+            NamedColor::DimRed => "red",
+            NamedColor::DimGreen => "green",
+            NamedColor::DimYellow => "yellow",
+            NamedColor::DimBlue => "blue",
+            NamedColor::DimMagenta => "magenta",
+            NamedColor::DimCyan => "cyan",
+            NamedColor::DimWhite => "white",
+            other => COLOR_NAMES.get(other as usize).copied().unwrap_or("default"),
+        }
+        .to_string(),
+    }
+}
+
+fn mouse_encoding(mode: TermMode) -> Option<MouseMode> {
+    mode.intersects(TermMode::MOUSE_MODE).then(|| {
+        if mode.contains(TermMode::SGR_MOUSE) {
+            MouseMode::Sgr
+        } else if mode.contains(TermMode::UTF8_MOUSE) {
+            MouseMode::Utf8
+        } else {
+            MouseMode::X10
+        }
+    })
+}
+
+#[derive(Default)]
+struct Reported {
+    replies: Vec<u8>,
+    title: Option<String>,
+}
+
+#[derive(Clone, Default)]
+struct Events(Arc<Mutex<Reported>>);
+
+impl EventListener for Events {
+    fn send_event(&self, event: Event) {
+        let mut reported = self.0.lock().unwrap();
+        match event {
+            Event::PtyWrite(text) => reported.replies.extend_from_slice(text.as_bytes()),
+            Event::Title(title) => reported.title = Some(title),
+            Event::ResetTitle => reported.title = None,
+            _ => {}
+        }
+    }
+}
+
+#[derive(Default)]
+struct Stream {
+    cwd: Option<String>,
+    printed: String,
+}
+
+impl Perform for Stream {
+    fn print(&mut self, c: char) {
+        self.printed.push(c);
+    }
+
+    fn execute(&mut self, byte: u8) {
+        if matches!(byte, b'\n' | b'\t') {
+            self.printed.push(byte as char);
+        }
+    }
+
+    fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
+        if let [b"7", url @ ..] = params
+            && let Some(cwd) = file_url_path(&url.join(&b';'))
+        {
+            self.cwd = Some(cwd);
+        }
+    }
+}
+
+fn file_url_path(url: &[u8]) -> Option<String> {
+    let rest = url.strip_prefix(b"file://")?;
+    let path = &rest[rest.iter().position(|&b| b == b'/')?..];
+    let mut decoded = Vec::with_capacity(path.len());
+    let mut i = 0;
+    while i < path.len() {
+        let escaped = (path[i] == b'%')
+            .then(|| path.get(i + 1..i + 3))
+            .flatten()
+            .and_then(|hex| u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok());
+        match escaped {
+            Some(byte) => {
+                decoded.push(byte);
+                i += 3;
+            }
+            None => {
+                decoded.push(path[i]);
+                i += 1;
+            }
+        }
+    }
+    Some(String::from_utf8_lossy(&decoded).into_owned())
+}
+
 pub struct Screen {
-    term: Term<Replies>,
+    term: Term<Events>,
     parser: Processor,
-    replies: Replies,
+    events: Events,
+    stream_parser: Parser,
+    stream: Stream,
     size: Size,
 }
 
 impl Screen {
     pub fn new(size: Size) -> Self {
-        let replies = Replies::default();
-        let config = Config { kitty_keyboard: true, ..Config::default() };
-        Self { term: Term::new(config, &size, replies.clone()), parser: Processor::new(), replies, size }
+        let events = Events::default();
+        let config = Config { kitty_keyboard: true, scrolling_history: 2000, ..Config::default() };
+        Self {
+            term: Term::new(config, &size, events.clone()),
+            parser: Processor::new(),
+            events,
+            stream_parser: Parser::new(),
+            stream: Stream::default(),
+            size,
+        }
     }
 
     pub fn keyboard_modes(&self) -> KeyboardModes {
@@ -95,46 +304,99 @@ impl Screen {
         KeyboardModes {
             app_cursor: mode.contains(TermMode::APP_CURSOR),
             bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
-            kitty_flags: KITTY_FLAGS.iter().filter(|(flag, _)| mode.contains(*flag)).map(|(_, bit)| bit).sum(),
+            kitty_flags: KITTY_FLAGS.iter().filter(|(flag, ..)| mode.contains(*flag)).map(|(_, bit, _)| bit).sum(),
         }
     }
 
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<u8> {
         self.parser.advance(&mut self.term, bytes);
-        std::mem::take(&mut *self.replies.0.lock().unwrap())
+        self.stream_parser.advance(&mut self.stream, bytes);
+        std::mem::take(&mut self.events.0.lock().unwrap().replies)
+    }
+
+    pub fn scrollback_len(&self) -> usize {
+        self.term.grid().history_size()
+    }
+
+    pub fn rows(&self, lines: Range<i32>, ansi: bool) -> Vec<String> {
+        let grid = self.term.grid();
+        let cols = self.size.cols as usize;
+        lines
+            .map(|line| if ansi { styled_row(&grid[Line(line)], cols) } else { plain_row(&grid[Line(line)], cols) })
+            .collect()
+    }
+
+    pub fn located_row(&self, line: i32) -> (String, Vec<u16>) {
+        located_row(&self.term.grid()[Line(line)], self.size.cols as usize)
+    }
+
+    pub fn modes(&self) -> Modes {
+        let mode = *self.term.mode();
+        let tracking = if mode.contains(TermMode::MOUSE_MOTION) {
+            Some("motion")
+        } else if mode.contains(TermMode::MOUSE_DRAG) {
+            Some("drag")
+        } else if mode.contains(TermMode::MOUSE_REPORT_CLICK) {
+            Some("click")
+        } else {
+            None
+        };
+        Modes {
+            alt_screen: mode.contains(TermMode::ALT_SCREEN),
+            mouse: tracking.zip(mouse_encoding(mode)).map(|(tracking, encoding)| Mouse {
+                tracking: tracking.to_string(),
+                encoding: encoding.as_str().to_string(),
+            }),
+            bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
+            app_cursor: mode.contains(TermMode::APP_CURSOR),
+            focus_events: mode.contains(TermMode::FOCUS_IN_OUT),
+            keyboard: KITTY_FLAGS
+                .iter()
+                .filter(|(flag, ..)| mode.contains(*flag))
+                .map(|(.., name)| name.to_string())
+                .collect(),
+        }
+    }
+
+    pub fn cell(&self, row: u16, col: u16) -> Option<Cell> {
+        if !(1..=self.size.rows).contains(&row) || !(1..=self.size.cols).contains(&col) {
+            return None;
+        }
+        let cell = &self.term.grid()[Line(row as i32 - 1)][Column(col as usize - 1)];
+        let mut char = cell.c.to_string();
+        if let Some(zerowidth) = cell.zerowidth() {
+            char.extend(zerowidth);
+        }
+        Some(Cell {
+            row,
+            col,
+            char,
+            fg: color_name(cell.fg),
+            bg: color_name(cell.bg),
+            bold: cell.flags.contains(Flags::BOLD),
+            inverse: cell.flags.contains(Flags::INVERSE),
+            underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
+        })
+    }
+
+    pub fn title(&self) -> Option<String> {
+        self.events.0.lock().unwrap().title.clone()
+    }
+
+    pub fn take_printed(&mut self) -> String {
+        std::mem::take(&mut self.stream.printed)
+    }
+
+    pub fn reported_cwd(&self) -> Option<String> {
+        self.stream.cwd.clone()
     }
 
     pub fn view(&self) -> ScreenView {
         let grid = self.term.grid();
-        let lines = (0..self.size.rows as i32)
-            .map(|row| {
-                let row = &grid[Line(row)];
-                let mut text = String::with_capacity(self.size.cols as usize);
-                for col in 0..self.size.cols as usize {
-                    let cell = &row[Column(col)];
-                    if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
-                        continue;
-                    }
-                    text.push(cell.c);
-                    if let Some(zerowidth) = cell.zerowidth() {
-                        text.extend(zerowidth);
-                    }
-                }
-                text.truncate(text.trim_end().len());
-                text
-            })
-            .collect();
+        let lines = self.rows(0..self.size.rows as i32, false);
         let point = grid.cursor.point;
         let mode = *self.term.mode();
-        let mouse = mode.intersects(TermMode::MOUSE_MODE).then(|| {
-            if mode.contains(TermMode::SGR_MOUSE) {
-                MouseMode::Sgr
-            } else if mode.contains(TermMode::UTF8_MOUSE) {
-                MouseMode::Utf8
-            } else {
-                MouseMode::X10
-            }
-        });
+        let mouse = mouse_encoding(mode);
         ScreenView {
             size: self.size,
             lines,

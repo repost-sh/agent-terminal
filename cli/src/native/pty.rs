@@ -21,6 +21,7 @@ pub struct Spawned {
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
     pub killer: Box<dyn Killer>,
+    pub pid: Option<u32>,
     pub signaller: Box<dyn Signaller>,
     pub wait: Box<dyn FnOnce() -> Result<i32> + Send>,
 }
@@ -99,6 +100,7 @@ pub fn spawn(command: Command) -> Result<Spawned> {
         reader,
         writer,
         killer: Box::new(killer),
+        pid: child.process_id(),
         signaller: Box::new(ForegroundSignaller(Arc::clone(&master))),
         wait: Box::new(move || {
             let status = child.wait().context("wait for the program to exit");

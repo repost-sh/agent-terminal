@@ -6,12 +6,18 @@ use anyhow::{Context, Result};
 
 use crate::key::Key;
 use crate::native::keyboard;
+use crate::native::output_log::OutputLog;
 use crate::native::pty::{self, Killer, Signaller};
 use crate::native::screen::Screen;
-use crate::protocol::{Delivery, Input, Snapshot, Wait};
+use crate::protocol::{
+    Baseline, Cursor, Delivery, DiffBase, Exit, Fact, Get, Input, Match, RowChange, RowRange, Scrollback, Snapshot,
+    SnapshotDiff, SnapshotOptions, Wait,
+};
 
 pub struct Terminal {
     pub program: String,
+    pid: Option<u32>,
+    cwd: String,
     state: Mutex<State>,
     changed: Condvar,
     input_turn: Mutex<()>,
@@ -25,6 +31,13 @@ struct State {
     frame: u64,
     last_change: Instant,
     exit: Option<Option<i32>>,
+    log: OutputLog,
+    last_shown: Option<Shown>,
+}
+
+struct Shown {
+    frame: u64,
+    lines: Vec<String>,
 }
 
 pub enum Settled {
@@ -37,10 +50,20 @@ impl Terminal {
     pub fn start(command: pty::Command) -> Result<Arc<Self>> {
         let program = display_name(&command.program);
         let size = command.size;
+        let cwd = command.cwd.to_string_lossy().into_owned();
         let spawned = pty::spawn(command)?;
         let terminal = Arc::new(Self {
             program,
-            state: Mutex::new(State { screen: Screen::new(size), frame: 0, last_change: Instant::now(), exit: None }),
+            pid: spawned.pid,
+            cwd,
+            state: Mutex::new(State {
+                screen: Screen::new(size),
+                frame: 0,
+                last_change: Instant::now(),
+                exit: None,
+                log: OutputLog::default(),
+                last_shown: None,
+            }),
             changed: Condvar::new(),
             input_turn: Mutex::new(()),
             writer: Mutex::new(spawned.writer),
@@ -85,6 +108,9 @@ impl Terminal {
         let replies = {
             let mut state = self.state.lock().unwrap();
             let replies = state.screen.feed(bytes);
+            let printed = state.screen.take_printed();
+            let frame = state.frame;
+            state.log.record(frame, bytes, printed.as_bytes());
             state.frame += 1;
             state.last_change = Instant::now();
             replies
@@ -99,8 +125,40 @@ impl Terminal {
     }
 
     pub fn snapshot(&self, session: &str, tab: &str) -> Snapshot {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        let rows = state.screen.view().size.rows;
+        self.render(&mut state, session, tab, RowRange { first: 1, last: rows }, &SnapshotOptions::default())
+    }
+
+    pub fn snapshot_with(&self, session: &str, tab: &str, options: &SnapshotOptions) -> Result<Snapshot, String> {
+        let mut state = self.state.lock().unwrap();
+        let size = state.screen.view().size;
+        let range = match options.rows {
+            None => RowRange { first: 1, last: size.rows },
+            Some(RowRange { first, last }) if first == 0 || first > size.rows || first > last => {
+                return Err(format!("rows {first}:{last} are outside the {}x{} screen", size.cols, size.rows));
+            }
+            Some(RowRange { first, last }) => RowRange { first, last: last.min(size.rows) },
+        };
+        Ok(self.render(&mut state, session, tab, range, options))
+    }
+
+    fn render(
+        &self,
+        state: &mut State,
+        session: &str,
+        tab: &str,
+        range: RowRange,
+        options: &SnapshotOptions,
+    ) -> Snapshot {
         let view = state.screen.view();
+        state.last_shown = Some(Shown { frame: state.frame, lines: view.lines.clone() });
+        let history = state.screen.scrollback_len();
+        let scrollback = match options.scrollback {
+            Scrollback::None => None,
+            Scrollback::All => Some(history),
+            Scrollback::Last(n) => Some(n.min(history)),
+        };
         Snapshot {
             session: session.to_string(),
             tab: tab.to_string(),
@@ -114,8 +172,91 @@ impl Terminal {
             frame: state.frame,
             exited: state.exit.is_some(),
             exit_code: state.exit.flatten(),
-            lines: view.lines,
+            first_row: range.first,
+            scrollback: scrollback.map(|n| state.screen.rows(-(n as i32)..0, options.ansi)),
+            lines: state.screen.rows(range.first as i32 - 1..range.last as i32, options.ansi),
         }
+    }
+
+    pub fn fact(&self, what: Get) -> Result<Fact, String> {
+        let state = self.state.lock().unwrap();
+        let view = state.screen.view();
+        Ok(match what {
+            Get::Text => {
+                let shown = view.lines.iter().rposition(|line| !line.is_empty()).map_or(0, |i| i + 1);
+                Fact::Text(view.lines[..shown].join("\n"))
+            }
+            Get::Cursor => {
+                Fact::Cursor(Cursor { row: view.cursor.0 + 1, col: view.cursor.1 + 1, visible: view.cursor_visible })
+            }
+            Get::Size => Fact::Size(view.size),
+            Get::Frame => Fact::Frame(state.frame),
+            Get::Program => Fact::Program(self.program.clone()),
+            Get::ExitCode => Fact::ExitCode(Exit { exited: state.exit.is_some(), code: state.exit.flatten() }),
+            Get::Pid => Fact::Pid(self.pid),
+            Get::Title => Fact::Title(state.screen.title()),
+            Get::Cwd => Fact::Cwd(state.screen.reported_cwd().unwrap_or_else(|| self.cwd.clone())),
+            Get::Modes => Fact::Modes(state.screen.modes()),
+            Get::Cell { row, col } => Fact::Cell(state.screen.cell(row, col).ok_or_else(|| {
+                format!("cell {row},{col} is outside the {}x{} screen", view.size.cols, view.size.rows)
+            })?),
+        })
+    }
+
+    pub fn find(&self, text: &str, regex: bool, all: bool) -> Result<Vec<Match>, String> {
+        let source = if regex { text.to_string() } else { regex::escape(text) };
+        let pattern = regex::Regex::new(&source).map_err(|e| format!("invalid regex {text:?}: {e}"))?;
+        let state = self.state.lock().unwrap();
+        let first = if all { -(state.screen.scrollback_len() as i32) } else { 0 };
+        let mut matches = Vec::new();
+        for line in first..state.screen.view().size.rows as i32 {
+            let (row, columns) = state.screen.located_row(line);
+            for found in pattern.find_iter(&row).filter(|m| !m.is_empty()) {
+                matches.push(Match {
+                    row: if line < 0 { line } else { line + 1 },
+                    col: columns[found.start()] + 1,
+                    text: found.as_str().to_string(),
+                });
+            }
+        }
+        if matches.is_empty() {
+            let place = if all { "on the screen or in its scrollback" } else { "on the screen" };
+            return Err(format!("{text:?} is not {place}"));
+        }
+        Ok(matches)
+    }
+
+    pub fn diff_snapshot(&self, baseline: Option<Baseline>) -> Result<SnapshotDiff, String> {
+        let mut state = self.state.lock().unwrap();
+        let current = Shown { frame: state.frame, lines: state.screen.view().lines };
+        let (since, before) = match (baseline, state.last_shown.take()) {
+            (Some(baseline), _) => (DiffBase::Baseline(baseline.name), baseline.lines),
+            (None, Some(shown)) => (DiffBase::Frame(shown.frame), shown.lines),
+            (None, None) => {
+                return Err("nothing to compare with; take a snapshot first with `agent-terminal snapshot`".into());
+            }
+        };
+        let rows = before.len().max(current.lines.len());
+        let row = |lines: &[String], i: usize| lines.get(i).map_or("", String::as_str).to_string();
+        let changes = (0..rows)
+            .map(|i| RowChange { row: i as u16 + 1, before: row(&before, i), after: row(&current.lines, i) })
+            .filter(|change| change.before != change.after)
+            .collect();
+        let frame = current.frame;
+        state.last_shown = Some(current);
+        Ok(SnapshotDiff { since, frame, changes })
+    }
+
+    pub fn mark(&self, name: String) -> u64 {
+        let mut state = self.state.lock().unwrap();
+        let frame = state.frame;
+        state.log.mark(name, frame);
+        frame
+    }
+
+    pub fn printed(&self, since: Option<&str>, raw: bool) -> Result<String, String> {
+        let state = self.state.lock().unwrap();
+        state.log.since(since, raw, state.frame)
     }
 
     pub fn wait(&self, until: &Wait, timeout: Duration) -> Settled {

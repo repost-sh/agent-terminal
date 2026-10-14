@@ -1,4 +1,9 @@
+mod diff;
+mod find;
+mod get;
 mod input;
 mod open;
+mod output;
 mod skills;
+mod snapshot;
 mod support;
