@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use regex::Regex;
 
+use crate::native::commands::PromptState;
 use crate::native::screen::{Screen, ScreenView};
 use crate::protocol::{RowRange, TextMatch, Wait};
 
@@ -15,6 +16,8 @@ pub enum Condition {
     Cursor(u16, u16),
     Frame(u64),
     Elapsed(Instant),
+    Command,
+    PromptAfter(u64),
 }
 
 pub struct Pattern {
@@ -58,12 +61,20 @@ pub struct Moment<'a> {
     last_change: Instant,
     last_output: Instant,
     exited: bool,
+    prompt: Option<PromptState>,
     view: OnceCell<ScreenView>,
 }
 
 impl<'a> Moment<'a> {
-    pub fn new(screen: &'a Screen, frame: u64, last_change: Instant, last_output: Instant, exited: bool) -> Self {
-        Self { now: Instant::now(), screen, frame, last_change, last_output, exited, view: OnceCell::new() }
+    pub fn new(
+        screen: &'a Screen,
+        frame: u64,
+        last_change: Instant,
+        last_output: Instant,
+        exited: bool,
+        prompt: Option<PromptState>,
+    ) -> Self {
+        Self { now: Instant::now(), screen, frame, last_change, last_output, exited, prompt, view: OnceCell::new() }
     }
 
     fn view(&self) -> &ScreenView {
@@ -82,6 +93,7 @@ impl Condition {
             Wait::Cursor { row, col } => Condition::Cursor(*row, *col),
             Wait::Frame { frame } => Condition::Frame(*frame),
             Wait::Elapsed { ms } => Condition::Elapsed(Instant::now() + Duration::from_millis(*ms)),
+            Wait::Command => Condition::Command,
         })
     }
 
@@ -99,6 +111,10 @@ impl Condition {
             Condition::Frame(frame) => while_running(moment.frame >= *frame, moment),
             Condition::Elapsed(until) if moment.now >= *until => Verdict::Met,
             Condition::Elapsed(until) => Verdict::Pending(Some(*until)),
+            Condition::Command => while_running(moment.prompt.is_some_and(|prompt| prompt.ready), moment),
+            Condition::PromptAfter(prompts) => {
+                while_running(moment.prompt.is_some_and(|prompt| prompt.ready && prompt.prompts > *prompts), moment)
+            }
         }
     }
 }
