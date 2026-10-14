@@ -55,7 +55,6 @@ impl Drop for Busy<'_> {
 }
 
 pub fn run(idle_timeout: Duration) -> Result<()> {
-    close_inherited_files()?;
     let home = home()?;
     std::fs::create_dir_all(&home).with_context(|| format!("create {}", home.display()))?;
     let path = socket_path()?;
@@ -84,23 +83,6 @@ pub fn run(idle_timeout: Duration) -> Result<()> {
                 std::thread::spawn(move || daemon.serve(stream));
             }
             Err(e) => eprintln!("accepting a connection failed: {e}"),
-        }
-    }
-    Ok(())
-}
-
-fn close_inherited_files() -> Result<()> {
-    let mut inherited = Vec::new();
-    for entry in std::fs::read_dir("/dev/fd").context("list the files the daemon inherited")? {
-        let name = entry.context("list the files the daemon inherited")?.file_name();
-        if let Some(fd) = name.to_str().and_then(|name| name.parse::<i32>().ok()).filter(|&fd| fd > 2) {
-            inherited.push(fd);
-        }
-    }
-    for fd in inherited {
-        match nix::unistd::close(fd) {
-            Ok(()) | Err(nix::errno::Errno::EBADF) => {}
-            Err(e) => return Err(e).with_context(|| format!("close inherited file descriptor {fd}")),
         }
     }
     Ok(())

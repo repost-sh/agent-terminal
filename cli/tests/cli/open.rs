@@ -173,26 +173,6 @@ fn a_program_that_prints_nothing_opens_with_a_blank_screen() {
 }
 
 #[test]
-fn the_daemon_keeps_no_file_its_first_caller_inherited() {
-    let at = AgentTerminal::new();
-    let home = at.home().to_path_buf();
-    let (done, finished) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let output = std::process::Command::new("sh")
-            .args(["-c", "exec 3>&1; exec \"$0\" open --size 20x2 cat", env!("CARGO_BIN_EXE_agent-terminal")])
-            .env("AGENT_TERMINAL_HOME", home)
-            .env_remove("AGENT_TERMINAL_SESSION")
-            .output()
-            .expect("run agent-terminal through sh");
-        done.send(output.status.code()).expect("report the exit code");
-    });
-    let code = finished
-        .recv_timeout(std::time::Duration::from_secs(10))
-        .expect("the caller is still waiting for the end of its output: the daemon holds a copy of the caller's pipe");
-    assert_eq!(code, Some(0));
-}
-
-#[test]
 fn waiting_for_text_that_never_appears_times_out_and_shows_the_screen() {
     let at = AgentTerminal::new();
     let run = at.run(&[
