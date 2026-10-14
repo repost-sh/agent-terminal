@@ -1,17 +1,18 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{ErrorKind, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 
 use crate::connection::{READY, home, socket_path};
 use crate::native::pty;
+use crate::native::store::{self, ActivityEntry, SessionFolder};
 use crate::native::terminal::{Settled, Terminal};
 use crate::protocol::{
-    self, Closed, Delivered, ErrorBody, Input, Marked, Matches, Printed, Reply, Request, Response, SessionInfo,
-    Sessions, Size, Snapshot, TabRef, Wait,
+    self, Addressed, Call, Closed, Delivered, ErrorBody, Export, Input, Marked, Matches, Printed, RecordingFile, Reply,
+    Request, Response, SavedRecording, SessionInfo, Sessions, Size, Snapshot, TabRef, Wait,
 };
 
 #[derive(Default)]
@@ -20,13 +21,22 @@ struct Daemon {
     restarting: Mutex<()>,
     activity: Mutex<Activity>,
     quiet: Condvar,
+    folders: Mutex<HashMap<String, Weak<SessionFolder>>>,
 }
 
-#[derive(Default)]
 struct Session {
     tabs: BTreeMap<u32, Arc<Terminal>>,
     current: Option<u32>,
-    next_id: u32,
+    folder: Arc<SessionFolder>,
+}
+
+struct Logged {
+    session: String,
+    tab: Option<u32>,
+    folder: Option<Arc<SessionFolder>>,
+    typed: Vec<String>,
+    time: SystemTime,
+    started: Instant,
 }
 
 struct Activity {
@@ -89,23 +99,27 @@ pub fn run(idle_timeout: Duration) -> Result<()> {
 impl Daemon {
     fn serve(&self, mut stream: UnixStream) {
         let busy = self.busy();
-        let request: Request = match protocol::read(&mut stream) {
-            Ok(Some(request)) => request,
+        let call: Call = match protocol::read(&mut stream) {
+            Ok(Some(call)) => call,
             Ok(None) => return,
             Err(e) => {
                 eprintln!("reading a request failed: {e:#}");
                 return;
             }
         };
-        let stop = matches!(request, Request::Stop);
+        let stop = matches!(call.request, Request::Stop);
+        let logged = call.typed.and_then(|typed| self.about_to_handle(typed, &call.request));
         let handled = match &busy {
-            Some(_) => self.handle(request),
+            Some(_) => self.handle(call.request),
             None => Err(ErrorBody {
                 code: crate::exit::ERROR,
                 message: "the daemon is stopping because it was idle; run the command again to start a new one".into(),
                 snapshot: None,
             }),
         };
+        if let Some(logged) = logged {
+            self.log(logged, &handled);
+        }
         let response = match handled {
             Ok(reply) => Response::Ok(reply),
             Err(failure) => Response::Err(failure),
@@ -182,11 +196,82 @@ impl Daemon {
                 let (_, terminal) = self.target(&session, tab)?;
                 terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(failure)
             }
+            Request::RecordStart { session, tab, path } => {
+                let (id, terminal) = self.target(&session, tab)?;
+                let tab = tab_name(id);
+                let path = match path {
+                    Some(path) => path,
+                    None => home().map_err(error_body)?.join("recordings").join(format!(
+                        "{}-{tab}-{}.cast",
+                        store::file_name(&session),
+                        terminal.frame()
+                    )),
+                };
+                terminal.recording().save_to(&path).map_err(error_body)?;
+                Ok(Reply::Recording(RecordingFile { session, tab, path }))
+            }
+            Request::RecordStop { session, tab } => {
+                let (id, terminal) = self.target(&session, tab)?;
+                let saved = terminal.recording().stop_saving().map_err(error_body)?;
+                Ok(Reply::Saved(SavedRecording {
+                    session,
+                    tab: tab_name(id),
+                    path: saved.path,
+                    duration_ms: saved.duration.as_millis() as u64,
+                    bytes: saved.bytes,
+                }))
+            }
+            Request::TraceExport { session, path } => {
+                let exported = home().and_then(|home| store::export(&home, &session, &path)).map_err(error_body)?;
+                Ok(Reply::Exported(Export { session, path, files: exported.files, bytes: exported.bytes }))
+            }
             Request::Stop => {
                 self.shut_down();
                 Ok(Reply::Stopped)
             }
         }
+    }
+
+    fn about_to_handle(&self, typed: Vec<String>, request: &Request) -> Option<Logged> {
+        let sessions = self.sessions.lock().unwrap();
+        let (session, tab) = match request.addressed() {
+            Addressed::Nothing => return None,
+            Addressed::Session(session) => (session, None),
+            Addressed::Tab(session, Some(id)) => (session, Some(id)),
+            Addressed::Tab(session, None) => (session, sessions.get(session).and_then(|s| s.current)),
+        };
+        Some(Logged {
+            session: session.to_string(),
+            tab,
+            folder: sessions.get(session).map(|s| Arc::clone(&s.folder)),
+            typed,
+            time: SystemTime::now(),
+            started: Instant::now(),
+        })
+    }
+
+    fn log(&self, logged: Logged, handled: &Result<Reply, ErrorBody>) {
+        let mut entry = ActivityEntry::at(logged.time, &logged.typed, logged.started.elapsed());
+        let folder =
+            logged.folder.or_else(|| self.sessions.lock().unwrap().get(&logged.session).map(|s| Arc::clone(&s.folder)));
+        let Some(folder) = folder else {
+            return;
+        };
+        let shown = match handled {
+            Ok(Reply::Snapshot(snapshot)) => Some(snapshot),
+            Err(failure) => failure.snapshot.as_deref(),
+            Ok(_) => None,
+        };
+        entry.tab = shown.map(|snapshot| snapshot.tab.clone()).or_else(|| logged.tab.map(tab_name));
+        entry.frame = shown.map(|snapshot| snapshot.frame).or_else(|| {
+            let (_, terminal) = self.target(&logged.session, Some(logged.tab?)).ok()?;
+            Some(terminal.frame())
+        });
+        if let Err(failure) = handled {
+            entry.exit = failure.code;
+            entry.error = Some(failure.message.clone());
+        }
+        folder.log(&entry);
     }
 
     fn busy(&self) -> Option<Busy<'_>> {
@@ -226,17 +311,35 @@ impl Daemon {
     }
 
     fn open(&self, session: String, command: pty::Command, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
-        let terminal = Terminal::start(command).map_err(error_body)?;
-        let tab = {
-            let mut sessions = self.sessions.lock().unwrap();
-            let entry = sessions.entry(session.clone()).or_default();
-            entry.next_id += 1;
-            let id = entry.next_id;
-            entry.tabs.insert(id, Arc::clone(&terminal));
-            entry.current = Some(id);
-            id
+        let spawned = pty::spawn(command.clone()).map_err(error_body)?;
+        let folder = match self.folder(&session) {
+            Ok(folder) => folder,
+            Err(e) => {
+                spawned.abandon();
+                return Err(error_body(e));
+            }
         };
+        let tab = folder.next_tab();
+        let recording = folder.record(&tab_name(tab), &command);
+        let terminal = Terminal::start(command, spawned, recording);
+        {
+            let mut sessions = self.sessions.lock().unwrap();
+            let entry = sessions.entry(session.clone()).or_insert_with(|| Session::new(Arc::clone(&folder)));
+            entry.tabs.insert(tab, Arc::clone(&terminal));
+            entry.current = Some(tab);
+        }
         settle(&session, tab, &terminal, wait, timeout_ms)
+    }
+
+    fn folder(&self, session: &str) -> Result<Arc<SessionFolder>> {
+        let mut folders = self.folders.lock().unwrap();
+        if let Some(folder) = folders.get(session).and_then(Weak::upgrade) {
+            return Ok(folder);
+        }
+        let folder = Arc::new(SessionFolder::start(&home()?, session)?);
+        folders.retain(|_, folder| folder.strong_count() > 0);
+        folders.insert(session.to_string(), Arc::downgrade(&folder));
+        Ok(folder)
     }
 
     fn resize(
@@ -266,7 +369,11 @@ impl Daemon {
                 snapshot: None,
             });
         }
-        let terminal = Terminal::start(old.rerun()).map_err(error_body)?;
+        let command = old.rerun();
+        let spawned = pty::spawn(command.clone()).map_err(error_body)?;
+        let recording = old.recording();
+        recording.restart();
+        let terminal = Terminal::start(command, spawned, recording);
         {
             let mut sessions = self.sessions.lock().unwrap();
             match sessions.get_mut(session).and_then(|s| s.tabs.get_mut(&tab)) {
@@ -343,6 +450,10 @@ impl Daemon {
 }
 
 impl Session {
+    fn new(folder: Arc<SessionFolder>) -> Self {
+        Self { tabs: BTreeMap::new(), current: None, folder }
+    }
+
     fn info(&self, name: &str) -> SessionInfo {
         SessionInfo {
             session: name.to_string(),

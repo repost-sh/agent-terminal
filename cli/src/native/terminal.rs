@@ -7,7 +7,8 @@ use anyhow::{Context, Result};
 use crate::key::Key;
 use crate::native::keyboard;
 use crate::native::output_log::OutputLog;
-use crate::native::pty::{self, Killer, Signaller};
+use crate::native::pty::{self, Killer, Signaller, Spawned};
+use crate::native::recording::Recording;
 use crate::native::screen::Screen;
 use crate::protocol::{
     Baseline, Cursor, Delivery, DiffBase, Exit, Fact, Get, Input, Match, RowChange, RowRange, Scrollback, Size,
@@ -26,6 +27,7 @@ pub struct Terminal {
     master: pty::Master,
     signaller: Box<dyn Signaller>,
     command: pty::Command,
+    recording: Arc<Recording>,
 }
 
 struct State {
@@ -49,11 +51,10 @@ pub enum Settled {
 }
 
 impl Terminal {
-    pub fn start(command: pty::Command) -> Result<Arc<Self>> {
+    pub fn start(command: pty::Command, spawned: Spawned, recording: Arc<Recording>) -> Arc<Self> {
         let program = display_name(&command.program);
         let size = command.size;
         let cwd = command.cwd.to_string_lossy().into_owned();
-        let spawned = pty::spawn(command.clone())?;
         let terminal = Arc::new(Self {
             program,
             pid: spawned.pid,
@@ -73,6 +74,7 @@ impl Terminal {
             master: spawned.master,
             signaller: spawned.signaller,
             command,
+            recording,
         });
 
         let reading = Arc::clone(&terminal);
@@ -105,12 +107,13 @@ impl Terminal {
             waiting.changed.notify_all();
         });
 
-        Ok(terminal)
+        terminal
     }
 
     fn output(&self, bytes: &[u8]) {
         let replies = {
             let mut state = self.state.lock().unwrap();
+            self.recording.output(bytes);
             let replies = state.screen.feed(bytes);
             let printed = state.screen.take_printed();
             let frame = state.frame;
@@ -191,11 +194,20 @@ impl Terminal {
             return Err(self.exited(None).into());
         }
         state.screen.resize(size);
+        self.recording.resize(size);
         state.frame += 1;
         state.last_change = Instant::now();
         drop(state);
         self.changed.notify_all();
         Ok(())
+    }
+
+    pub fn frame(&self) -> u64 {
+        self.state.lock().unwrap().frame
+    }
+
+    pub fn recording(&self) -> Arc<Recording> {
+        Arc::clone(&self.recording)
     }
 
     pub fn rerun(&self) -> pty::Command {
@@ -400,7 +412,9 @@ impl Terminal {
     fn write(&self, bytes: &[u8]) -> Result<()> {
         self.ensure_running()?;
         let mut writer = self.writer.lock().unwrap();
-        writer.write_all(bytes).and_then(|()| writer.flush()).with_context(|| format!("write to {}", self.program))
+        writer.write_all(bytes).and_then(|()| writer.flush()).with_context(|| format!("write to {}", self.program))?;
+        self.recording.input(bytes);
+        Ok(())
     }
 
     fn ensure_running(&self) -> Result<()> {

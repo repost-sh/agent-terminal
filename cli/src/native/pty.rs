@@ -28,6 +28,17 @@ pub struct Spawned {
     pub wait: Box<dyn FnOnce() -> Result<i32> + Send>,
 }
 
+impl Spawned {
+    pub fn abandon(mut self) {
+        if let Err(e) = self.killer.kill() {
+            eprintln!("stopping a program that could not be set up failed: {e}");
+        }
+        if let Err(e) = (self.wait)() {
+            eprintln!("waiting for a program that could not be set up failed: {e:#}");
+        }
+    }
+}
+
 type SharedMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
 
 pub struct Master(SharedMaster);

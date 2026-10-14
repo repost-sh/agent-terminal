@@ -8,7 +8,7 @@ use crate::key::Key;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Signal, Size,
+    Baseline, Call, Get, Input, Reply, Request, Response, RowRange, Scrollback, SessionInfo, Sessions, Signal, Size,
     SnapshotOptions, Wait,
 };
 use crate::session_id;
@@ -115,6 +115,16 @@ enum Command {
     Diff {
         #[command(subcommand)]
         what: DiffCommand,
+    },
+    #[command(about = "Save the tab as an asciicast (.cast) file that plays in asciinema")]
+    Record {
+        #[command(subcommand)]
+        action: RecordAction,
+    },
+    #[command(about = "Everything about this session in one file, for a bug report")]
+    Trace {
+        #[command(subcommand)]
+        action: TraceAction,
     },
     #[command(about = "Type text, key by key")]
     Type(TypeArgs),
@@ -314,6 +324,28 @@ enum DiffCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum RecordAction {
+    #[command(
+        about = "Save the tab to a .cast file from now on, starting from the screen as it is (default: ~/.agent-terminal/recordings/<session>-<tab>-<frame>.cast)"
+    )]
+    Start {
+        #[arg(help = "Where to save it", value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+    #[command(about = "Stop saving and print the file, its length and its size")]
+    Stop,
+}
+
+#[derive(Subcommand)]
+enum TraceAction {
+    #[command(about = "Zip the session folder (activity log of every call, tab recordings) into one file")]
+    Export {
+        #[arg(help = "Where to write the zip file", value_name = "PATH")]
+        path: PathBuf,
+    },
+}
+
 #[derive(Args)]
 struct TypeArgs {
     #[arg(help = "The text; a newline presses Enter, a tab presses Tab", allow_hyphen_values = true)]
@@ -463,6 +495,18 @@ pub fn run() -> i32 {
             };
             Request::DiffSnapshot { session, tab: cli.tab, baseline }
         }
+        Command::Record { action: RecordAction::Start { path } } => {
+            let path = match path.map(std::path::absolute).transpose() {
+                Ok(path) => path,
+                Err(e) => return output::fail(&format!("current directory: {e}"), crate::exit::ERROR),
+            };
+            Request::RecordStart { session, tab: cli.tab, path }
+        }
+        Command::Record { action: RecordAction::Stop } => Request::RecordStop { session, tab: cli.tab },
+        Command::Trace { action: TraceAction::Export { path } } => match std::path::absolute(&path) {
+            Ok(path) => Request::TraceExport { session, path },
+            Err(e) => return output::fail(&format!("current directory: {e}"), crate::exit::ERROR),
+        },
         Command::Type(args) => {
             input(session, cli.tab, Input::Type { text: args.text, delay_ms: args.delay }, args.after, cli.timeout)
         }
@@ -482,7 +526,8 @@ pub fn run() -> i32 {
         Request::Tabs { session } => IfNotRunning::Answer(Reply::Tabs(SessionInfo::empty(session))),
         _ => IfNotRunning::Start(Launch { idle_timeout: cli.idle_timeout }),
     };
-    let response = match connection::send(&request, if_not_running) {
+    let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
+    let response = match connection::send(&Call { typed: Some(typed), request }, if_not_running) {
         Ok(response) => response,
         Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
     };

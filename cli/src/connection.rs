@@ -9,7 +9,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
-use crate::protocol::{self, Reply, Request, Response};
+use crate::protocol::{self, Call, Reply, Response};
 
 pub const READY: &str = "ready";
 
@@ -36,7 +36,7 @@ pub fn socket_path() -> Result<PathBuf> {
     Ok(home()?.join("daemon.sock"))
 }
 
-pub fn send(request: &Request, if_not_running: IfNotRunning) -> Result<Response> {
+pub fn send(call: &Call, if_not_running: IfNotRunning) -> Result<Response> {
     let socket = socket_path()?;
     let mut stream = match UnixStream::connect(&socket) {
         Ok(stream) => stream,
@@ -46,7 +46,7 @@ pub fn send(request: &Request, if_not_running: IfNotRunning) -> Result<Response>
         },
         Err(e) => return Err(e).with_context(|| format!("connect to the daemon at {}", socket.display())),
     };
-    protocol::write(&mut stream, request)?;
+    protocol::write(&mut stream, call)?;
     protocol::read(&mut stream)?.context("the daemon closed the connection without replying")
 }
 

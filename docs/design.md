@@ -20,6 +20,7 @@ Main job: **QA of TUIs and CLIs by agents** (lazygit-style apps, chat TUIs, inst
 - `agent-terminal` is a single Rust binary: the CLI, the daemon and the dashboard server.
 - The daemon owns, per terminal: a PTY, a VT parser and grid with scrollback (`alacritty_terminal` or `libghostty-vt`), a frame counter, an output ring buffer, and an asciicast event log.
 - The CLI talks to the daemon over a unix socket. The dashboard talks over HTTP + WebSocket on `127.0.0.1:4849`.
+- Each session keeps its tab recordings and the activity log of every call in a plain folder; the format is in [`session-folder.md`](session-folder.md).
 - PNG rendering happens on the server from the grid, with a bundled monospace font (JetBrains Mono + Symbols Nerd Font fallback), so it needs no window server.
 - Shell integration (OSC 133 prompt marks, OSC 7 cwd, OSC 2 title) is injected into `bash`, `zsh` and `fish` when a session opens a shell. That is what produces command history.
 - Speed targets: CLI round trip ≤ 5 ms; `snapshot` ≤ 10 ms; `screenshot` PNG ≤ 40 ms at 120×40; `open` to first frame ≤ 50 ms plus the app's own startup.
