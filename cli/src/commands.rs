@@ -5,7 +5,7 @@ use clap::{Args, Parser, Subcommand};
 use crate::connection;
 use crate::native::daemon;
 use crate::output;
-use crate::protocol::{Request, Response, Size, Wait};
+use crate::protocol::{Get, Request, Response, RowRange, Scrollback, Size, SnapshotOptions, Wait};
 
 #[derive(Parser)]
 #[command(name = "agent-terminal", version, about = "Fast terminal automation CLI for AI agents")]
@@ -34,10 +34,24 @@ enum Command {
     #[command(about = "Run a program in a new terminal (prints the first stable screen)")]
     Open(OpenArgs),
     #[command(about = "The screen as text: header, numbered rows, cursor")]
-    Snapshot,
+    Snapshot(SnapshotArgs),
     #[command(about = "Close the current tab (--all closes every session)")]
     Close {
         #[arg(long, help = "Close every tab in every session")]
+        all: bool,
+    },
+    #[command(about = "One fact about the terminal, e.g. get text, get cursor, get cell 4 3")]
+    Get {
+        #[command(subcommand)]
+        what: GetCommand,
+    },
+    #[command(about = "Where the text is on screen (row,col)")]
+    Find {
+        #[arg(help = "Text to look for")]
+        text: String,
+        #[arg(long, help = "Treat the text as a regular expression")]
+        regex: bool,
+        #[arg(long, help = "Also look in the scrollback above the screen (negative rows)")]
         all: bool,
     },
     #[command(hide = true)]
@@ -80,6 +94,86 @@ struct OpenArgs {
     command: Vec<String>,
 }
 
+#[derive(Args)]
+struct SnapshotArgs {
+    #[arg(long, help = "Only rows A to B, counted from 1 at the top", value_name = "A:B", value_parser = parse_rows)]
+    rows: Option<RowRange>,
+
+    #[arg(
+        long,
+        help = "Add N lines of scrollback above the screen (all of it when N is left out)",
+        value_name = "N",
+        num_args = 0..=1
+    )]
+    scrollback: Option<Option<usize>>,
+
+    #[arg(long, help = "Keep colors and styles as ANSI escape codes")]
+    ansi: bool,
+}
+
+impl SnapshotArgs {
+    fn options(self) -> SnapshotOptions {
+        SnapshotOptions {
+            rows: self.rows,
+            scrollback: match self.scrollback {
+                None => Scrollback::None,
+                Some(None) => Scrollback::All,
+                Some(Some(n)) => Scrollback::Last(n),
+            },
+            ansi: self.ansi,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum GetCommand {
+    #[command(about = "Screen text only, no header")]
+    Text,
+    #[command(about = "Cursor position as row,col (or hidden)")]
+    Cursor,
+    #[command(about = "Terminal size as COLSxROWS")]
+    Size,
+    #[command(about = "Frame number of the current screen")]
+    Frame,
+    #[command(about = "Name of the program running in the terminal")]
+    Program,
+    #[command(about = "Exit code of the program, or running")]
+    ExitCode,
+    #[command(about = "Process id of the program")]
+    Pid,
+    #[command(about = "Title the program set for its window")]
+    Title,
+    #[command(about = "Working directory the program last reported (OSC 7), else where it started")]
+    Cwd,
+    #[command(about = "Alt-screen, mouse tracking, bracketed paste, cursor keys, focus events, keyboard protocol")]
+    Modes,
+    #[command(about = "One character and its style (fg, bg, bold, inverse, underline)")]
+    Cell {
+        #[arg(help = "Row, from 1 at the top")]
+        row: u16,
+        #[arg(help = "Column, from 1 at the left")]
+        col: u16,
+    },
+}
+
+impl GetCommand {
+    fn request(self) -> Get {
+        match self {
+            GetCommand::Text => Get::Text,
+            GetCommand::Cursor => Get::Cursor,
+            GetCommand::Size => Get::Size,
+            GetCommand::Frame => Get::Frame,
+            GetCommand::Program => Get::Program,
+            GetCommand::ExitCode => Get::ExitCode,
+            GetCommand::Pid => Get::Pid,
+            GetCommand::Title => Get::Title,
+            GetCommand::Cwd => Get::Cwd,
+            GetCommand::Modes => Get::Modes,
+            GetCommand::Cell { row, col } => Get::Cell { row, col },
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum DaemonAction {
     Run,
@@ -120,8 +214,10 @@ pub fn run() -> i32 {
                 timeout_ms: cli.timeout,
             }
         }
-        Command::Snapshot => Request::Snapshot { session },
+        Command::Snapshot(args) => Request::Snapshot { session, options: args.options() },
         Command::Close { all } => Request::Close { session, all },
+        Command::Get { what } => Request::Get { session, what: what.request() },
+        Command::Find { text, regex, all } => Request::Find { session, text, regex, all },
     };
 
     let is_stop = matches!(request, Request::Stop);
@@ -147,6 +243,16 @@ fn parse_size(value: &str) -> Result<Size, String> {
         return Err("columns and rows must be between 2 and 1000".into());
     }
     Ok(Size { cols, rows })
+}
+
+fn parse_rows(value: &str) -> Result<RowRange, String> {
+    let (first, last) = value.split_once(':').ok_or("expected A:B, e.g. 1:10")?;
+    let first: u16 = first.parse().map_err(|_| format!("invalid row: {first}"))?;
+    let last: u16 = last.parse().map_err(|_| format!("invalid row: {last}"))?;
+    if first == 0 || first > last {
+        return Err("rows count from 1, and A must not be after B".into());
+    }
+    Ok(RowRange { first, last })
 }
 
 fn parse_env(value: &str) -> Result<(String, String), String> {

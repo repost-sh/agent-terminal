@@ -12,6 +12,7 @@ dependencies = [
  "insta",
  "libc",
  "portable-pty",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

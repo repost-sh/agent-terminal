@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use crate::connection::{READY, home, socket_path};
 use crate::native::pty;
 use crate::native::terminal::{Settled, Terminal};
-use crate::protocol::{self, Closed, ErrorBody, Reply, Request, Response, TabRef, Wait};
+use crate::protocol::{self, Closed, ErrorBody, Matches, Reply, Request, Response, TabRef, Wait};
 
 #[derive(Default)]
 struct Daemon {
@@ -81,13 +81,22 @@ impl Daemon {
             Request::Open { session, program, args, size, cwd, env, wait, timeout_ms } => {
                 self.open(session, pty::Command { program, args, cwd, env, size }, &wait, timeout_ms)
             }
-            Request::Snapshot { session } => {
+            Request::Snapshot { session, options } => {
                 let (tab, terminal) = self.current(&session)?;
-                Ok(Reply::Snapshot(terminal.snapshot(&session, &tab_name(tab))))
+                terminal.snapshot_with(&session, &tab_name(tab), &options).map(Reply::Snapshot).map_err(failure)
             }
             Request::Close { session, all } => {
                 let closed = if all { self.close_all() } else { vec![self.close_current(&session)?] };
                 Ok(Reply::Closed(Closed { closed }))
+            }
+            Request::Get { session, what } => {
+                let (_, terminal) = self.current(&session)?;
+                terminal.fact(what).map(Reply::Fact).map_err(failure)
+            }
+            Request::Find { session, text, regex, all } => {
+                let (_, terminal) = self.current(&session)?;
+                let matches = terminal.find(&text, regex, all).map_err(failure)?;
+                Ok(Reply::Matches(Matches { matches }))
             }
             Request::Stop => {
                 self.close_all();
@@ -176,6 +185,10 @@ fn no_terminal(session: &str) -> ErrorBody {
         message: format!("no terminal is open in session {session}; start one with `agent-terminal open <program>`"),
         snapshot: None,
     }
+}
+
+fn failure(message: String) -> ErrorBody {
+    ErrorBody { code: crate::exit::ERROR, message, snapshot: None }
 }
 
 fn error_body(error: anyhow::Error) -> ErrorBody {

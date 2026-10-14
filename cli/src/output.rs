@@ -1,4 +1,4 @@
-use crate::protocol::{ErrorBody, Reply, Snapshot};
+use crate::protocol::{ErrorBody, Exit, Fact, Modes, Reply, Snapshot};
 
 pub fn screen(s: &Snapshot) -> String {
     let mut header = vec![format!("{} {}", s.session, s.tab), s.program.clone(), format!("{}x{}", s.cols, s.rows)];
@@ -22,15 +22,25 @@ pub fn screen(s: &Snapshot) -> String {
 
     let mut out = header.join(" · ");
     out.push('\n');
-    let width = s.lines.len().to_string().len();
+    let scrollback = s.scrollback.as_deref().unwrap_or_default();
+    let width =
+        s.rows.to_string().len().max(if scrollback.is_empty() { 0 } else { scrollback.len().to_string().len() + 1 });
+    for (i, line) in scrollback.iter().enumerate() {
+        let label = format!("-{}", scrollback.len() - i);
+        out.push_str(&format!("{label:>width$}│{line}\n"));
+    }
+    let first = s.first_row as usize;
     let shown = s.lines.iter().rposition(|line| !line.is_empty()).map_or(0, |i| i + 1);
     for (i, line) in s.lines[..shown].iter().enumerate() {
-        out.push_str(&format!("{:>width$}│{line}\n", i + 1));
+        out.push_str(&format!("{:>width$}│{line}\n", first + i));
     }
-    let total = s.lines.len();
-    if shown < total {
-        let blank =
-            if shown + 1 == total { format!("row {total} blank") } else { format!("rows {}-{total} blank", shown + 1) };
+    let last = first + s.lines.len() - 1;
+    if shown < s.lines.len() {
+        let blank = if first + shown == last {
+            format!("row {last} blank")
+        } else {
+            format!("rows {}-{last} blank", first + shown)
+        };
         out.push_str(&format!("{:>width$}│ ({blank})\n", "…"));
     }
     out
@@ -47,7 +57,60 @@ pub fn reply(reply: &Reply, json: bool) {
             }
         }
         Reply::Stopped => {}
+        Reply::Fact(fact) if json => println!("{}", serde_json::json!(fact)),
+        Reply::Fact(fact) => print!("{}", fact_text(fact)),
+        Reply::Matches(matches) if json => println!("{}", serde_json::json!(matches)),
+        Reply::Matches(matches) => {
+            for found in &matches.matches {
+                println!("{},{} {}", found.row, found.col, found.text);
+            }
+        }
     }
+}
+
+fn fact_text(fact: &Fact) -> String {
+    match fact {
+        Fact::Text(text) if text.is_empty() => String::new(),
+        Fact::Text(text) => format!("{text}\n"),
+        Fact::Cursor(cursor) if cursor.visible => format!("{},{}\n", cursor.row, cursor.col),
+        Fact::Cursor(_) => "hidden\n".into(),
+        Fact::Size(size) => format!("{}x{}\n", size.cols, size.rows),
+        Fact::Frame(frame) => format!("{frame}\n"),
+        Fact::Program(program) => format!("{program}\n"),
+        Fact::ExitCode(Exit { exited: false, .. }) => "running\n".into(),
+        Fact::ExitCode(Exit { code: Some(code), .. }) => format!("{code}\n"),
+        Fact::ExitCode(Exit { code: None, .. }) => "exited, exit code unknown\n".into(),
+        Fact::Pid(Some(pid)) => format!("{pid}\n"),
+        Fact::Pid(None) => "unknown\n".into(),
+        Fact::Title(Some(title)) => format!("{title}\n"),
+        Fact::Title(None) => String::new(),
+        Fact::Cwd(cwd) => format!("{cwd}\n"),
+        Fact::Modes(modes) => modes_text(modes),
+        Fact::Cell(cell) => {
+            let mut text = format!("{:?} fg={} bg={}", cell.char, cell.fg, cell.bg);
+            for (on, name) in [(cell.bold, "bold"), (cell.inverse, "inverse"), (cell.underline, "underline")] {
+                if on {
+                    text.push(' ');
+                    text.push_str(name);
+                }
+            }
+            text.push('\n');
+            text
+        }
+    }
+}
+
+fn modes_text(modes: &Modes) -> String {
+    let on = |enabled: bool| if enabled { "on" } else { "off" };
+    let mouse = modes.mouse.as_ref().map_or_else(|| "off".into(), |m| format!("{}, {}", m.tracking, m.encoding));
+    let keyboard = if modes.keyboard.is_empty() { "legacy".into() } else { modes.keyboard.join(", ") };
+    format!(
+        "alt-screen: {}\nmouse: {mouse}\nbracketed-paste: {}\napp-cursor: {}\nfocus-events: {}\nkeyboard: {keyboard}\n",
+        on(modes.alt_screen),
+        on(modes.bracketed_paste),
+        on(modes.app_cursor),
+        on(modes.focus_events),
+    )
 }
 
 pub fn error(error: &ErrorBody, json: bool) -> i32 {
