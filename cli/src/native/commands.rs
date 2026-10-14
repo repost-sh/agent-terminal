@@ -1,5 +1,6 @@
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use crate::native::output_log::Offsets;
 use crate::native::screen::ShellReport;
 use crate::protocol::CommandRecord;
 
@@ -27,8 +28,8 @@ struct Record {
     started: Instant,
     ended: Option<(SystemTime, Instant)>,
     exit_code: Option<i32>,
-    output_from: u64,
-    output_to: Option<u64>,
+    output_from: Offsets,
+    output_to: Option<Offsets>,
     first_frame: u64,
     last_frame: Option<u64>,
 }
@@ -40,8 +41,13 @@ pub struct PromptState {
 }
 
 pub struct Point {
-    pub output: u64,
+    pub output: Offsets,
     pub frame: u64,
+}
+
+pub enum Change {
+    Started,
+    Finished { id: u32 },
 }
 
 pub struct Submitted {
@@ -54,19 +60,21 @@ impl Commands {
         Self { records: Vec::new(), phase: Phase::Starting, entered: false, prompts: 0, start_cwd }
     }
 
-    pub fn report(&mut self, report: ShellReport, at: Point) {
+    pub fn report(&mut self, report: ShellReport, at: Point) -> Option<Change> {
         match report {
             ShellReport::Prompt => {
-                if self.phase == Phase::Running {
-                    self.finish(None, &at);
-                }
+                let finished = (self.phase == Phase::Running).then(|| self.finish(None, &at));
                 self.prompts += 1;
                 self.entered = false;
                 self.phase = Phase::Prompting;
+                finished
             }
-            ShellReport::Ready if self.phase != Phase::Running => self.phase = Phase::Ready,
-            ShellReport::Ready => {}
-            ShellReport::Started { .. } if self.phase == Phase::Running => {}
+            ShellReport::Ready if self.phase != Phase::Running => {
+                self.phase = Phase::Ready;
+                None
+            }
+            ShellReport::Ready => None,
+            ShellReport::Started { .. } if self.phase == Phase::Running => None,
             ShellReport::Started { command, cwd } => {
                 self.records.push(Record {
                     command,
@@ -82,13 +90,14 @@ impl Commands {
                 });
                 self.entered = false;
                 self.phase = Phase::Running;
+                Some(Change::Started)
             }
-            ShellReport::Finished { exit_code } if self.phase == Phase::Running => self.finish(exit_code, &at),
-            ShellReport::Finished { .. } => {}
+            ShellReport::Finished { exit_code } if self.phase == Phase::Running => Some(self.finish(exit_code, &at)),
+            ShellReport::Finished { .. } => None,
         }
     }
 
-    fn finish(&mut self, exit_code: Option<i32>, at: &Point) {
+    fn finish(&mut self, exit_code: Option<i32>, at: &Point) -> Change {
         if let Some(record) = self.records.last_mut() {
             record.ended = Some((SystemTime::now(), Instant::now()));
             record.exit_code = exit_code;
@@ -96,6 +105,7 @@ impl Commands {
             record.last_frame = Some(at.frame);
         }
         self.phase = Phase::Finished;
+        Change::Finished { id: self.records.len() as u32 }
     }
 
     pub fn entered(&mut self) {
@@ -125,7 +135,7 @@ impl Commands {
         self.records.iter().enumerate().map(|(index, record)| record.public(index)).collect()
     }
 
-    pub fn record(&self, id: u32) -> Option<(CommandRecord, u64, Option<u64>)> {
+    pub fn record(&self, id: u32) -> Option<(CommandRecord, Offsets, Option<Offsets>)> {
         let index = (id as usize).checked_sub(1)?;
         let record = self.records.get(index)?;
         Some((record.public(index), record.output_from, record.output_to))

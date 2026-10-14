@@ -7,14 +7,15 @@ use tokio::sync::watch;
 
 use crate::key::{Key, KeyCode, Mods};
 use crate::native::changes::Changes;
-use crate::native::commands::{Commands, Point, Submitted};
+use crate::native::commands::{Change, Commands, Point, Submitted};
 use crate::native::keyboard;
 use crate::native::mouse::{self, Action};
-use crate::native::output_log::OutputLog;
+use crate::native::output_log::{Offsets, OutputLog};
 use crate::native::pty::{self, Killer, Signaller, Spawned};
 use crate::native::recording::Recording;
 use crate::native::refs::{self, Found};
 use crate::native::screen::{Screen, ShellReport};
+use crate::native::store::CommandLog;
 use crate::native::wait::{self, Condition, Moment, Verdict};
 use crate::protocol::{
     Baseline, Cell, ClickTarget, CommandRecord, Cursor, Delivery, DiffBase, Direction, Exit, Fact, Get, Input, Match,
@@ -36,7 +37,9 @@ pub struct Terminal {
     command: pty::Command,
     shell: Option<Shell>,
     recording: Arc<Recording>,
+    command_log: CommandLog,
     frames: Changes,
+    history: Changes,
     lifecycle: Changes,
 }
 
@@ -131,6 +134,7 @@ impl Terminal {
         shell: Option<Shell>,
         spawned: Spawned,
         recording: Arc<Recording>,
+        command_log: CommandLog,
         lifecycle: Changes,
     ) -> Arc<Self> {
         let program = display_name(&command.program);
@@ -167,7 +171,9 @@ impl Terminal {
             command,
             shell,
             recording,
+            command_log,
             frames: Changes::default(),
+            history: Changes::default(),
             lifecycle,
         });
 
@@ -207,30 +213,45 @@ impl Terminal {
     }
 
     fn output(&self, bytes: &[u8]) {
-        let replies = {
+        let (replies, history_changed) = {
             let mut state = self.state.lock().unwrap();
             self.recording.output(bytes);
             let replies = state.screen.feed(bytes);
             let printed = state.screen.take_printed();
             let reports = state.screen.take_shell_reports();
             let frame = state.frame;
-            let start = state.log.text_end();
-            state.log.record(frame, bytes, printed.as_bytes());
+            let start = state.log.end();
+            state.log.record(frame, bytes, printed.text.as_bytes(), printed.styled.as_bytes());
             let now = Instant::now();
             state.last_output = now;
             state.advance(now);
             let shown = state.frame;
-            if let Some(commands) = &mut state.commands {
+            let mut history_changed = false;
+            let State { commands, log, .. } = &mut *state;
+            if let Some(commands) = commands {
                 for (at, report) in reports {
                     let frame = if matches!(report, ShellReport::Started { .. }) { frame } else { shown };
-                    commands.report(report, Point { output: start + at as u64, frame });
+                    let output = Offsets { text: start.text + at.text as u64, styled: start.styled + at.styled as u64 };
+                    match commands.report(report, Point { output, frame }) {
+                        Some(Change::Started) => history_changed = true,
+                        Some(Change::Finished { id }) => {
+                            history_changed = true;
+                            if let Some((record, from, to)) = commands.record(id) {
+                                self.command_log.append(&record, &log.text_between(from, to));
+                            }
+                        }
+                        None => {}
+                    }
                 }
             }
             state.publish();
-            replies
+            (replies, history_changed)
         };
         self.changed.notify_all();
         self.frames.notify();
+        if history_changed {
+            self.history.notify();
+        }
         if !replies.is_empty() {
             let mut writer = self.writer.lock().unwrap();
             if let Err(e) = writer.write_all(&replies).and_then(|()| writer.flush()) {
@@ -339,6 +360,14 @@ impl Terminal {
 
     pub fn recording(&self) -> Arc<Recording> {
         Arc::clone(&self.recording)
+    }
+
+    pub fn command_log(&self) -> CommandLog {
+        self.command_log.clone()
+    }
+
+    pub fn history_changes(&self) -> watch::Receiver<u64> {
+        self.history.subscribe()
     }
 
     pub fn rerun(&self) -> pty::Command {
@@ -679,6 +708,12 @@ impl Terminal {
         let state = self.state.lock().unwrap();
         let (record, from, to) = state.commands.as_ref()?.record(id)?;
         Some((record, state.log.text_between(from, to)))
+    }
+
+    pub fn styled_command(&self, id: u32) -> Option<(CommandRecord, String)> {
+        let state = self.state.lock().unwrap();
+        let (record, from, to) = state.commands.as_ref()?.record(id)?;
+        Some((record, state.log.styled_between(from, to)))
     }
 
     pub fn exit_status(&self) -> Option<Option<i32>> {

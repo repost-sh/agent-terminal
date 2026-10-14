@@ -131,11 +131,11 @@ fn update(picture: &Picture, shown: Option<&Shown>) -> Option<Update> {
     })
 }
 
-async fn send(socket: &mut WebSocket, update: &Update) -> bool {
+pub async fn send(socket: &mut WebSocket, update: &impl Serialize) -> bool {
     match serde_json::to_string(update) {
         Ok(text) => socket.send(Message::text(text)).await.is_ok(),
         Err(e) => {
-            eprintln!("dashboard: encoding a frame failed: {e}");
+            eprintln!("dashboard: encoding an update failed: {e}");
             false
         }
     }
