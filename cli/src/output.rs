@@ -76,105 +76,96 @@ fn refs_text(refs: &[Ref]) -> String {
 }
 
 pub fn reply(reply: &Reply, json: bool) {
+    if !json {
+        print!("{}", reply_text(reply));
+        return;
+    }
     match reply {
-        Reply::Snapshot(snapshot) if json => println!("{}", serde_json::json!(snapshot)),
-        Reply::Snapshot(snapshot) => print!("{}", screen(snapshot)),
-        Reply::Closed(closed) if json => println!("{}", serde_json::json!(closed)),
+        Reply::Snapshot(snapshot) => println!("{}", serde_json::json!(snapshot)),
+        Reply::Closed(closed) => println!("{}", serde_json::json!(closed)),
+        Reply::Sessions(sessions) => println!("{}", serde_json::json!(sessions)),
+        Reply::Tabs(session) => println!("{}", serde_json::json!(session)),
+        Reply::Delivered(delivered) => println!("{}", serde_json::json!(delivered)),
+        Reply::Waited(waited) => println!("{}", serde_json::json!(waited)),
+        Reply::Checked(checked) => println!("{}", serde_json::json!(checked)),
+        Reply::Stopped => {}
+        Reply::Batch(outcomes) => println!("{}", batch_json(outcomes)),
+        Reply::Fact(fact) => println!("{}", serde_json::json!(fact)),
+        Reply::Matches(matches) => println!("{}", serde_json::json!(matches)),
+        Reply::Marked(marked) => println!("{}", serde_json::json!(marked)),
+        Reply::Printed(printed) => println!("{}", serde_json::json!(printed)),
+        Reply::Diff(diff) => println!("{}", serde_json::json!(diff)),
+        Reply::Recording(recording) => println!("{}", serde_json::json!(recording)),
+        Reply::Saved(saved) => println!("{}", serde_json::json!(saved)),
+        Reply::Exported(export) => println!("{}", serde_json::json!(export)),
+        Reply::Screenshot(screenshot) => println!("{}", serde_json::json!(screenshot)),
+        Reply::ScreenshotDiff(diff) => println!("{}", serde_json::json!(diff)),
+        Reply::Clip(clip) => println!("{}", serde_json::json!(clip)),
+        Reply::Dashboard(dashboard) => println!("{}", serde_json::json!(dashboard)),
+        Reply::DashboardStopped(stopped) => println!("{}", serde_json::json!(stopped)),
+        Reply::History(history) => println!("{}", serde_json::json!(history)),
+        Reply::Command(ran) => println!("{}", serde_json::json!(ran)),
+    }
+}
+
+pub fn reply_text(reply: &Reply) -> String {
+    match reply {
+        Reply::Snapshot(snapshot) => screen(snapshot),
         Reply::Closed(closed) => {
-            for tab in &closed.closed {
-                println!("closed {} {}", tab.session, tab.tab);
-            }
+            closed.closed.iter().map(|tab| format!("closed {} {}\n", tab.session, tab.tab)).collect()
         }
-        Reply::Sessions(sessions) if json => println!("{}", serde_json::json!(sessions)),
-        Reply::Sessions(sessions) if sessions.sessions.is_empty() => println!("no sessions are open"),
-        Reply::Sessions(sessions) => {
-            for session in &sessions.sessions {
-                print!("{}", tab_lines(session));
-            }
-        }
-        Reply::Tabs(session) if json => println!("{}", serde_json::json!(session)),
+        Reply::Sessions(sessions) if sessions.sessions.is_empty() => "no sessions are open\n".into(),
+        Reply::Sessions(sessions) => sessions.sessions.iter().map(tab_lines).collect(),
         Reply::Tabs(session) if session.tabs.is_empty() => {
-            println!("no tabs are open in session {}", session.session)
+            format!("no tabs are open in session {}\n", session.session)
         }
-        Reply::Tabs(session) => print!("{}", tab_lines(session)),
-        Reply::Delivered(delivered) if json => println!("{}", serde_json::json!(delivered)),
+        Reply::Tabs(session) => tab_lines(session),
         Reply::Delivered(delivered) => {
-            println!("{}", delivery(delivered));
-            if let Some(screenshot) = &delivered.screenshot {
-                print!("{}", screenshot_text(screenshot));
-            }
-            if let Some(snapshot) = &delivered.snapshot {
-                print!("{}", screen(snapshot));
-            }
+            let shot = delivered.screenshot.as_deref().map(screenshot_text).unwrap_or_default();
+            let shown = delivered.snapshot.as_deref().map(screen).unwrap_or_default();
+            format!("{}\n{shot}{shown}", delivery(delivered))
         }
-        Reply::Waited(waited) if json => println!("{}", serde_json::json!(waited)),
         Reply::Waited(Waited { session, tab, until, waited_ms, exit_code, .. }) => {
             let code = exit_code.map_or_else(String::new, |code| format!(" (exit code {code})"));
-            println!("waited {waited_ms} ms for {until} in {session} {tab}{code}")
+            format!("waited {waited_ms} ms for {until} in {session} {tab}{code}\n")
         }
-        Reply::Checked(checked) if json => println!("{}", serde_json::json!(checked)),
-        Reply::Checked(Checked { session, tab, fact }) => println!("{fact} in {session} {tab}"),
-        Reply::Stopped => {}
-        Reply::Batch(outcomes) if json => println!("{}", batch_json(outcomes)),
-        Reply::Batch(outcomes) => batch(outcomes),
-        Reply::Fact(fact) if json => println!("{}", serde_json::json!(fact)),
-        Reply::Fact(fact) => print!("{}", fact_text(fact)),
-        Reply::Matches(matches) if json => println!("{}", serde_json::json!(matches)),
+        Reply::Checked(Checked { session, tab, fact }) => format!("{fact} in {session} {tab}\n"),
+        Reply::Stopped => String::new(),
+        Reply::Batch(outcomes) => batch_text(outcomes),
+        Reply::Fact(fact) => fact_text(fact),
         Reply::Matches(matches) => {
-            for found in &matches.matches {
-                println!("{},{} {}", found.row, found.col, found.text);
-            }
+            matches.matches.iter().map(|found| format!("{},{} {}\n", found.row, found.col, found.text)).collect()
         }
-        Reply::Marked(marked) if json => println!("{}", serde_json::json!(marked)),
-        Reply::Marked(marked) => println!("marked {} at frame {}", marked.mark, marked.frame),
-        Reply::Printed(printed) if json => println!("{}", serde_json::json!(printed)),
-        Reply::Printed(printed) => print!("{}", printed.output),
-        Reply::Diff(diff) if json => println!("{}", serde_json::json!(diff)),
-        Reply::Diff(diff) => print!("{}", diff_text(diff)),
-        Reply::Recording(recording) if json => println!("{}", serde_json::json!(recording)),
+        Reply::Marked(marked) => format!("marked {} at frame {}\n", marked.mark, marked.frame),
+        Reply::Printed(printed) => printed.output.clone(),
+        Reply::Diff(diff) => diff_text(diff),
         Reply::Recording(recording) => {
-            println!("recording {} {} to {}", recording.session, recording.tab, recording.path.display())
+            format!("recording {} {} to {}\n", recording.session, recording.tab, recording.path.display())
         }
-        Reply::Saved(saved) if json => println!("{}", serde_json::json!(saved)),
-        Reply::Saved(saved) => println!("{}", saved_text(saved)),
-        Reply::Exported(export) if json => println!("{}", serde_json::json!(export)),
-        Reply::Exported(export) => println!(
-            "exported session {} to {} ({}, {} KB)",
+        Reply::Saved(saved) => format!("{}\n", saved_text(saved)),
+        Reply::Exported(export) => format!(
+            "exported session {} to {} ({}, {} KB)\n",
             export.session,
             export.path.display(),
             count(export.files, "file"),
             export.bytes.div_ceil(1024)
         ),
-        Reply::Screenshot(screenshot) if json => println!("{}", serde_json::json!(screenshot)),
-        Reply::Screenshot(screenshot) => print!("{}", screenshot_text(screenshot)),
-        Reply::ScreenshotDiff(diff) if json => println!("{}", serde_json::json!(diff)),
-        Reply::ScreenshotDiff(diff) => println!("{}", diff.summary()),
-        Reply::Clip(clip) if json => println!("{}", serde_json::json!(clip)),
-        Reply::Clip(clip) => println!("{}", clip_text(clip)),
-        Reply::Dashboard(dashboard) if json => println!("{}", serde_json::json!(dashboard)),
-        Reply::Dashboard(dashboard) => println!("dashboard running at {}", dashboard.url),
-        Reply::DashboardStopped(stopped) if json => println!("{}", serde_json::json!(stopped)),
-        Reply::DashboardStopped(DashboardStopped { stopped: true }) => println!("dashboard stopped"),
-        Reply::DashboardStopped(DashboardStopped { stopped: false }) => println!("no dashboard is running"),
-        Reply::History(history) if json => println!("{}", serde_json::json!(history)),
+        Reply::Screenshot(screenshot) => screenshot_text(screenshot),
+        Reply::ScreenshotDiff(diff) => format!("{}\n", diff.summary()),
+        Reply::Clip(clip) => clip_text(clip),
+        Reply::Dashboard(dashboard) => format!("dashboard running at {}\n", dashboard.url),
+        Reply::DashboardStopped(DashboardStopped { stopped: true }) => "dashboard stopped\n".into(),
+        Reply::DashboardStopped(DashboardStopped { stopped: false }) => "no dashboard is running\n".into(),
         Reply::History(history) if history.total == 0 => {
-            println!("no commands have run in {} {}", history.session, history.tab)
+            format!("no commands have run in {} {}\n", history.session, history.tab)
         }
         Reply::History(history) if history.commands.is_empty() => {
-            println!("no command matches in {} {} ({} in all)", history.session, history.tab, history.total)
+            format!("no command matches in {} {} ({} in all)\n", history.session, history.tab, history.total)
         }
-        Reply::History(history) => {
-            for record in &history.commands {
-                println!("{}", record_line(record));
-            }
-        }
-        Reply::Command(ran) if json => println!("{}", serde_json::json!(ran)),
+        Reply::History(history) => history.commands.iter().map(|record| format!("{}\n", record_line(record))).collect(),
         Reply::Command(ran) => {
-            print!("{}", ran.output);
-            if !ran.output.is_empty() && !ran.output.ends_with('\n') {
-                println!();
-            }
-            println!("{}", record_line(&ran.record));
+            let gap = if !ran.output.is_empty() && !ran.output.ends_with('\n') { "\n" } else { "" };
+            format!("{}{gap}{}\n", ran.output, record_line(&ran.record))
         }
     }
 }
@@ -195,7 +186,7 @@ fn screenshot_text(screenshot: &Screenshot) -> String {
 
 fn clip_text(clip: &Clip) -> String {
     format!(
-        "saved {} ({} {}, {}, {})",
+        "saved {} ({} {}, {}, {})\n",
         clip.path.display(),
         clip.session,
         clip.tab,
@@ -419,27 +410,24 @@ fn batch_json(outcomes: &[BatchOutcome]) -> serde_json::Value {
         .collect()
 }
 
-fn batch(outcomes: &[BatchOutcome]) {
+fn batch_text(outcomes: &[BatchOutcome]) -> String {
+    let mut out = String::new();
     for (index, outcome) in outcomes.iter().enumerate() {
         if index > 0 {
-            println!();
+            out.push('\n');
         }
         let call = format!("[{}] {}", index + 1, call_line(&outcome.args));
         let Some(response) = &outcome.response else {
-            println!("{call} · not run");
+            out.push_str(&format!("{call} · not run\n"));
             continue;
         };
-        println!("{call} · exit {}", response.exit_code());
+        out.push_str(&format!("{call} · exit {}\n", response.exit_code()));
         match response {
-            Response::Ok(ok) => reply(ok, false),
-            Response::Err(error) => {
-                println!("error: {}", error.message);
-                if let Some(snapshot) = &error.snapshot {
-                    print!("{}", screen(snapshot));
-                }
-            }
+            Response::Ok(ok) => out.push_str(&reply_text(ok)),
+            Response::Err(error) => out.push_str(&error_text(error)),
         }
     }
+    out
 }
 
 pub fn call_line(args: &[String]) -> String {
@@ -454,12 +442,14 @@ pub fn error(error: &ErrorBody, json: bool) -> i32 {
     if json {
         println!("{}", serde_json::json!({ "error": error }));
     } else {
-        eprintln!("error: {}", error.message);
-        if let Some(snapshot) = &error.snapshot {
-            eprint!("{}", screen(snapshot));
-        }
+        eprint!("{}", error_text(error));
     }
     error.code
+}
+
+pub fn error_text(error: &ErrorBody) -> String {
+    let shown = error.snapshot.as_deref().map(screen).unwrap_or_default();
+    format!("error: {}\n{shown}", error.message)
 }
 
 pub fn fail(message: &str, code: i32) -> i32 {

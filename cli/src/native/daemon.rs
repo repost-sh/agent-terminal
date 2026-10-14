@@ -17,6 +17,7 @@ use crate::native::shell;
 use crate::native::store::{self, ActivityEntry, SessionFolder};
 use crate::native::terminal::{Settled, Terminal};
 use crate::native::wait::{Condition, Pattern};
+use crate::output;
 use crate::protocol::{
     self, Addressed, BatchOutcome, BatchStep, Call, Checked, Closed, CommandOutput, CommandRecord, Dashboard,
     DashboardStopped, Delivered, ErrorBody, Expect, Export, History, Input, Marked, Matches, Printed, RecordingFile,
@@ -387,10 +388,14 @@ impl Daemon {
             Some(terminal.frame())
         });
         match handled {
-            Ok(reply) => entry.exit = reply.exit_code(),
+            Ok(reply) => {
+                entry.exit = reply.exit_code();
+                entry.printed(output::reply_text(reply));
+            }
             Err(failure) => {
                 entry.exit = failure.code;
                 entry.error = Some(failure.message.clone());
+                entry.printed(output::error_text(failure));
             }
         }
         if let Ok(Reply::ScreenshotDiff(diff)) = handled
@@ -771,6 +776,10 @@ impl Backend for Daemon {
 
     fn terminal(&self, session: &str, tab: u32) -> Option<Arc<Terminal>> {
         self.sessions.lock().unwrap().get(session).and_then(|entry| entry.tabs.get(&tab)).cloned()
+    }
+
+    fn folder(&self, session: &str) -> Option<Arc<SessionFolder>> {
+        self.sessions.lock().unwrap().get(session).map(|entry| Arc::clone(&entry.folder))
     }
 
     fn changes(&self) -> watch::Receiver<u64> {

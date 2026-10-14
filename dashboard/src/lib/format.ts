@@ -11,6 +11,18 @@ export const clockTime = (ms: number) => {
   return `${p2(at.getHours())}:${p2(at.getMinutes())}:${p2(at.getSeconds())}`;
 };
 
+export const clockMs = (iso: string) => {
+  const at = new Date(iso);
+  return `${clockTime(at.getTime())}.${String(at.getMilliseconds()).padStart(3, "0")}`;
+};
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export const dateTime = (iso: string) => {
+  const at = new Date(iso);
+  return `${MONTHS[at.getMonth()]} ${at.getDate()}, ${at.getFullYear()} ${clockTime(at.getTime())}`;
+};
+
 const initial = (part: string) => (part.startsWith(".") ? part.slice(0, 2) : [...part][0]);
 
 export const shortPath = (path: string, home: string | null) => {
