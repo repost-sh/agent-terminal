@@ -6,11 +6,10 @@ use clap::Subcommand;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
+use crate::VERSION;
 use crate::connection;
 use crate::output;
 use crate::protocol::ErrorBody;
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Subcommand)]
 pub enum Action {

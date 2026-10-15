@@ -210,11 +210,10 @@ fn skill(fix: bool) -> Check {
         }
     };
     let path = installed.path.display();
-    let version = env!("CARGO_PKG_VERSION");
     if installed.rewritten {
         return Check::fixed(
             "skill",
-            format!("rewrote the agent-terminal skill at {path} as this version ({version})"),
+            format!("rewrote the agent-terminal skill at {path} as this version ({VERSION})"),
         );
     }
     let rewrite = "agent-terminal doctor --fix rewrites it";
@@ -225,20 +224,20 @@ fn skill(fix: bool) -> Check {
                 "the agent-terminal skill is not installed at {path}; `agent-terminal install --skills` installs it"
             ),
         ),
-        Stub::Current => Check::ok("skill", format!("the agent-terminal skill at {path} is this version ({version})")),
+        Stub::Current => Check::ok("skill", format!("the agent-terminal skill at {path} is this version ({VERSION})")),
         Stub::Older(theirs) => Check::problem(
             "skill",
-            format!("the agent-terminal skill at {path} is {theirs}, older than this version ({version})"),
+            format!("the agent-terminal skill at {path} is {theirs}, older than this version ({VERSION})"),
             rewrite,
         ),
         Stub::Unversioned => Check::problem(
             "skill",
-            format!("the agent-terminal skill at {path} has no version, so it may not be this version ({version})"),
+            format!("the agent-terminal skill at {path} has no version, so it may not be this version ({VERSION})"),
             rewrite,
         ),
         Stub::Newer(theirs) => Check::problem(
             "skill",
-            format!("the agent-terminal skill at {path} is {theirs}, newer than this version ({version})"),
+            format!("the agent-terminal skill at {path} is {theirs}, newer than this version ({VERSION})"),
             "agent-terminal upgrade brings agent-terminal up to it (doctor --fix does not downgrade a skill)",
         ),
     }

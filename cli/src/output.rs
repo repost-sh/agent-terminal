@@ -494,11 +494,10 @@ pub fn refuse(message: &str, json: bool) -> i32 {
 }
 
 pub fn version(json: bool) -> i32 {
-    let version = env!("CARGO_PKG_VERSION");
     if json {
-        println!("{}", serde_json::json!({ "version": version }));
+        println!("{}", serde_json::json!({ "version": crate::VERSION }));
     } else {
-        println!("agent-terminal {version}");
+        println!("agent-terminal {}", crate::VERSION);
     }
     0
 }
