@@ -120,7 +120,11 @@ Everything else:
   doctor [--fix]               Check PTY, fonts, shell integration, the daemon and its version, and that the installed skill stub is this version
                                (--fix: stale socket, old integration scripts, an older skill stub; a newer stub is kept)
   install [--skills]           Install the agent skill stub into ~/.claude/skills
-  upgrade                      Upgrade to the latest version
+  upgrade                      Upgrade to the latest version with what installed this one: npm, pnpm, yarn, bun or Homebrew
+                               asks that installer for the latest version first; already the latest: reinstalls nothing (exit 0)
+                               after reinstalling, refreshes an installed skill stub by the rules of install --skills
+                               exit 1 when the registry can't be reached, or when the installer can't be told (it prints
+                               each installer's command); --json: installed_with, from, latest, to, stub_refreshed
   version
 
 Options:
