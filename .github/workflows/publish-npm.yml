@@ -11,19 +11,18 @@ jobs:
   publish:
     name: Publish to npm
     runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
     steps:
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
+          node-version: 24.18.0
       - name: Fetch the npm packages
         uses: actions/download-artifact@v8
         with:
           name: npm-packages
           path: npm-tarballs
       - name: Publish the platform packages, then the main package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           publish() {
             spec=$(tar -xzOf "$1" package/package.json | jq -r '.name + "@" + .version')

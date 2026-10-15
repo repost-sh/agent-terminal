@@ -5,6 +5,7 @@ Terminal automation CLI for AI agents, the terminal sibling of agent-browser.
 - Rust crate: `cli/` (CLI side in `cli/src`, daemon side in `cli/src/native`, fixture programs in `cli/tests/fixtures`).
 - Skills shipped with the binary: `skills/` (stub) and `skill-data/` (guides).
 - Packaging and releases (npm launcher in `npm/`, dist config in `dist-workspace.toml`): `docs/releasing.md`.
+- Cutting a release: follow the agent release procedure in `docs/releasing.md` ("Cut a release": changelog section in `CHANGELOG.md`, preflight, tag, verification), and its "Roll back" steps for a bad release.
 - Spec: Linear 46H-19 and its sub-issues. Command contract: `docs/commands.md`. Design: `docs/design.md`. Vocabulary: `GLOSSARY.md`.
 - Dashboard UI reference (normative, ratified in 46H-27): `docs/prototype/dashboard-ui-2026-10-14.html`, open it in a browser.
 - Dashboard: web app in `dashboard/` (Vite, React, Tailwind, xterm.js), built into `cli/assets/dashboard` (committed, embedded in the binary); server in `cli/src/native/dashboard`. See `CONTRIBUTING.md`.
