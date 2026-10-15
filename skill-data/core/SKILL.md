@@ -137,8 +137,6 @@ agent-terminal mark before-commit
 agent-terminal clip ./evidence/commit.gif --from before-commit
 agent-terminal clip ./evidence/crash.gif --last 10s
 agent-terminal clip ./evidence/build.mp4 --command 3      # one shell command from `history`, as MP4
-agent-terminal record start ./evidence/login.cast         # save the tab as an asciicast from here on
-agent-terminal record stop                                # prints the file, its length and size
 agent-terminal trace export ./evidence/session.zip        # everything, for a bug report
 ```
 

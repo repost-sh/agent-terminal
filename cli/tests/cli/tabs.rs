@@ -33,11 +33,11 @@ fn tab_new_runs_another_terminal_in_the_same_session() {
         serde_json::json!({ "session": "default", "current": "t2", "tabs": [
             {
                 "tab": "t1", "program": "line-printer", "command": format!("{printer} --lines 1 --hold"), "cwd": cwd,
-                "cols": 20, "rows": 2, "exited": false, "exit_code": null, "recording": null, "control": "agent",
+                "cols": 20, "rows": 2, "exited": false, "exit_code": null, "control": "agent",
             },
             {
                 "tab": "t2", "program": "line-printer", "command": format!("{printer} --lines 2 --hold"), "cwd": cwd,
-                "cols": 20, "rows": 3, "exited": false, "exit_code": null, "recording": null, "control": "agent",
+                "cols": 20, "rows": 3, "exited": false, "exit_code": null, "control": "agent",
             },
         ] })
     );

@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
 use super::follow::Follow;
@@ -60,7 +59,6 @@ struct Info {
     rows: u16,
     shell_integration: Option<bool>,
     modes: Modes,
-    recording: Option<PathBuf>,
     started: String,
     exited: bool,
     exit_code: Option<i32>,
@@ -284,7 +282,6 @@ fn info_of(terminal: &Terminal) -> Info {
             (None, None) => None,
         },
         modes: setup.modes,
-        recording: terminal.recording().saving_to(),
         started: humantime::format_rfc3339_millis(setup.started).to_string(),
         exited: setup.exit.is_some(),
         exit_code: setup.exit.flatten(),
