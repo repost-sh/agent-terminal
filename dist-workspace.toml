@@ -19,3 +19,4 @@ formula = "agent-terminal"
 global-artifacts-jobs = ["./npm-packages"]
 publish-jobs = ["homebrew", "./publish-npm"]
 install-path = "CARGO_HOME"
+include = ["licenses/"]

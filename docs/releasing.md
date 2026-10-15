@@ -22,7 +22,9 @@ A tag with a prerelease suffix (`v0.2.0-rc.1`) runs the whole pipeline and creat
 
 Edit `dist-workspace.toml`, then run `dist generate` with dist 0.33.0 to rewrite `release.yml`. `release.yml` runs `dist plan` on every pull request, and that fails while the generated file is out of date, so a hand edit to `release.yml` cannot land.
 
-A new platform needs a target in `dist-workspace.toml`, a row in `PLATFORMS` in `npm/agent-terminal/lib/platform.js`, and a row in the install-test matrix in `npm-packages.yml`.
+A new platform needs a target in `dist-workspace.toml`, a row in `PLATFORMS` in `npm/agent-terminal/lib/platform.js`, and a row in the install-test matrix in `npm-packages.yml`; `npm/test/platform.test.js` fails until the three agree.
+
+Every release archive (dist's `include`) and every npm platform package (`build-packages.js`) ships `licenses/` next to the binary. A new third-party work built into the binary (a font, a C library) needs its licence text in `licenses/` and a row in `licenses/README.md`.
 
 ## Check locally
 

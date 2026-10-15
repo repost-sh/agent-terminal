@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { TARGETS, tempDir, distRelease, build, readJson } = require('./support');
+const { TARGETS, tempDir, distRelease, build, readJson, packedFiles } = require('./support');
 
 const printTarget = (target) => `#!/bin/sh\necho ${target}\n`;
 
@@ -34,7 +34,7 @@ test('one package per platform, each holding only its own binary', (t) => {
     os: ['linux'],
     cpu: ['x64'],
     libc: ['musl'],
-    files: ['bin/agent-terminal'],
+    files: ['bin/agent-terminal', 'licenses'],
   });
   const binary = path.join(musl, 'bin', 'agent-terminal');
   assert.equal(fs.readFileSync(binary, 'utf8'), '#!/bin/sh\necho x86_64-unknown-linux-musl\n');
@@ -44,6 +44,31 @@ test('one package per platform, each holding only its own binary', (t) => {
   assert.deepEqual([mac.os, mac.cpu, mac.libc], [['darwin'], ['arm64'], undefined]);
   const glibc = readJson(path.join(out, 'agent-terminal-linux-arm64', 'package.json'));
   assert.deepEqual([glibc.os, glibc.cpu, glibc.libc], [['linux'], ['arm64'], ['glibc']]);
+});
+
+test('every platform package publishes the licences of the fonts and OpenH264 built into its binary', (t) => {
+  const dir = tempDir(t);
+  distRelease(dir, TARGETS, printTarget);
+
+  const run = build(dir);
+  assert.equal(run.status, 0, run.stderr);
+
+  const platformPackages = fs.readdirSync(path.join(dir, 'npm')).filter((entry) => entry !== 'agent-terminal');
+  assert.equal(platformPackages.length, TARGETS.length);
+  for (const name of platformPackages) {
+    assert.deepEqual(packedFiles(path.join(dir, 'npm', name)), [
+      'LICENSE',
+      'bin/agent-terminal',
+      'licenses/LICENSE-OpenH264.txt',
+      'licenses/LICENSE-SymbolsNerdFont.txt',
+      'licenses/OFL-JetBrainsMono.txt',
+      'licenses/OFL-NotoEmoji.txt',
+      'licenses/README.md',
+      'package.json',
+    ]);
+  }
+  const openh264 = path.join(dir, 'npm', 'agent-terminal-linux-x64', 'licenses', 'LICENSE-OpenH264.txt');
+  assert.match(fs.readFileSync(openh264, 'utf8'), /^Copyright \(c\) 2013, Cisco Systems/);
 });
 
 test('the main package exposes agent-terminal and depends on every platform package at the release version', (t) => {

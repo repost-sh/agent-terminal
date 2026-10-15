@@ -3,17 +3,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { PLATFORMS } = require('../agent-terminal/lib/platform');
 
 const BUILD = path.resolve(__dirname, '..', 'build-packages.js');
 
-const TARGETS = [
-  'aarch64-apple-darwin',
-  'x86_64-apple-darwin',
-  'aarch64-unknown-linux-gnu',
-  'x86_64-unknown-linux-gnu',
-  'aarch64-unknown-linux-musl',
-  'x86_64-unknown-linux-musl',
-];
+const TARGETS = PLATFORMS.map((platform) => platform.target);
 
 function tempDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'at-npm-'));
@@ -60,4 +54,13 @@ function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-module.exports = { TARGETS, tempDir, distRelease, build, readJson };
+function packedFiles(directory) {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const pack = spawnSync(npm, ['pack', '--dry-run', '--json', '--ignore-scripts', directory], { encoding: 'utf8' });
+  assert.equal(pack.status, 0, pack.stderr);
+  return JSON.parse(pack.stdout)[0]
+    .files.map((file) => file.path)
+    .sort();
+}
+
+module.exports = { TARGETS, tempDir, distRelease, build, readJson, packedFiles };
