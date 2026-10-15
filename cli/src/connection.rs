@@ -52,6 +52,15 @@ pub fn running_version() -> Result<Option<String>> {
     }
 }
 
+pub fn started_version() -> Result<Option<String>> {
+    let running = running_version()?;
+    if running.as_deref() == Some(VERSION) {
+        return Ok(running);
+    }
+    let _lock = start_lock(&home()?)?;
+    running_version()
+}
+
 pub fn daemon_of(version: Option<&str>) -> String {
     match version {
         Some(version) => format!("agent-terminal {version}"),

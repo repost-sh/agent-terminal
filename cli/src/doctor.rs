@@ -183,7 +183,7 @@ fn daemon(fix: bool) -> Check {
 
 fn running(socket: &std::path::Path) -> Check {
     let socket = socket.display();
-    let running = match connection::running_version() {
+    let running = match connection::started_version() {
         Ok(running) => running,
         Err(e) => return Check::problem("daemon", format!("{e:#}"), "set AGENT_TERMINAL_HOME to a folder you own"),
     };
