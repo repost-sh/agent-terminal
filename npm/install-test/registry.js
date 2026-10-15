@@ -70,9 +70,10 @@ function main([tarballDir, ...command]) {
   }
   const server = http.createServer(handler(loadPackages(tarballDir)));
   server.listen(0, '127.0.0.1', () => {
+    const registry = `http://127.0.0.1:${server.address().port}/`;
     const child = spawn(command[0], command.slice(1), {
       stdio: 'inherit',
-      env: { ...process.env, npm_config_registry: `http://127.0.0.1:${server.address().port}/` },
+      env: { ...process.env, npm_config_registry: registry, pnpm_config_registry: registry },
     });
     child.on('error', (error) => {
       console.error(`could not run ${command[0]}: ${error.message}`);
