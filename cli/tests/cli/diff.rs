@@ -81,6 +81,25 @@ fn diff_snapshot_against_a_saved_baseline() {
 }
 
 #[test]
+fn a_diff_against_a_baseline_leaves_the_last_snapshot_to_compare_with() {
+    let at = AgentTerminal::new();
+    let cue = Cue::new();
+    cue.open_line_printer(&at, &["--size", "30x5"]);
+    let baseline = at.home().join("baseline.txt");
+    std::fs::write(&baseline, at.run(&["snapshot"]).success().stdout()).unwrap();
+    let before = frame(&at);
+    cue.print("line 3\n");
+    let after = frame(&at);
+
+    let baseline = baseline.to_string_lossy().into_owned();
+    at.run(&["diff", "snapshot", "--baseline", &baseline]).success();
+    assert_eq!(
+        at.run(&["diff", "snapshot"]).success().stdout(),
+        format!("frame {before} → frame {after} · 1 row changed\n-3│\n+3│line 3\n")
+    );
+}
+
+#[test]
 fn diff_snapshot_refuses_a_baseline_that_is_not_a_snapshot() {
     let at = AgentTerminal::new();
     let cue = Cue::new();

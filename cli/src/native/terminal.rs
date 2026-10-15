@@ -508,11 +508,13 @@ impl Terminal {
     pub fn diff_snapshot(&self, baseline: Option<Baseline>) -> Result<SnapshotDiff, String> {
         let mut state = self.state.lock().unwrap();
         let current = Shown { frame: state.frame, lines: state.screen.view().lines };
-        let (since, before) = match (baseline, state.last_shown.take()) {
-            (Some(baseline), _) => (DiffBase::Baseline(baseline.name), baseline.lines),
-            (None, Some(shown)) => (DiffBase::Frame(shown.frame), shown.lines),
-            (None, None) => {
-                return Err("nothing to compare with; take a snapshot first with `agent-terminal snapshot`".into());
+        let (since, before) = match baseline {
+            Some(baseline) => (DiffBase::Baseline(baseline.name), baseline.lines),
+            None => {
+                let shown = state.last_shown.take().ok_or(
+                    "nothing to compare with; take a snapshot first with `agent-terminal snapshot`".to_string(),
+                )?;
+                (DiffBase::Frame(shown.frame), shown.lines)
             }
         };
         let rows = before.len().max(current.lines.len());
@@ -522,7 +524,9 @@ impl Terminal {
             .filter(|change| change.before != change.after)
             .collect();
         let frame = current.frame;
-        state.last_shown = Some(current);
+        if let DiffBase::Frame(_) = since {
+            state.last_shown = Some(current);
+        }
         Ok(SnapshotDiff { since, frame, changes })
     }
 
