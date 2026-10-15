@@ -25,7 +25,7 @@ export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) 
   const past = viewed === null ? null : timeline.frame(viewed);
   const name = tabName(session, tab.tab);
   const [keyboard] = useState(() => controlKeys(session, tab.tab));
-  const held = useControl(session, tab.tab) === "held";
+  const held = useControl(session, tab.tab) === "held" && viewed === null;
   const typing = held && !shown?.exited;
 
   const restart = async () => {
