@@ -1,84 +1,116 @@
+use std::error::Error;
+use std::fmt::{self, Write as _};
 use std::io::{ErrorKind, Read, Write};
 
 use crossterm::terminal;
 use signal_hook::consts::signal::{SIGCONT, SIGHUP, SIGINT, SIGTERM, SIGTSTP, SIGWINCH};
 use signal_hook::iterator::Signals;
 
-fn main() -> std::io::Result<()> {
-    let mut modes = String::new();
-    let mut reads = false;
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--reads" => reads = true,
-            "--app-cursor" => modes.push_str("\x1b[?1h"),
-            "--bracketed-paste" => modes.push_str("\x1b[?2004h"),
-            "--mouse" => match args.next().as_deref() {
-                Some("click") => modes.push_str("\x1b[?1000h"),
-                Some("drag") => modes.push_str("\x1b[?1002h"),
-                Some("motion") => modes.push_str("\x1b[?1003h"),
-                other => panic!("--mouse click|drag|motion, not {other:?}"),
-            },
-            "--mouse-encoding" => match args.next().as_deref() {
-                Some("sgr") => modes.push_str("\x1b[?1006h"),
-                Some("utf8") => modes.push_str("\x1b[?1005h"),
-                other => panic!("--mouse-encoding sgr|utf8, not {other:?}"),
-            },
-            "--kitty" => {
-                let flags: u8 = args.next().and_then(|v| v.parse().ok()).expect("--kitty FLAGS");
-                modes.push_str(&format!("\x1b[>{flags}u"));
+struct Options {
+    modes: String,
+    reads: bool,
+}
+
+impl Options {
+    fn parse(mut args: impl Iterator<Item = String>) -> Result<Self, String> {
+        let mut options = Options { modes: String::new(), reads: false };
+        while let Some(arg) = args.next() {
+            if arg == "--reads" {
+                options.reads = true;
+            } else {
+                options.modes.push_str(&mode(&arg, &mut args)?);
             }
-            other => panic!("unknown argument: {other}"),
         }
+        Ok(options)
     }
+}
 
-    let mut signals = Signals::new([SIGINT, SIGTERM, SIGHUP, SIGTSTP, SIGCONT, SIGWINCH])?;
-    std::thread::spawn(move || {
-        for signal in signals.forever() {
-            let name = match signal {
-                SIGINT => "INT",
-                SIGTERM => "TERM",
-                SIGHUP => "HUP",
-                SIGTSTP => "TSTP",
-                SIGCONT => "CONT",
-                SIGWINCH => "WINCH",
-                _ => "?",
-            };
-            show(&format!("[{name}]"));
+fn mode(arg: &str, args: &mut impl Iterator<Item = String>) -> Result<String, String> {
+    let mode = match arg {
+        "--app-cursor" => "\x1b[?1h",
+        "--bracketed-paste" => "\x1b[?2004h",
+        "--mouse" => mouse(args.next().as_deref())?,
+        "--mouse-encoding" => mouse_encoding(args.next().as_deref())?,
+        "--kitty" => {
+            let flags: u8 = args.next().and_then(|value| value.parse().ok()).ok_or("--kitty FLAGS")?;
+            return Ok(format!("\x1b[>{flags}u"));
         }
-    });
+        other => return Err(format!("unknown argument: {other}")),
+    };
+    Ok(mode.to_string())
+}
 
+fn mouse(value: Option<&str>) -> Result<&'static str, String> {
+    match value {
+        Some("click") => Ok("\x1b[?1000h"),
+        Some("drag") => Ok("\x1b[?1002h"),
+        Some("motion") => Ok("\x1b[?1003h"),
+        other => Err(format!("--mouse click|drag|motion, not {other:?}")),
+    }
+}
+
+fn mouse_encoding(value: Option<&str>) -> Result<&'static str, String> {
+    match value {
+        Some("sgr") => Ok("\x1b[?1006h"),
+        Some("utf8") => Ok("\x1b[?1005h"),
+        other => Err(format!("--mouse-encoding sgr|utf8, not {other:?}")),
+    }
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let options = Options::parse(std::env::args().skip(1))?;
+    let mut signals = Signals::new([SIGINT, SIGTERM, SIGHUP, SIGTSTP, SIGCONT, SIGWINCH])?;
+    std::thread::spawn(move || signals.forever().try_for_each(|signal| show(&format!("[{}]", name(signal)))));
     terminal::enable_raw_mode()?;
-    show(&format!("{modes}ready\r\n"));
+    show(&format!("{}ready\r\n", options.modes))?;
+    echo(options.reads)?;
+    Ok(())
+}
+
+fn name(signal: i32) -> &'static str {
+    match signal {
+        SIGINT => "INT",
+        SIGTERM => "TERM",
+        SIGHUP => "HUP",
+        SIGTSTP => "TSTP",
+        SIGCONT => "CONT",
+        SIGWINCH => "WINCH",
+        _ => "?",
+    }
+}
+
+fn echo(reads: bool) -> std::io::Result<()> {
     let mut stdin = std::io::stdin();
     let mut buf = [0u8; 1024];
     loop {
         match stdin.read(&mut buf) {
             Ok(0) => return Ok(()),
-            Ok(n) => show(&format!("{}{}", escape(&buf[..n]), if reads { "|" } else { "" })),
-            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Ok(n) => {
+                let read = buf.get(..n).ok_or_else(|| std::io::Error::other("read past the buffer"))?;
+                show(&format!("{}{}", escape(read), if reads { "|" } else { "" }))?;
+            }
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
             Err(e) => return Err(e),
         }
     }
 }
 
-fn show(text: &str) {
+fn show(text: &str) -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
-    out.write_all(text.as_bytes()).and_then(|()| out.flush()).expect("write to the terminal");
+    out.write_all(text.as_bytes())?;
+    out.flush()
 }
 
-fn escape(bytes: &[u8]) -> String {
-    let mut out = String::new();
-    for &byte in bytes {
-        match byte {
-            0x1b => out.push_str("\\e"),
-            b'\r' => out.push_str("\\r"),
-            b'\n' => out.push_str("\\n"),
-            b'\t' => out.push_str("\\t"),
-            b'\\' => out.push_str("\\\\"),
-            0x20..=0x7e => out.push(byte as char),
-            _ => out.push_str(&format!("\\x{byte:02x}")),
-        }
-    }
-    out
+fn escape(bytes: &[u8]) -> impl fmt::Display {
+    fmt::from_fn(move |f| {
+        bytes.iter().try_for_each(|&byte| match byte {
+            0x1b => f.write_str("\\e"),
+            b'\r' => f.write_str("\\r"),
+            b'\n' => f.write_str("\\n"),
+            b'\t' => f.write_str("\\t"),
+            b'\\' => f.write_str("\\\\"),
+            0x20..=0x7e => f.write_char(char::from(byte)),
+            _ => write!(f, "\\x{byte:02x}"),
+        })
+    })
 }
