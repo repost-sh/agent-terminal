@@ -3,7 +3,7 @@ const RECONNECT_AFTER_MS = (failures: number) => Math.min(500 * 2 ** failures, 5
 type Message = { type: string };
 
 export type Follower<M extends Message> = {
-  message: (message: Exclude<M, { type: "closed" }>, first: boolean) => void;
+  message: (message: Exclude<M, { type: "closed" }>, first: boolean, reply: (message: object) => void) => void;
   opened?: () => void;
   reconnecting?: () => void;
   closed?: () => void;
@@ -19,6 +19,9 @@ export const followSocket = <M extends Message>(url: string, follower: Follower<
     const opening = new WebSocket(url);
     socket = opening;
     let first = true;
+    const reply = (message: object) => {
+      if (socket === opening && opening.readyState === WebSocket.OPEN) opening.send(JSON.stringify(message));
+    };
     opening.onopen = () => {
       if (socket !== opening) return;
       failures = 0;
@@ -33,7 +36,7 @@ export const followSocket = <M extends Message>(url: string, follower: Follower<
         follower.closed?.();
         return;
       }
-      follower.message(message as Exclude<M, { type: "closed" }>, first);
+      follower.message(message as Exclude<M, { type: "closed" }>, first, reply);
       first = false;
     };
     opening.onclose = () => {

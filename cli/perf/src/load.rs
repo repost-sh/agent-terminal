@@ -379,6 +379,11 @@ impl Reader {
                     Ok(Message::Text(text)) => {
                         counted.fetch_add(1, Ordering::Relaxed);
                         sized.fetch_add(text.len() as u64, Ordering::Relaxed);
+                        if let Some(shown) = acknowledgement(socket, &text)
+                            && websocket.send(Message::text(shown)).is_err()
+                        {
+                            return;
+                        }
                     }
                     Ok(_) => {}
                     Err(tungstenite::Error::Io(e))
@@ -400,6 +405,14 @@ impl Reader {
             eprintln!("a {} reader panicked", self.socket);
         }
     }
+}
+
+fn acknowledgement(socket: &str, text: &str) -> Option<String> {
+    if socket != "stream" {
+        return None;
+    }
+    let message: serde_json::Value = serde_json::from_str(text).ok()?;
+    (message["type"] == "frame").then(|| serde_json::json!({ "type": "shown", "frame": message["frame"] }).to_string())
 }
 
 fn utf8(path: &Path) -> Result<&str> {

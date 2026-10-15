@@ -1,8 +1,14 @@
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
+use std::net::TcpStream;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
+
+use tungstenite::{Message, WebSocket};
+
+const READ_TIMEOUT: Duration = Duration::from_secs(25);
 
 pub struct AgentTerminal {
     home: tempfile::TempDir,
@@ -177,6 +183,48 @@ impl Cue {
         at.run(&args).success();
         self.print("");
     }
+}
+
+pub struct DashboardSocket {
+    socket: WebSocket<TcpStream>,
+}
+
+impl DashboardSocket {
+    pub fn open(port: u16, path: &str) -> Self {
+        let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to the dashboard");
+        stream.set_read_timeout(Some(READ_TIMEOUT)).expect("bound every read");
+        let url = format!("ws://localhost:{port}{path}");
+        let (socket, _) = tungstenite::client(url.as_str(), stream).unwrap_or_else(|e| panic!("open {url}: {e}"));
+        Self { socket }
+    }
+
+    pub fn next(&mut self) -> serde_json::Value {
+        match self.socket.read().expect("a dashboard message") {
+            Message::Text(text) => serde_json::from_str(&text).expect("a JSON message"),
+            other => panic!("expected a text message, got {other:?}"),
+        }
+    }
+
+    pub fn try_next(&mut self, within: Duration) -> Option<serde_json::Value> {
+        self.socket.get_ref().set_read_timeout(Some(within)).expect("bound the read");
+        let read = self.socket.read();
+        self.socket.get_ref().set_read_timeout(Some(READ_TIMEOUT)).expect("bound every read");
+        match read {
+            Ok(Message::Text(text)) => Some(serde_json::from_str(&text).expect("a JSON message")),
+            Ok(other) => panic!("expected a text message, got {other:?}"),
+            Err(tungstenite::Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => None,
+            Err(e) => panic!("reading a dashboard message failed: {e}"),
+        }
+    }
+
+    pub fn send(&mut self, message: &serde_json::Value) {
+        self.socket.send(Message::text(message.to_string())).expect("send a dashboard message");
+    }
+}
+
+pub fn dashboard(at: &AgentTerminal) -> u16 {
+    let started = at.run(&["--json", "dashboard", "start", "--port", "0"]).success().json();
+    started["port"].as_u64().expect("the dashboard's port") as u16
 }
 
 pub fn fixture(name: &str) -> String {

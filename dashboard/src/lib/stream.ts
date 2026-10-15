@@ -37,11 +37,12 @@ const tabStream = (session: string, tab: string) => {
     let painting = true;
     const stop = followSocket<StreamUpdate>(tabStreamUrl(session, tab), {
       opened: () => publish({ state: "open" }),
-      message: (update, first) => {
+      message: (update, first, reply) => {
         if (first) terminal.reset();
         if (terminal.cols !== update.cols || terminal.rows !== update.rows) terminal.resize(update.cols, update.rows);
         const { paint: bytes, ...meta } = update;
         terminal.write(bytes, () => {
+          reply({ type: "shown", frame: update.frame });
           if (!painting) return;
           drawn();
           publish({ shown: meta });
