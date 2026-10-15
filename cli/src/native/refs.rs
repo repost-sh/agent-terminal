@@ -3,13 +3,14 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use crate::native::screen::Colour;
 use crate::protocol::RefKind;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Glyph {
     pub text: String,
-    pub fg: String,
-    pub bg: String,
+    pub fg: Colour,
+    pub bg: Colour,
     pub inverse: bool,
     pub bold: bool,
     pub underline: bool,
@@ -31,13 +32,19 @@ impl Glyph {
         self.text.chars().next().unwrap_or(' ')
     }
 
-    fn backdrop(&self) -> &str {
-        match (self.inverse, self.fg.as_str()) {
-            (false, _) => &self.bg,
-            (true, "default") => "foreground",
-            (true, fg) => fg,
+    fn backdrop(&self) -> Backdrop {
+        match (self.inverse, self.fg) {
+            (false, _) => Backdrop::Colour(self.bg),
+            (true, Colour::Default) => Backdrop::Foreground,
+            (true, fg) => Backdrop::Colour(fg),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Backdrop {
+    Colour(Colour),
+    Foreground,
 }
 
 pub struct Grid {
@@ -167,7 +174,7 @@ fn label_in(cells: &[Glyph], first: usize, last: usize) -> Option<(String, usize
 }
 
 fn selected(grid: &Grid) -> Vec<Found> {
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut counts: BTreeMap<Backdrop, usize> = BTreeMap::new();
     for glyph in grid.rows.iter().flatten() {
         *counts.entry(glyph.backdrop()).or_default() += 1;
     }

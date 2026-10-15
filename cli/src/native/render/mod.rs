@@ -183,8 +183,8 @@ fn legend_lines(shown: &[(usize, &Ref)], cols: usize) -> Vec<Vec<Entry>> {
 }
 
 fn cell_colors(glyph: &Glyph, palette: &Palette, cursor: bool) -> (Rgb, Rgb) {
-    let mut fg = palette.color(&glyph.fg, palette.foreground);
-    let mut bg = palette.color(&glyph.bg, palette.background);
+    let mut fg = palette.color(glyph.fg, palette.foreground);
+    let mut bg = palette.color(glyph.bg, palette.background);
     if glyph.inverse {
         std::mem::swap(&mut fg, &mut bg);
     }
