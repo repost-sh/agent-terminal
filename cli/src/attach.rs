@@ -193,21 +193,20 @@ impl Painter {
         let visible = usize::from(screen.rows.min(window.ws_row)).min(screen.lines.len());
         for (index, line) in screen.lines[..visible].iter().enumerate() {
             if self.shown.get(index) != Some(line) {
-                paint.push_str(&format!("\x1b[{};1H\x1b[0m\x1b[2K{line}", index + 1));
+                paint.push_str(&crate::paint::row(index, line));
             }
         }
         self.shown = screen.lines[..visible].to_vec();
         if window.ws_row > screen.rows {
             let hint: String = self.hint_for(screen).chars().take(usize::from(window.ws_col)).collect();
             if hint != self.hint {
-                paint.push_str(&format!("\x1b[{};1H\x1b[0m\x1b[2K\x1b[2m{hint}\x1b[0m", screen.rows + 1));
+                paint.push_str(&crate::paint::row(usize::from(screen.rows), &format!("\x1b[2m{hint}\x1b[0m")));
                 self.hint = hint;
             }
         }
         let [row, col] = screen.cursor;
         let on_screen = row <= window.ws_row && col <= window.ws_col;
-        let visibility = if screen.cursor_visible && !screen.exited && on_screen { 'h' } else { 'l' };
-        paint.push_str(&format!("\x1b[0m\x1b[{row};{col}H\x1b[?25{visibility}"));
+        paint.push_str(&crate::paint::cursor(row, col, screen.cursor_visible && !screen.exited && on_screen));
         show(&paint)
     }
 

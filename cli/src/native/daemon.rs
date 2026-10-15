@@ -256,7 +256,7 @@ impl Daemon {
                         terminal.frame()
                     )),
                 };
-                terminal.recording().save_to(&path).map_err(error_body)?;
+                terminal.save_recording(&path).map_err(error_body)?;
                 self.changes.notify();
                 Ok(Reply::Recording(RecordingFile { session, tab: id.to_string(), path }))
             }

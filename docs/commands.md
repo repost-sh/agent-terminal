@@ -89,7 +89,7 @@ Evidence:
                                --from <mark|@activity:N> [--to <mark|@activity:N>]  between two marks or calls (to: now)
                                --command <id>  one shell command, from its start to its end
                                default path: <screenshot dir>/<session>-<tab>-<frame>.gif; at most 10 frames a second
-  record start|stop [path]     Save the whole tab as an asciicast (.cast) file
+  record start|stop [path]     Save the tab as an asciicast (.cast) file from now on, starting from the screen it shows
   diff snapshot                What changed on screen since the last snapshot (--baseline <file>: a saved one)
   diff screenshot --baseline <png>   Pixel diff against a baseline image, saved as an image with the changes in red
                                --output <png>  where the diff image goes (default: <screenshot dir>/<session>-<tab>-<frame>-diff.png)

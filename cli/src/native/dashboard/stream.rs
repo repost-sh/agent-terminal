@@ -129,17 +129,7 @@ fn update(picture: &Picture, shown: Option<&Shown>) -> Option<Update> {
 }
 
 pub fn paint(picture: &Picture, shown: Option<&Shown>) -> String {
-    let repaint_all = shown.is_none_or(|shown| shown.size != picture.size);
-    let mut paint = String::new();
-    for (index, row) in picture.rows.iter().enumerate() {
-        let changed = repaint_all || shown.is_some_and(|shown| shown.rows.get(index) != Some(row));
-        if changed {
-            paint.push_str(&format!("\x1b[{};1H\x1b[0m\x1b[2K{row}", index + 1));
-        }
-    }
-    let visibility = if picture.cursor_visible && picture.exit.is_none() { 'h' } else { 'l' };
-    paint.push_str(&format!("\x1b[0m\x1b[{};{}H\x1b[?25{visibility}", picture.cursor.0, picture.cursor.1));
-    paint
+    picture.paint(shown.filter(|shown| shown.size == picture.size).map(|shown| shown.rows.as_slice()))
 }
 
 pub async fn send(socket: &mut WebSocket, update: &impl Serialize) -> bool {

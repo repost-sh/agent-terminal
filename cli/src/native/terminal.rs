@@ -85,6 +85,17 @@ impl Picture {
             exit,
         }
     }
+
+    pub fn paint(&self, shown: Option<&[String]>) -> String {
+        let mut paint = String::new();
+        for (index, row) in self.rows.iter().enumerate() {
+            if shown.is_none_or(|shown| shown.get(index) != Some(row)) {
+                paint.push_str(&crate::paint::row(index, row));
+            }
+        }
+        paint.push_str(&crate::paint::cursor(self.cursor.0, self.cursor.1, self.cursor_visible && self.exit.is_none()));
+        paint
+    }
 }
 
 #[derive(Clone)]
@@ -427,6 +438,14 @@ impl Terminal {
             started: self.started,
             exit: state.exit,
         }
+    }
+
+    pub fn save_recording(&self, path: &std::path::Path) -> Result<()> {
+        let state = self.state.lock().unwrap();
+        let picture = Picture::of(&state.screen, state.frame, state.exit);
+        let alt_screen = if picture.alt_screen { "\x1b[?1049h" } else { "" };
+        let blank = vec![String::new(); picture.rows.len()];
+        self.recording.save_to(path, picture.size, &format!("{alt_screen}{}", picture.paint(Some(&blank))))
     }
 
     pub fn recording(&self) -> Arc<Recording> {
