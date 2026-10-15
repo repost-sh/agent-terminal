@@ -33,7 +33,7 @@ const tabStream = (session: string, tab: string) => {
     return () => listeners.delete(listener);
   };
 
-  const paint = (terminal: Terminal, drawn: () => void) => {
+  const paint = (terminal: Terminal) => {
     let painting = true;
     const stop = followSocket<StreamUpdate>(tabStreamUrl(session, tab), {
       opened: () => publish({ state: "open" }),
@@ -44,7 +44,6 @@ const tabStream = (session: string, tab: string) => {
         terminal.write(bytes, () => {
           reply({ type: "shown", frame: update.frame });
           if (!painting) return;
-          drawn();
           publish({ shown: meta });
         });
       },

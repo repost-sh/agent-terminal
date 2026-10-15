@@ -18,7 +18,14 @@ const within = (ranges: Ranges, codepoint: number): boolean => {
   return false;
 };
 
-const wcwidth = (codepoint: number): 0 | 1 | 2 => (within(ZERO, codepoint) ? 0 : within(WIDE, codepoint) ? 2 : 1);
+const searched = (codepoint: number): 0 | 1 | 2 => (within(ZERO, codepoint) ? 0 : within(WIDE, codepoint) ? 2 : 1);
+
+const BASIC_PLANE = Uint8Array.from({ length: 0x10000 }, (_, codepoint) => searched(codepoint));
+
+const wcwidth = (codepoint: number): 0 | 1 | 2 => {
+  const width = BASIC_PLANE[codepoint];
+  return width === 0 || width === 1 || width === 2 ? width : searched(codepoint);
+};
 
 const widthOf = (properties: number) => (properties >> 1) & 3;
 
