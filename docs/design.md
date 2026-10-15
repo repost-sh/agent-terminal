@@ -13,7 +13,7 @@ Main job: **QA of TUIs and CLIs by agents** (lazygit-style apps, chat TUIs, inst
 3. **Act and wait in one call.** Every input command accepts `--wait …`, so the usual loop is one round trip: `press Enter --wait-stable`.
 4. **Event driven, not polling.** A resident daemon owns the PTYs and a headless VT emulator per terminal. Waits wake on the next frame that matches.
 5. **Honest about TUIs.** Refs are heuristics over cells (inverse spans, `[ OK ]` buttons, box titles, OSC 8 links). `click` refuses when the app never turned mouse reporting on, and tells the agent which keys to use instead.
-6. **Humans can see everything.** Every CLI call, every shell command (exit code, duration, cwd) and every screenshot is in the dashboard, and the dashboard can rewind to any point.
+6. **Humans can see everything.** Every CLI call, every shell command (exit code, duration, cwd) and every screenshot is in the dashboard.
 
 ## Architecture (short)
 
@@ -69,7 +69,7 @@ refs:
 - **Center**: a toolbar showing the command line and size, then the live terminal, drawn from the daemon's grid: for each frame the daemon sends the rows that changed, not the program's bytes, so the browser shows the screen the agent sees ([ADR 0002](adr/0002-dashboard-draws-the-daemons-screen.md)). xterm.js runs in screen-reader mode so the screen is readable as text (the browser tests and agents driving agent-browser read `.xterm-accessibility-tree`); its live region, which xterm.js fills with every printed character and empties only on a key press or blur, is emptied on every render, because a program that repaints without line feeds would otherwise grow it without bound and freeze the page within a minute (`docs/research/2026-10-15-fast-output-and-recording-budget.md`). Status bar: Live/Reconnecting, stream URL, size, modes.
 - **Split view**: show 2 or 4 terminals side by side, so one human can watch several agents or the server and the TUI under test at once.
 - **Right panel** tabs: **Activity** (every CLI call: command, duration, result, inline thumbnail for screenshots, failed waits in red), **Commands** (shell history from OSC 133: command, exit code, duration, cwd; click to see its output), **Screenshots** (gallery with diff), **Output** (raw stream with marks), **Info** (pid, cwd, TERM, env, modes).
-- **Timeline**: scrub back through frames, which the daemon replays from the tab's recording and sends the same way; clicking an Activity or Commands row jumps the terminal to that moment. "Live" returns.
+- **Live only**: the center always shows the live screen. An Activity thumbnail opens that screenshot in the lightbox; clicking an Activity or Commands row never moves the terminal.
 - **Take control**: a human takes the keyboard. While they hold it, agent input commands exit `4` with "A human has control of qa t1. Run `agent-terminal wait --control`."
 
 ## Skills shipped

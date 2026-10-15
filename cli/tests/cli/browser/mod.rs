@@ -11,7 +11,6 @@ mod screenshots;
 mod sidebar;
 mod split;
 mod terminal;
-mod timeline;
 mod toolbar;
 
 use std::process::{Command, Output};
@@ -186,4 +185,13 @@ impl Drop for Browser {
 
 pub fn js_string(text: &str) -> String {
     serde_json::to_string(text).expect("a JSON string")
+}
+
+pub fn timeline_controls(browser: &Browser) -> Vec<String> {
+    let found = browser.eval(
+        "[...document.querySelectorAll('main input[type=range], main [role=slider]')].map((control) => `slider ${control.ariaLabel}`)\
+         .concat([...document.querySelectorAll('main button')].filter((button) => button.textContent.trim() === 'Live').map(() => 'Live button'))\
+         .concat(document.querySelector('main').innerText.includes('Viewing frame') ? ['Viewing frame label'] : [])",
+    );
+    serde_json::from_str(&found).unwrap_or_else(|e| panic!("{found} is not a list of controls: {e}"))
 }

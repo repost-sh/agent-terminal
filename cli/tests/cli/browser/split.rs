@@ -1,4 +1,4 @@
-use super::{Browser, Dashboard, snapshot_rows};
+use super::{Browser, Dashboard, snapshot_rows, timeline_controls};
 use crate::support::{AgentTerminal, Cue, fixture};
 
 fn hold(at: &AgentTerminal, opening: &[&str], size: &str, lines: &str) {
@@ -114,7 +114,7 @@ fn two_up_from_a_tab_shows_it_beside_the_tab_after_it_both_live() {
     let (_, frame) = snapshot_rows(&at, &["--session", "qa", "--tab", "t1"]);
     browser.wait_for_status(&format!("frame {frame}"));
     assert_eq!(browser.status(), ["Live", &stream(&dashboard, "qa/t1"), "30 × 4", &format!("frame {frame}")]);
-    assert_eq!(browser.eval("document.querySelectorAll('main input[type=range], main [role=slider]').length"), "0");
+    assert_eq!(timeline_controls(&browser), Vec::<String>::new());
 }
 
 #[test]

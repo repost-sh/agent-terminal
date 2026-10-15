@@ -1,7 +1,7 @@
 use serde_json::Value;
 
-use super::{Browser, Dashboard};
-use crate::support::{AgentTerminal, fixture};
+use super::{Browser, Dashboard, snapshot_rows};
+use crate::support::{AgentTerminal, Cue, fixture};
 
 const CALLS: &str = "[aria-label='Calls to default t1'] > li:not([aria-busy])";
 
@@ -186,6 +186,53 @@ fn in_a_split_activity_shows_the_calls_to_the_focused_terminal() {
     at.run(&["--session", "web", "get", "frame"]).success();
     browser
         .wait_until("document.querySelectorAll(\"[aria-label='Calls to web t1'] > li:not([aria-busy])\").length === 3");
+}
+
+#[test]
+fn clicking_an_activity_row_or_its_thumbnail_leaves_the_terminal_on_the_live_screen() {
+    let at = AgentTerminal::new();
+    let cue = Cue::new();
+    at.run(&[
+        "open",
+        "--size",
+        "40x6",
+        "--wait",
+        "line 1",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--cue",
+        &cue.path(),
+    ])
+    .success();
+    cue.print("second\n");
+    at.run(&["screenshot", &at.home().join("shots").join("second.png").to_string_lossy()]).success();
+    cue.print("third\n");
+    let (rows, frame) = snapshot_rows(&at, &[]);
+    assert_eq!(rows, ["line 1", "second", "third"]);
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    browser.wait_for_status(&format!("frame {frame}"));
+    browser.wait_for_screen("third");
+    wait_for_calls(&browser, 3);
+    let stream = format!("ws://localhost:{}/api/session/default/t1/stream", dashboard.port);
+    let live = [String::from("Live"), stream, "40 × 6".to_string(), format!("frame {frame}")];
+
+    for nth in 1..=3 {
+        browser.run(&["click", &format!("{CALLS}:nth-child({nth}) > div > button")]);
+        assert_eq!(browser.status(), live, "after clicking row {nth}");
+        assert_eq!(browser.screen(), rows, "after clicking row {nth}");
+    }
+
+    browser.wait_until(
+        "[...document.querySelectorAll(\"[aria-label='Calls to default t1'] button\")].some((thumbnail) => thumbnail.innerText.trim() === 'Open screenshot second.png')",
+    );
+    browser.run(&["find", "role", "button", "click", "--name", "Open screenshot second.png", "--exact"]);
+    browser.wait_until("document.querySelector('[role=dialog] h2')?.innerText === 'second.png'");
+    browser.run(&["press", "Escape"]);
+    browser.wait_until("document.querySelector('[role=dialog]') === null");
+    assert_eq!(browser.status(), live);
+    assert_eq!(browser.screen(), rows);
 }
 
 #[test]

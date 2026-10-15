@@ -6,7 +6,6 @@ import { outputOf, rowOf, useCommands, useOpenCommand, type LoadedOutput } from 
 import { clockTime, formatDuration, shellWord, shortPath } from "../lib/format";
 import type { CommandRecord } from "../lib/protocol";
 import { tabName } from "../lib/tabs";
-import { showMoment } from "../lib/timeline";
 import type { PanelProps } from "../panels";
 import { EmptyNote, PanelHead } from "./panel-parts";
 import { CliBlock, cn } from "./ui";
@@ -125,10 +124,7 @@ export const CommandsPanel = ({ session, tab }: PanelProps) => {
               command={command}
               home={feed.home}
               open={open === row}
-              onToggle={() => {
-                if (open !== row) showMoment(session, tab.tab, command.first_frame, command.started_at_ms);
-                toggle(row);
-              }}
+              onToggle={() => toggle(row)}
             />
           );
         })}
