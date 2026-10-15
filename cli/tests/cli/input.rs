@@ -401,3 +401,36 @@ fn send_is_marked_as_raw_in_its_json_result() {
     let sent = at.run(&["--json", "send", r"\r\n", "--wait", r"\r\n"]).success().json();
     assert_eq!(sent, serde_json::json!({ "session": "default", "tab": "t1", "input": "raw", "bytes": 2 }));
 }
+
+fn shown_by_input_echo(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|&byte| match byte {
+            0x1b => r"\e".to_string(),
+            b'\r' => r"\r".to_string(),
+            b'\n' => r"\n".to_string(),
+            b'\t' => r"\t".to_string(),
+            b'\\' => r"\\".to_string(),
+            0x20..=0x7e => char::from(byte).to_string(),
+            _ => format!(r"\x{byte:02x}"),
+        })
+        .collect()
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config { cases: 24, failure_persistence: None, ..proptest::test_runner::Config::default() })]
+
+    #[test]
+    fn send_delivers_any_bytes_to_the_program_exactly(bytes in proptest::collection::vec(proptest::prelude::any::<u8>(), 1..24)) {
+        let at = AgentTerminal::new();
+        open_input_echo(&at, &[]);
+        let escaped: String = bytes
+            .iter()
+            .flat_map(|&byte| [Some('\\'), Some('x'), char::from_digit(u32::from(byte >> 4), 16), char::from_digit(u32::from(byte & 15), 16)])
+            .flatten()
+            .collect();
+        let shown = shown_by_input_echo(&bytes);
+        at.run(&["send", &escaped, "--wait", &shown]).success();
+        proptest::prop_assert_eq!(at.received("default"), shown);
+    }
+}

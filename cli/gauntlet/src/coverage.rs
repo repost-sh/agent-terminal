@@ -3,9 +3,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::functions::functions;
 use crate::lcov::Lines;
 use crate::offenses::{Rule, Verdict};
+use crate::rust::functions;
 use crate::workspace::{Member, Workspace};
 
 const FLOOR: u32 = 90;

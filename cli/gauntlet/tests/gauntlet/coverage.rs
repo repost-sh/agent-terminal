@@ -12,15 +12,22 @@ fn a_crate_at_the_floor_passes_and_shows_its_tally() {
 
 #[test]
 fn a_crate_under_the_floor_fails_naming_its_most_uncovered_files() {
-    let scratch =
-        Scratch::crate_with(&[("main.rs", "mod parse;\nfn main() {}\n"), ("parse.rs", "pub fn parse() {}\n")]);
-    let (main, parse) = (scratch.source("main.rs"), scratch.source("parse.rs"));
-    let report = lcov(&[(&main, &hits(1..=10, |line| line > 1)), (&parse, &hits(1..=10, |line| line > 2))]);
+    let scratch = Scratch::crate_with(&[
+        ("main.rs", "mod parse;\nmod print;\nfn main() {}\n"),
+        ("parse.rs", "pub fn parse() {}\n"),
+        ("print.rs", "pub fn print() {}\n"),
+    ]);
+    let (main, parse, print) = (scratch.source("main.rs"), scratch.source("parse.rs"), scratch.source("print.rs"));
+    let report = lcov(&[
+        (&main, &hits(1..=10, |line| line > 1)),
+        (&parse, &hits(1..=10, |line| line > 2)),
+        (&print, &hits(1..=2, |_| true)),
+    ]);
     let run = scratch.gauntlet("coverage", &report);
     assert_eq!(
         run.stdout,
         format!(
-            "app: 17 of 20 lines covered, under the 90% floor; most uncovered: app/src/parse.rs (2), app/src/main.rs (1): {FIX}\n1 offense(s)\n"
+            "app: 19 of 22 lines covered, under the 90% floor; most uncovered: app/src/parse.rs (2), app/src/main.rs (1): {FIX}\n1 offense(s)\n"
         )
     );
     assert_eq!(run.code, 2);
@@ -50,4 +57,24 @@ fn a_crate_with_nothing_measured_fails() {
         )
     );
     assert_eq!(run.code, 2);
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config { cases: 24, failure_persistence: None, ..proptest::test_runner::Config::default() })]
+
+    #[test]
+    fn the_tally_counts_every_measured_line_and_the_floor_is_ninety_percent(covered in proptest::collection::vec(proptest::prelude::any::<bool>(), 1..60)) {
+        let scratch = Scratch::crate_with(&[("main.rs", "fn main() {}\n")]);
+        let main = scratch.source("main.rs");
+        let lines: Vec<(u32, u64)> = (1..).zip(&covered).map(|(line, &hit)| (line, u64::from(hit))).collect();
+        let run = scratch.gauntlet("coverage", &lcov(&[(&main, &lines)]));
+        let (hit, total) = (covered.iter().filter(|&&hit| hit).count(), covered.len());
+        let tally = format!("app: {hit} of {total} lines covered");
+        if hit * 100 >= total * 90 {
+            proptest::prop_assert_eq!((run.code, run.stdout), (0, format!("{tally}\n")));
+        } else {
+            proptest::prop_assert!(run.stdout.starts_with(&format!("{tally}, under the 90% floor; most uncovered: app/src/main.rs ({})", total - hit)), "{}", run.stdout);
+            proptest::prop_assert_eq!(run.code, 2);
+        }
+    }
 }

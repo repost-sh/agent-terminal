@@ -7,4 +7,6 @@ mod measure;
 #[cfg(test)]
 mod programs;
 #[cfg(test)]
+mod properties;
+#[cfg(test)]
 mod usage;

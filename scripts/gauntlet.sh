@@ -23,6 +23,7 @@ rust() {
   step "replace or update the crate cargo-deny names → GAUNTLET.md#dependency-policy" cargo deny check
   step "remove the dependency cargo-machete names from its Cargo.toml → GAUNTLET.md#unused-dependencies" cargo machete . gauntlet perf tests/fixtures
   step "fix the code the failing test or static check names → GAUNTLET.md#rust-tests" cargo test --workspace
+  step "state an invariant of the crate's behaviour as a proptest! → GAUNTLET.md#property-tests" cargo run --quiet -p at-gauntlet -- props
 }
 
 coverage() {
@@ -52,6 +53,7 @@ dashboard() {
   step "fix the CRAP tool the failing test names → GAUNTLET.md#crap" node --test 'gauntlet/*.test.ts'
   step "fix the code the failing test names, or test the lines it reports uncovered → GAUNTLET.md#dashboard-tests" npm run --silent test
   step "cover every branch of each function it names, or split the function → GAUNTLET.md#crap" node gauntlet/crap.ts
+  step "state an invariant of the dashboard's behaviour as fc.assert(fc.property(…)) → GAUNTLET.md#property-tests" node gauntlet/props.ts
   step "fix the build error → GAUNTLET.md#dashboard-build" npm run --silent build
   cd "$root"
   git diff --quiet -- cli/assets/dashboard || fail "the built dashboard differs from cli/assets/dashboard: commit the rebuilt cli/assets/dashboard with its sources → GAUNTLET.md#dashboard-build"

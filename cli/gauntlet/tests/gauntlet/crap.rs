@@ -74,6 +74,7 @@ const NESTED: &str = "fn main() {
     if inner(false) {}
     if inner(true) {}
     if inner(false) {}
+    if inner(true) {}
 }
 ";
 
@@ -81,7 +82,7 @@ const NESTED: &str = "fn main() {
 fn a_nested_function_is_scored_apart_from_the_function_around_it() {
     let scratch = Scratch::crate_with(&[("main.rs", NESTED)]);
     let main = scratch.source("main.rs");
-    let run = scratch.gauntlet("crap", &lcov(&[(&main, &hits(1..=9, |line| !(2..=4).contains(&line)))]));
+    let run = scratch.gauntlet("crap", &lcov(&[(&main, &hits(1..=10, |line| !(2..=4).contains(&line)))]));
     assert_eq!(
         run.stdout,
         format!(

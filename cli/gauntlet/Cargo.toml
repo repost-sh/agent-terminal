@@ -13,6 +13,7 @@ serde_json = "1"
 syn = { version = "2", features = ["full", "visit"] }
 
 [dev-dependencies]
+proptest = { version = "1.12", default-features = false, features = ["std"] }
 tempfile = "3"
 
 [lints]

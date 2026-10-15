@@ -26,8 +26,17 @@ impl Scratch {
         Self { dir }
     }
 
+    pub(crate) fn with(self, path: &str, code: &str) -> Self {
+        write(&self.dir.path().join("app").join(path), code);
+        self
+    }
+
     pub(crate) fn source(&self, path: &str) -> PathBuf {
         std::fs::canonicalize(self.dir.path().join("app/src").join(path)).expect("a source file")
+    }
+
+    pub(crate) fn props(&self) -> Run {
+        run(self.dir.path(), &["props"])
     }
 
     pub(crate) fn gauntlet(&self, gate: &str, report: &str) -> Run {

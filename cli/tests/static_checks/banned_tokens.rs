@@ -59,12 +59,8 @@ const BANNED: &[(&str, &str, Scope)] = &[
         "the TOML reader belongs in tests/static_checks/lint_table.rs",
         Scope::OutsideOf("tests/static_checks/lint_table.rs"),
     ),
-    ("syn", "the Rust parser belongs in gauntlet/src/functions.rs", Scope::OutsideOf("gauntlet/src/functions.rs")),
-    (
-        "proc_macro2",
-        "the Rust parser belongs in gauntlet/src/functions.rs",
-        Scope::OutsideOf("gauntlet/src/functions.rs"),
-    ),
+    ("syn", "the Rust parser belongs in gauntlet/src/rust/", Scope::OutsideOf("gauntlet/src/rust/")),
+    ("proc_macro2", "the Rust parser belongs in gauntlet/src/rust/", Scope::OutsideOf("gauntlet/src/rust/")),
 ];
 
 const FIX: &str = "fix the code the token stands for: handle the error, wait on the event, move the library call \

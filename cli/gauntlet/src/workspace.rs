@@ -21,6 +21,7 @@ struct Package {
 pub(crate) struct Member {
     pub(crate) name: String,
     pub(crate) sources: Vec<PathBuf>,
+    pub(crate) tests: Vec<PathBuf>,
 }
 
 pub(crate) struct Workspace {
@@ -34,13 +35,19 @@ impl Workspace {
         let output = Command::new(cargo).args(["metadata", "--no-deps", "--format-version", "1"]).output()?;
         ensure!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr).trim());
         let metadata: Metadata = serde_json::from_slice(&output.stdout).context("parse the metadata")?;
-        let members = metadata
-            .packages
-            .into_iter()
-            .filter(|package| metadata.workspace_members.contains(&package.id))
+        let packages: Vec<Package> =
+            metadata.packages.into_iter().filter(|package| metadata.workspace_members.contains(&package.id)).collect();
+        let roots: Vec<PathBuf> = packages.iter().map(Package::root).collect();
+        let members = packages
+            .iter()
             .map(|package| {
-                let src = package.manifest_path.parent().unwrap_or(&package.manifest_path).join("src");
-                Ok(Member { name: package.name, sources: rust_files(&src)? })
+                let others: Vec<&Path> =
+                    roots.iter().filter(|root| **root != package.root()).map(PathBuf::as_path).collect();
+                Ok(Member {
+                    name: package.name.clone(),
+                    sources: rust_files(&package.root().join("src"), &others)?,
+                    tests: rust_files(&package.root().join("tests"), &others)?,
+                })
             })
             .collect::<Result<_>>()?;
         Ok(Self { root: metadata.workspace_root, members })
@@ -51,12 +58,24 @@ impl Workspace {
     }
 }
 
-fn rust_files(dir: &Path) -> Result<Vec<PathBuf>> {
+impl Package {
+    fn root(&self) -> PathBuf {
+        self.manifest_path.parent().unwrap_or(&self.manifest_path).to_path_buf()
+    }
+}
+
+fn rust_files(dir: &Path, others: &[&Path]) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
+    if !dir.is_dir() {
+        return Ok(files);
+    }
     for entry in std::fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
         let path = entry?.path();
+        if others.contains(&path.as_path()) {
+            continue;
+        }
         if path.is_dir() {
-            files.extend(rust_files(&path)?);
+            files.extend(rust_files(&path, others)?);
         } else if path.extension().is_some_and(|extension| extension == "rs") {
             files.push(std::fs::canonicalize(&path)?);
         }

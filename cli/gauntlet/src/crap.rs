@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 
-use crate::functions::{Function, functions};
 use crate::lcov::{Hits, Lines};
 use crate::offenses::{Rule, Verdict};
+use crate::rust::{Function, functions};
 use crate::workspace::Workspace;
 
 const CEILING: f64 = 6.0;

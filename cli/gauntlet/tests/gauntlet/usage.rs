@@ -1,6 +1,7 @@
 use crate::scratch::{Scratch, run};
 
-const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>";
+const USAGE: &str =
+    "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props";
 
 #[test]
 fn without_a_gate_and_a_report_it_prints_the_usage() {
@@ -33,6 +34,7 @@ fn a_report_with_a_broken_line_names_it() {
     let scratch = Scratch::crate_with(&[("main.rs", "fn main() {}\n")]);
     for (report, problem) in [
         ("DA:1,1\n", "line 1: DA before any SF"),
+        ("SF:main.rs\nDA:1,1\nend_of_record\nDA:2,1\n", "line 4: DA before any SF"),
         ("SF:main.rs\nDA:x,1\n", "line 2: DA:x,1: a line number: invalid digit found in string"),
         ("SF:main.rs\nDA:1\n", "line 2: DA:1: a hit count"),
         ("SF:main.rs\nDA:1,-1\n", "line 2: DA:1,-1: a hit count: invalid digit found in string"),

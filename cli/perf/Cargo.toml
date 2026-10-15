@@ -14,6 +14,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 
 [dev-dependencies]
+proptest = { version = "1.12", default-features = false, features = ["std"] }
 tempfile = "3"
 
 [lints]

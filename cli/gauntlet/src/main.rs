@@ -1,8 +1,9 @@
 mod coverage;
 mod crap;
-mod functions;
 mod lcov;
 mod offenses;
+mod properties;
+mod rust;
 mod workspace;
 
 use std::io::Write;
@@ -13,7 +14,8 @@ use anyhow::{Context, Result, bail};
 
 use crate::offenses::Verdict;
 
-const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>";
+const USAGE: &str =
+    "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props";
 
 const FAILED: u8 = 2;
 
@@ -33,13 +35,35 @@ fn main() -> ExitCode {
 }
 
 fn run(args: &[String]) -> Result<Verdict> {
-    let [gate, report] = args else { bail!("{USAGE}") };
-    let check = match gate.as_str() {
-        "coverage" => coverage::check,
-        "crap" => crap::check,
-        other => bail!("unknown gate {other}\n{USAGE}"),
+    let gate = match args {
+        [gate] if gate == "props" => Gate::Props,
+        [gate, report] => Gate::Measured { check: measured(gate)?, report: Path::new(report) },
+        _ => bail!("{USAGE}"),
     };
-    let lines = lcov::read(Path::new(report))?;
-    let workspace = workspace::Workspace::load().context("read the workspace with cargo metadata")?;
-    check(&workspace, &lines)
+    match gate {
+        Gate::Props => properties::check(&load()?),
+        Gate::Measured { check, report } => {
+            let lines = lcov::read(report)?;
+            check(&load()?, &lines)
+        }
+    }
+}
+
+type MeasuredCheck = fn(&workspace::Workspace, &lcov::Lines) -> Result<Verdict>;
+
+enum Gate<'a> {
+    Props,
+    Measured { check: MeasuredCheck, report: &'a Path },
+}
+
+fn measured(gate: &str) -> Result<MeasuredCheck> {
+    match gate {
+        "coverage" => Ok(coverage::check),
+        "crap" => Ok(crap::check),
+        other => bail!("unknown gate {other}\n{USAGE}"),
+    }
+}
+
+fn load() -> Result<workspace::Workspace> {
+    workspace::Workspace::load().context("read the workspace with cargo metadata")
 }
