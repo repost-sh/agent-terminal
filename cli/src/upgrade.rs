@@ -27,7 +27,7 @@ impl Installer {
 
     fn command(self) -> (&'static str, &'static [&'static str]) {
         match self {
-            Installer::Npm => ("npm", &["install", "-g", "agent-terminal@latest"]),
+            Installer::Npm => ("npm", &["install", "-g", "@repost/agent-terminal@latest"]),
             Installer::Homebrew => ("brew", &["upgrade", "repost-sh/tap/agent-terminal"]),
         }
     }
@@ -45,7 +45,7 @@ pub fn run(json: bool) -> i32 {
     let Some(installer) = Installer::of(&binary) else {
         return output::fail(
             &format!(
-                "agent-terminal at {} was not installed with npm or Homebrew, so upgrade cannot update it; install it with `npm i -g agent-terminal`, or update it the way you installed it",
+                "agent-terminal at {} was not installed with npm or Homebrew, so upgrade cannot update it; install it with `npm i -g @repost/agent-terminal`, or update it the way you installed it",
                 binary.display()
             ),
             crate::exit::ERROR,

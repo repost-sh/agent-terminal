@@ -1,7 +1,7 @@
 ---
 name: cli-qa
 description: Test a command-line tool the way users run it, from a real terminal. Use when asked to QA or review a CLI's help text, errors, exit codes, prompts, colors, or behavior when piped. Produces a report with the exact commands, their output and exit codes.
-allowed-tools: Bash(agent-terminal:*), Bash(npx agent-terminal:*)
+allowed-tools: Bash(agent-terminal:*), Bash(npx @repost/agent-terminal:*)
 ---
 
 # CLI QA

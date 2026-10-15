@@ -1,10 +1,13 @@
 {
-  "name": "agent-terminal",
+  "name": "@repost/agent-terminal",
   "description": "Fast terminal automation CLI for AI agents",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/repost-sh/agent-terminal.git"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "homepage": "https://github.com/repost-sh/agent-terminal",
   "bugs": {

@@ -10,9 +10,9 @@ fixture=$2
 expected=$3
 here=$(cd "$(dirname "$0")" && pwd)
 
-node "$here/registry.js" "$tarballs" npm install --global --no-audit --no-fund agent-terminal
+node "$here/registry.js" "$tarballs" npm install --global --no-audit --no-fund @repost/agent-terminal
 
-installed=$(ls "$(npm root --global)/agent-terminal/node_modules")
+installed=$(cd "$(npm root --global)/@repost/agent-terminal/node_modules" && ls -d @*/*)
 if [ "$installed" != "$expected" ]; then
   echo "npm installed the binary packages: $installed (expected $expected only)" >&2
   exit 1
