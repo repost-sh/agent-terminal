@@ -12,10 +12,13 @@ Terminal automation CLI for AI agents, the terminal sibling of agent-browser. Sp
 
 ## Checks
 
-`.githooks/pre-commit` runs the checks for each area a commit touches. Enable it once per clone with `git config core.hooksPath .githooks`, and run the same commands yourself before calling work done. It leaves these to you:
+`scripts/gauntlet.sh` is the gauntlet, the one entry point for every check: work is done when it ends `GAUNTLET GREEN`. Its areas are `rust` (`cli/`), `dashboard`, `npm` and `browser`; with no argument it runs `rust dashboard npm`. Each failure names its fix.
 
-- `npm/` changed: `node --test 'npm/test/*.test.js'` from the repo root.
-- `dashboard/` changed: `npm run build` in `dashboard/`, commit `cli/assets/dashboard` with the sources, then run the browser tests from `cli/` (needs agent-browser): `cargo test --features browser-tests --test cli browser::`.
+Rule Zero: fix the code a check flags, and leave every rule as it stands; a rule that seems wrong goes to the owner.
+
+`.githooks/pre-commit` runs the areas a commit touches. Enable it once per clone with `git config core.hooksPath .githooks`.
+
+`scripts/gauntlet.sh browser` runs the dashboard's browser tests; they need `agent-browser` on `PATH`, with `AGENT_BROWSER_EXECUTABLE_PATH` pointing at Chrome when agent-browser does not find one itself.
 
 ## Code Locality
 

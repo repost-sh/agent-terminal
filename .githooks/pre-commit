@@ -3,11 +3,19 @@ set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
 staged="$(git diff --cached --name-only)"
+areas=()
+
+if grep -qE '^(cli|scripts|\.githooks)/' <<<"$staged"; then
+  areas+=(rust)
+fi
 
 if grep -q '^dashboard/' <<<"$staged"; then
-  cd "$root/dashboard"
-  [ -x node_modules/.bin/eslint ] || { echo "pre-commit: run 'npm ci' in dashboard/" >&2; exit 1; }
-  npm run --silent lint
+  [ -x "$root/dashboard/node_modules/.bin/eslint" ] || { echo "pre-commit: run 'npm ci' in dashboard/" >&2; exit 1; }
+  areas+=(dashboard)
+fi
+
+if grep -q '^npm/' <<<"$staged"; then
+  areas+=(npm)
 fi
 
 workflows="$(grep -E '^\.github/workflows/.+\.ya?ml$' <<<"$staged" | grep -v '^\.github/workflows/release\.yml$' || true)"
@@ -16,9 +24,6 @@ if [ -n "$workflows" ]; then
   (cd "$root" && actionlint $workflows)
 fi
 
-if grep -q '^cli/' <<<"$staged"; then
-  cd "$root/cli"
-  cargo fmt --all --check || { echo "pre-commit: run 'cargo fmt --all' in cli/" >&2; exit 1; }
-  cargo clippy --quiet --workspace --all-targets -- -D warnings
-  cargo test --quiet --workspace
+if [ "${#areas[@]}" -gt 0 ]; then
+  "$root/scripts/gauntlet.sh" "${areas[@]}"
 fi
