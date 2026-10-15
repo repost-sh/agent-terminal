@@ -54,31 +54,45 @@ pub struct Setup {
     pub exit: Option<Option<i32>>,
 }
 
-pub struct Picture {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Glance {
     pub frame: u64,
     pub size: Size,
-    pub rows: Vec<String>,
-    pub cursor: (u16, u16),
-    pub cursor_visible: bool,
     pub alt_screen: bool,
     pub mouse: Option<&'static str>,
     pub bracketed_paste: bool,
     pub exit: Option<Option<i32>>,
 }
 
-impl Picture {
-    pub fn of(screen: &Screen, frame: u64, exit: Option<Option<i32>>) -> Self {
-        let view = screen.view();
+impl Glance {
+    fn of(screen: &Screen, frame: u64, exit: Option<Option<i32>>) -> Self {
         Self {
             frame,
-            size: view.size,
-            rows: screen.rows(0..view.size.rows as i32, true),
-            cursor: (view.cursor.0 + 1, view.cursor.1 + 1),
-            cursor_visible: view.cursor_visible,
-            alt_screen: view.alt_screen,
-            mouse: view.mouse.map(|mouse| mouse.as_str()),
+            size: screen.size(),
+            alt_screen: screen.alt_screen(),
+            mouse: screen.mouse().map(|mouse| mouse.as_str()),
             bracketed_paste: screen.keyboard_modes().bracketed_paste,
             exit,
+        }
+    }
+}
+
+pub struct Picture {
+    pub glance: Glance,
+    pub rows: Vec<String>,
+    pub cursor: (u16, u16),
+    pub cursor_visible: bool,
+}
+
+impl Picture {
+    pub fn of(screen: &Screen, frame: u64, exit: Option<Option<i32>>) -> Self {
+        let glance = Glance::of(screen, frame, exit);
+        let (line, column) = screen.cursor();
+        Self {
+            rows: screen.rows(0..glance.size.rows as i32, true),
+            cursor: (line + 1, column + 1),
+            cursor_visible: screen.cursor_visible(),
+            glance,
         }
     }
 
@@ -89,7 +103,11 @@ impl Picture {
                 paint.push_str(&crate::paint::row(index, row));
             }
         }
-        paint.push_str(&crate::paint::cursor(self.cursor.0, self.cursor.1, self.cursor_visible && self.exit.is_none()));
+        paint.push_str(&crate::paint::cursor(
+            self.cursor.0,
+            self.cursor.1,
+            self.cursor_visible && self.glance.exit.is_none(),
+        ));
         paint
     }
 }
@@ -402,6 +420,11 @@ impl Terminal {
     pub fn picture(&self) -> Picture {
         let state = self.state.lock().unwrap();
         Picture::of(&state.screen, state.frame, state.exit)
+    }
+
+    pub fn glance(&self) -> Glance {
+        let state = self.state.lock().unwrap();
+        Glance::of(&state.screen, state.frame, state.exit)
     }
 
     pub fn continued(&self) -> Continued {

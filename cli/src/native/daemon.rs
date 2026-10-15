@@ -724,7 +724,7 @@ impl Daemon {
                 };
                 frames.borrow_and_update();
                 let picture = terminal.picture();
-                let shown = (picture.frame, picture.exit, picture.size);
+                let shown = (picture.glance.frame, picture.glance.exit, picture.glance.size);
                 if sent != Some(shown) {
                     protocol::write(&mut writer, &AttachEvent::Screen(mirrored(&terminal.program, picture)))?;
                     sent = Some(shown);
@@ -1081,14 +1081,14 @@ fn human_has_control(session: &str, tab: &str) -> ErrorBody {
 fn mirrored(program: &str, picture: Picture) -> Mirror {
     Mirror {
         program: program.to_string(),
-        frame: picture.frame,
-        cols: picture.size.cols,
-        rows: picture.size.rows,
+        frame: picture.glance.frame,
+        cols: picture.glance.size.cols,
+        rows: picture.glance.size.rows,
         lines: picture.rows,
         cursor: [picture.cursor.0, picture.cursor.1],
         cursor_visible: picture.cursor_visible,
-        exited: picture.exit.is_some(),
-        exit_code: picture.exit.flatten(),
+        exited: picture.glance.exit.is_some(),
+        exit_code: picture.glance.exit.flatten(),
     }
 }
 
