@@ -31,7 +31,7 @@ pub struct Terminal {
     pid: Option<u32>,
     cwd: String,
     started: SystemTime,
-    recorded_before: u64,
+    run: Run,
     state: Mutex<State>,
     changed: Condvar,
     input_turn: Mutex<()>,
@@ -96,6 +96,13 @@ impl Picture {
         paint.push_str(&crate::paint::cursor(self.cursor.0, self.cursor.1, self.cursor_visible && self.exit.is_none()));
         paint
     }
+}
+
+pub struct Continued {
+    run: Run,
+    frame: u64,
+    frame_ends: Vec<u64>,
+    first_command: u32,
 }
 
 #[derive(Clone)]
@@ -196,25 +203,31 @@ impl Terminal {
         recording: Arc<Recording>,
         command_log: CommandLog,
         lifecycle: Changes,
-        first_command: u32,
+        continued: Option<Continued>,
     ) -> Arc<Self> {
         let program = display_name(&command.program);
         let size = command.size;
         let cwd = command.cwd.to_string_lossy().into_owned();
         let screen = Screen::new(size);
         let started = Instant::now();
+        let Continued { run, frame, frame_ends, first_command } = continued.unwrap_or_else(|| Continued {
+            run: Run { cast: recording.cast(), from: recording.length(), size, started: SystemTime::now() },
+            frame: 0,
+            frame_ends: Vec::new(),
+            first_command: 1,
+        });
         let commands = shell.map(|_| Commands::new(cwd.clone(), first_command));
         let terminal = Arc::new(Self {
             program,
             pid: spawned.pid,
             cwd,
             started: SystemTime::now(),
-            recorded_before: recording.length(),
+            run,
             state: Mutex::new(State {
                 look: screen.fingerprint(),
                 screen,
-                frame: 0,
-                frame_ends: Vec::new(),
+                frame,
+                frame_ends,
                 last_change: started,
                 last_output: started,
                 exit: None,
@@ -419,7 +432,17 @@ impl Terminal {
     }
 
     pub fn run(&self) -> Run {
-        Run { cast: self.recording.cast(), from: self.recorded_before, size: self.command.size, started: self.started }
+        self.run.clone()
+    }
+
+    pub fn continued(&self) -> Continued {
+        let state = self.state.lock().unwrap();
+        Continued {
+            run: self.run.clone(),
+            frame: state.frame,
+            frame_ends: state.frame_ends.clone(),
+            first_command: state.commands.as_ref().map_or(1, Commands::next_id),
+        }
     }
 
     pub fn frame_ends(&self, after: usize) -> Vec<u64> {
@@ -812,10 +835,6 @@ impl Terminal {
         bytes.push(b'\r');
         self.write(&bytes)?;
         Ok(Some(submitted))
-    }
-
-    pub fn next_command_id(&self) -> u32 {
-        self.state.lock().unwrap().commands.as_ref().map_or(1, Commands::next_id)
     }
 
     pub fn running_command(&self) -> Option<String> {

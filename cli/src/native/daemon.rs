@@ -535,7 +535,7 @@ impl Daemon {
         let tab = folder.next_tab();
         let recording = folder.record(&tab.to_string(), &command);
         let command_log = folder.command_log(&tab.to_string());
-        let terminal = Terminal::start(command, shell, spawned, recording, command_log, self.changes.clone(), 1);
+        let terminal = Terminal::start(command, shell, spawned, recording, command_log, self.changes.clone(), None);
         {
             let mut sessions = self.sessions.lock().unwrap();
             let entry = sessions.entry(session.to_string()).or_insert_with(|| Session::new(Arc::clone(&folder)));
@@ -583,7 +583,7 @@ impl Daemon {
         let spawned = pty::spawn(command.clone()).map_err(error_body)?;
         let recording = old.recording();
         recording.restart();
-        let first_command = old.next_command_id();
+        let continued = old.continued();
         let terminal = Terminal::start(
             command,
             old.shell(),
@@ -591,7 +591,7 @@ impl Daemon {
             recording,
             old.command_log(),
             self.changes.clone(),
-            first_command,
+            Some(continued),
         );
         {
             let mut sessions = self.sessions.lock().unwrap();

@@ -6,7 +6,7 @@
 
 **daemon**: the resident process that owns every terminal. The CLI starts it on first use and talks to it over a unix socket in the agent-terminal home folder.
 
-**frame**: one version of a terminal's screen. The frame number goes up every time program output changes what the screen shows (text, colors, cursor); output that leaves the screen as it was makes no new frame.
+**frame**: one version of a terminal's screen. The frame number goes up every time program output changes what the screen shows (text, colors, cursor); output that leaves the screen as it was makes no new frame. It counts on across `restart`, so a frame number names one screen of the tab.
 
 **stable**: a screen whose frame has not changed for the quiet period (300 ms by default). A heuristic; when the expected content is known, wait for that text instead.
 
