@@ -247,6 +247,8 @@ pub enum Request {
         target: Target,
         wait: Wait,
         timeout_ms: u64,
+        #[serde(default)]
+        assert: bool,
     },
     Expect {
         #[serde(flatten)]
@@ -352,6 +354,8 @@ pub enum Request {
         #[serde(flatten)]
         target: Target,
         timeout_ms: u64,
+        #[serde(default)]
+        assert: bool,
     },
     Attach {
         #[serde(flatten)]

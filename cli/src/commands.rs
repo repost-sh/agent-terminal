@@ -940,6 +940,9 @@ struct UntilArgs {
 
     #[arg(long, help = "Until a human hands control back (at once when the agent has it)")]
     control: bool,
+
+    #[arg(long, help = "Treat running out of time as a failed check: exit 2 instead of 3")]
+    assert: bool,
 }
 
 impl UntilArgs {
@@ -1221,8 +1224,13 @@ fn request(cli: Cli) -> Result<Request, String> {
             let (event, after) = event.event();
             input(target, Input::Mouse { event }, after, dir, cli.timeout)?
         }
-        Command::Wait(UntilArgs { control: true, .. }) => Request::WaitControl { target, timeout_ms: cli.timeout },
-        Command::Wait(args) => Request::Wait { target, wait: args.until(), timeout_ms: cli.timeout },
+        Command::Wait(UntilArgs { control: true, assert, .. }) => {
+            Request::WaitControl { target, timeout_ms: cli.timeout, assert }
+        }
+        Command::Wait(args) => {
+            let assert = args.assert;
+            Request::Wait { target, wait: args.until(), timeout_ms: cli.timeout, assert }
+        }
         Command::Expect(args) => Request::Expect { target, expect: args.check() },
         Command::Daemon { action: DaemonAction::Run }
         | Command::Skills { .. }

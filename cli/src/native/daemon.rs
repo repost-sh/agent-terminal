@@ -180,7 +180,7 @@ impl Daemon {
                     sessions.get(&session).map_or_else(|| SessionInfo::empty(&session), |s| s.info(&session)),
                 ))
             }
-            Request::WaitControl { target, timeout_ms } => self.wait_control(target, timeout_ms),
+            Request::WaitControl { target, timeout_ms, assert } => self.wait_control(target, timeout_ms, assert),
             Request::Attach { .. } => Err(failure(
                 "attach shows the tab in your terminal, so it runs on its own, not in batch or from the dashboard"
                     .into(),
@@ -215,10 +215,10 @@ impl Daemon {
                 let folder = folder.ok_or_else(|| no_terminal(session))?;
                 clips::cut(session, &id.to_string(), &terminal, &folder, &clip).map(Reply::Clip).map_err(error_body)
             }
-            Request::Wait { target, wait: Wait::Elapsed { ms }, timeout_ms } => {
-                self.wait(target, &Wait::Elapsed { ms }, timeout_ms.max(ms))
+            Request::Wait { target, wait: Wait::Elapsed { ms }, timeout_ms, assert } => {
+                self.wait(target, &Wait::Elapsed { ms }, timeout_ms.max(ms), assert)
             }
-            Request::Wait { target, wait, timeout_ms } => self.wait(target, &wait, timeout_ms),
+            Request::Wait { target, wait, timeout_ms, assert } => self.wait(target, &wait, timeout_ms, assert),
             Request::Expect { target, expect } => self.expect(target, &expect),
             Request::Get { target, what } => {
                 let (_, terminal) = self.target(&target)?;
@@ -631,7 +631,7 @@ impl Daemon {
         Ok(taken.screenshot)
     }
 
-    fn wait(&self, target: Target, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+    fn wait(&self, target: Target, wait: &Wait, timeout_ms: u64, assert: bool) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&target)?;
         let (session, tab) = (target.session, id.to_string());
         if matches!(wait, Wait::Command) && terminal.shell().is_none() {
@@ -639,7 +639,14 @@ impl Daemon {
         }
         let condition = condition(wait)?;
         let started = Instant::now();
-        let frame = wait_for(&terminal, &session, &tab, wait, condition, timeout_ms)?;
+        let frame = wait_for(&terminal, &session, &tab, wait, condition, timeout_ms).map_err(|error| match error {
+            ErrorBody { code: crate::exit::TIMEOUT, snapshot, .. } if assert => ErrorBody {
+                code: crate::exit::ASSERTION,
+                message: format!("{} within {timeout_ms} ms in {session} {tab}", not_met(wait)),
+                snapshot,
+            },
+            error => error,
+        })?;
         let waited_ms = started.elapsed().as_millis() as u64;
         let exit_code = match wait {
             Wait::Exit { .. } => terminal.exit_status().flatten(),
@@ -649,7 +656,7 @@ impl Daemon {
         Ok(Reply::Waited(Waited { session, tab, until: describe(wait), waited_ms, frame, exit_code }))
     }
 
-    fn wait_control(&self, target: Target, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+    fn wait_control(&self, target: Target, timeout_ms: u64, assert: bool) -> Result<Reply, ErrorBody> {
         let (id, Tab { terminal, control }) = self.tab(&target)?;
         let (session, tab) = (target.session, id.to_string());
         let started = Instant::now();
@@ -661,6 +668,11 @@ impl Daemon {
                 let until = CONTROL_HANDED_BACK.to_string();
                 Ok(Reply::Waited(Waited { session, tab, until, waited_ms, frame, exit_code: None }))
             }
+            Handed::TimedOut if assert => Err(ErrorBody {
+                code: crate::exit::ASSERTION,
+                message: format!("a human did not hand back control of {session} {tab} within {timeout_ms} ms"),
+                snapshot: None,
+            }),
             Handed::TimedOut => Err(ErrorBody {
                 code: crate::exit::TIMEOUT,
                 message: format!(
@@ -1163,6 +1175,21 @@ fn describe_text(text: &TextMatch, plain: &str, pattern: &str) -> String {
     match text.rows {
         Some(RowRange { first, last }) => format!("{what} in rows {first}-{last}"),
         None => what,
+    }
+}
+
+fn not_met(wait: &Wait) -> String {
+    match wait {
+        Wait::Stable { quiet_ms } => format!("the screen did not stay unchanged for {quiet_ms} ms"),
+        Wait::Idle { quiet_ms } => format!("the program did not stop printing for {quiet_ms} ms"),
+        Wait::Elapsed { ms } => format!("{ms} ms did not pass"),
+        Wait::Exit { code: None } => "the program did not exit".to_string(),
+        Wait::Exit { code: Some(code) } => format!("the program did not exit with code {code}"),
+        Wait::Cursor { row, col } => format!("the cursor did not reach {row},{col}"),
+        Wait::Frame { frame } => format!("the screen did not reach frame {frame}"),
+        Wait::Command => "the shell command did not finish".to_string(),
+        Wait::Text(text) => describe_text(text, "did not appear", "nothing matched"),
+        Wait::Gone(text) => describe_text(text, "did not disappear", "still a match for"),
     }
 }
 

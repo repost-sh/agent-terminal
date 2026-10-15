@@ -67,6 +67,7 @@ Send input:
 
 Wait and check:
   wait <text>                  Until the text is on screen (--regex, --gone, --rows <a:b>, --timeout <ms>)
+                               --assert  running out of time is a failed check: exit 2, not 3 (every wait below takes it)
   wait --stable [ms]           Until the screen stops changing (default 300)
   wait --idle [ms]             Until the program prints nothing, even output that leaves the screen as it was (default 300)
   wait --exit                  Until the program exits (--code <n> to require an exit code; another code exits 2)
