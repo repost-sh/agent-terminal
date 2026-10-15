@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
-staged="$(git diff --cached --name-only)"
+staged="$(git diff --cached --name-only --diff-filter=d)"
 
 if grep -q '^dashboard/' <<<"$staged"; then
   cd "$root/dashboard"
@@ -10,7 +10,7 @@ if grep -q '^dashboard/' <<<"$staged"; then
   npm run --silent lint
 fi
 
-workflows="$(grep -E '^\.github/workflows/.+\.ya?ml$' <<<"$staged" | grep -v '^\.github/workflows/release\.yml$' || true)"
+workflows="$(grep -E '^\.github/workflows/.+\.ya?ml$' <<<"$staged" || true)"
 if [ -n "$workflows" ]; then
   command -v actionlint >/dev/null || { echo "pre-commit: install actionlint (brew install actionlint) to check .github/workflows" >&2; exit 1; }
   (cd "$root" && actionlint $workflows)
