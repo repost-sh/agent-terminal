@@ -3,7 +3,6 @@ members = ["cargo:cli"]
 
 [dist]
 cargo-dist-version = "0.33.0"
-ci = "github"
 targets = [
   "aarch64-apple-darwin",
   "x86_64-apple-darwin",
@@ -14,28 +13,7 @@ targets = [
 ]
 precise-builds = true
 installers = ["homebrew"]
-tap = "repost-sh/homebrew-tap"
 formula = "agent-terminal"
-local-artifacts-jobs = ["./preflight"]
-global-artifacts-jobs = ["./npm-packages"]
-github-attestations = true
-github-attestations-phase = "host"
-publish-jobs = ["homebrew", "./publish-npm"]
+hosting = "github"
 install-path = "CARGO_HOME"
 include = ["licenses/"]
-
-[dist.github-custom-runners.aarch64-unknown-linux-gnu]
-runner = "ubuntu-22.04-arm"
-container = { image = "quay.io/pypa/manylinux_2_28_aarch64:2026.10.10-1@sha256:abd1230aa9e4058a74b89d27cd14ba18c0db036d7bfe6e6f219a29ea63c24eb6", host = "aarch64-unknown-linux-gnu" }
-
-[dist.github-custom-runners.x86_64-unknown-linux-gnu]
-runner = "ubuntu-22.04"
-container = { image = "quay.io/pypa/manylinux_2_28_x86_64:2026.10.10-1@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae", host = "x86_64-unknown-linux-gnu" }
-
-[dist.github-custom-runners.aarch64-unknown-linux-musl]
-runner = "ubuntu-22.04-arm"
-container = { image = "ghcr.io/rust-cross/rust-musl-cross:aarch64-musl@sha256:ecae5dd62d1c938c14f8071d36c16fa699860aace03bfb5284fb1216474d2643", host = "aarch64-unknown-linux-gnu" }
-
-[dist.github-custom-runners.x86_64-unknown-linux-musl]
-runner = "ubuntu-22.04"
-container = { image = "ghcr.io/rust-cross/rust-musl-cross:x86_64-musl@sha256:ce75e9174325d4fbb3de85c309e2d7ca29f7500169bc4b5d2c611ff7e86d549a", host = "x86_64-unknown-linux-gnu" }

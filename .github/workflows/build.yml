@@ -1,0 +1,154 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag to plan for; empty plans the version in cli/Cargo.toml
+        type: string
+        default: ""
+    outputs:
+      plan:
+        description: The dist plan as JSON
+        value: ${{ jobs.plan.outputs.plan }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Plan the release files
+    runs-on: ubuntu-24.04
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+      dist-version: ${{ steps.dist.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - id: dist
+        name: Read the dist version dist-workspace.toml pins
+        run: python3 -c 'import tomllib; print("version=" + tomllib.load(open("dist-workspace.toml", "rb"))["dist"]["cargo-dist-version"])' >> "$GITHUB_OUTPUT"
+      - name: Install dist
+        run: curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${{ steps.dist.outputs.version }}/cargo-dist-installer.sh" | sh
+      - id: plan
+        name: Plan with dist
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          dist plan ${TAG:+"--tag=$TAG"} --output-format=json > "$RUNNER_TEMP/plan.json"
+          echo "plan=$(jq -c . "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
+
+  archive:
+    name: Build the ${{ matrix.target }} archive
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+            container: quay.io/pypa/manylinux_2_28_aarch64:2026.10.10-1@sha256:abd1230aa9e4058a74b89d27cd14ba18c0db036d7bfe6e6f219a29ea63c24eb6
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            container: quay.io/pypa/manylinux_2_28_x86_64:2026.10.10-1@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-22.04-arm
+            container: ghcr.io/rust-cross/rust-musl-cross:aarch64-musl@sha256:ecae5dd62d1c938c14f8071d36c16fa699860aace03bfb5284fb1216474d2643
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-22.04
+            container: ghcr.io/rust-cross/rust-musl-cross:x86_64-musl@sha256:ce75e9174325d4fbb3de85c309e2d7ca29f7500169bc4b5d2c611ff7e86d549a
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install rustup in the build image
+        if: matrix.container
+        run: |
+          command -v rustup || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install the Rust toolchain rust-toolchain.toml pins
+        run: rustup toolchain install
+      - name: Install dist
+        run: curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${{ needs.plan.outputs.dist-version }}/cargo-dist-installer.sh" | sh
+      - name: Build the archive
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          dist build ${TAG:+"--tag=$TAG"} --artifacts=local --target=${{ matrix.target }} --print=linkage --output-format=json > "$RUNNER_TEMP/manifest.json"
+          cp "$RUNNER_TEMP/manifest.json" "target/distrib/${{ matrix.target }}-dist-manifest.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: archive-${{ matrix.target }}
+          path: |
+            target/distrib/agent-terminal-${{ matrix.target }}.tar.xz
+            target/distrib/agent-terminal-${{ matrix.target }}.tar.xz.sha256
+            target/distrib/${{ matrix.target }}-dist-manifest.json
+          if-no-files-found: error
+
+  global:
+    name: Build the Homebrew formula, the source archive and sha256.sum
+    needs: [plan, archive]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install dist
+        run: curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${{ needs.plan.outputs.dist-version }}/cargo-dist-installer.sh" | sh
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: archive-*
+          path: target/distrib/
+          merge-multiple: true
+      - name: Build the global files
+        env:
+          TAG: ${{ inputs.tag }}
+        run: dist build ${TAG:+"--tag=$TAG"} --artifacts=global --output-format=json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: global
+          path: |
+            target/distrib/agent-terminal.rb
+            target/distrib/source.tar.gz
+            target/distrib/source.tar.gz.sha256
+            target/distrib/sha256.sum
+          if-no-files-found: error
+
+  npm:
+    name: Pack the npm packages
+    needs: [plan, archive]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: archive-*
+          path: target/distrib/
+          merge-multiple: true
+      - name: Build one package per platform and the main package, then pack them
+        env:
+          PLAN: ${{ needs.plan.outputs.plan }}
+        run: |
+          printf '%s' "$PLAN" > "$RUNNER_TEMP/plan.json"
+          node npm/build-packages.js --manifest "$RUNNER_TEMP/plan.json" --artifacts target/distrib --out target/npm
+          mkdir target/npm-tarballs
+          for package in target/npm/@repost/*/; do
+            npm pack "$package" --pack-destination target/npm-tarballs
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: npm
+          path: target/npm-tarballs/*.tgz
+          if-no-files-found: error
