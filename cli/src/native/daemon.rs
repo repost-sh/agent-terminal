@@ -22,9 +22,9 @@ use crate::output::{self, call_line};
 use crate::protocol::{
     self, Addressed, AttachEvent, AttachInput, Attached, BatchOutcome, BatchStep, Call, Checked, Closed, CommandOutput,
     CommandRecord, Dashboard, DashboardStopped, Delivered, ErrorBody, Expect, Export, History, HumanInput, Input,
-    KeptRunning, Marked, Matches, Mirror, Printed, RecordingFile, Reply, Request, Response, RowRange, SavedRecording,
-    Screenshot, SessionInfo, Sessions, Shell, Shot, Size, Snapshot, SnapshotOptions, Style, TabId, TabRef, Target,
-    TextMatch, Wait, Waited,
+    KeptRunning, Marked, Matches, Mirror, OtherVersion, Printed, RecordingFile, Reply, Request, Response, RowRange,
+    SavedRecording, Screenshot, SessionInfo, Sessions, Shell, Shot, Size, Snapshot, SnapshotOptions, Style, TabId,
+    TabRef, Target, TextMatch, Wait, Waited,
 };
 
 const CONTROL_HANDED_BACK: &str = "a human to hand back control";
@@ -174,14 +174,20 @@ impl Daemon {
 
     fn not_understood(&self, mut stream: UnixStream, error: &serde_json::Error) {
         eprintln!("a request this daemon does not understand: {error}");
+        let terminals = self.terminals();
         let response = Response::Err(ErrorBody {
             code: crate::exit::OTHER_VERSION,
             message: format!(
                 "the daemon is agent-terminal {} and does not understand this request, so the command is another version; it has {}: `agent-terminal daemon stop` ends it and its terminals, and the next command starts a daemon of the command's version",
                 crate::VERSION,
-                output::count(self.terminals(), "open terminal")
+                output::count(terminals, "open terminal")
             ),
             snapshot: None,
+            other_version: Some(OtherVersion {
+                cli_version: None,
+                daemon_version: Some(crate::VERSION.to_string()),
+                terminals: Some(terminals),
+            }),
         });
         if let Err(e) = protocol::write(&mut stream, &response) {
             eprintln!("sending a reply failed: {e:#}");
@@ -399,6 +405,7 @@ impl Daemon {
                 code: crate::exit::ERROR,
                 message: "stopping the daemon cannot be part of a batch".into(),
                 snapshot: None,
+                other_version: None,
             });
         }
         let logged = self.about_to_handle(args.to_vec(), &request);
@@ -640,6 +647,7 @@ impl Daemon {
                     old.program
                 ),
                 snapshot: None,
+                other_version: None,
             });
         }
         let command = old.rerun();
@@ -728,6 +736,7 @@ impl Daemon {
                 code: crate::exit::ASSERTION,
                 message: format!("{} within {timeout_ms} ms in {session} {tab}", not_met(wait)),
                 snapshot,
+                other_version: None,
             },
             error => error,
         })?;
@@ -756,6 +765,7 @@ impl Daemon {
                 code: crate::exit::ASSERTION,
                 message: format!("a human did not hand back control of {session} {tab} within {timeout_ms} ms"),
                 snapshot: None,
+                other_version: None,
             }),
             Handed::TimedOut => Err(ErrorBody {
                 code: crate::exit::TIMEOUT,
@@ -763,6 +773,7 @@ impl Daemon {
                     "timed out after {timeout_ms} ms waiting for {CONTROL_HANDED_BACK} of {session} {tab}; wait longer with --timeout <ms>"
                 ),
                 snapshot: None,
+                other_version: None,
             }),
             Handed::Closed => Err(failure(format!("stopped waiting for control: {session} {tab} was closed"))),
         }
@@ -1181,6 +1192,7 @@ fn human_has_control(session: &str, tab: &str) -> ErrorBody {
         code: crate::exit::HUMAN_CONTROL,
         message: format!("A human has control of {session} {tab}. Run `agent-terminal wait --control`."),
         snapshot: None,
+        other_version: None,
     }
 }
 
@@ -1216,7 +1228,7 @@ fn read_attach_inputs(mut reader: UnixStream, inputs: tokio::sync::mpsc::Unbound
 }
 
 fn with_screen(code: i32, message: String, snapshot: Snapshot) -> ErrorBody {
-    ErrorBody { code, message, snapshot: Some(Box::new(snapshot)) }
+    ErrorBody { code, message, snapshot: Some(Box::new(snapshot)), other_version: None }
 }
 
 fn no_integration(session: &str, tab: &str, terminal: &Terminal) -> ErrorBody {
@@ -1227,7 +1239,7 @@ fn no_integration(session: &str, tab: &str, terminal: &Terminal) -> ErrorBody {
 }
 
 fn assertion(message: String, snapshot: Snapshot) -> ErrorBody {
-    ErrorBody { code: crate::exit::ASSERTION, message, snapshot: Some(Box::new(snapshot)) }
+    ErrorBody { code: crate::exit::ASSERTION, message, snapshot: Some(Box::new(snapshot)), other_version: None }
 }
 
 fn listed(styles: &[&Style]) -> String {
@@ -1252,6 +1264,7 @@ fn exited_while_waiting(wait: &Wait, snapshot: Snapshot) -> ErrorBody {
             snapshot.tab
         ),
         snapshot: Some(Box::new(snapshot)),
+        other_version: None,
     }
 }
 
@@ -1265,6 +1278,7 @@ fn timed_out(wait: &Wait, timeout_ms: u64, snapshot: Snapshot) -> ErrorBody {
             snapshot.tab
         ),
         snapshot: Some(Box::new(snapshot)),
+        other_version: None,
     }
 }
 
@@ -1315,6 +1329,7 @@ fn no_terminal(session: &str) -> ErrorBody {
         code: crate::exit::ERROR,
         message: format!("no terminal is open in session {session}; start one with `agent-terminal open <program>`"),
         snapshot: None,
+        other_version: None,
     }
 }
 
@@ -1323,10 +1338,10 @@ fn no_tab(session: &str, id: TabId) -> ErrorBody {
 }
 
 fn failure(message: String) -> ErrorBody {
-    ErrorBody { code: crate::exit::ERROR, message, snapshot: None }
+    ErrorBody { code: crate::exit::ERROR, message, snapshot: None, other_version: None }
 }
 
 fn error_body(error: anyhow::Error) -> ErrorBody {
     let code = error.downcast_ref::<crate::Error>().map_or(crate::exit::ERROR, |e| e.code);
-    ErrorBody { code, message: format!("{error:#}"), snapshot: None }
+    ErrorBody { code, message: format!("{error:#}"), snapshot: None, other_version: None }
 }

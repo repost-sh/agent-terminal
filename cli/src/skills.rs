@@ -125,9 +125,10 @@ pub fn install(json: bool) -> i32 {
 fn finish(result: Result<()>, json: bool) -> i32 {
     match result {
         Ok(()) => 0,
-        Err(e) => {
-            output::error(&ErrorBody { code: crate::exit::ERROR, message: format!("{e:#}"), snapshot: None }, json)
-        }
+        Err(e) => output::error(
+            &ErrorBody { code: crate::exit::ERROR, message: format!("{e:#}"), snapshot: None, other_version: None },
+            json,
+        ),
     }
 }
 

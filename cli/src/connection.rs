@@ -11,7 +11,7 @@ use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
 use crate::VERSION;
 use crate::output::count;
-use crate::protocol::{self, Call, ErrorBody, Reply, Request, Response};
+use crate::protocol::{self, Call, ErrorBody, OtherVersion, Reply, Request, Response};
 
 pub const READY: &str = "ready";
 const STOPS_WITHIN: Duration = Duration::from_secs(10);
@@ -141,6 +141,11 @@ fn other_version(running: Option<&str>, terminals: Option<usize>) -> ErrorBody {
             daemon_of(running)
         ),
         snapshot: None,
+        other_version: Some(OtherVersion {
+            cli_version: Some(VERSION.to_string()),
+            daemon_version: running.map(str::to_string),
+            terminals,
+        }),
     }
 }
 

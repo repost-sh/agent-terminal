@@ -116,7 +116,7 @@ pub async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
 }
 
 pub fn refused(message: String) -> Response {
-    refusal(ErrorBody { code: crate::exit::ERROR, message, snapshot: None })
+    refusal(ErrorBody { code: crate::exit::ERROR, message, snapshot: None, other_version: None })
 }
 
 fn refusal(error: ErrorBody) -> Response {

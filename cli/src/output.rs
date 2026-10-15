@@ -481,7 +481,12 @@ pub fn fail(message: &str, code: i32) -> i32 {
 pub fn refuse(message: &str, json: bool) -> i32 {
     if json {
         return error(
-            &ErrorBody { code: crate::exit::ERROR, message: message.trim_end().to_string(), snapshot: None },
+            &ErrorBody {
+                code: crate::exit::ERROR,
+                message: message.trim_end().to_string(),
+                snapshot: None,
+                other_version: None,
+            },
             true,
         );
     }
