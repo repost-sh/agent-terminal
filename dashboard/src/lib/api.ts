@@ -56,7 +56,14 @@ export const restartTab = (session: string, tab: string) => post(`${tabPath(sess
 
 export const closeTab = (session: string, tab: string) => post(`${tabPath(session, tab)}/close`);
 
-export const takeScreenshot = async (session: string, tab: string) => (await post<{ path: string }>(`${tabPath(session, tab)}/screenshot`)).path;
+export const takeScreenshot = (session: string, tab: string, frame: number | null) =>
+  post<{ path: string }>(`${tabPath(session, tab)}/screenshot`, frame === null ? undefined : { frame }).then(
+    (taken) => taken.path,
+    (error: unknown) => {
+      console.error(`Could not take a screenshot of ${session} ${tab}: ${reason(error)}`);
+      return null;
+    },
+  );
 
 export const startRecording = async (session: string, tab: string) => (await post<{ path: string }>(`${tabPath(session, tab)}/record/start`)).path;
 

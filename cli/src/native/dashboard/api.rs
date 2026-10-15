@@ -104,9 +104,13 @@ pub async fn record_stop(
 }
 
 pub async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
+    let asked = serde_json::to_value(&request).map_or_else(|e| e.to_string(), |asked| asked["command"].to_string());
     match tokio::task::spawn_blocking(move || backend.call(request)).await {
         Ok(Ok(reply)) => Json(reply).into_response(),
-        Ok(Err(error)) => refusal(error),
+        Ok(Err(error)) => {
+            eprintln!("dashboard: {asked} from the dashboard failed: {}", error.message);
+            refusal(error)
+        }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("the daemon call failed: {e}")).into_response(),
     }
 }

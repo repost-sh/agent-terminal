@@ -7,7 +7,7 @@ import { clockMs, formatDuration } from "../lib/format";
 import type { PendingCall } from "../lib/protocol";
 import { fileName, useScreenshots } from "../lib/screenshots";
 import { tabKey, tabName } from "../lib/tabs";
-import { endOf, goLive, showMoment, useViewingPast } from "../lib/timeline";
+import { endOf, showMoment } from "../lib/timeline";
 import type { PanelProps } from "../panels";
 import { announce } from "./announcer";
 import { HEAD_TOGGLE, PanelHead } from "./panel-parts";
@@ -146,8 +146,7 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
   const [follow, setFollow] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
   const followButton = useRef<HTMLButtonElement>(null);
-  const past = useViewingPast(session, tab.tab);
-  const following = follow && !past;
+  const following = follow;
   const hidden = clearedAt && entries[0]?.time === clearedAt.first ? clearedAt.count : 0;
   const shown = activityRows(entries.slice(hidden), hidden);
 
@@ -167,10 +166,7 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
     announce("Activity cleared");
   };
 
-  const followLatest = () => {
-    setFollow(true);
-    goLive(session, tab.tab);
-  };
+  const followLatest = () => setFollow(true);
 
   const jumpToLatest = () => {
     followLatest();

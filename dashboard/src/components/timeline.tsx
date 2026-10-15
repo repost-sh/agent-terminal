@@ -2,6 +2,7 @@ import { useActivity } from "../lib/activity";
 import { useCommands } from "../lib/commands";
 import { clockTime } from "../lib/format";
 import type { TabInfo } from "../lib/protocol";
+import { useScreenshots } from "../lib/screenshots";
 import { tabName } from "../lib/tabs";
 import { endOf, goLive, useTimeline, useViewedFrame, viewFrame } from "../lib/timeline";
 import { announce } from "./announcer";
@@ -18,23 +19,22 @@ const TICK = {
 const along = (frame: number, last: number) => `calc(5px + (100% - 10px) * ${last > 1 ? (Math.min(frame, last) - 1) / (last - 1) : 0})`;
 
 export const Timeline = ({ session, tab }: { session: string; tab: TabInfo }) => {
-  const { count, started, frame: frameAt } = useTimeline(session, tab.tab);
+  const { count, started, failed, frame: frameAt } = useTimeline(session, tab.tab);
   const viewed = useViewedFrame(session, tab.tab);
   const { entries } = useActivity(session, tab.tab);
   const commands = useCommands(session, tab.tab);
+  const { value: screenshots } = useScreenshots(session);
   const name = tabName(session, tab.tab);
   const last = Math.max(count, 1);
   const shown = viewed ?? last;
   const at = frameAt(shown);
   const live = viewed === null;
+  const sinceStart = (time: number) => started !== null && time >= started;
 
-  const calls = entries.flatMap((entry) =>
-    entry.frame !== undefined && started !== null && endOf(entry) >= started ? [{ frame: entry.frame, shot: Boolean(entry.screenshots?.length) }] : [],
-  );
   const ticks: Tick[] = [
-    ...calls.map((call): Tick => ({ kind: "call", frame: call.frame })),
+    ...entries.flatMap((entry): Tick[] => (entry.frame !== undefined && !entry.human && sinceStart(endOf(entry)) ? [{ kind: "call", frame: entry.frame }] : [])),
     ...(commands?.commands ?? []).map((command): Tick => ({ kind: "command", frame: command.first_frame })),
-    ...calls.filter((call) => call.shot).map((call): Tick => ({ kind: "shot", frame: call.frame })),
+    ...screenshots.flatMap((shot): Tick[] => (shot.tab === tab.tab && sinceStart(Date.parse(shot.time)) ? [{ kind: "shot", frame: shot.frame }] : [])),
   ];
 
   const backToLive = () => {
@@ -61,7 +61,7 @@ export const Timeline = ({ session, tab }: { session: string; tab: TabInfo }) =>
           onChange={(event) => viewFrame(session, tab.tab, Number(event.currentTarget.value))}
           aria-label={`Timeline of ${name}`}
           aria-valuetext={at ? `frame ${shown} · ${clockTime(at.time_ms)}` : `frame ${shown}`}
-          disabled={last <= 1}
+          disabled={last <= 1 || failed}
         />
       </div>
       <button

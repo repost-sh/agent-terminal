@@ -1,15 +1,14 @@
 import type { Terminal } from "@xterm/xterm";
 import { useSyncExternalStore } from "react";
 
-import { toast } from "../components/toaster";
 import { timelineUrl } from "./api";
 import type { ActivityEntry, TimelineFrame, TimelineUpdate } from "./protocol";
 import { followSocket } from "./socket";
-import { tabKey, tabName } from "./tabs";
+import { tabKey } from "./tabs";
 
-export type TimelineState = { started: number | null; count: number };
+export type TimelineState = { started: number | null; count: number; failed: boolean };
 
-const EMPTY: TimelineState = { started: null, count: 0 };
+const EMPTY: TimelineState = { started: null, count: 0, failed: false };
 
 const viewed = new Map<string, number>();
 const viewListeners = new Set<() => void>();
@@ -44,9 +43,16 @@ const createTimeline = (session: string, tab: string): Timeline => {
   let frames: TimelineFrame[] = [];
   let stop = () => {};
 
+  const publish = (next: TimelineState) => {
+    state = next;
+    listeners.forEach((listener) => listener());
+  };
+
   const receive = (update: Exclude<TimelineUpdate, { type: "closed" }>) => {
     if (update.type === "failed") {
-      toast("error", `Could not load the timeline of ${tabName(session, tab)}`, update.message);
+      frames = [];
+      setViewed(key, null);
+      publish({ started: null, count: 0, failed: true });
       return;
     }
     if (update.reset) {
@@ -54,8 +60,7 @@ const createTimeline = (session: string, tab: string): Timeline => {
       if (state.started !== null && state.started !== update.started_ms) setViewed(key, null);
     }
     frames.push(...update.frames);
-    state = { started: update.started_ms, count: frames.length };
-    listeners.forEach((listener) => listener());
+    publish({ started: update.started_ms, count: frames.length, failed: false });
   };
 
   const subscribe = (listener: () => void) => {
@@ -121,7 +126,6 @@ export const useViewedFrame = (session: string, tab: string) => {
   return useSyncExternalStore(subscribeViews, () => viewed.get(key) ?? null);
 };
 
-export const useViewingPast = (session: string, tab: string) => useViewedFrame(session, tab) !== null;
 
 export const viewFrame = (session: string, tab: string, frame: number) => {
   const { count } = timelines.get(tabKey(session, tab))?.read() ?? EMPTY;
