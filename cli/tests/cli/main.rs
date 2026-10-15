@@ -27,6 +27,7 @@ mod sessions;
 mod shell;
 mod skills;
 mod snapshot;
+mod stream;
 mod support;
 mod tabs;
 mod timeline;

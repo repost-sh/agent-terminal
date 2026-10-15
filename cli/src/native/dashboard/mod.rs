@@ -55,6 +55,7 @@ impl Server {
         }
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_io()
+            .enable_time()
             .build()
             .context("start the dashboard's runtime")?;
         let app = router(guard::Pages { port, origins: origins.clone() }, backend);

@@ -1,13 +1,11 @@
-use std::net::TcpStream;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
-use tungstenite::{Message, WebSocket};
 
-use crate::support::{AgentTerminal, Cue, fixture, snapshot_rows};
+use crate::support::{AgentTerminal, Cue, DashboardSocket, dashboard, fixture, snapshot_rows};
 
 struct Timeline {
-    socket: WebSocket<TcpStream>,
+    socket: DashboardSocket,
 }
 
 struct Run {
@@ -17,18 +15,11 @@ struct Run {
 
 impl Timeline {
     fn open(port: u16, tab: &str) -> Self {
-        let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to the dashboard");
-        stream.set_read_timeout(Some(Duration::from_secs(25))).expect("bound every read");
-        let url = format!("ws://localhost:{port}/api/session/default/{tab}/timeline");
-        let (socket, _) = tungstenite::client(url.as_str(), stream).expect("open the timeline");
-        Self { socket }
+        Self { socket: DashboardSocket::open(port, &format!("/api/session/default/{tab}/timeline")) }
     }
 
     fn next(&mut self) -> Value {
-        match self.socket.read().expect("a timeline message") {
-            Message::Text(text) => serde_json::from_str(&text).expect("a JSON message"),
-            other => panic!("expected a text message, got {other:?}"),
-        }
+        self.socket.next()
     }
 
     fn run_through(&mut self, last: u64) -> Run {
@@ -45,11 +36,6 @@ impl Timeline {
         }
         Run { started_ms, frames }
     }
-}
-
-fn dashboard(at: &AgentTerminal) -> u16 {
-    let started = at.run(&["--json", "dashboard", "start", "--port", "0"]).success().json();
-    started["port"].as_u64().expect("the dashboard's port") as u16
 }
 
 fn now_ms() -> u64 {

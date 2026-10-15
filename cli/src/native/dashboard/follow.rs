@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use axum::extract::ws::WebSocket;
+use axum::extract::ws::{Message, WebSocket};
 use tokio::sync::watch;
+use tokio::time::Instant;
 
 use super::Backend;
 use super::stream::hung_up;
@@ -9,6 +10,14 @@ use crate::native::terminal::Terminal;
 use crate::protocol::TabId;
 
 type Lookup<T> = Box<dyn Fn() -> Option<Arc<T>> + Send + Sync>;
+
+pub enum Event {
+    Changed,
+    Received(String),
+    Ignored,
+    Deadline,
+    HungUp,
+}
 
 pub struct Follow<T> {
     lookup: Lookup<T>,
@@ -66,6 +75,36 @@ impl<T> Follow<T> {
             changed = extra => changed.is_ok(),
             received = socket.recv() => !hung_up(received),
         }
+    }
+
+    pub async fn event(&mut self, socket: &mut WebSocket, deadline: Option<Instant>) -> Event {
+        let Self { lifecycle, extra, watched, .. } = self;
+        let signal = changed_or_never(watched.as_mut().and_then(|(_, signal)| signal.as_mut()));
+        let extra = changed_or_never(extra.as_mut());
+        tokio::select! {
+            changed = lifecycle.changed() => change(changed),
+            changed = signal => change(changed),
+            changed = extra => change(changed),
+            received = socket.recv() => match received {
+                Some(Ok(Message::Text(text))) => Event::Received(text.to_string()),
+                received => if hung_up(received) { Event::HungUp } else { Event::Ignored },
+            },
+            () = sleep_until_or_never(deadline) => Event::Deadline,
+        }
+    }
+}
+
+fn change(changed: Result<(), watch::error::RecvError>) -> Event {
+    match changed {
+        Ok(()) => Event::Changed,
+        Err(_) => Event::HungUp,
+    }
+}
+
+async fn sleep_until_or_never(deadline: Option<Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
     }
 }
 

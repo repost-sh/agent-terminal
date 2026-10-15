@@ -37,7 +37,7 @@ shlex = "2"
 swash = "0.2"
 tiny-skia = "0.12"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
-tokio = { version = "1", features = ["macros", "net", "process", "rt", "sync"] }
+tokio = { version = "1", features = ["macros", "net", "process", "rt", "sync", "time"] }
 
 [features]
 browser-tests = []
