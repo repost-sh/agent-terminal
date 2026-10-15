@@ -194,17 +194,17 @@ fn skills_path_removes_the_folders_older_versions_left() {
     );
 }
 
-fn stub_in(user: &Path) -> PathBuf {
+pub fn stub_in(user: &Path) -> PathBuf {
     user.join(".claude/skills/agent-terminal/SKILL.md")
 }
 
-fn stub_of_version(version: &str) -> String {
+pub fn stub_of_version(version: &str) -> String {
     format!(
         "---\nname: agent-terminal\ndescription: The stub of agent-terminal {version}\nmetadata:\n  version: \"{version}\"\n---\n\n# agent-terminal {version}\n"
     )
 }
 
-fn put_stub(user: &Path, contents: &str) {
+pub fn put_stub(user: &Path, contents: &str) {
     let stub = stub_in(user);
     std::fs::create_dir_all(stub.parent().unwrap()).unwrap();
     std::fs::write(stub, contents).unwrap();

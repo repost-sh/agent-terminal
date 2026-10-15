@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use clap::Subcommand;
 use semver::Version;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::connection;
 use crate::output;
@@ -130,11 +130,11 @@ fn finish(result: Result<()>, json: bool) -> i32 {
     }
 }
 
-#[derive(Serialize)]
-struct Installed {
-    installed: bool,
-    path: PathBuf,
-    version: String,
+#[derive(Serialize, Deserialize)]
+pub struct Installed {
+    pub installed: bool,
+    pub path: PathBuf,
+    pub version: String,
 }
 
 pub enum Stub {
