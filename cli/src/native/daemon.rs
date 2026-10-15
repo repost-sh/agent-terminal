@@ -841,10 +841,17 @@ impl Daemon {
             Settled::Met { .. } => {}
             Settled::Exited => return Err(exited_while_waiting(&Wait::Command, terminal.snapshot(&session, &tab))),
             Settled::TimedOut => {
-                let message = format!(
-                    "timed out after {timeout_ms} ms waiting for `{line}` to finish in {session} {tab}; it is still running as command {} (wait for it with `agent-terminal wait --command`, read its output with `agent-terminal history show {}`, interrupt it with `agent-terminal signal INT`)",
-                    submitted.first_id, submitted.first_id
-                );
+                let waited =
+                    format!("timed out after {timeout_ms} ms waiting for `{line}` to finish in {session} {tab}");
+                let id = submitted.first_id;
+                let message = match terminal.command(id) {
+                    Some(_) => format!(
+                        "{waited}; it is still running as command {id} (wait for it with `agent-terminal wait --command`, read its output with `agent-terminal history show {id}`, interrupt it with `agent-terminal signal INT`)"
+                    ),
+                    None => format!(
+                        "{waited}; the shell has not started a command for it, so the line may be unfinished (read the screen with `agent-terminal snapshot`, cancel the line with `agent-terminal press Ctrl+c`)"
+                    ),
+                };
                 return Err(with_screen(crate::exit::TIMEOUT, message, terminal.snapshot(&session, &tab)));
             }
         }

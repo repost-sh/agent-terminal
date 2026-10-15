@@ -88,6 +88,7 @@ in_every_shell!(
     history_keeps_every_command_with_its_exit_code_cwd_and_output,
     wait_command_waits_for_a_long_running_command,
     a_cancelled_command_line_leaves_the_shell_ready,
+    exec_of_a_line_the_shell_waits_to_finish_says_no_command_started,
     exec_after_a_line_the_shell_refused_starts_on_an_empty_command_line,
     the_users_startup_files_load_and_stay_untouched,
     the_command_log_keeps_every_finished_command_with_its_output,
@@ -197,6 +198,26 @@ fn wait_command_waits_for_a_long_running_command(shell: &'static str) {
     assert_eq!(
         timeless(&tab.run(&["history", "show", "2"]).success().stdout()),
         format!("typed\n2 · exit 0 · <time> · {cwd} · cat hold\n")
+    );
+}
+
+fn exec_of_a_line_the_shell_waits_to_finish_says_no_command_started(shell: &'static str) {
+    let tab = ShellTab::opened(shell);
+    let cwd = tab.cwd();
+    let unfinished = tab.run(&["exec", "echo 'unfinished", "--timeout", "300"]);
+    assert_eq!(unfinished.code(), 3);
+    assert_eq!(
+        unfinished.stderr().lines().next(),
+        Some(
+            "error: timed out after 300 ms waiting for `echo 'unfinished` to finish in default t1; the shell has not started a command for it, so the line may be unfinished (read the screen with `agent-terminal snapshot`, cancel the line with `agent-terminal press Ctrl+c`)"
+        )
+    );
+    assert_eq!(tab.run(&["history"]).success().stdout(), "no commands have run in default t1\n");
+    tab.run(&["press", "Ctrl+c"]).success();
+    tab.run(&["wait", "--command"]).success();
+    assert_eq!(
+        timeless(&tab.run(&["exec", "echo after"]).success().stdout()),
+        format!("after\n1 · exit 0 · <time> · {cwd} · echo after\n")
     );
 }
 
