@@ -26,17 +26,25 @@ function buildImages() {
   );
 }
 
-function jobNeeds(source) {
-  const jobs = source.slice(source.indexOf('\njobs:\n'));
+function jobs(source) {
   return Object.fromEntries(
-    jobs
+    source
+      .slice(source.indexOf('\njobs:\n'))
       .split(/^ {2}(?=[a-z][\w-]*:$)/m)
       .slice(1)
       .map((block) => {
         const [header, ...body] = block.split('\n');
-        const needs = body.join('\n').match(/^ {4}needs:\n((?: {6}- .+\n)+)/m);
-        return [header.slice(0, -1), needs ? [...needs[1].matchAll(/- (\S+)/g)].map((match) => match[1]) : []];
+        return [header.slice(0, -1), body.join('\n')];
       }),
+  );
+}
+
+function jobNeeds(source) {
+  return Object.fromEntries(
+    Object.entries(jobs(source)).map(([name, body]) => {
+      const needs = body.match(/^ {4}needs:\n((?: {6}- .+\n)+)/m);
+      return [name, needs ? [...needs[1].matchAll(/- (\S+)/g)].map((match) => match[1]) : []];
+    }),
   );
 }
 
@@ -52,8 +60,16 @@ test('the release creates and publishes nothing until the preflight passes', () 
   assert.match(workflow('preflight.yml'), /run: node npm\/preflight\.js --tag "\$TAG"$/m);
 });
 
-test('the release archives are attested', () => {
-  assert.match(workflow('release.yml'), /^ {8}uses: actions\/attest@v\d+$/m);
+test('the release archives are attested only after the preflight and the glibc floor check pass', () => {
+  const release = workflow('release.yml');
+  const attesting = Object.entries(jobs(release))
+    .filter(([, body]) => /^ {8}uses: actions\/attest@v\d+$/m.test(body))
+    .map(([name]) => name);
+
+  assert.deepEqual(attesting, ['host']);
+  assert.ok(jobNeeds(release).host.includes('custom-preflight'));
+  assert.ok(jobNeeds(release).host.includes('custom-npm-packages'));
+  assert.match(rootFile('dist-workspace.toml'), /^github-attestations-phase = "host"$/m);
 });
 
 test('npm publishing uses trusted publishing with provenance and no token', () => {
