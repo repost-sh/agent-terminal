@@ -77,6 +77,11 @@ impl<'a> Moment<'a> {
         Self { now: Instant::now(), screen, frame, last_change, last_output, exited, prompt, view: OnceCell::new() }
     }
 
+    pub fn by(mut self, deadline: Instant) -> Self {
+        self.now = self.now.min(deadline);
+        self
+    }
+
     fn view(&self) -> &ScreenView {
         self.view.get_or_init(|| self.screen.view())
     }
