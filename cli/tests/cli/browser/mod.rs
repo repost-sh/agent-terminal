@@ -124,6 +124,17 @@ impl Browser {
         self.run(&["eval", script]).trim().to_string()
     }
 
+    #[track_caller]
+    pub fn select_panel(&self, name: &str) {
+        let tab = format!(
+            "[...document.querySelectorAll('[role=tab]')].find((tab) => tab.textContent === {})",
+            js_string(name)
+        );
+        self.wait_until(&format!("{tab} !== undefined"));
+        self.run(&["find", "role", "tab", "click", "--name", name, "--exact"]);
+        self.wait_until(&format!("{tab}.ariaSelected === 'true'"));
+    }
+
     pub fn click_button(&self, name: &str) {
         self.run(&["find", "role", "button", "click", "--name", name, "--exact"]);
     }
