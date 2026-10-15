@@ -7,7 +7,8 @@ fn open_app(at: &AgentTerminal) {
 }
 
 fn attach(at: &AgentTerminal, from: &str, extra: &[&str], ready: &str) -> Run {
-    let mut args = vec!["--session", from, "open", "--size", "70x10", "--wait", ready, BINARY, "--session", "app"];
+    let mut args =
+        vec!["--session", from, "open", "--size", "70x10", "--wait", ready, BINARY, "--", "--session", "app"];
     args.push("attach");
     args.extend_from_slice(extra);
     at.run(&args)

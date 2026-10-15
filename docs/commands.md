@@ -15,6 +15,8 @@ Start and stop:
                                --wait <text>  wait for this text instead of a stable screen
                                --wait-stable [ms]  how long unchanged counts as stable (default 300)
                                --no-wait  print the screen right away
+                               open's options may follow the program (open lazygit --size 80x24); the program gets
+                               every other argument, and everything after -- (open app -- --size big)
   shell [--shell zsh|bash|fish]   Open your shell (default: $SHELL) with command history turned on
                                (prints the screen at its first prompt; takes --wait / --wait-stable / --no-wait like open)
   exec "<command line>"        Run a command in the shell tab, wait for it, print output + exit code

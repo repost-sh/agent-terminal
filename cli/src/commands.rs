@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -1087,7 +1088,7 @@ enum DaemonAction {
 }
 
 pub fn run() -> i32 {
-    let cli = match Cli::try_parse() {
+    let cli = match Cli::try_parse_from(open_options_first(&Cli::command(), std::env::args_os().collect())) {
         Ok(cli) => cli,
         Err(e) if e.use_stderr() && json_asked() => {
             let rendered = e.render().to_string();
@@ -1286,7 +1287,82 @@ fn batch(
     Ok(Request::Batch { steps, bail: args.bail })
 }
 
+enum Takes {
+    Nothing,
+    Value,
+    Number,
+}
+
+fn open_options_first(parser: &clap::Command, argv: Vec<OsString>) -> Vec<OsString> {
+    let Ok(matches) = parser.clone().try_get_matches_from(&argv) else { return argv };
+    let (path, opened) = match matches.subcommand() {
+        Some(("open", opened)) => (["open", ""], opened),
+        Some(("tab", tab)) => match tab.subcommand() {
+            Some(("new", opened)) => (["tab", "new"], opened),
+            _ => return argv,
+        },
+        _ => return argv,
+    };
+    let Some(command) = opened.get_many::<String>("command") else { return argv };
+    let command: Vec<&String> = command.collect();
+    let program_at = argv.len() - command.len();
+    if argv[..program_at].last().is_some_and(|before| before == "--") {
+        return argv;
+    }
+    let mut parser = parser.clone();
+    parser.build();
+    let open =
+        path.iter().filter(|name| !name.is_empty()).try_fold(&parser, |command, name| command.find_subcommand(name));
+    let Some(open) = open else { return argv };
+    let own = |token: &str| {
+        let name = token.strip_prefix("--")?.split('=').next()?;
+        let arg = open.get_arguments().find(|arg| arg.get_long() == Some(name))?;
+        let inline = token.contains('=');
+        Some(match arg.get_action() {
+            clap::ArgAction::Set | clap::ArgAction::Append if inline => Takes::Nothing,
+            clap::ArgAction::Set | clap::ArgAction::Append => {
+                match arg.get_num_args().is_some_and(|range| range.min_values() == 0) {
+                    true => Takes::Number,
+                    false => Takes::Value,
+                }
+            }
+            _ => Takes::Nothing,
+        })
+    };
+    let mut options = Vec::new();
+    let mut program = vec![OsString::from(command[0])];
+    let mut separated = false;
+    let mut rest = command[1..].iter().peekable();
+    while let Some(token) = rest.next() {
+        if token.as_str() == "--" {
+            separated = true;
+            program.extend(rest.map(OsString::from));
+            break;
+        }
+        let Some(takes) = own(token) else {
+            program.push(OsString::from(token.as_str()));
+            continue;
+        };
+        options.push(OsString::from(token.as_str()));
+        let value = match takes {
+            Takes::Nothing => None,
+            Takes::Value => rest.next(),
+            Takes::Number => rest.next_if(|next| !next.is_empty() && next.bytes().all(|byte| byte.is_ascii_digit())),
+        };
+        options.extend(value.map(OsString::from));
+    }
+    if options.is_empty() && !separated {
+        return argv;
+    }
+    let mut reordered = argv[..program_at].to_vec();
+    reordered.extend(options);
+    reordered.push("--".into());
+    reordered.extend(program);
+    reordered
+}
+
 fn batch_step(parser: clap::Command, call: &[String]) -> Result<Request, String> {
+    let call = open_options_first(&parser, call.iter().map(OsString::from).collect());
     let matches = parser.try_get_matches_from(call).map_err(|e| e.render().to_string())?;
     request(Cli::from_arg_matches(&matches).map_err(|e| e.render().to_string())?)
 }

@@ -126,7 +126,8 @@ fn a_human_attached_from_a_terminal_shows_as_human_in_the_sidebar() {
     browser.wait_for_status("Live");
     let binary = env!("CARGO_BIN_EXE_agent-terminal");
     let attach = ["--session", "default", "attach"];
-    let mut args = vec!["--session", "human", "open", "--size", "70x10", "--wait", "ctrl-p ctrl-q detaches", binary];
+    let mut args =
+        vec!["--session", "human", "open", "--size", "70x10", "--wait", "ctrl-p ctrl-q detaches", binary, "--"];
     args.extend(attach);
     at.run(&args).success();
     browser.wait_until(

@@ -21,6 +21,33 @@ fn open_prints_the_programs_first_stable_screen() {
 }
 
 #[test]
+fn options_of_open_after_the_program_are_open_options_and_the_rest_goes_to_the_program() {
+    let at = AgentTerminal::new();
+    let run = at
+        .run(&["open", &fixture("line-printer"), "--lines", "2", "--size", "30x4", "--hold", "--wait", "line 2"])
+        .success();
+    insta::assert_snapshot!(run.screen(), @r"
+    default t1 · line-printer · 30x4 · cursor 3,1 · frame N
+    1│line 1
+    2│line 2
+    …│ (rows 3-4 blank)
+    ");
+
+    let script = "echo \"got $1 $2\"; read _";
+    let passed = at
+        .run(&["tab", "new", "sh", "-c", script, "sh", "--size", "30x3", "--wait", "got", "--", "--size", "--wait"])
+        .success();
+    insta::assert_snapshot!(passed.screen(), @r"
+    default t2 · sh · 30x3 · cursor 2,1 · frame N
+    1│got --size --wait
+    …│ (rows 2-3 blank)
+    ");
+
+    let global = at.run(&["open", &fixture("line-printer"), "--hold", "--json", "--wait=line 3"]).success().json();
+    assert_eq!((&global["tab"], &global["lines"][2]), (&serde_json::json!("t3"), &serde_json::json!("line 3")));
+}
+
+#[test]
 fn snapshot_reads_a_full_screen_app() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
