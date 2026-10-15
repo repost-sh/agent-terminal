@@ -124,7 +124,6 @@ function build({ manifest: manifestPath, artifacts, out }) {
   const version = releaseVersion(dist);
   const archives = PLATFORMS.map((platform) => archiveFor(dist, artifacts, platform.target));
   const { platforms } = writePackagesWithoutBinaries(version, out);
-  platforms.forEach((directory, index) => extractBinary(archives[index], path.join(directory, 'bin', BINARY)));
 }
 
 if (require.main === module) {
