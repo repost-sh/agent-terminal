@@ -25,48 +25,92 @@ fn png_size(path: &Path) -> (u32, u32) {
     (picture.width, picture.height)
 }
 
-const CHANNEL_TOLERANCE: u8 = 24;
-const PIXEL_TOLERANCE: f64 = 0.005;
+const CELL_WIDTH: u32 = 9;
+const CELL_HEIGHT: u32 = 20;
+const MARGIN: u32 = 10;
+const CLOSE: u8 = 24;
+
+type Rgb = [u8; 3];
+
+const BACKGROUND: Rgb = [0x11, 0x11, 0x13];
+const FOREGROUND: Rgb = [0xd4, 0xd4, 0xd8];
+const RED: Rgb = [0xf8, 0x71, 0x71];
+const GREEN: Rgb = [0x4a, 0xde, 0x80];
+const BLUE: Rgb = [0x60, 0xa5, 0xfa];
+const XTERM_208: Rgb = [255, 135, 0];
+const MAGENTA_RGB: Rgb = [255, 0, 255];
+const REF_COLORS: [Rgb; 6] = [
+    [0xfb, 0x92, 0x3c],
+    [0x38, 0xbd, 0xf8],
+    [0xa3, 0xe6, 0x35],
+    [0xf4, 0x72, 0xb6],
+    [0xfa, 0xcc, 0x15],
+    [0x81, 0x8c, 0xf8],
+];
+
+fn close_to(a: Rgb, b: Rgb) -> bool {
+    a.iter().zip(b).all(|(a, b)| a.abs_diff(b) <= CLOSE)
+}
+
+impl Picture {
+    fn at(&self, x: u32, y: u32) -> Rgb {
+        assert!(x < self.width && y < self.height, "{x},{y} is outside the {}x{} picture", self.width, self.height);
+        let at = ((y * self.width + x) * 3) as usize;
+        [self.rgb[at], self.rgb[at + 1], self.rgb[at + 2]]
+    }
+
+    fn cell(&self, row: u32, col: u32) -> Cell<'_> {
+        Cell { picture: self, left: MARGIN + (col - 1) * CELL_WIDTH, top: MARGIN + (row - 1) * CELL_HEIGHT }
+    }
+}
+
+struct Cell<'a> {
+    picture: &'a Picture,
+    left: u32,
+    top: u32,
+}
+
+impl Cell<'_> {
+    fn pixels(&self, xs: std::ops::Range<u32>, ys: std::ops::Range<u32>) -> Vec<Rgb> {
+        ys.flat_map(|y| xs.clone().map(move |x| (x, y)))
+            .map(|(x, y)| self.picture.at(self.left + x, self.top + y))
+            .collect()
+    }
+
+    fn all(&self) -> Vec<Rgb> {
+        self.pixels(0..CELL_WIDTH, 0..CELL_HEIGHT)
+    }
+
+    fn inked(&self, xs: std::ops::Range<u32>, ys: std::ops::Range<u32>, background: Rgb) -> bool {
+        self.pixels(xs, ys).into_iter().any(|pixel| !close_to(pixel, background))
+    }
+
+    fn has(&self, color: Rgb) -> bool {
+        self.all().into_iter().any(|pixel| close_to(pixel, color))
+    }
+
+    fn brightness(&self) -> u32 {
+        self.all().iter().map(|pixel| pixel.iter().map(|&channel| u32::from(channel)).sum::<u32>()).sum()
+    }
+}
 
 #[track_caller]
-fn assert_looks_like(actual: &Path, baseline: &str) {
-    let expected_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/baselines").join(baseline);
-    let kept = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/baseline-failures").join(baseline);
-    let keep = || {
-        std::fs::create_dir_all(kept.parent().unwrap()).unwrap();
-        std::fs::copy(actual, &kept).unwrap();
-    };
-    if !expected_path.exists() {
-        keep();
-        panic!("no baseline {}; the screenshot is in {}", expected_path.display(), kept.display());
-    }
-    let (got, expected) = (picture(actual), picture(&expected_path));
-    if (got.width, got.height) != (expected.width, expected.height) {
-        keep();
-        panic!(
-            "{} is {}x{} px, the baseline {}x{} px; the screenshot is in {}",
-            baseline,
-            got.width,
-            got.height,
-            expected.width,
-            expected.height,
-            kept.display()
-        );
-    }
-    let differing = got
-        .rgb
-        .chunks_exact(3)
-        .zip(expected.rgb.chunks_exact(3))
-        .filter(|(a, b)| a.iter().zip(b.iter()).any(|(a, b)| a.abs_diff(*b) > CHANNEL_TOLERANCE))
-        .count();
-    let share = differing as f64 / (got.width * got.height) as f64;
-    if share > PIXEL_TOLERANCE {
-        keep();
-        panic!(
-            "{differing} pixels ({:.2}%) differ from the baseline {baseline}; the screenshot is in {}",
-            share * 100.0,
-            kept.display()
-        );
+fn assert_filled(cell: &Cell, xs: std::ops::Range<u32>, ys: std::ops::Range<u32>, color: Rgb, what: &str) {
+    let off: Vec<Rgb> = cell.pixels(xs, ys).into_iter().filter(|pixel| !close_to(*pixel, color)).collect();
+    assert!(off.is_empty(), "{what}: {} pixels are not {color:?}, e.g. {:?}", off.len(), off.first());
+}
+
+#[track_caller]
+fn assert_lines(cell: &Cell, ends: [bool; 4], what: &str) {
+    let (mid_x, mid_y) = (CELL_WIDTH / 2, CELL_HEIGHT / 2);
+    let edges = [
+        ("top", mid_x - 1..mid_x + 2, 0..1),
+        ("right", CELL_WIDTH - 1..CELL_WIDTH, mid_y - 2..mid_y + 3),
+        ("bottom", mid_x - 1..mid_x + 2, CELL_HEIGHT - 1..CELL_HEIGHT),
+        ("left", 0..1, mid_y - 2..mid_y + 3),
+    ];
+    for ((edge, xs, ys), reaches) in edges.into_iter().zip(ends) {
+        assert_eq!(cell.inked(xs, ys, BACKGROUND), reaches, "{what}: a line reaches its {edge} edge");
     }
 }
 
@@ -103,14 +147,69 @@ fn frame(at: &AgentTerminal) -> u64 {
 }
 
 #[test]
-fn a_screenshot_draws_box_drawing_wide_characters_emoji_and_colors_like_the_baseline() {
+fn a_screenshot_draws_colors_box_drawing_blocks_emoji_and_symbols_in_their_cells() {
     let at = AgentTerminal::new();
     let screen = Screen::open(&at, "44x8", EVERYTHING, "end");
     let path = screen.file("everything.png");
 
     at.run(&["screenshot", &path.to_string_lossy()]).success();
 
-    assert_looks_like(&path, "everything.png");
+    let shot = picture(&path);
+    assert_eq!((shot.width, shot.height), (44 * 9 + 2 * 10, 8 * 20 + 2 * 10));
+    assert_eq!(shot.at(0, 0), BACKGROUND, "the margin");
+    assert_filled(&shot.cell(8, 44), 0..9, 0..20, BACKGROUND, "an empty cell");
+    assert_filled(&shot.cell(7, 29), 0..9, 0..20, BACKGROUND, "the hidden cursor's cell");
+
+    for col in 3..=11 {
+        let inverse = shot.cell(2, col);
+        assert_filled(&inverse, 0..9, 0..2, FOREGROUND, "the inverse row's backdrop");
+        assert!(inverse.has(BACKGROUND), "the inverse text at col {col} is drawn in the background color");
+    }
+    assert!(shot.cell(5, 1).has(RED), "\"red\" is red");
+    assert!(shot.cell(5, 5).has(GREEN), "\"green\" is green");
+    assert_filled(&shot.cell(5, 16), 0..9, 0..20, BLUE, "the space before \"blue\" on a blue background");
+    assert!(shot.cell(5, 23).has(XTERM_208), "\"256\" is xterm color 208");
+    assert!(shot.cell(5, 27).has(MAGENTA_RGB), "\"rgb\" is #ff00ff");
+
+    assert_lines(&shot.cell(1, 1), [false, true, true, false], "┌");
+    assert_lines(&shot.cell(1, 2), [false, true, false, true], "─");
+    assert_lines(&shot.cell(1, 12), [false, false, true, true], "┐");
+    assert_lines(&shot.cell(2, 1), [true, false, true, false], "│");
+    assert_lines(&shot.cell(3, 1), [true, true, true, false], "├");
+    assert_lines(&shot.cell(4, 1), [true, true, false, false], "└");
+    assert_lines(&shot.cell(1, 14), [false, true, true, false], "╭");
+    assert_lines(&shot.cell(4, 14), [false, true, true, false], "┏");
+    assert_lines(&shot.cell(7, 19), [true, true, true, true], "┼");
+    assert_lines(&shot.cell(7, 20), [true, true, true, true], "╋");
+    assert_lines(&shot.cell(7, 21), [true, true, true, true], "╬");
+
+    assert_filled(&shot.cell(7, 8), 0..9, 0..20, FOREGROUND, "█ fills its cell");
+    assert_filled(&shot.cell(7, 4), 0..9, 0..9, BACKGROUND, "▄ leaves the upper half");
+    assert_filled(&shot.cell(7, 4), 0..9, 11..20, FOREGROUND, "▄ fills the lower half");
+    assert_filled(&shot.cell(7, 1), 0..9, 0..17, BACKGROUND, "▁ leaves all but the lowest eighth");
+    assert_filled(&shot.cell(7, 1), 0..9, 19..20, FOREGROUND, "▁ fills the lowest eighth");
+    let quadrants = [("▖", 14, [false, false, true, false]), ("▗", 15, [false, false, false, true])];
+    let quadrants =
+        quadrants.into_iter().chain([("▘", 16, [true, false, false, false]), ("▝", 17, [false, true, false, false])]);
+    for (block, col, filled) in quadrants {
+        let cell = shot.cell(7, col);
+        let parts = [(0..4, 0..9), (5..9, 0..9), (0..4, 11..20), (5..9, 11..20)];
+        for ((xs, ys), on) in parts.into_iter().zip(filled) {
+            let color = if on { FOREGROUND } else { BACKGROUND };
+            assert_filled(&cell, xs, ys, color, block);
+        }
+    }
+    let shades: Vec<u32> = (10..=12).map(|col| shot.cell(7, col).brightness()).collect();
+    assert!(shades[0] < shades[1] && shades[1] < shades[2], "░ ▒ ▓ get darker to lighter: {shades:?}");
+
+    for col in [13, 14, 16, 17] {
+        assert!(shot.cell(6, col).inked(0..9, 0..20, BACKGROUND), "the emoji take two cells each: col {col}");
+    }
+    let arrow = shot.cell(6, 29);
+    assert!(arrow.inked(0..2, 9..11, BACKGROUND), "the powerline arrow  starts at its cell's left edge");
+    assert!(arrow.inked(3..6, 9..11, BACKGROUND), "the powerline arrow  is solid, not an empty box");
+    assert!(!arrow.inked(7..9, 0..2, BACKGROUND), "the powerline arrow  narrows to a point");
+    assert!(shot.cell(6, 27).inked(0..9, 0..20, BACKGROUND), "the nerd font folder  is drawn");
 }
 
 #[test]
@@ -265,7 +364,32 @@ fn annotate_draws_a_box_and_a_name_on_each_ref_with_a_legend_and_prints_the_refs
       @t5 [hint]     "Quit: q"   row 8 col 13
       @t6 [hint]     "Crash: x"  row 8 col 23
     "#);
-    assert_looks_like(&path, "annotated.png");
+
+    let shot = picture(&path);
+    let legend_lines = 3;
+    assert_eq!((shot.width, shot.height), (50 * 9 + 2 * 10, 8 * 20 + 2 * 10 + 10 + legend_lines * 20));
+    let refs: [(u32, u32, u32, u32); 6] =
+        [(1, 7, 1, 20), (1, 7, 21, 50), (2, 2, 2, 19), (8, 8, 1, 9), (8, 8, 13, 19), (8, 8, 23, 30)];
+    for (index, ((first_row, last_row, first_col, last_col), color)) in refs.into_iter().zip(REF_COLORS).enumerate() {
+        let name = format!("@t{}", index + 1);
+        let (left, right) = (MARGIN + (first_col - 1) * CELL_WIDTH, MARGIN + last_col * CELL_WIDTH - 1);
+        let (top, bottom) = (MARGIN + (first_row - 1) * CELL_HEIGHT, MARGIN + last_row * CELL_HEIGHT - 1);
+        let (middle_x, middle_y) = ((left + right) / 2, (top + bottom) / 2);
+        assert_eq!(shot.at(left, middle_y), color, "the left side of {name}'s box");
+        assert_eq!(shot.at(right, middle_y), color, "the right side of {name}'s box");
+        assert_eq!(shot.at(middle_x, bottom), color, "the bottom of {name}'s box");
+    }
+    let legend_top = 8 * 20 + 2 * 10;
+    for (line, first_ref) in [0, 2, 4].into_iter().enumerate() {
+        let y = legend_top + line as u32 * CELL_HEIGHT;
+        assert_eq!(
+            shot.at(MARGIN, y),
+            REF_COLORS[first_ref],
+            "legend line {} starts with @t{}",
+            line + 1,
+            first_ref + 1
+        );
+    }
 }
 
 #[test]
