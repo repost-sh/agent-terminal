@@ -47,6 +47,7 @@ dashboard() {
   step "fix the type errors → GAUNTLET.md#dashboard-types" npm run --silent check
   step "fix the type errors in the lint tooling → GAUNTLET.md#dashboard-types" node_modules/.bin/tsc --noEmit -p eslint
   step "fix the rule or the sealed config the failing test names → GAUNTLET.md#sealed-eslint-config" node --test 'eslint/*.test.ts'
+  step "fix the code the failing test names, or test the lines it reports uncovered → GAUNTLET.md#dashboard-tests" npm run --silent test
   step "fix the build error → GAUNTLET.md#dashboard-build" npm run --silent build
   cd "$root"
   git diff --quiet -- cli/assets/dashboard || fail "the built dashboard differs from cli/assets/dashboard: commit the rebuilt cli/assets/dashboard with its sources → GAUNTLET.md#dashboard-build"

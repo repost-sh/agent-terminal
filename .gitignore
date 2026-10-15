@@ -4,3 +4,4 @@ node_modules/
 *.pending-snap
 *.snap.new
 .claude/worktrees/
+coverage/

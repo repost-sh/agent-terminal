@@ -25,6 +25,7 @@ const RESTRICTED_SELECTORS = [
   "TSTypeAliasDeclaration[typeAnnotation.type='TSTypeReference'][typeAnnotation.typeName.name='PropsWithChildren']",
   "TSTypeAliasDeclaration[typeAnnotation.type='TSTypeReference'][typeAnnotation.typeName.type='TSQualifiedName'][typeAnnotation.typeName.right.name='PropsWithChildren']",
   "ObjectPattern[properties.length>2]",
+  "MemberExpression[object.name=/^(test|it|describe|suite)$/][property.name=/^(only|skip|skipIf|runIf|todo|fails)$/]",
   "TryStatement",
 ];
 
@@ -66,6 +67,7 @@ const LINTED = () => [
   ...globSync("src/**/*.{ts,tsx}", { cwd: ROOT }),
   ...globSync("eslint/*.ts", { cwd: ROOT }).filter((file) => !file.endsWith(".d.ts")),
   "vite.config.ts",
+  "vitest.config.ts",
   "eslint.config.js",
 ];
 
@@ -189,10 +191,33 @@ void test("the scripts lint with no warnings allowed and type-check without emit
   const scripts = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
 
   assert.deepEqual(
-    { lint: scripts["lint"], check: scripts["check"], build: scripts["build"] },
-    { lint: "eslint --max-warnings 0 .", check: "tsc --noEmit", build: "tsc --noEmit && vite build" },
+    { lint: scripts["lint"], check: scripts["check"], build: scripts["build"], test: scripts["test"] },
+    { lint: "eslint --max-warnings 0 .", check: "tsc --noEmit", build: "tsc --noEmit && vite build", test: "vitest run --coverage" },
     `package.json scripts changed: restore them → GAUNTLET.md#sealed-eslint-config`,
   );
+});
+
+void test("the unit tests cover every source file against a 90% line floor", async () => {
+  const exported: unknown = (await import("../vitest.config.ts")).default;
+  const config = isRecord(exported) && isRecord(exported["test"]) ? exported["test"] : {};
+
+  assert.deepEqual(
+    { include: config["include"], passWithNoTests: config["passWithNoTests"], coverage: config["coverage"] },
+    {
+      include: ["src/**/*.test.{ts,tsx}"],
+      passWithNoTests: undefined,
+      coverage: { provider: "v8", include: ["src/**/*.{ts,tsx}"], reporter: ["text-summary", "json"], thresholds: { lines: 90 } },
+    },
+    `vitest.config.ts changed what is tested or covered: restore it and test the code → GAUNTLET.md#dashboard-tests`,
+  );
+});
+
+void test("vitest.config.ts is the only Vitest config in the dashboard", () => {
+  const others = ["vitest.config.js", "vitest.config.mts", "vitest.config.mjs", "vitest.workspace.ts", "vitest.workspace.js", "vitest.projects.ts"].filter((path) =>
+    existsSync(join(ROOT, path)),
+  );
+
+  assert.deepEqual(others, [], `another Vitest config can override the sealed one: delete it → GAUNTLET.md#dashboard-tests`);
 });
 
 void test("eslint.config.js is the only ESLint config in the dashboard", () => {

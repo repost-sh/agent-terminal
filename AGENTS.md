@@ -6,7 +6,7 @@ Terminal automation CLI for AI agents, the terminal sibling of agent-browser. Sp
 
 - `cli/` is the Rust crate. A command runs `cli/src/commands/` (clap args, built into a `Request`) → `cli/src/protocol/` (the wire types between CLI and daemon) → `cli/src/native/daemon/` (handles the `Request`) → `cli/src/output/` (prints the `Reply`). Everything under `cli/src/native/` runs in the daemon.
 - `cli/tests/cli/` holds one file per command. Each test runs the real binary through the harness in `support.rs` against the fixture programs in `cli/tests/fixtures/src/bin/`.
-- `dashboard/` is the web app (Vite, React, Tailwind, xterm.js), served by `cli/src/native/dashboard/`. Its wire types in `dashboard/src/lib/protocol.ts` are written by hand to match `cli/src/protocol/`, so change both together. `npm run build` writes the app into `cli/assets/dashboard`, which is committed and embedded in the binary.
+- `dashboard/` is the web app (Vite, React, Tailwind, xterm.js), served by `cli/src/native/dashboard/`. Its wire types in `dashboard/src/lib/protocol.ts` are written by hand to match `cli/src/protocol/`, so change both together. `npm run build` writes the app into `cli/assets/dashboard`, which is committed and embedded in the binary. Its unit tests sit beside the code they test (`*.test.ts`, `*.test.tsx`) and drive it through `src/fake-daemon/`, which stands in for the daemon's sockets and HTTP API.
 - `skill-data/` holds the guides `agent-terminal skills get` prints, compiled into the binary by `cli/src/skills.rs`. When a command's flags or behaviour change, the guide that teaches it changes in the same commit. `skills/` holds the discovery stub.
 - Releases: `npm/` (launcher and per-platform packages), `dist-workspace.toml`, `.github/workflows/release.yml`.
 

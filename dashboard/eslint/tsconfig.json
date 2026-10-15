@@ -23,5 +23,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["*.ts", "../eslint.config.js", "../vite.config.ts"]
+  "include": ["*.ts", "../eslint.config.js", "../vite.config.ts", "../vitest.config.ts"]
 }

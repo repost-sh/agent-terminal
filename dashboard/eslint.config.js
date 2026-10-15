@@ -52,13 +52,17 @@ const restrictedSyntax = [
     message: "Destructuring more than two properties is not allowed.",
   },
   {
+    selector: "MemberExpression[object.name=/^(test|it|describe|suite)$/][property.name=/^(only|skip|skipIf|runIf|todo|fails)$/]",
+    message: "Focused, skipped and pending tests are not allowed: run every test, and fix or delete the one that fails.",
+  },
+  {
     selector: "TryStatement",
     message:
       "try/catch/finally is not allowed. Use `settle` from src/lib/settle.ts, which turns a throwing call or a rejecting promise into a Result.",
   },
 ];
 
-const LINTED = ["src/**/*.{ts,tsx}", "vite.config.ts", "eslint.config.js", "eslint/**/*.ts"];
+const LINTED = ["src/**/*.{ts,tsx}", "vite.config.ts", "vitest.config.ts", "eslint.config.js", "eslint/**/*.ts"];
 
 export default defineConfig(
   {
@@ -71,7 +75,7 @@ export default defineConfig(
     },
     languageOptions: {
       parserOptions: {
-        projectService: { allowDefaultProject: ["vite.config.ts", "eslint.config.js"], defaultProject: "eslint/tsconfig.json" },
+        projectService: { allowDefaultProject: ["vite.config.ts", "vitest.config.ts", "eslint.config.js"], defaultProject: "eslint/tsconfig.json" },
         tsconfigRootDir: import.meta.dirname,
       },
     },
