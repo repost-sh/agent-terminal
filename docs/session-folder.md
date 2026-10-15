@@ -87,7 +87,7 @@ Only tabs opened with `shell`, which have shell integration. One line per comman
 ```
 
 - Each line is what `history show <id> --json` prints for the command, without `session` and `tab`.
-- `id`: the command's number in `history`. `restart` starts the history again at 1 and keeps appending to the same file, so after a restart an id can appear twice; the earlier line is from before the restart.
+- `id`: the command's number in `history`, unique in the tab: `restart` starts `history` with the commands of the new run, numbered on from the last command before it, and keeps appending to the same file.
 - `started_at_ms`, `ended_at_ms`: wall-clock Unix time in milliseconds, so `started_at_ms / 1000 - timestamp` is where the command starts in the tab's recording. `duration_ms`: from start to finish.
 - `exit_code`: what the shell reported; `null` when it started a new prompt without reporting one.
 - `first_frame`, `last_frame`: the tab's frame when the command started and after its last output.

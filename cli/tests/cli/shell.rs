@@ -110,23 +110,23 @@ fn history_keeps_every_command_with_its_exit_code_cwd_and_output(shell: &'static
     tab.run(&["restart"]).success();
 
     let failed = tab.run(&["exec", "false"]).success();
-    assert_eq!(timeless(&failed.stdout()), format!("1 · exit 1 · <time> · {cwd} · false\n"));
+    assert_eq!(timeless(&failed.stdout()), format!("2 · exit 1 · <time> · {cwd} · false\n"));
     let checked = tab.run(&["exec", "--check", "sh -c 'echo to stderr >&2; exit 3'"]);
     assert_eq!(checked.code(), 3, "{}", checked.stderr());
     assert_eq!(
         timeless(&checked.stdout()),
-        format!("to stderr\n2 · exit 3 · <time> · {cwd} · sh -c 'echo to stderr >&2; exit 3'\n")
+        format!("to stderr\n3 · exit 3 · <time> · {cwd} · sh -c 'echo to stderr >&2; exit 3'\n")
     );
     tab.run(&["exec", "--check", "mkdir sub && cd sub"]).success();
     let numbers: String = (1..=25).map(|n| format!("{n}\n")).collect();
     let scrolled = tab.run(&["exec", "seq 1 25"]).success();
-    assert_eq!(timeless(&scrolled.stdout()), format!("{numbers}4 · exit 0 · <time> · {sub} · seq 1 25\n"));
+    assert_eq!(timeless(&scrolled.stdout()), format!("{numbers}5 · exit 0 · <time> · {sub} · seq 1 25\n"));
 
     let all = format!(
-        "1 · exit 1 · <time> · {cwd} · false\n\
-         2 · exit 3 · <time> · {cwd} · sh -c 'echo to stderr >&2; exit 3'\n\
-         3 · exit 0 · <time> · {cwd} · mkdir sub && cd sub\n\
-         4 · exit 0 · <time> · {sub} · seq 1 25\n"
+        "2 · exit 1 · <time> · {cwd} · false\n\
+         3 · exit 3 · <time> · {cwd} · sh -c 'echo to stderr >&2; exit 3'\n\
+         4 · exit 0 · <time> · {cwd} · mkdir sub && cd sub\n\
+         5 · exit 0 · <time> · {sub} · seq 1 25\n"
     );
     let lines: Vec<&str> = all.lines().collect();
     assert_eq!(timeless(&tab.run(&["history"]).success().stdout()), all);
@@ -139,7 +139,7 @@ fn history_keeps_every_command_with_its_exit_code_cwd_and_output(shell: &'static
         timeless(&tab.run(&["history", "--failed", "--last", "1"]).success().stdout()),
         format!("{}\n", lines[1])
     );
-    assert_eq!(timeless(&tab.run(&["history", "show", "4"]).success().stdout()), format!("{numbers}{}\n", lines[3]));
+    assert_eq!(timeless(&tab.run(&["history", "show", "5"]).success().stdout()), format!("{numbers}{}\n", lines[3]));
     let missing = tab.run(&["history", "show", "9"]);
     assert_eq!(missing.code(), 1);
     assert_eq!(missing.stderr(), "error: no command 9 in default t1; list them with `agent-terminal history`\n");
@@ -287,7 +287,7 @@ fn the_command_log_keeps_every_finished_command_with_its_output(shell: &'static 
     tab.run(&["exec", "echo again"]).success();
     let logged = logged_commands(&tab);
     assert_eq!(logged.len(), 4, "restart keeps the log of the tab");
-    assert_eq!(without_timing(logged[3].clone()), finished(1, "echo again", &cwd, 0, "again\n"));
+    assert_eq!(without_timing(logged[3].clone()), finished(4, "echo again", &cwd, 0, "again\n"));
 }
 
 fn the_users_startup_files_load_and_stay_untouched(shell: &'static str) {
@@ -442,7 +442,7 @@ fn restart_opens_the_shell_again_with_integration() {
     let cwd = tab.cwd();
     assert_eq!(
         timeless(&tab.run(&["exec", "echo after"]).success().stdout()),
-        format!("after\n1 · exit 0 · <time> · {cwd} · echo after\n")
+        format!("after\n2 · exit 0 · <time> · {cwd} · echo after\n")
     );
 }
 

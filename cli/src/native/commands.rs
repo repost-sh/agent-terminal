@@ -10,6 +10,7 @@ pub struct Commands {
     entered: bool,
     prompts: u64,
     start_cwd: String,
+    first_id: u32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -56,8 +57,12 @@ pub struct Submitted {
 }
 
 impl Commands {
-    pub fn new(start_cwd: String) -> Self {
-        Self { records: Vec::new(), phase: Phase::Starting, entered: false, prompts: 0, start_cwd }
+    pub fn new(start_cwd: String, first_id: u32) -> Self {
+        Self { records: Vec::new(), phase: Phase::Starting, entered: false, prompts: 0, start_cwd, first_id }
+    }
+
+    pub fn next_id(&self) -> u32 {
+        self.first_id + self.records.len() as u32
     }
 
     pub fn report(&mut self, report: ShellReport, at: Point) -> Option<Change> {
@@ -105,7 +110,7 @@ impl Commands {
             record.last_frame = Some(at.frame);
         }
         self.phase = Phase::Finished;
-        Change::Finished { id: self.records.len() as u32 }
+        Change::Finished { id: self.next_id() - 1 }
     }
 
     pub fn entered(&mut self) {
@@ -117,7 +122,7 @@ impl Commands {
     }
 
     pub fn submitted(&self) -> Submitted {
-        Submitted { prompts: self.prompts, first_id: self.records.len() as u32 + 1 }
+        Submitted { prompts: self.prompts, first_id: self.next_id() }
     }
 
     pub fn running(&self) -> Option<&str> {
@@ -132,22 +137,21 @@ impl Commands {
     }
 
     pub fn records(&self) -> Vec<CommandRecord> {
-        self.records.iter().enumerate().map(|(index, record)| record.public(index)).collect()
+        (self.first_id..).zip(&self.records).map(|(id, record)| record.public(id)).collect()
     }
 
     pub fn record(&self, id: u32) -> Option<(CommandRecord, Offsets, Option<Offsets>)> {
-        let index = (id as usize).checked_sub(1)?;
-        let record = self.records.get(index)?;
-        Some((record.public(index), record.output_from, record.output_to))
+        let record = self.records.get(id.checked_sub(self.first_id)? as usize)?;
+        Some((record.public(id), record.output_from, record.output_to))
     }
 }
 
 impl Record {
-    fn public(&self, index: usize) -> CommandRecord {
+    fn public(&self, id: u32) -> CommandRecord {
         let ended_at = self.ended.map(|(at, _)| at);
         let duration = self.ended.map_or_else(|| self.started.elapsed(), |(_, ended)| ended - self.started);
         CommandRecord {
-            id: index as u32 + 1,
+            id,
             command: self.command.clone(),
             cwd: self.cwd.clone(),
             started_at_ms: epoch_ms(self.started_at),

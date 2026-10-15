@@ -183,13 +183,14 @@ impl Terminal {
         recording: Arc<Recording>,
         command_log: CommandLog,
         lifecycle: Changes,
+        first_command: u32,
     ) -> Arc<Self> {
         let program = display_name(&command.program);
         let size = command.size;
         let cwd = command.cwd.to_string_lossy().into_owned();
         let screen = Screen::new(size);
         let started = Instant::now();
-        let commands = shell.map(|_| Commands::new(cwd.clone()));
+        let commands = shell.map(|_| Commands::new(cwd.clone(), first_command));
         let terminal = Arc::new(Self {
             program,
             pid: spawned.pid,
@@ -774,6 +775,10 @@ impl Terminal {
         bytes.push(b'\r');
         self.write(&bytes)?;
         Ok(Some(submitted))
+    }
+
+    pub fn next_command_id(&self) -> u32 {
+        self.state.lock().unwrap().commands.as_ref().map_or(1, Commands::next_id)
     }
 
     pub fn running_command(&self) -> Option<String> {
