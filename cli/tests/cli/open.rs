@@ -145,6 +145,30 @@ fn cwd_and_env_reach_the_program() {
 }
 
 #[test]
+fn a_relative_cwd_is_relative_to_where_open_runs_and_a_missing_one_is_refused() {
+    let at = AgentTerminal::new();
+    let work = at.work_folder();
+    std::fs::create_dir(work.join("app")).expect("create the app folder");
+    let script = ["sh", "-c", "echo \"in $(pwd -P)\"; read _"];
+    at.run_in(at.home(), &["open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    let mut relative = vec!["tab", "new", "--size", "100x3", "--cwd", "app", "--wait", "in "];
+    relative.extend(script);
+    let opened = at.run_in(&work, &relative).success();
+    assert_eq!(opened.stdout().lines().nth(1), Some(format!("1│in {}", work.join("app").display()).as_str()));
+
+    for (cwd, shown) in
+        [("missing", work.join("missing").display().to_string()), ("/nowhere/at/all", "/nowhere/at/all".into())]
+    {
+        let mut args = vec!["open", "--cwd", cwd];
+        args.extend(script);
+        let refused = at.run_in(&work, &args);
+        assert_eq!(refused.code(), 1, "{}", refused.stdout());
+        assert_eq!(refused.stderr(), format!("error: the working directory {shown} does not exist\n"));
+    }
+    assert_eq!(at.run(&["tab"]).success().stdout().lines().count(), 2, "a refused open opens no tab");
+}
+
+#[test]
 fn a_program_that_exits_shows_its_exit_code() {
     let at = AgentTerminal::new();
     let run = at

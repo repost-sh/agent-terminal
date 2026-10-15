@@ -1438,7 +1438,8 @@ fn shell(session: String, args: ShellArgs, timeout_ms: u64) -> Result<Request, S
 }
 
 fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, String> {
-    let cwd = args.cwd.map_or_else(std::env::current_dir, Ok).map_err(|e| format!("current directory: {e}"))?;
+    let current = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
+    let cwd = args.cwd.map_or_else(|| current.clone(), |cwd| current.join(cwd));
     let env = environment(args.env);
     let mut command = args.command.into_iter();
     Ok(Request::Open {

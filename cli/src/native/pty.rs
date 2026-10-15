@@ -111,6 +111,10 @@ fn native(signal: Signal) -> NativeSignal {
 }
 
 pub fn spawn(command: Command) -> Result<Spawned> {
+    if !command.cwd.is_dir() {
+        let missing = format!("the working directory {} does not exist", command.cwd.display());
+        return Err(crate::Error::new(crate::exit::ERROR, missing).into());
+    }
     let path_var = command.env.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.as_str()).unwrap_or("");
     let program = resolve(&command.program, &command.cwd, path_var)?;
 
