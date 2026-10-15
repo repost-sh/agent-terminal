@@ -117,7 +117,8 @@ Everything else:
   batch [--bail] ["cmd" ...]   Several commands in one call (args or stdin)
   skills [list|get <name>|path]   Guides that ship with this version (core, tui-qa, cli-qa)
   mcp                          MCP stdio server with the same commands as tools
-  doctor [--fix]               Check PTY, fonts, shell integration, the daemon and its version (--fix: stale socket, old integration scripts)
+  doctor [--fix]               Check PTY, fonts, shell integration, the daemon and its version, and that the installed skill stub is this version
+                               (--fix: stale socket, old integration scripts, an older skill stub; a newer stub is kept)
   install [--skills]           Install the agent skill stub into ~/.claude/skills
   upgrade                      Upgrade to the latest version
   version

@@ -48,11 +48,23 @@ fn skills_get_prints_the_shipped_guide_stamped_with_this_version() {
          description: Test a command-line tool the way users run it, from a real terminal. Use when asked to QA or \
          review a CLI's help text, errors, exit codes, prompts, colors, or behavior when piped. Produces a report \
          with the exact commands, their output and exit codes.\n\
-         allowed-tools: Bash(agent-terminal:*), Bash(npx agent-terminal:*)\n\
+         allowed-tools: Bash(agent-terminal:*), Bash(npx @repost/agent-terminal:*)\n\
          metadata:\n  version: \"{VERSION}\"\n\
          ---\n{body}"
     );
     assert_eq!(guide, expected);
+}
+
+#[test]
+fn every_skill_allows_the_command_and_npx_of_the_repost_package() {
+    let at = AgentTerminal::new();
+    for name in ["agent-terminal", "core", "tui-qa", "cli-qa"] {
+        let guide = at.run(&["skills", "get", name]).success().stdout();
+        assert!(
+            guide.contains("\nallowed-tools: Bash(agent-terminal:*), Bash(npx @repost/agent-terminal:*)\n"),
+            "{name}:\n{guide}"
+        );
+    }
 }
 
 #[test]
@@ -159,6 +171,29 @@ fn simultaneous_skills_path_calls_each_see_complete_files() {
     });
 }
 
+#[test]
+fn skills_path_removes_the_folders_older_versions_left() {
+    let at = AgentTerminal::new();
+    let cache = at.home().join("skills");
+    for left in ["0.0.1", "0.1.0-alpha.1", "999.0.0", "notes"] {
+        std::fs::create_dir_all(cache.join(left).join("tui-qa/templates")).unwrap();
+        std::fs::write(cache.join(left).join("tui-qa/templates/report.md"), "left behind\n").unwrap();
+    }
+    std::thread::scope(|scope| {
+        let calls: Vec<_> = (0..8).map(|_| scope.spawn(|| at.run(&["skills", "path"]).code())).collect();
+        let codes: Vec<i32> = calls.into_iter().map(|call| call.join().unwrap()).collect();
+        assert_eq!(codes, vec![0; 8]);
+    });
+    let left: std::collections::BTreeSet<String> =
+        std::fs::read_dir(&cache).unwrap().map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
+    assert_eq!(left, [VERSION, "999.0.0", "notes"].map(String::from).into());
+    assert_eq!(
+        std::fs::read_to_string(cache.join("999.0.0/tui-qa/templates/report.md")).unwrap(),
+        "left behind\n",
+        "a newer version's folder is not this version's to remove"
+    );
+}
+
 fn stub_in(user: &Path) -> PathBuf {
     user.join(".claude/skills/agent-terminal/SKILL.md")
 }
@@ -187,6 +222,7 @@ fn install_skills_writes_the_discovery_stub_into_the_agent_skills_folder() {
     let shipped = shipped("skills/agent-terminal/SKILL.md");
     let body = shipped.split_once("\n---\n").expect("frontmatter").1;
     assert!(installed.starts_with("---\nname: agent-terminal\n"), "{installed}");
+    assert!(installed.contains("\nInstall: `npm i -g @repost/agent-terminal`\n"), "{installed}");
     assert!(
         installed.ends_with(&format!("hidden: true\nmetadata:\n  version: \"{VERSION}\"\n---\n{body}")),
         "{installed}"

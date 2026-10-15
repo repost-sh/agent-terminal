@@ -31,7 +31,7 @@ jobs:
           printf '%s' "$PLAN" > "$RUNNER_TEMP/plan.json"
           node npm/build-packages.js --manifest "$RUNNER_TEMP/plan.json" --artifacts target/distrib --out target/npm
           mkdir target/npm-tarballs
-          for package in target/npm/*/; do
+          for package in target/npm/@repost/*/; do
             npm pack "$package" --pack-destination target/npm-tarballs
           done
       - uses: actions/upload-artifact@v7
@@ -51,30 +51,30 @@ jobs:
             runner: ubuntu-24.04
             image: node:24-bookworm-slim
             fixture-target: x86_64-unknown-linux-musl
-            package: agent-terminal-linux-x64
+            package: "@repost/agent-terminal-linux-x64"
           - name: Alpine x64
             runner: ubuntu-24.04
             image: node:24-alpine
             fixture-target: x86_64-unknown-linux-musl
-            package: agent-terminal-linux-x64-musl
+            package: "@repost/agent-terminal-linux-x64-musl"
           - name: Debian arm64
             runner: ubuntu-24.04-arm
             image: node:24-bookworm-slim
             fixture-target: aarch64-unknown-linux-musl
-            package: agent-terminal-linux-arm64
+            package: "@repost/agent-terminal-linux-arm64"
           - name: Alpine arm64
             runner: ubuntu-24.04-arm
             image: node:24-alpine
             fixture-target: aarch64-unknown-linux-musl
-            package: agent-terminal-linux-arm64-musl
+            package: "@repost/agent-terminal-linux-arm64-musl"
           - name: macOS arm64
             runner: macos-15
             fixture-target: aarch64-apple-darwin
-            package: agent-terminal-darwin-arm64
+            package: "@repost/agent-terminal-darwin-arm64"
           - name: macOS x64
             runner: macos-15-intel
             fixture-target: x86_64-apple-darwin
-            package: agent-terminal-darwin-x64
+            package: "@repost/agent-terminal-darwin-x64"
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
