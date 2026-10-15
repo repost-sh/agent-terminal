@@ -164,20 +164,18 @@ pub struct InstalledStub {
     pub rewritten: bool,
 }
 
-pub fn installed_stub(fix: bool) -> Result<InstalledStub> {
+pub fn installed_stub() -> Result<InstalledStub> {
     let path = stub_path()?;
-    let mut file = match std::fs::OpenOptions::new().read(true).write(fix).open(&path) {
-        Ok(file) => file,
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            return Ok(InstalledStub { path, stub: Stub::Missing, rewritten: false });
-        }
-        Err(e) => return Err(e).with_context(|| format!("open {}", path.display())),
+    let stub = open_stub(&path, Access::Read)?.map_or(Stub::Missing, |(_, stub)| stub);
+    Ok(InstalledStub { path, stub, rewritten: false })
+}
+
+pub fn repair_stub() -> Result<InstalledStub> {
+    let path = stub_path()?;
+    let Some((mut file, stub)) = open_stub(&path, Access::Rewrite)? else {
+        return Ok(InstalledStub { path, stub: Stub::Missing, rewritten: false });
     };
-    (if fix { file.lock() } else { file.lock_shared() }).with_context(|| format!("lock {}", path.display()))?;
-    let mut contents = Vec::new();
-    file.read_to_end(&mut contents).with_context(|| format!("read {}", path.display()))?;
-    let stub = Stub::of(&contents);
-    let rewritten = fix && matches!(stub, Stub::Older(_) | Stub::Unversioned);
+    let rewritten = matches!(stub, Stub::Older(_) | Stub::Unversioned);
     if rewritten {
         write_stub(&mut file, &path)?;
     }
@@ -192,23 +190,42 @@ fn stub_path() -> Result<PathBuf> {
 
 fn install_stub() -> Result<Installed> {
     let path = stub_path()?;
-    let folder = path.parent().context("the stub has a folder")?;
-    std::fs::create_dir_all(folder).with_context(|| format!("create {}", folder.display()))?;
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&path)
-        .with_context(|| format!("open {}", path.display()))?;
-    file.lock().with_context(|| format!("lock {}", path.display()))?;
-    let mut existing = Vec::new();
-    file.read_to_end(&mut existing).with_context(|| format!("read {}", path.display()))?;
-    if let Stub::Newer(theirs) = Stub::of(&existing) {
+    let (mut file, stub) = open_stub(&path, Access::Create)?.with_context(|| format!("create {}", path.display()))?;
+    if let Stub::Newer(theirs) = stub {
         return Ok(Installed { installed: false, path, version: theirs.to_string() });
     }
     write_stub(&mut file, &path)?;
     Ok(Installed { installed: true, path, version: VERSION.to_string() })
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Access {
+    Read,
+    Rewrite,
+    Create,
+}
+
+fn open_stub(path: &Path, access: Access) -> Result<Option<(std::fs::File, Stub)>> {
+    if access == Access::Create {
+        let folder = path.parent().context("the stub has a folder")?;
+        std::fs::create_dir_all(folder).with_context(|| format!("create {}", folder.display()))?;
+    }
+    let writes = access != Access::Read;
+    let opened = std::fs::OpenOptions::new()
+        .read(true)
+        .write(writes)
+        .create(access == Access::Create)
+        .truncate(false)
+        .open(path);
+    let mut file = match opened {
+        Ok(file) => file,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e).with_context(|| format!("open {}", path.display())),
+    };
+    (if writes { file.lock() } else { file.lock_shared() }).with_context(|| format!("lock {}", path.display()))?;
+    let mut contents = Vec::new();
+    file.read_to_end(&mut contents).with_context(|| format!("read {}", path.display()))?;
+    Ok(Some((file, Stub::of(&contents))))
 }
 
 fn write_stub(file: &mut std::fs::File, path: &Path) -> Result<()> {

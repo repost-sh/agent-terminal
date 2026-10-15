@@ -199,7 +199,8 @@ fn running(socket: &std::path::Path) -> Check {
 }
 
 fn skill(fix: bool) -> Check {
-    let installed = match skills::installed_stub(fix) {
+    let checked = if fix { skills::repair_stub() } else { skills::installed_stub() };
+    let installed = match checked {
         Ok(installed) => installed,
         Err(e) => {
             return Check::problem(

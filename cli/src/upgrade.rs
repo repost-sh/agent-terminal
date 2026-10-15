@@ -332,7 +332,7 @@ struct Refused {
 }
 
 fn refresh_stub(entry: &Result<PathBuf, String>) -> Result<Option<Installed>, String> {
-    let installed = skills::installed_stub(false).map_err(|e| format!("{e:#}"))?;
+    let installed = skills::installed_stub().map_err(|e| format!("{e:#}"))?;
     if let Stub::Missing = installed.stub {
         return Ok(None);
     }
