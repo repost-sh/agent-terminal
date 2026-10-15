@@ -128,24 +128,24 @@ test('a release candidate is checked too, though npm would never let a prereleas
   );
 });
 
-test('a release candidate may take its notes from the Unreleased section, as cargo-dist does, but not from an empty one', (t) => {
-  const unreleased = `# Changelog\n\n## Unreleased\n\n- \`close\` waits for the program.\n\n${CHANGELOG_0_1_0.slice(13)}`;
-  const withNotes = checkout(t, { version: '0.2.0-rc.1', changelog: unreleased });
+test('a release candidate rehearses the release it leads to, so its section or that release\'s section clears it', (t) => {
+  const release = `# Changelog\n\n## Unreleased\n\n## 0.2.0 (2026-10-20)\n\n- \`close\` waits for the program.\n\n${CHANGELOG_0_1_0.slice(13)}`;
+  const withRelease = checkout(t, { version: '0.2.0-rc.1', changelog: release });
 
-  const cleared = preflight(withNotes, 'v0.2.0-rc.1');
+  const cleared = preflight(withRelease, 'v0.2.0-rc.1');
 
   assert.equal(cleared.stderr, '');
   assert.equal(cleared.status, 0);
 
-  const empty = `# Changelog\n\n## Unreleased\n\n${CHANGELOG_0_1_0.slice(13)}`;
-  const withoutNotes = checkout(t, { version: '0.2.0-rc.1', changelog: empty });
+  const unreleased = `# Changelog\n\n## Unreleased\n\n- \`close\` waits for the program.\n\n${CHANGELOG_0_1_0.slice(13)}`;
+  const withoutSection = checkout(t, { version: '0.2.0-rc.1', changelog: unreleased });
 
-  const refused = preflight(withoutNotes, 'v0.2.0-rc.1');
+  const refused = preflight(withoutSection, 'v0.2.0-rc.1');
 
   assert.equal(refused.status, 1);
   assert.equal(
     refused.stderr,
     'CHANGELOG.md has no section for 0.2.0-rc.1: add "## 0.2.0-rc.1 (<date>)" as docs/releasing.md describes, ' +
-      'or entries under "## Unreleased"\n',
+      'or the "## 0.2.0 (<date>)" section it rehearses\n',
   );
 });

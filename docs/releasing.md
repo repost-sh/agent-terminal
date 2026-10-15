@@ -20,7 +20,7 @@ An agent cuts a release end to end with these steps. Keep npm and Homebrew state
    - npm: `npm view @repost/agent-terminal dist-tags.latest` prints the version, and `npm view @repost/agent-terminal-<platform>@<version> version` does for each platform package. `npm i -g --prefix <scratch> @repost/agent-terminal@<version>`, then `<scratch>/bin/agent-terminal --version`. In a scratch project, `npm i @repost/agent-terminal@<version>` then `npm audit signatures` reports verified attestations.
    - Homebrew: `brew update`, `brew install repost-sh/tap/agent-terminal` (`brew upgrade` when installed), then `agent-terminal --version`.
 
-A tag with a prerelease suffix (`v0.2.0-rc.1`, from `version = "0.2.0-rc.1"`) runs the whole pipeline, preflight included, and creates a GitHub prerelease, but publishes nothing to npm or Homebrew. Use one to rehearse. Its notes are its own `## 0.2.0-rc.1 (<date>)` section or, as cargo-dist does for prereleases, the entries under `## Unreleased`; the preflight accepts either, and dry-runs the npm packages under the `next` dist-tag because npm refuses to make a prerelease `latest`.
+A tag with a prerelease suffix (`v0.2.0-rc.1`, from `version = "0.2.0-rc.1"`) runs the whole pipeline, preflight included, and creates a GitHub prerelease, but publishes nothing to npm or Homebrew. Use one to rehearse. The preflight wants its own `## 0.2.0-rc.1 (<date>)` section or the `## 0.2.0 (<date>)` section of the release it rehearses, so write the release's section before the first rc. It dry-runs the npm packages under the `next` dist-tag because npm refuses to make a prerelease `latest`.
 
 ## What the tag runs
 

@@ -47,28 +47,22 @@ function checkTag(tag, version) {
 
 function changelogSections() {
   const lines = fs.existsSync(CHANGELOG) ? fs.readFileSync(CHANGELOG, 'utf8').split('\n') : [];
-  const sections = [];
-  for (const line of lines) {
-    if (line.startsWith('## ')) {
-      sections.push({ heading: line, entries: [] });
-    } else if (sections.length > 0 && line.trim() !== '') {
-      sections[sections.length - 1].entries.push(line);
-    }
-  }
-  return sections;
+  return lines.filter((line) => line.startsWith('## ')).map((heading) => ({ heading }));
+}
+
+function hasSection(sections, version) {
+  const heading = `## ${version}`;
+  return sections.some((section) => section.heading === heading || section.heading.startsWith(`${heading} `));
 }
 
 function checkChangelog(version) {
-  const heading = `## ${version}`;
-  const prerelease = version.includes('-');
+  const release = version.split('-')[0];
   const sections = changelogSections();
-  const own = sections.some((section) => section.heading === heading || section.heading.startsWith(`${heading} `));
-  const unreleased = sections.some((section) => section.heading === '## Unreleased' && section.entries.length > 0);
-  if (own || (prerelease && unreleased)) {
+  if (hasSection(sections, version) || hasSection(sections, release)) {
     return [];
   }
-  const alternative = prerelease ? ', or entries under "## Unreleased"' : '';
-  return [`${CHANGELOG} has no section for ${version}: add "${heading} (<date>)" as docs/releasing.md describes${alternative}`];
+  const alternative = release === version ? '' : `, or the "## ${release} (<date>)" section it rehearses`;
+  return [`${CHANGELOG} has no section for ${version}: add "## ${version} (<date>)" as docs/releasing.md describes${alternative}`];
 }
 
 function npmErrors(stderr) {
