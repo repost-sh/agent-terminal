@@ -89,6 +89,7 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Waited(waited) => println!("{}", serde_json::json!(waited)),
         Reply::Checked(checked) => println!("{}", serde_json::json!(checked)),
         Reply::Stopped => {}
+        Reply::KeptRunning(kept) => println!("{}", serde_json::json!(kept)),
         Reply::Batch(outcomes) => println!("{}", batch_json(outcomes)),
         Reply::Fact(fact) => println!("{}", serde_json::json!(fact)),
         Reply::Matches(matches) => println!("{}", serde_json::json!(matches)),
@@ -132,6 +133,9 @@ pub fn reply_text(reply: &Reply) -> String {
         }
         Reply::Checked(Checked { session, tab, fact }) => format!("{fact} in {session} {tab}\n"),
         Reply::Stopped => String::new(),
+        Reply::KeptRunning(kept) => {
+            format!("the daemon kept running: it has {}\n", count(kept.terminals, "open terminal"))
+        }
         Reply::Batch(outcomes) => batch_text(outcomes),
         Reply::Fact(fact) => fact_text(fact),
         Reply::Matches(matches) => {
@@ -405,7 +409,7 @@ fn modes_text(modes: &Modes) -> String {
     )
 }
 
-fn count(n: usize, noun: &str) -> String {
+pub fn count(n: usize, noun: &str) -> String {
     if n == 1 { format!("1 {noun}") } else { format!("{n} {noun}s") }
 }
 
