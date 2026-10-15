@@ -1,3 +1,4 @@
+use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
@@ -124,10 +125,7 @@ pub fn install(json: bool) -> i32 {
 fn finish(result: Result<()>, json: bool) -> i32 {
     match result {
         Ok(()) => 0,
-        Err(e) => output::error(
-            &ErrorBody { code: crate::exit::ERROR, message: format!("{e:#}"), snapshot: None, other_version: None },
-            json,
-        ),
+        Err(e) => output::error(&ErrorBody::failure(format!("{e:#}")), json),
     }
 }
 
@@ -166,13 +164,14 @@ pub struct InstalledStub {
 
 pub fn installed_stub() -> Result<InstalledStub> {
     let path = stub_path()?;
-    let stub = open_stub(&path, Access::Read)?.map_or(Stub::Missing, |(_, stub)| stub);
+    let stub =
+        open_stub(&path, OpenOptions::new().read(true), File::lock_shared)?.map_or(Stub::Missing, |(_, stub)| stub);
     Ok(InstalledStub { path, stub, rewritten: false })
 }
 
 pub fn repair_stub() -> Result<InstalledStub> {
     let path = stub_path()?;
-    let Some((mut file, stub)) = open_stub(&path, Access::Rewrite)? else {
+    let Some((mut file, stub)) = open_stub(&path, OpenOptions::new().read(true).write(true), File::lock)? else {
         return Ok(InstalledStub { path, stub: Stub::Missing, rewritten: false });
     };
     let rewritten = matches!(stub, Stub::Older(_) | Stub::Unversioned);
@@ -190,7 +189,12 @@ fn stub_path() -> Result<PathBuf> {
 
 fn install_stub() -> Result<Installed> {
     let path = stub_path()?;
-    let (mut file, stub) = open_stub(&path, Access::Create)?.with_context(|| format!("create {}", path.display()))?;
+    let folder = path.parent().context("the stub has a folder")?;
+    std::fs::create_dir_all(folder).with_context(|| format!("create {}", folder.display()))?;
+    let mut creating = OpenOptions::new();
+    creating.read(true).write(true).create(true).truncate(false);
+    let (mut file, stub) =
+        open_stub(&path, &creating, File::lock)?.with_context(|| format!("create {}", path.display()))?;
     if let Stub::Newer(theirs) = stub {
         return Ok(Installed { installed: false, path, version: theirs.to_string() });
     }
@@ -198,37 +202,23 @@ fn install_stub() -> Result<Installed> {
     Ok(Installed { installed: true, path, version: VERSION.to_string() })
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Access {
-    Read,
-    Rewrite,
-    Create,
-}
-
-fn open_stub(path: &Path, access: Access) -> Result<Option<(std::fs::File, Stub)>> {
-    if access == Access::Create {
-        let folder = path.parent().context("the stub has a folder")?;
-        std::fs::create_dir_all(folder).with_context(|| format!("create {}", folder.display()))?;
-    }
-    let writes = access != Access::Read;
-    let opened = std::fs::OpenOptions::new()
-        .read(true)
-        .write(writes)
-        .create(access == Access::Create)
-        .truncate(false)
-        .open(path);
-    let mut file = match opened {
+fn open_stub(
+    path: &Path,
+    options: &OpenOptions,
+    lock: fn(&File) -> std::io::Result<()>,
+) -> Result<Option<(File, Stub)>> {
+    let mut file = match options.open(path) {
         Ok(file) => file,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e).with_context(|| format!("open {}", path.display())),
     };
-    (if writes { file.lock() } else { file.lock_shared() }).with_context(|| format!("lock {}", path.display()))?;
+    lock(&file).with_context(|| format!("lock {}", path.display()))?;
     let mut contents = Vec::new();
     file.read_to_end(&mut contents).with_context(|| format!("read {}", path.display()))?;
     Ok(Some((file, Stub::of(&contents))))
 }
 
-fn write_stub(file: &mut std::fs::File, path: &Path) -> Result<()> {
+fn write_stub(file: &mut File, path: &Path) -> Result<()> {
     let stub = find("agent-terminal")?.guide();
     file.set_len(0).with_context(|| format!("truncate {}", path.display()))?;
     file.seek(SeekFrom::Start(0)).with_context(|| format!("rewind {}", path.display()))?;

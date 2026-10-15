@@ -151,20 +151,14 @@ fn other_version(running: Option<&str>, terminals: Option<usize>) -> ErrorBody {
         Some(terminals) => format!("it has {}", count(terminals, "open terminal")),
         None => "it did not say how many terminals it has open".to_string(),
     };
-    ErrorBody {
-        code: crate::exit::OTHER_VERSION,
-        message: format!(
+    ErrorBody::other_version(
+        format!(
             "the daemon is {}, not {VERSION} like this command, and {open}, so it was left running; {}",
             daemon_of(running),
             daemon_stop_advice(Some(VERSION))
         ),
-        snapshot: None,
-        other_version: Some(OtherVersion {
-            cli_version: Some(VERSION.to_string()),
-            daemon_version: running.map(str::to_string),
-            terminals,
-        }),
-    }
+        OtherVersion { cli_version: Some(VERSION.to_string()), daemon_version: running.map(str::to_string), terminals },
+    )
 }
 
 fn connect() -> Result<Option<UnixStream>> {

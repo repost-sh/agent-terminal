@@ -153,7 +153,7 @@ impl Installer {
     }
 
     fn lists_agent_terminal(&self, listing: &[&str]) -> Result<bool, String> {
-        let listed = match self.output(listing, Stdio::piped()) {
+        let listed = match self.spawn(listing, Stdio::piped()) {
             Ok(listed) => listed,
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
             Err(e) => return Err(self.cannot_run(listing, &e)),
@@ -173,15 +173,9 @@ impl Installer {
 
     fn latest(&self) -> Result<Version, String> {
         if let Some(refresh) = self.refresh {
-            let refreshed = self.run(refresh, std::io::stderr().into())?;
-            if !refreshed.status.success() {
-                return Err(self.unreachable(refresh, refreshed.status));
-            }
+            self.run(refresh, std::io::stderr().into(), |status| self.unreachable(refresh, status))?;
         }
-        let answer = self.run(self.latest, Stdio::piped())?;
-        if !answer.status.success() {
-            return Err(self.unreachable(self.latest, answer.status));
-        }
+        let answer = self.run(self.latest, Stdio::piped(), |status| self.unreachable(self.latest, status))?;
         let printed = String::from_utf8_lossy(&answer.stdout);
         (self.latest_in)(&printed)
             .and_then(|latest| Version::parse(&latest).ok())
@@ -197,11 +191,11 @@ impl Installer {
     }
 
     fn reinstall(&self) -> Result<(), String> {
-        self.succeed(self.reinstall, std::io::stderr().into()).map(drop)
+        self.run(self.reinstall, std::io::stderr().into(), |status| self.failed(self.reinstall, status)).map(drop)
     }
 
     fn entry_point(&self) -> Result<PathBuf, String> {
-        let answer = self.succeed(self.folder, Stdio::piped())?;
+        let answer = self.run(self.folder, Stdio::piped(), |status| self.failed(self.folder, status))?;
         let printed = String::from_utf8_lossy(&answer.stdout);
         match printed.trim() {
             "" => Err(format!("`{}` printed no folder", self.line(self.folder))),
@@ -209,20 +203,16 @@ impl Installer {
         }
     }
 
-    fn succeed(&self, args: &[&str], stdout: Stdio) -> Result<Output, String> {
-        let output = self.run(args, stdout)?;
-        if output.status.success() {
-            Ok(output)
-        } else {
-            Err(format!("`{}` failed ({}); see its output above", self.line(args), output.status))
-        }
+    fn run(&self, args: &[&str], stdout: Stdio, failed: impl FnOnce(ExitStatus) -> String) -> Result<Output, String> {
+        let output = self.spawn(args, stdout).map_err(|e| self.cannot_run(args, &e))?;
+        if output.status.success() { Ok(output) } else { Err(failed(output.status)) }
     }
 
-    fn run(&self, args: &[&str], stdout: Stdio) -> Result<Output, String> {
-        self.output(args, stdout).map_err(|e| self.cannot_run(args, &e))
+    fn failed(&self, args: &[&str], status: ExitStatus) -> String {
+        format!("`{}` failed ({status}); see its output above", self.line(args))
     }
 
-    fn output(&self, args: &[&str], stdout: Stdio) -> std::io::Result<Output> {
+    fn spawn(&self, args: &[&str], stdout: Stdio) -> std::io::Result<Output> {
         Command::new(self.program).args(args).stdin(Stdio::null()).stdout(stdout).stderr(Stdio::inherit()).output()
     }
 
@@ -273,8 +263,13 @@ fn upgrade(json: bool) -> Result<(), String> {
 
     installer.reinstall()?;
     let entry = installer.entry_point();
-    let to = entry.clone().and_then(|entry| installed_version(&entry));
-    let stub = refresh_stub(&entry);
+    let new_binary = entry.as_deref().map_err(String::clone);
+    let to = new_binary.clone().and_then(installed_version);
+    let stub = match stub_installed() {
+        Ok(false) => Ok(None),
+        Ok(true) => new_binary.and_then(refresh_stub).map(Some),
+        Err(reason) => Err(reason),
+    };
     let mut text = match &to {
         Ok(to) => {
             report["to"] = serde_json::json!(to);
@@ -332,12 +327,12 @@ struct Refused {
     error: ErrorBody,
 }
 
-fn refresh_stub(entry: &Result<PathBuf, String>) -> Result<Option<Installed>, String> {
+fn stub_installed() -> Result<bool, String> {
     let installed = skills::installed_stub().map_err(|e| format!("{e:#}"))?;
-    if let Stub::Missing = installed.stub {
-        return Ok(None);
-    }
-    let binary = entry.as_ref().map_err(String::clone)?;
+    Ok(!matches!(installed.stub, Stub::Missing))
+}
+
+fn refresh_stub(binary: &Path) -> Result<Installed, String> {
     let args = ["--json", "install", "--skills"];
     let line = format!("{} {}", binary.display(), args.join(" "));
     let output = Command::new(binary)
@@ -348,7 +343,6 @@ fn refresh_stub(entry: &Result<PathBuf, String>) -> Result<Option<Installed>, St
         .map_err(|e| format!("cannot run `{line}`: {e}"))?;
     if output.status.success() {
         return serde_json::from_slice(&output.stdout)
-            .map(Some)
             .map_err(|e| format!("`{line}` printed {:?}: {e}", String::from_utf8_lossy(&output.stdout).trim()));
     }
     Err(serde_json::from_slice::<Refused>(&output.stdout)
