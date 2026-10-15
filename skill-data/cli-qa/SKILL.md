@@ -13,8 +13,9 @@ Read `agent-terminal skills get core` first if you have not.
 ## Setup
 
 ```bash
-export AGENT_TERMINAL_SESSION=qa-<tool>
 mkdir -p ./cli-qa-output/screenshots
+cp "$(agent-terminal skills path cli-qa)/templates/report.md" ./cli-qa-output/report.md
+export AGENT_TERMINAL_SESSION=qa-<tool>
 agent-terminal shell --cwd <project>
 ```
 
@@ -37,4 +38,4 @@ For each finding: the exact command, its exit code (`history show <id>`), and a 
 
 ## Wrap up
 
-Write `./cli-qa-output/report.md` with the findings (command, expected, actual, exit code, screenshot), then `agent-terminal close --all`.
+Fill in `./cli-qa-output/report.md`: one entry per finding (command, exit code, expected, actual, screenshot) and the summary counts. Then `agent-terminal close --all`.
