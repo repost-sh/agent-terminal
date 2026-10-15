@@ -45,6 +45,7 @@ struct Tape {
     path: PathBuf,
     file: Result<File, String>,
     clock: Clock,
+    length: u64,
 }
 
 #[derive(Serialize)]
@@ -91,9 +92,9 @@ impl Tape {
             std::fs::create_dir_all(folder).with_context(|| format!("create {}", folder.display()))?;
         }
         let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
-        let header = serde_json::to_string(&header)?;
-        writeln!(file, "{header}").with_context(|| format!("write to {}", path.display()))?;
-        Ok(Self { path: path.to_path_buf(), file: Ok(file), clock })
+        let header = format!("{}\n", serde_json::to_string(&header)?);
+        file.write_all(header.as_bytes()).with_context(|| format!("write to {}", path.display()))?;
+        Ok(Self { path: path.to_path_buf(), file: Ok(file), clock, length: header.len() as u64 })
     }
 
     fn event(&mut self, kind: &str, data: &str) {
@@ -101,9 +102,12 @@ impl Tape {
             return;
         };
         let line = format!("{}\n", json!([self.clock.seconds(), kind, data]));
-        if let Err(e) = file.write_all(line.as_bytes()) {
-            eprintln!("writing the recording {} failed: {e}; nothing more is recorded there", self.path.display());
-            self.file = Err(e.to_string());
+        match file.write_all(line.as_bytes()) {
+            Ok(()) => self.length += line.len() as u64,
+            Err(e) => {
+                eprintln!("writing the recording {} failed: {e}; nothing more is recorded there", self.path.display());
+                self.file = Err(e.to_string());
+            }
         }
     }
 
@@ -117,18 +121,19 @@ impl Recording {
     pub fn start(tab: String, path: PathBuf, size: Size, command: String) -> Arc<Self> {
         let tape = Tape::create(&path, size, &command, Clock::on_the_second()).unwrap_or_else(|e| {
             eprintln!("starting the recording {} failed: {e:#}", path.display());
-            Tape { path, file: Err(format!("{e:#}")), clock: Clock::on_the_second() }
+            Tape { path, file: Err(format!("{e:#}")), clock: Clock::on_the_second(), length: 0 }
         });
         let writer = Writer { tape, first_size: size, command, undecoded: Vec::new(), copy: None };
         Arc::new(Self { tab, writer: Mutex::new(writer) })
     }
 
-    pub fn output(&self, bytes: &[u8]) {
+    pub fn output(&self, bytes: &[u8]) -> u64 {
         let mut writer = self.writer.lock().unwrap();
         let text = decode(&mut writer.undecoded, bytes);
         if !text.is_empty() {
             writer.event("o", &text);
         }
+        writer.tape.length
     }
 
     pub fn input(&self, bytes: &[u8]) {
@@ -139,8 +144,18 @@ impl Recording {
         self.writer.lock().unwrap().event("m", name);
     }
 
-    pub fn resize(&self, size: Size) {
-        self.writer.lock().unwrap().event("r", &format!("{}x{}", size.cols, size.rows));
+    pub fn resize(&self, size: Size) -> u64 {
+        let mut writer = self.writer.lock().unwrap();
+        writer.event("r", &format!("{}x{}", size.cols, size.rows));
+        writer.tape.length
+    }
+
+    pub fn length(&self) -> u64 {
+        self.writer.lock().unwrap().tape.length
+    }
+
+    pub fn cast(&self) -> PathBuf {
+        self.writer.lock().unwrap().tape.path.clone()
     }
 
     pub fn restart(&self) {

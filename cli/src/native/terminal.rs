@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -28,6 +29,7 @@ pub struct Terminal {
     pid: Option<u32>,
     cwd: String,
     started: SystemTime,
+    recorded_before: u64,
     state: Mutex<State>,
     changed: Condvar,
     input_turn: Mutex<()>,
@@ -66,9 +68,35 @@ pub struct Picture {
     pub exit: Option<Option<i32>>,
 }
 
+impl Picture {
+    pub fn of(screen: &Screen, frame: u64, exit: Option<Option<i32>>) -> Self {
+        let view = screen.view();
+        Self {
+            frame,
+            size: view.size,
+            rows: screen.rows(0..view.size.rows as i32, true),
+            cursor: (view.cursor.0 + 1, view.cursor.1 + 1),
+            cursor_visible: view.cursor_visible,
+            alt_screen: view.alt_screen,
+            mouse: view.mouse.map(|mouse| mouse.as_str()),
+            bracketed_paste: screen.keyboard_modes().bracketed_paste,
+            exit,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Run {
+    pub cast: PathBuf,
+    pub from: u64,
+    pub size: Size,
+    pub started: SystemTime,
+}
+
 struct State {
     screen: Screen,
     frame: u64,
+    frame_ends: Vec<u64>,
     look: u64,
     last_change: Instant,
     last_output: Instant,
@@ -104,16 +132,17 @@ impl State {
         Moment::new(&self.screen, self.frame, self.last_change, self.last_output, self.exit.is_some(), prompt)
     }
 
-    fn refresh(&mut self, now: Instant) {
-        self.advance(now);
+    fn refresh(&mut self, now: Instant, recorded: u64) {
+        self.advance(now, recorded);
         self.publish();
     }
 
-    fn advance(&mut self, now: Instant) {
+    fn advance(&mut self, now: Instant, recorded: u64) {
         let look = self.screen.fingerprint();
         if look != self.look {
             self.look = look;
             self.frame += 1;
+            self.frame_ends.push(recorded);
             self.last_change = now;
         }
     }
@@ -166,10 +195,12 @@ impl Terminal {
             pid: spawned.pid,
             cwd,
             started: SystemTime::now(),
+            recorded_before: recording.length(),
             state: Mutex::new(State {
                 look: screen.fingerprint(),
                 screen,
                 frame: 0,
+                frame_ends: Vec::new(),
                 last_change: started,
                 last_output: started,
                 exit: None,
@@ -234,7 +265,7 @@ impl Terminal {
     fn output(&self, bytes: &[u8]) {
         let (replies, history_changed) = {
             let mut state = self.state.lock().unwrap();
-            self.recording.output(bytes);
+            let recorded = self.recording.output(bytes);
             let replies = state.screen.feed(bytes);
             let printed = state.screen.take_printed();
             let reports = state.screen.take_shell_reports();
@@ -243,7 +274,7 @@ impl Terminal {
             state.log.record(frame, bytes, printed.text.as_bytes(), printed.styled.as_bytes());
             let now = Instant::now();
             state.last_output = now;
-            state.advance(now);
+            state.advance(now, recorded);
             let shown = state.frame;
             let mut history_changed = false;
             let State { commands, log, .. } = &mut *state;
@@ -351,8 +382,8 @@ impl Terminal {
             return Err(self.exited(None).into());
         }
         state.screen.resize(size);
-        self.recording.resize(size);
-        state.refresh(Instant::now());
+        let recorded = self.recording.resize(size);
+        state.refresh(Instant::now(), recorded);
         drop(state);
         self.changed.notify_all();
         self.frames.notify();
@@ -370,18 +401,16 @@ impl Terminal {
 
     pub fn picture(&self) -> Picture {
         let state = self.state.lock().unwrap();
-        let view = state.screen.view();
-        Picture {
-            frame: state.frame,
-            size: view.size,
-            rows: state.screen.rows(0..view.size.rows as i32, true),
-            cursor: (view.cursor.0 + 1, view.cursor.1 + 1),
-            cursor_visible: view.cursor_visible,
-            alt_screen: view.alt_screen,
-            mouse: view.mouse.map(|mouse| mouse.as_str()),
-            bracketed_paste: state.screen.keyboard_modes().bracketed_paste,
-            exit: state.exit,
-        }
+        Picture::of(&state.screen, state.frame, state.exit)
+    }
+
+    pub fn run(&self) -> Run {
+        Run { cast: self.recording.cast(), from: self.recorded_before, size: self.command.size, started: self.started }
+    }
+
+    pub fn frame_ends(&self, after: usize) -> Vec<u64> {
+        let state = self.state.lock().unwrap();
+        state.frame_ends.iter().skip(after).copied().collect()
     }
 
     pub fn setup(&self) -> Setup {

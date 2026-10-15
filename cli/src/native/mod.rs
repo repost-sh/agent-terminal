@@ -10,6 +10,7 @@ pub mod pty;
 pub mod recording;
 pub mod refs;
 pub mod render;
+pub mod replay;
 pub mod screen;
 pub mod screenshots;
 pub mod shell;

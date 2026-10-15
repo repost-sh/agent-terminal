@@ -28,6 +28,7 @@ mod skills;
 mod snapshot;
 mod support;
 mod tabs;
+mod timeline;
 mod trace;
 mod version;
 mod wait;

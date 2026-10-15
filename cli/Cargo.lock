@@ -37,6 +37,7 @@ dependencies = [
  "tempfile",
  "tiny-skia",
  "tokio",
+ "tungstenite",
  "zip",
 ]
 

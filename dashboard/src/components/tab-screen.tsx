@@ -4,10 +4,12 @@ import { navigate, tabRoute } from "../lib/route";
 import type { Layout } from "../lib/split";
 import { useTabStream } from "../lib/stream";
 import { firstTab, tabName } from "../lib/tabs";
+import { useTimeline, useViewedFrame } from "../lib/timeline";
 import { announce } from "./announcer";
 import { restartProgram } from "./restart-button";
 import { StatusBar } from "./status-bar";
 import { Viewport } from "./terminal-view";
+import { Timeline } from "./timeline";
 import { toast } from "./toaster";
 import { Toolbar } from "./toolbar";
 
@@ -15,6 +17,9 @@ type TabScreenProps = { session: string; tab: TabInfo; sessions: SessionInfo[]; 
 
 export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) => {
   const { state, shown, paint } = useTabStream(session, tab.tab);
+  const timeline = useTimeline(session, tab.tab);
+  const viewed = useViewedFrame(session, tab.tab);
+  const past = viewed === null ? null : timeline.frame(viewed);
   const name = tabName(session, tab.tab);
 
   const restart = async () => {
@@ -43,11 +48,13 @@ export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) 
         shown={shown}
         program={tab.program}
         label={`${name} ${tab.program}, live frame ${shown?.frame ?? 0}`}
+        past={past && { label: `${name} ${tab.program}, viewing frame ${past.frame}`, paint: timeline.paint }}
         onRestart={restart}
         onClose={close}
       />
+      <Timeline session={session} tab={tab} />
       <div className="h-px shrink-0 bg-border" role="none" />
-      <StatusBar session={session} tab={tab} state={state} shown={shown} />
+      <StatusBar session={session} tab={tab} state={state} shown={shown} past={past} />
     </>
   );
 };

@@ -160,6 +160,6 @@ impl Record {
     }
 }
 
-fn epoch_ms(at: SystemTime) -> u64 {
+pub fn epoch_ms(at: SystemTime) -> u64 {
     at.duration_since(UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)
 }

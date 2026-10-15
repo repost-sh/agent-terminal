@@ -1,5 +1,6 @@
 import { tabStreamUrl } from "../lib/api";
-import type { TabInfo } from "../lib/protocol";
+import { clockTime } from "../lib/format";
+import type { TabInfo, TimelineFrame } from "../lib/protocol";
 import type { Shown, StreamState } from "../lib/stream";
 import { Badge, Dot, type Tone } from "./ui";
 
@@ -8,20 +9,34 @@ type StatusBarProps = {
   tab: TabInfo;
   state: StreamState;
   shown: Shown | null;
+  past?: TimelineFrame | null;
 };
 
-const modesOf = (shown: Shown) =>
+const modesOf = (shown: Pick<Shown, "alt_screen" | "mouse" | "bracketed_paste">) =>
   [shown.alt_screen && "alt-screen", shown.mouse && `mouse ${shown.mouse}`, shown.bracketed_paste && "bracketed paste"].filter(
     (mode): mode is string => Boolean(mode),
   );
 
-export const StatusBar = ({ session, tab, state, shown }: StatusBarProps) => {
+export const StatusBar = ({ session, tab, state, shown, past = null }: StatusBarProps) => {
   const waiting = !shown || (shown.frame === 0 && !shown.exited);
   const [tone, label]: [Tone, string] =
-    state === "reconnecting" ? ["warning", "Reconnecting…"] : waiting ? ["success", "Connected"] : shown?.exited ?["muted", "Exited"] : ["success", "Live"];
-  const cols = shown?.cols ?? tab.cols;
-  const rows = shown?.rows ?? tab.rows;
-  const chips = [`${cols} × ${rows}`, ...(shown ? modesOf(shown) : []), ...(shown && !waiting && state === "open" ? [`frame ${shown.frame}`] : [])];
+    state === "reconnecting"
+      ? ["warning", "Reconnecting…"]
+      : waiting
+        ? ["success", "Connected"]
+        : past
+          ? ["muted", `Viewing frame ${past.frame} · ${clockTime(past.time_ms)}`]
+          : shown?.exited
+            ? ["muted", "Exited"]
+            : ["success", "Live"];
+  const described = past ?? shown;
+  const cols = described?.cols ?? tab.cols;
+  const rows = described?.rows ?? tab.rows;
+  const chips = [
+    `${cols} × ${rows}`,
+    ...(described ? modesOf(described) : []),
+    ...(shown && !past && !waiting && state === "open" ? [`frame ${shown.frame}`] : []),
+  ];
   return (
     <div id="status-region" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
       <Dot tone={tone} />

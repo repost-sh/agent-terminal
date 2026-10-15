@@ -35,6 +35,23 @@ export type FrameUpdate = {
 
 export type StreamUpdate = FrameUpdate | { type: "closed" };
 
+export type TimelineFrame = {
+  frame: number;
+  time_ms: number;
+  keyframe: boolean;
+  cols: number;
+  rows: number;
+  paint: string;
+  alt_screen: boolean;
+  mouse: string | null;
+  bracketed_paste: boolean;
+};
+
+export type TimelineUpdate =
+  | { type: "frames"; reset: boolean; started_ms: number; frames: TimelineFrame[] }
+  | { type: "failed"; message: string }
+  | { type: "closed" };
+
 export type ErrorBody = {
   code: number;
   message: string;
