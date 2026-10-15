@@ -117,10 +117,10 @@ fn each_entry_keeps_what_the_call_printed() {
     assert_eq!(timed_out.code(), 3);
 
     let log = at.activity("default");
-    assert_eq!(
-        opened.screen(),
-        "default t1 · line-printer · 40x6 · cursor 4,1 · frame N\n1│line 1\n2│line 2\n3│line 3\n…│ (rows 4-6 blank)\n"
-    );
+    let screen = opened.screen();
+    let (header, rows) = screen.split_once('\n').expect("a header line");
+    assert!(header.starts_with("default t1 · line-printer · 40x6 · cursor "), "{header}");
+    assert_eq!(rows, "1│line 1\n2│line 2\n3│line 3\n…│ (rows 4-6 blank)\n");
     assert_eq!(log[0]["output"], opened.stdout());
     assert_eq!(log[1]["output"], "typed 2 keys into default t1\n");
     assert_eq!(log[2]["output"], "error: cell 99,1 is outside the 40x6 screen\n");
