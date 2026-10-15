@@ -121,15 +121,13 @@ write_env() {
 
 set_secret() {
   local name="$1" value="$2"
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    if printf '%s' "$value" | gh secret set "$name" >/dev/null 2>&1; then
-      WRITTEN_SECRET+=("$name")
-      printf '  %s✓ set%s GitHub secret %s\n' "$GREEN" "$RESET" "$name"
-      return
-    fi
+  if printf '%s' "$value" | gh secret set "$name" -R "$SOURCE_REPO" >/dev/null; then
+    WRITTEN_SECRET+=("$name")
+    printf '  %s✓ set%s GitHub secret %s\n' "$GREEN" "$RESET" "$name"
+    return
   fi
-  SKIPPED+=("GitHub secret $name (set it manually: gh secret set $name)")
-  warn "skipped GitHub secret $name: gh not ready; set it later"
+  SKIPPED+=("GitHub secret $name (set it by hand: gh secret set $name -R $SOURCE_REPO)")
+  warn "gh couldn't set the GitHub secret $name; what it said is above"
 }
 
 finish() {
