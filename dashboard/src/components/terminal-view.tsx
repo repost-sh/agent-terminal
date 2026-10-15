@@ -50,7 +50,9 @@ type ViewportProps = {
   label: string;
   past?: Past | null;
   held?: HeldTerminal | null;
-} & ({ compact: true } | ({ compact?: false } & ExitActions));
+  compact?: boolean;
+  exit?: ExitActions;
+};
 
 const HeldRing = ({ held, compact, children }: { held: HeldTerminal | null; compact: boolean; children: ReactNode }) =>
   held && !compact ? (
@@ -91,7 +93,7 @@ export const Viewport = (props: ViewportProps) => {
   const dim = shown?.exited || state === "reconnecting";
 
   return (
-    <div id={props.compact ? undefined : "viewport-region"} ref={box} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+    <div id={props.exit ? "viewport-region" : undefined} ref={box} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
       {loading && (
         <p className="absolute flex items-center gap-2 text-xs text-muted-foreground">
           <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" />
@@ -110,7 +112,7 @@ export const Viewport = (props: ViewportProps) => {
         </div>
       </HeldRing>
       {past && <PastView box={box} past={past} dim={Boolean(dim)} />}
-      {shown?.exited && !past && <ExitBar program={program} code={shown.exit_code} actions={props.compact ? null : props} />}
+      {shown?.exited && !past && <ExitBar program={program} code={shown.exit_code} actions={props.exit ?? null} />}
     </div>
   );
 };

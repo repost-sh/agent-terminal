@@ -104,6 +104,8 @@ fn an_exited_tab_keeps_its_last_screen_with_the_exit_bar_to_restart_or_close_it(
 
     browser.click_button("Restart");
     browser.wait_for_status("Live");
+    browser.wait_until("document.activeElement?.id === 'take-control-default-t1'");
+    browser.wait_for_announcement("line-printer restarted");
     assert_eq!(at.run(&["get", "exit-code"]).success().stdout(), "running\n");
     assert!(!browser.text("main").contains("exited with code"));
     browser.wait_for_screen("line 2");

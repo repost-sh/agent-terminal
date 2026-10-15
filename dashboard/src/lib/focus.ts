@@ -9,3 +9,9 @@ export const focusWhenShown = (name: string) => (element: HTMLElement | null) =>
   pending = null;
   element.focus({ preventScroll: true });
 };
+
+export const focusNowOrWhenShown = (id: string) => {
+  const element = document.getElementById(id);
+  if (element && !element.matches(":disabled")) element.focus({ preventScroll: true });
+  else focusNext(id);
+};

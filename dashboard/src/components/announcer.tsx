@@ -1,16 +1,13 @@
 import { useSyncExternalStore } from "react";
 
-let polite = "";
+type Said = { text: string; times: number };
+
+let said: Said = { text: "", times: 0 };
 const listeners = new Set<() => void>();
 
-const publish = (text: string) => {
-  polite = text;
-  listeners.forEach((listener) => listener());
-};
-
 export const announce = (text: string) => {
-  publish("");
-  window.setTimeout(() => publish(text), 30);
+  said = { text, times: said.times + 1 };
+  listeners.forEach((listener) => listener());
 };
 
 const subscribe = (listener: () => void) => {
@@ -19,14 +16,14 @@ const subscribe = (listener: () => void) => {
 };
 
 export const Announcers = ({ title }: { title: string }) => {
-  const said = useSyncExternalStore(subscribe, () => polite);
+  const { text, times } = useSyncExternalStore(subscribe, () => said);
   return (
     <>
       <div className="sr-only" aria-live="assertive" aria-atomic="true">
         {title}
       </div>
       <div className="sr-only" aria-live="polite" aria-atomic="true">
-        {said}
+        <span key={times}>{text}</span>
       </div>
     </>
   );

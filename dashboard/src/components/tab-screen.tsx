@@ -9,7 +9,7 @@ import { useTabStream } from "../lib/stream";
 import { firstTab, tabName } from "../lib/tabs";
 import { useTimeline, useViewedFrame } from "../lib/timeline";
 import { announce } from "./announcer";
-import { restartProgram } from "./restart-button";
+import { restartExited } from "./restart-button";
 import { StatusBar } from "./status-bar";
 import { Viewport } from "./terminal-view";
 import { Timeline } from "./timeline";
@@ -28,9 +28,7 @@ export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) 
   const held = useControl(session, tab.tab) === "held" && viewed === null;
   const typing = held && !shown?.exited;
 
-  const restart = async () => {
-    if (await restartProgram(session, tab)) document.getElementById("main-content")?.focus({ preventScroll: true });
-  };
+  const restart = () => void restartExited(session, tab);
 
   const close = async () => {
     try {
@@ -60,8 +58,7 @@ export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) 
             ? { name, focus: controlTerminal(session, tab.tab), keys: typing ? keyboard.keys : undefined, paste: typing ? keyboard.paste : undefined }
             : null
         }
-        onRestart={restart}
-        onClose={close}
+        exit={{ onRestart: restart, onClose: close }}
       />
       <Timeline session={session} tab={tab} />
       <div className="h-px shrink-0 bg-border" role="none" />
