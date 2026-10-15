@@ -985,6 +985,8 @@ pub struct Export {
     pub path: PathBuf,
     pub files: usize,
     pub bytes: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

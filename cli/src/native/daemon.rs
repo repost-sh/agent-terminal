@@ -274,7 +274,13 @@ impl Daemon {
             }
             Request::TraceExport { session, path } => {
                 let exported = home().and_then(|home| store::export(&home, &session, &path)).map_err(error_body)?;
-                Ok(Reply::Exported(Export { session, path, files: exported.files, bytes: exported.bytes }))
+                Ok(Reply::Exported(Export {
+                    session,
+                    path,
+                    files: exported.files,
+                    bytes: exported.bytes,
+                    missing: exported.missing,
+                }))
             }
             Request::Shell { session, shell, program, size, cwd, env, wait, timeout_ms } => self.open_shell(
                 session,

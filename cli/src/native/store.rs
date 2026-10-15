@@ -216,52 +216,59 @@ impl SessionFolder {
     }
 
     pub fn activity_since(&self, offset: u64) -> Result<(Vec<serde_json::Value>, u64)> {
-        let path = self.path.join("activity.jsonl");
-        let mut log = match File::open(&path) {
-            Ok(log) => log,
-            Err(e) if e.kind() == ErrorKind::NotFound => return Ok((Vec::new(), offset)),
-            Err(e) => return Err(e).with_context(|| format!("open {}", path.display())),
-        };
-        let mut read = Vec::new();
-        log.seek(SeekFrom::Start(offset))
-            .and_then(|_| log.read_to_end(&mut read))
-            .with_context(|| format!("read {}", path.display()))?;
-        let complete = read.iter().rposition(|byte| *byte == b'\n').map_or(0, |end| end + 1);
-        let entries = read[..complete]
-            .split(|byte| *byte == b'\n')
-            .filter(|line| !line.is_empty())
-            .map(serde_json::from_slice)
-            .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("read {}", path.display()))?;
-        Ok((entries, offset + complete as u64))
+        activity_in(&self.path, offset)
     }
 
     pub fn screenshots(&self) -> Result<Vec<ScreenshotEntry>> {
-        let path = self.path.join("screenshots.jsonl");
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
-        };
-        let complete = text.rfind('\n').map_or(0, |end| end + 1);
-        let mut kept: Vec<ScreenshotEntry> = Vec::new();
-        for line in text[..complete].lines() {
-            let entry: ScreenshotEntry =
-                serde_json::from_str(line).with_context(|| format!("read {}: {line}", path.display()))?;
-            kept.retain(|earlier| earlier.path != entry.path);
-            kept.push(entry);
-        }
-        Ok(kept)
+        screenshots_in(&self.path)
     }
 
     pub fn record(&self, tab: &str, command: &pty::Command) -> Arc<Recording> {
         let path = self.path.join(format!("{tab}.cast"));
         Recording::start(format!("{} {tab}", self.session), path, command.size, command.line())
     }
-
     pub fn command_log(&self, tab: &str) -> CommandLog {
         CommandLog { path: self.path.join(format!("{tab}.commands.jsonl")) }
     }
+}
+
+fn activity_in(folder: &Path, offset: u64) -> Result<(Vec<serde_json::Value>, u64)> {
+    let path = folder.join("activity.jsonl");
+    let mut log = match File::open(&path) {
+        Ok(log) => log,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok((Vec::new(), offset)),
+        Err(e) => return Err(e).with_context(|| format!("open {}", path.display())),
+    };
+    let mut read = Vec::new();
+    log.seek(SeekFrom::Start(offset))
+        .and_then(|_| log.read_to_end(&mut read))
+        .with_context(|| format!("read {}", path.display()))?;
+    let complete = read.iter().rposition(|byte| *byte == b'\n').map_or(0, |end| end + 1);
+    let entries = read[..complete]
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(serde_json::from_slice)
+        .collect::<Result<Vec<_>, _>>()
+        .with_context(|| format!("read {}", path.display()))?;
+    Ok((entries, offset + complete as u64))
+}
+
+fn screenshots_in(folder: &Path) -> Result<Vec<ScreenshotEntry>> {
+    let path = folder.join("screenshots.jsonl");
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+    };
+    let complete = text.rfind('\n').map_or(0, |end| end + 1);
+    let mut kept: Vec<ScreenshotEntry> = Vec::new();
+    for line in text[..complete].lines() {
+        let entry: ScreenshotEntry =
+            serde_json::from_str(line).with_context(|| format!("read {}: {line}", path.display()))?;
+        kept.retain(|earlier| earlier.path != entry.path);
+        kept.push(entry);
+    }
+    Ok(kept)
 }
 
 #[derive(Clone)]
@@ -312,6 +319,7 @@ pub fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
 pub struct Exported {
     pub files: usize,
     pub bytes: u64,
+    pub missing: Vec<PathBuf>,
 }
 
 pub fn export(home: &Path, session: &str, to: &Path) -> Result<Exported> {
@@ -337,12 +345,58 @@ pub fn export(home: &Path, session: &str, to: &Path) -> Result<Exported> {
         zip.start_file(format!("{root}/{}", name.display()), options)?;
         zip.write_all(&contents)?;
     }
+    let mut named: Vec<String> = Vec::new();
+    let mut missing = Vec::new();
+    let mut added = 0;
+    for (kind, path) in saved_files(&folder)? {
+        let contents = match std::fs::read(&path) {
+            Ok(contents) => contents,
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                missing.push(path);
+                continue;
+            }
+            Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+        };
+        let name = path.file_name().map_or_else(|| "file".into(), |name| name.to_string_lossy().into_owned());
+        let mut entry = format!("{root}/{kind}/{name}");
+        for copy in 2.. {
+            if !named.contains(&entry) {
+                break;
+            }
+            entry = format!("{root}/{kind}/{copy}-{name}");
+        }
+        zip.start_file(entry.as_str(), options)?;
+        zip.write_all(&contents)?;
+        named.push(entry);
+        added += 1;
+    }
     let zipped = zip.finish()?.into_inner();
     if let Some(parent) = to.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     std::fs::write(to, &zipped).with_context(|| format!("write {}", to.display()))?;
-    Ok(Exported { files: files.len(), bytes: zipped.len() as u64 })
+    Ok(Exported { files: files.len() + added, bytes: zipped.len() as u64, missing })
+}
+
+fn saved_files(folder: &Path) -> Result<Vec<(&'static str, PathBuf)>> {
+    let mut saved: Vec<(&'static str, PathBuf)> = Vec::new();
+    let mut keep = |kind: &'static str, path: PathBuf| {
+        if !saved.iter().any(|(_, known)| *known == path) {
+            saved.push((kind, path));
+        }
+    };
+    let (calls, _) = activity_in(folder, 0)?;
+    for call in &calls {
+        for (kind, field) in [("screenshots", "screenshots"), ("clips", "clips")] {
+            for path in call[field].as_array().into_iter().flatten().filter_map(serde_json::Value::as_str) {
+                keep(kind, PathBuf::from(path));
+            }
+        }
+    }
+    for shot in screenshots_in(folder)? {
+        keep("screenshots", shot.path);
+    }
+    Ok(saved)
 }
 
 fn is_appended_to(file: &Path) -> bool {

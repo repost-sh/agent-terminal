@@ -694,7 +694,7 @@ enum RecordAction {
 
 #[derive(Subcommand)]
 enum TraceAction {
-    #[command(about = "Zip the session folder (activity log of every call, tab recordings) into one file")]
+    #[command(about = "Zip the session folder (activity log, recordings, command logs) with its screenshots and clips")]
     Export {
         #[arg(help = "Where to write the zip file", value_name = "PATH")]
         path: PathBuf,

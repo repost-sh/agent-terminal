@@ -97,3 +97,5 @@ Only tabs opened with `shell`, which have shell integration. One line per comman
 ## `trace export <path>`
 
 A zip of the folder with every entry under `<session folder name>/`. Recordings, the activity log, the screenshot list and the command logs are copied up to their last complete line, so an export taken while a program prints never holds half an event. The `trace export` call itself is logged after the zip is written, so it is not in the zip.
+
+The files the session saved outside its folder come along: every path in the `screenshots` of the activity log and in the screenshot list goes under `screenshots/`, every path in `clips` under `clips/`, each by its file name (a second file of the same name gets a `2-` before it). A file that is no longer there is left out, and `trace export` names it (`missing` in `--json`).

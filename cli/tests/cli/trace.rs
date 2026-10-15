@@ -53,6 +53,53 @@ fn trace_export_zips_the_session_folder() {
     assert_eq!(last["command"], "--session qa trace export evidence/qa.zip");
 }
 
+fn unzip_bytes(path: &Path) -> BTreeMap<String, Vec<u8>> {
+    let file = std::fs::File::open(path).unwrap_or_else(|e| panic!("open {}: {e}", path.display()));
+    let mut archive = zip::ZipArchive::new(file).expect("a zip file");
+    (0..archive.len())
+        .map(|i| {
+            let mut entry = archive.by_index(i).unwrap();
+            let mut contents = Vec::new();
+            entry.read_to_end(&mut contents).unwrap();
+            (entry.name().unwrap().into_owned(), contents)
+        })
+        .collect()
+}
+
+#[test]
+fn trace_export_adds_the_screenshots_and_clips_the_session_saved() {
+    let at = AgentTerminal::new();
+    let work = at.work_folder();
+    open_printer(&at, "default", &["open"]);
+    let frame = at.run(&["get", "frame"]).success().stdout().trim().to_string();
+    at.run_in(&work, &["--screenshot-dir", "shots", "screenshot"]).success();
+    at.run_in(&work, &["screenshot", "named.png"]).success();
+    at.run_in(&work, &["diff", "screenshot", "--baseline", "named.png", "--output", "changes.png"]).success();
+    at.run_in(&work, &["clip", "last.gif", "--last", "1s"]).success();
+    at.run_in(&work, &["screenshot", "gone.png"]).success();
+    std::fs::remove_file(work.join("gone.png")).expect("remove a screenshot");
+
+    let exported = at.run_in(&work, &["trace", "export", "trace.zip"]).success().stdout();
+    let files = unzip_bytes(&work.join("trace.zip"));
+    let default_shot = format!("default-t1-{frame}.png");
+    let saved = [
+        (format!("default/screenshots/{default_shot}"), work.join("shots").join(&default_shot)),
+        ("default/screenshots/named.png".to_string(), work.join("named.png")),
+        ("default/screenshots/changes.png".to_string(), work.join("changes.png")),
+        ("default/clips/last.gif".to_string(), work.join("last.gif")),
+    ];
+    for (name, path) in &saved {
+        let kept = std::fs::read(path).expect("read a saved file");
+        assert!(files.get(name) == Some(&kept), "{name} is not in the zip as {} was saved", path.display());
+    }
+    assert_eq!(files.len(), 3 + saved.len(), "{:?}", files.keys().collect::<Vec<_>>());
+    let gone = work.join("gone.png");
+    assert!(
+        exported.ends_with(&format!("1 file the session saved is gone and is not in it: {}\n", gone.display())),
+        "{exported}"
+    );
+}
+
 #[test]
 fn trace_export_includes_the_command_log_of_a_shell_tab() {
     let at = AgentTerminal::new();
