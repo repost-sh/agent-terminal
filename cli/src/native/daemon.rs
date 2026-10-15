@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{Context, Result};
 use tokio::sync::watch;
 
-use crate::connection::{READY, home, socket_path, version_path};
+use crate::connection::{READY, home, socket_path, stop_ends_it, version_path};
 use crate::native::changes::Changes;
 use crate::native::clips;
 use crate::native::control::{Control, Handed, Hold};
@@ -178,9 +178,10 @@ impl Daemon {
         let response = Response::Err(ErrorBody {
             code: crate::exit::OTHER_VERSION,
             message: format!(
-                "the daemon is agent-terminal {} and does not understand this request, so the command is another version; it has {}: `agent-terminal daemon stop` ends it and its terminals, and the next command starts a daemon of the command's version",
+                "the daemon is agent-terminal {} and does not understand this request, so the command is another version; it has {}: {}",
                 crate::VERSION,
-                output::count(terminals, "open terminal")
+                output::count(terminals, "open terminal"),
+                stop_ends_it(None)
             ),
             snapshot: None,
             other_version: Some(OtherVersion {

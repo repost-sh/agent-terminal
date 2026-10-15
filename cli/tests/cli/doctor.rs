@@ -68,7 +68,7 @@ fn doctor_flags_a_daemon_of_another_version_and_says_how_to_replace_it() {
             )
             .as_str(),
             &format!(
-                "                  fix: agent-terminal daemon stop ends it and its terminals; the next command starts a {VERSION} daemon"
+                "                  fix: `agent-terminal daemon stop` ends it and its terminals, and the next command starts a {VERSION} daemon"
             ),
         ]
     );
@@ -85,7 +85,9 @@ fn doctor_flags_a_daemon_of_another_version_and_says_how_to_replace_it() {
                 "running agent-terminal 0.0.1, not {VERSION} like this command, listening on {}",
                 socket.display()
             ),
-            "fix": format!("agent-terminal daemon stop ends it and its terminals; the next command starts a {VERSION} daemon")
+            "fix": format!(
+                "`agent-terminal daemon stop` ends it and its terminals, and the next command starts a {VERSION} daemon"
+            )
         })
     );
     assert_eq!(

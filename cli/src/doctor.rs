@@ -194,7 +194,7 @@ fn running(socket: &std::path::Path) -> Check {
     Check::problem(
         "daemon",
         format!("running {daemon}, not {VERSION} like this command, listening on {socket}"),
-        format!("agent-terminal daemon stop ends it and its terminals; the next command starts a {VERSION} daemon"),
+        connection::stop_ends_it(Some(VERSION)),
     )
 }
 

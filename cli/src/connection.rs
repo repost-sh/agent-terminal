@@ -61,6 +61,14 @@ pub fn started_version() -> Result<Option<String>> {
     running_version()
 }
 
+pub fn stop_ends_it(cli_version: Option<&str>) -> String {
+    let next = match cli_version {
+        Some(version) => format!("a {version} daemon"),
+        None => "a daemon of the command's version".to_string(),
+    };
+    format!("`agent-terminal daemon stop` ends it and its terminals, and the next command starts {next}")
+}
+
 pub fn daemon_of(version: Option<&str>) -> String {
     match version {
         Some(version) => format!("agent-terminal {version}"),
@@ -146,8 +154,9 @@ fn other_version(running: Option<&str>, terminals: Option<usize>) -> ErrorBody {
     ErrorBody {
         code: crate::exit::OTHER_VERSION,
         message: format!(
-            "the daemon is {}, not {VERSION} like this command, and {open}, so it was left running; `agent-terminal daemon stop` ends it and its terminals, and the next command starts a {VERSION} daemon",
-            daemon_of(running)
+            "the daemon is {}, not {VERSION} like this command, and {open}, so it was left running; {}",
+            daemon_of(running),
+            stop_ends_it(Some(VERSION))
         ),
         snapshot: None,
         other_version: Some(OtherVersion {
