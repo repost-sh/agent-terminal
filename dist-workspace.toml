@@ -13,7 +13,7 @@ targets = [
 ]
 precise-builds = true
 installers = ["homebrew"]
+tap = "repost-sh/homebrew-tap"
 formula = "agent-terminal"
 hosting = "github"
-install-path = "CARGO_HOME"
 include = ["licenses/"]
