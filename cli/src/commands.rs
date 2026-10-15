@@ -614,7 +614,7 @@ enum GetCommand {
     ExitCode,
     #[command(about = "Process id of the program")]
     Pid,
-    #[command(about = "Title the program set for its window")]
+    #[command(about = "Title the program set for its terminal (OSC 2)")]
     Title,
     #[command(about = "Working directory the program last reported (OSC 7), else where it started")]
     Cwd,

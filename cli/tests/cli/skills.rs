@@ -373,6 +373,27 @@ fn every_command_a_guide_runs_is_a_command_of_this_binary() {
 }
 
 #[test]
+fn the_help_of_every_command_calls_a_terminal_a_terminal_or_a_tab() {
+    let at = AgentTerminal::new();
+    let mut commands = Commands { at: &at, known: std::collections::HashMap::new() };
+    let mut paths: Vec<Vec<String>> = vec![Vec::new()];
+    let mut banned = Vec::new();
+    while let Some(path) = paths.pop() {
+        let mut args = vec!["help"];
+        args.extend(path.iter().map(String::as_str));
+        let text = at.run(&args).success().stdout().to_lowercase();
+        for word in ["window", "pane"] {
+            if text.split(|c: char| !c.is_alphanumeric()).any(|said| said == word || said == format!("{word}s")) {
+                banned.push(format!("`help {}` says {word}", path.join(" ")));
+            }
+        }
+        let subcommands = commands.help(&path).map(|help| help.subcommands.clone()).unwrap_or_default();
+        paths.extend(subcommands.into_iter().map(|name| [path.clone(), vec![name]].concat()));
+    }
+    assert!(banned.is_empty(), "GLOSSARY.md says terminal or tab, never pane or window:\n{}", banned.join("\n"));
+}
+
+#[test]
 fn a_guide_that_runs_a_renamed_subcommand_fails_the_check() {
     let at = AgentTerminal::new();
     let mut commands = Commands { at: &at, known: std::collections::HashMap::new() };
