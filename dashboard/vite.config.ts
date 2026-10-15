@@ -2,7 +2,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-const dashboard = process.env.AGENT_TERMINAL_DASHBOARD ?? "http://localhost:4849";
+const dashboard = process.env["AGENT_TERMINAL_DASHBOARD"] ?? "http://localhost:4849";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

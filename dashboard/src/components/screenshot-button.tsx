@@ -5,11 +5,16 @@ import type { ToolbarActionProps } from "../toolbar-actions";
 import { toast } from "./toaster";
 import { IconButton } from "./ui";
 
-export const ScreenshotButton = ({ session, tab, shown }: ToolbarActionProps) => {
+export const ScreenshotButton = (props: ToolbarActionProps) => {
+  const { shown } = props;
   const drawn = shown !== null && (shown.frame > 0 || shown.exited);
   const take = async () => {
-    const path = await takeScreenshot(session, tab.tab);
-    if (path) toast("success", `Saved ${path.split("/").pop() ?? path}`, path);
+    const path = await takeScreenshot(props.session, props.tab.tab);
+
+    if (path) {
+      toast("success", { title: `Saved ${path.split("/").pop() ?? path}`, description: path });
+    }
   };
-  return <IconButton label="Take a screenshot" tooltip="Screenshot" icon={Camera} disabled={!drawn} onClick={() => void take()} />;
+
+  return <IconButton look={{ label: "Take a screenshot", tooltip: "Screenshot", icon: Camera }} disabled={!drawn} onClick={() => void take()} />;
 };

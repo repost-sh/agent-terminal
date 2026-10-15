@@ -5,21 +5,27 @@ import { focusWhenShown } from "../lib/focus";
 import type { ToolbarActionProps } from "../toolbar-actions";
 import { Button } from "./ui";
 
-export const ControlButton = ({ session, tab, stream, shown }: ToolbarActionProps) => {
-  const control = useControl(session, tab.tab);
+const isLive = (props: ToolbarActionProps) =>
+  props.stream === "open" && props.shown !== null && props.shown.frame > 0 && !props.shown.exited;
+
+const toggle = (props: ToolbarActionProps, held: boolean) => {
+  if (held) {
+    releaseControl(props.session, props.tab.tab);
+  } else {
+    takeControl({ session: props.session, tab: props.tab.tab }, props.tab.program);
+  }
+};
+
+export const ControlButton = (props: ToolbarActionProps) => {
+  const control = useControl(props.session, props.tab.tab);
   const held = control !== "off";
-  const live = stream === "open" && shown !== null && shown.frame > 0 && !shown.exited;
-  const disabled = held ? control === "taking" : !live;
-  const id = controlButtonId(session, tab.tab);
+  const disabled = held ? control === "taking" : !isLive(props);
+  const id = controlButtonId(props.session, props.tab.tab);
+
   return (
-    <Button
-      id={id}
-      ref={disabled ? undefined : focusWhenShown(id)}
-      variant={held ? "default" : "outline"}
-      icon={Hand}
-      disabled={disabled}
-      onClick={() => (held ? releaseControl(session, tab.tab) : takeControl(session, tab.tab, tab.program))}
-    >
+    <Button look={{ variant: held ? "default" : "outline", icon: Hand }} id={id} ref={disabled ? undefined : focusWhenShown(id)} disabled={disabled} onClick={() => {
+        toggle(props, held);
+      }}>
       {held ? "Release control" : "Take control"}
     </Button>
   );

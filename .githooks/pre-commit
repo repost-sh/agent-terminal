@@ -6,7 +6,7 @@ staged="$(git diff --cached --name-only)"
 
 if grep -q '^dashboard/' <<<"$staged"; then
   cd "$root/dashboard"
-  [ -x node_modules/.bin/oxlint ] || { echo "pre-commit: run 'npm ci' in dashboard/" >&2; exit 1; }
+  [ -x node_modules/.bin/eslint ] || { echo "pre-commit: run 'npm ci' in dashboard/" >&2; exit 1; }
   npm run --silent lint
 fi
 

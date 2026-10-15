@@ -4,7 +4,7 @@ import { useRef, useState, type UIEvent } from "react";
 import { activityRows, resultOf, useActivity, type ActivityRow as ActivityRowData } from "../lib/activity";
 import { screenshotUrl } from "../lib/api";
 import { clockMs, formatDuration } from "../lib/format";
-import type { PendingCall } from "../lib/protocol";
+import type { PendingCall, Screenshot } from "../lib/protocol";
 import { fileName, useScreenshots } from "../lib/screenshots";
 import { tabKey, tabName } from "../lib/tabs";
 import type { PanelProps } from "../panels";
@@ -20,72 +20,135 @@ const RESULT_TONE = {
   warning: { text: "text-yellow-700 dark:text-warning", row: "bg-warning/5" },
 };
 
-type Cleared = { first: string; count: number };
+interface Cleared { first: string; count: number }
 
 const cleared = new Map<string, Cleared>();
 
 const stickToLatest = (list: HTMLOListElement | null) => {
-  if (!list) return;
+  if (!list) {
+    return;
+  }
+
   const toLatest = () => {
-    if (list.dataset.follow === "true") list.scrollTop = list.scrollHeight;
+    if (list.dataset["follow"] === "true") {
+      list.scrollTop = list.scrollHeight;
+    }
   };
+
   toLatest();
   const watcher = new MutationObserver(toLatest);
+
   watcher.observe(list, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-follow"] });
-  return () => watcher.disconnect();
+
+  return () => {
+    watcher.disconnect();
+  };
 };
 
 const THUMBNAIL =
   "block w-40 max-w-full overflow-hidden rounded-sm ring-1 ring-border outline-none hover:ring-ring focus-visible:ring-2 focus-visible:ring-ring";
 
-const Thumbnails = ({ session, paths }: { session: string; paths: string[] }) => {
+interface ThumbnailProps { session: string; path: string; shot: Screenshot | undefined }
+
+const Thumbnail = (props: ThumbnailProps) => {
+  const { shot } = props;
+  const picture = (
+    <>
+      <span className="sr-only">Open screenshot {fileName(props.path)}</span>
+      <img src={screenshotUrl(props.session, props.path)} alt="" className="block w-full" />
+    </>
+  );
+
+  return (
+    <div className="mb-1.5 flex gap-2">
+      <span className="invisible shrink-0 font-mono text-xs" aria-hidden="true">
+        00:00:00.000
+      </span>
+      {shot ? (
+        <button type="button" onClick={() => {
+          openLightbox(props.session, shot);
+        }} className={THUMBNAIL}>
+          {picture}
+        </button>
+      ) : (
+        <a href={screenshotUrl(props.session, props.path)} target="_blank" rel="noreferrer" className={THUMBNAIL}>
+          {picture}
+        </a>
+      )}
+    </div>
+  );
+};
+
+interface ThumbnailsProps { session: string; paths: string[] }
+
+const Thumbnails = ({ session, paths }: ThumbnailsProps) => {
   const shots = useScreenshots(session).value;
+
   return (
     <>
       {paths
         .filter((path) => path.toLowerCase().endsWith(".png"))
-        .map((path) => {
-          const shot = shots.find((listed) => listed.path === path);
-          const picture = (
-            <>
-              <span className="sr-only">Open screenshot {fileName(path)}</span>
-              <img src={screenshotUrl(session, path)} alt="" className="block w-full" />
-            </>
-          );
-          return (
-            <div key={path} className="mb-1.5 flex gap-2">
-              <span className="invisible shrink-0 font-mono text-xs" aria-hidden="true">
-                00:00:00.000
-              </span>
-              {shot ? (
-                <button type="button" onClick={() => openLightbox(session, shot)} className={THUMBNAIL}>
-                  {picture}
-                </button>
-              ) : (
-                <a href={screenshotUrl(session, path)} target="_blank" rel="noreferrer" className={THUMBNAIL}>
-                  {picture}
-                </a>
-              )}
-            </div>
-          );
-        })}
+        .map((path) => (
+          <Thumbnail key={path} session={session} path={path} shot={shots.find((listed) => listed.path === path)} />
+        ))}
     </>
   );
 };
 
-type RowProps = { session: string; row: ActivityRowData; expanded: boolean; onToggle: () => void };
+interface RowProps { session: string; row: ActivityRowData; expanded: boolean; onToggle: () => void }
 
-const ActivityRow = ({ session, row: { entry, human }, expanded, onToggle }: RowProps) => {
+interface CallTextProps { row: ActivityRowData }
+
+const CallText = ({ row }: CallTextProps) => {
+  const entry = row.entry;
   const result = resultOf(entry);
-  const tone = result && RESULT_TONE[result.tone];
-  const opens = entry.output !== "";
+
   return (
-    <li className={cn("border-b border-border", tone?.row, human !== null && "bg-violet-500/5", expanded && "bg-muted/60")}>
+    <span className="min-w-0 flex-1 font-mono [overflow-wrap:anywhere]">
+      {row.human === null ? (
+        <>
+          {entry.command} <span className="whitespace-nowrap text-muted-foreground">{formatDuration(entry.duration_ms)}</span>
+        </>
+      ) : (
+        <>
+          <span className="text-violet-600 dark:text-violet-400">human:</span> {row.human}
+        </>
+      )}
+      {result && <span className={cn("mt-0.5 flex items-center gap-1", RESULT_TONE[result.tone].text)}>{result.label}</span>}
+    </span>
+  );
+};
+
+const RowDetails = (props: RowProps) => {
+  const entry = props.row.entry;
+
+  return (
+    <>
+      {entry.screenshots && <Thumbnails session={props.session} paths={entry.screenshots} />}
+      {props.expanded && entry.output !== "" && (
+        <pre className="mb-1.5 max-h-48 overflow-auto text-[10px] leading-snug text-muted-foreground">{entry.output}</pre>
+      )}
+    </>
+  );
+};
+
+const rowClass = (props: RowProps) => {
+  const result = resultOf(props.row.entry);
+
+  return cn("border-b border-border", result && RESULT_TONE[result.tone].row, props.row.human !== null && "bg-violet-500/5", props.expanded && "bg-muted/60");
+};
+
+const ActivityRow = (props: RowProps) => {
+  const entry = props.row.entry;
+  const opens = entry.output !== "";
+
+  return (
+    <li className={rowClass(props)}>
       <div className="px-3">
         <button
           type="button"
-          aria-expanded={opens ? expanded : undefined}
-          onClick={onToggle}
+          aria-expanded={opens ? props.expanded : undefined}
+          onClick={props.onToggle}
           className="flex w-full items-start gap-2 rounded-sm py-1.5 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <span className="shrink-0 font-mono text-muted-foreground">
@@ -93,32 +156,22 @@ const ActivityRow = ({ session, row: { entry, human }, expanded, onToggle }: Row
               {clockMs(entry.time)}
             </time>
           </span>
-          <span className="min-w-0 flex-1 font-mono [overflow-wrap:anywhere]">
-            {human === null ? (
-              <>
-                {entry.command} <span className="whitespace-nowrap text-muted-foreground">{formatDuration(entry.duration_ms)}</span>
-              </>
-            ) : (
-              <>
-                <span className="text-violet-600 dark:text-violet-400">human:</span> {human}
-              </>
-            )}
-            {result && <span className={cn("mt-0.5 flex items-center gap-1", tone?.text)}>{result.label}</span>}
-          </span>
+          <CallText row={props.row} />
           {opens && (
             <span className="ml-auto shrink-0 font-mono text-muted-foreground" aria-hidden="true">
-              {expanded ? "-" : "+"}
+              {props.expanded ? "-" : "+"}
             </span>
           )}
         </button>
-        {entry.screenshots && <Thumbnails session={session} paths={entry.screenshots} />}
-        {expanded && opens && <pre className="mb-1.5 max-h-48 overflow-auto text-[10px] leading-snug text-muted-foreground">{entry.output}</pre>}
+        <RowDetails {...props} />
       </div>
     </li>
   );
 };
 
-const PendingRow = ({ call }: { call: PendingCall }) => (
+interface PendingRowProps { call: PendingCall }
+
+const PendingRow = ({ call }: PendingRowProps) => (
   <li aria-busy="true" className="border-b border-border">
     <div className="flex w-full items-start gap-2 px-3 py-1.5 text-xs">
       <span className="shrink-0 font-mono text-muted-foreground">
@@ -137,86 +190,117 @@ const PendingRow = ({ call }: { call: PendingCall }) => (
   </li>
 );
 
-export const ActivityPanel = ({ session, tab }: PanelProps) => {
-  const key = tabKey(session, tab.tab);
-  const name = tabName(session, tab.tab);
-  const { entries, pending } = useActivity(session, tab.tab);
+const useActivityList = (session: string, tab: string) => {
+  const key = tabKey(session, tab);
+  const activity = useActivity(session, tab);
   const [clearedAt, setClearedAt] = useState(() => cleared.get(key) ?? null);
   const [follow, setFollow] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
   const followButton = useRef<HTMLButtonElement>(null);
-  const following = follow;
-  const hidden = clearedAt && entries[0]?.time === clearedAt.first ? clearedAt.count : 0;
-  const shown = activityRows(entries.slice(hidden), hidden);
-
-  const scrolled = (event: UIEvent<HTMLOListElement>) => {
-    const list = event.currentTarget;
-    const atLatest = list.scrollHeight - list.scrollTop - list.clientHeight < FOLLOWING_WITHIN_PX;
-    if (atLatest !== follow) setFollow(atLatest);
-  };
-
+  const hidden = clearedAt && activity.entries[0]?.time === clearedAt.first ? clearedAt.count : 0;
   const clear = () => {
-    const first = entries[0];
-    if (!first) return;
-    const at = { first: first.time, count: entries.length };
+    const first = activity.entries[0];
+
+    if (!first) {
+      return;
+    }
+
+    const at = { first: first.time, count: activity.entries.length };
+
     cleared.set(key, at);
     setClearedAt(at);
     setExpanded(null);
     announce("Activity cleared");
   };
 
-  const followLatest = () => setFollow(true);
+  return { activity, shown: activityRows(activity.entries.slice(hidden), hidden), follow, setFollow, expanded, setExpanded, followButton, clear };
+};
 
-  const jumpToLatest = () => {
-    followLatest();
-    followButton.current?.focus();
+type ActivityList = ReturnType<typeof useActivityList>;
+
+interface ListProps { list: ActivityList }
+
+const ActivityHead = ({ list }: ListProps) => (
+  <PanelHead title="Activity" count={list.shown.length + list.activity.pending.length}>
+    <button
+      ref={list.followButton}
+      type="button"
+      aria-pressed={list.follow}
+      onClick={() => {
+        list.setFollow(!list.follow);
+      }}
+      className={HEAD_TOGGLE}
+      title="Follow the newest call"
+    >
+      <ArrowDownToLine aria-hidden="true" />
+      Follow
+    </button>
+    <button type="button" onClick={list.clear} disabled={list.shown.length === 0} className={HEAD_TOGGLE} title="Clear activity">
+      <Trash2 aria-hidden="true" />
+      <span className="sr-only">Clear activity</span>
+    </button>
+  </PanelHead>
+);
+
+interface CallsProps { list: ActivityList; session: string; name: string }
+
+const Calls = (props: CallsProps) => {
+  const { list } = props;
+  const scrolled = (event: UIEvent<HTMLOListElement>) => {
+    const element = event.currentTarget;
+    const atLatest = element.scrollHeight - element.scrollTop - element.clientHeight < FOLLOWING_WITHIN_PX;
+
+    if (atLatest !== list.follow) {
+      list.setFollow(atLatest);
+    }
   };
 
   const toggle = (index: number) => {
-    setFollow(false);
-    setExpanded(expanded === index ? null : index);
+    list.setFollow(false);
+    list.setExpanded(list.expanded === index ? null : index);
   };
 
   return (
+    <ol ref={stickToLatest} data-follow={String(list.follow)} onScroll={scrolled} aria-label={`Calls to ${props.name}`} className="h-full overflow-y-auto">
+      {list.shown.map((row) => (
+        <ActivityRow key={row.at} session={props.session} row={row} expanded={list.expanded === row.at} onToggle={() => {
+          toggle(row.at);
+        }} />
+      ))}
+      {list.activity.pending.map((call, index) => (
+        <PendingRow key={`${call.time} ${String(index)}`} call={call} />
+      ))}
+    </ol>
+  );
+};
+
+const JumpToLatest = ({ list }: ListProps) => (
+  <button
+    type="button"
+    hidden={list.follow}
+    onClick={() => {
+      list.setFollow(true);
+      list.followButton.current?.focus();
+    }}
+    className="absolute bottom-3 left-1/2 flex h-6 -translate-x-1/2 items-center gap-1 rounded-4xl border border-border bg-popover px-2.5 text-[11px] text-popover-foreground shadow-md outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-3"
+  >
+    <ArrowDown aria-hidden="true" />
+    Jump to latest
+  </button>
+);
+
+export const ActivityPanel = ({ session, tab }: PanelProps) => {
+  const list = useActivityList(session, tab.tab);
+
+  return (
     <>
-      <PanelHead title="Activity" count={shown.length + pending.length}>
-        <button
-          ref={followButton}
-          type="button"
-          aria-pressed={following}
-          onClick={() => (following ? setFollow(false) : followLatest())}
-          className={HEAD_TOGGLE}
-          title="Follow the newest call"
-        >
-          <ArrowDownToLine aria-hidden="true" />
-          Follow
-        </button>
-        <button type="button" onClick={clear} disabled={shown.length === 0} className={HEAD_TOGGLE} title="Clear activity">
-          <Trash2 aria-hidden="true" />
-          <span className="sr-only">Clear activity</span>
-        </button>
-      </PanelHead>
-      {shown.length + pending.length === 0 ? (
+      <ActivityHead list={list} />
+      {list.shown.length + list.activity.pending.length === 0 ? (
         <p className="py-8 text-center text-xs text-muted-foreground">Waiting for calls...</p>
       ) : (
         <div className="relative min-h-0 flex-1">
-          <ol ref={stickToLatest} data-follow={String(following)} onScroll={scrolled} aria-label={`Calls to ${name}`} className="h-full overflow-y-auto">
-            {shown.map((row) => (
-              <ActivityRow key={row.at} session={session} row={row} expanded={expanded === row.at} onToggle={() => toggle(row.at)} />
-            ))}
-            {pending.map((call, index) => (
-              <PendingRow key={`${call.time} ${index}`} call={call} />
-            ))}
-          </ol>
-          <button
-            type="button"
-            hidden={following}
-            onClick={jumpToLatest}
-            className="absolute bottom-3 left-1/2 flex h-6 -translate-x-1/2 items-center gap-1 rounded-4xl border border-border bg-popover px-2.5 text-[11px] text-popover-foreground shadow-md outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-3"
-          >
-            <ArrowDown aria-hidden="true" />
-            Jump to latest
-          </button>
+          <Calls list={list} session={session} name={tabName(session, tab.tab)} />
+          <JumpToLatest list={list} />
         </div>
       )}
     </>

@@ -6,14 +6,18 @@ import type { PanelProps } from "../panels";
 import { EmptyNote, PanelHead } from "./panel-parts";
 import { openLightbox } from "./screenshot-lightbox";
 
-const Shot = ({ session, shot }: { session: string; shot: Screenshot }) => (
+interface ShotProps { session: string; shot: Screenshot }
+
+const Shot = ({ session, shot }: ShotProps) => (
   <li>
     <button
       type="button"
-      onClick={() => openLightbox(session, shot)}
+      onClick={() => {
+        openLightbox(session, shot);
+      }}
       className="flex w-full flex-col gap-1 rounded-md p-1.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
     >
-      <span className="block w-full overflow-hidden rounded-sm" style={{ aspectRatio: `${shot.width} / ${shot.height}` }}>
+      <span className="block w-full overflow-hidden rounded-sm" style={{ aspectRatio: `${String(shot.width)} / ${String(shot.height)}` }}>
         <img src={screenshotUrl(session, shot.path)} alt="" className="block size-full" />
       </span>
       <span className="mt-0.5 font-mono text-[11px] break-all">{fileName(shot.path)}</span>
@@ -30,6 +34,7 @@ const Shot = ({ session, shot }: { session: string; shot: Screenshot }) => (
 
 export const ScreenshotsPanel = ({ session }: PanelProps) => {
   const { status, value: shots } = useScreenshots(session);
+
   return (
     <>
       <PanelHead title="Screenshots" count={shots.length} />

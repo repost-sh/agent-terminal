@@ -1,4 +1,6 @@
 import type { CommandOutput, Compared, ErrorBody } from "./protocol";
+import { settle } from "./settle";
+import type { TabAddress } from "./tabs";
 
 const tabPath = (session: string, tab: string) => `/api/session/${encodeURIComponent(session)}/${encodeURIComponent(tab)}`;
 
@@ -17,26 +19,28 @@ export const screenshotUrl = (session: string, path: string) =>
 
 export const screenshotsFeedPath = (session: string) => `/api/session/${encodeURIComponent(session)}/screenshots/stream`;
 
-export const tabFeedPath = (session: string, tab: string, feed: "activity" | "output" | "info") => `${tabPath(session, tab)}/${feed}`;
+export const tabFeedPath = (address: TabAddress, feed: "activity" | "output" | "info") => `${tabPath(address.session, address.tab)}/${feed}`;
 
-const refusal = (text: string, response: Response) => {
-  try {
-    return (JSON.parse(text) as { error: ErrorBody }).error.message;
-  } catch {
-    return text || `${response.status} ${response.statusText}`;
-  }
+const refusal = async (text: string, response: Response) => {
+  const parsed = await settle(() => (JSON.parse(text) as { error: ErrorBody }).error.message);
+
+  return parsed.ok ? parsed.value : text || `${String(response.status)} ${response.statusText}`;
 };
 
 const post = async <Data>(path: string, body?: unknown) => {
-  const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: body === undefined ? null : JSON.stringify(body) });
   const text = await response.text();
-  if (!response.ok) throw new Error(refusal(text, response));
+
+  if (!response.ok) {
+    throw new Error(await refusal(text, response));
+  }
+
   return (JSON.parse(text) as { data: Data }).data;
 };
 
 export const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export type Opening = {
+export interface Opening {
   session: string;
   new_session: boolean;
   command: string;
@@ -44,7 +48,7 @@ export type Opening = {
   cols: number;
   rows: number;
   shell_integration: boolean;
-};
+}
 
 export const openTab = (opening: Opening) => post<{ session: string; tab: string }>("/api/sessions", opening);
 
@@ -59,24 +63,35 @@ export const takeScreenshot = (session: string, tab: string) =>
     (taken) => taken.path,
     (error: unknown) => {
       console.error(`Could not take a screenshot of ${session} ${tab}: ${reason(error)}`);
+
       return null;
     },
   );
 
-export const commandOutput = async (session: string, tab: string, id: number) => {
-  const response = await fetch(`${tabPath(session, tab)}/commands/${id}`);
+export const commandOutput = async (address: TabAddress, id: number) => {
+  const response = await fetch(`${tabPath(address.session, address.tab)}/commands/${String(id)}`);
   const text = await response.text();
-  if (!response.ok) throw new Error(refusal(text, response));
+
+  if (!response.ok) {
+    throw new Error(await refusal(text, response));
+  }
+
   return (JSON.parse(text) as CommandOutput).output;
 };
 
-export const compareScreenshots = async (session: string, older: string, newer: string) => {
+export interface ComparedPaths { older: string; newer: string }
+
+export const compareScreenshots = async (session: string, paths: ComparedPaths) => {
   const response = await fetch(`/api/session/${encodeURIComponent(session)}/screenshots/compare`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ paths: [older, newer] }),
+    body: JSON.stringify({ paths: [paths.older, paths.newer] }),
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(refusal(text, response));
+
+  if (!response.ok) {
+    throw new Error(await refusal(text, response));
+  }
+
   return JSON.parse(text) as Compared;
 };

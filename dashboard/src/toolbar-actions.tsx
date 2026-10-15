@@ -8,11 +8,11 @@ import type { TabInfo } from "./lib/protocol";
 import type { Layout } from "./lib/split";
 import type { Shown, StreamState } from "./lib/stream";
 
-export type ToolbarTab = { session: string; tab: TabInfo; stream: StreamState; shown: Shown | null };
+export interface ToolbarTab { session: string; tab: TabInfo; stream: StreamState; shown: Shown | null }
 
 export type ToolbarActionProps = ToolbarTab & { layout: Layout; onLayout: (count: Layout) => void };
 
-export type ToolbarAction = { id: string; Action: ComponentType<ToolbarActionProps> };
+export interface ToolbarAction { id: string; Action: ComponentType<ToolbarActionProps> }
 
 export const TOOLBAR_ACTIONS: ToolbarAction[] = [
   { id: "restart", Action: RestartButton },

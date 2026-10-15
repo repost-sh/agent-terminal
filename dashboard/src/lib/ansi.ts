@@ -1,8 +1,8 @@
 import type { CSSProperties } from "react";
 
-export type Style = {
-  fg?: string;
-  bg?: string;
+export interface Style {
+  fg?: string | undefined;
+  bg?: string | undefined;
   bold?: boolean;
   dim?: boolean;
   italic?: boolean;
@@ -10,89 +10,156 @@ export type Style = {
   inverse?: boolean;
   hidden?: boolean;
   strike?: boolean;
-};
+}
 
-export type Run = { text: string; style: Style };
+export interface Run { text: string; style: Style }
+
+interface Sgr { index: number; length: number; params: string }
+
+interface Attribute { code: number; sub: number[] }
 
 const CSI = "\x1b[";
 
-function* sgrSequences(text: string) {
+function* sgrSequences(text: string): Generator<Sgr> {
   const params = /([\d;:]*)m/y;
+
   for (let index = text.indexOf(CSI); index !== -1; index = text.indexOf(CSI, index + 1)) {
     params.lastIndex = index + CSI.length;
     const match = params.exec(text);
-    if (match) yield { index, length: CSI.length + match[0].length, params: match[1] ?? "" };
+
+    if (match) {
+      yield { index, length: CSI.length + match[0].length, params: match[1] ?? "" };
+    }
   }
 }
 
-const CUBE = [0, 95, 135, 175, 215, 255];
+const cube = (level: number) => (level === 0 ? 0 : 55 + 40 * level);
 
 const indexed = (n: number | undefined) => {
-  if (n === undefined || n < 0 || n > 255) return undefined;
-  if (n < 16) return `var(--ansi-${n})`;
+  if (n === undefined || n < 0 || n > 255) {
+    return undefined;
+  }
+
+  if (n < 16) {
+    return `var(--ansi-${String(n)})`;
+  }
+
   if (n < 232) {
     const at = n - 16;
-    return `rgb(${CUBE[Math.floor(at / 36)]} ${CUBE[Math.floor(at / 6) % 6]} ${CUBE[at % 6]})`;
+
+    return `rgb(${String(cube(Math.floor(at / 36)))} ${String(cube(Math.floor(at / 6) % 6))} ${String(cube(at % 6))})`;
   }
-  const gray = 8 + 10 * (n - 232);
+
+  const gray = String(8 + 10 * (n - 232));
+
   return `rgb(${gray} ${gray} ${gray})`;
+};
+
+const rgb = (values: number[]) => {
+  const [r, g, b] = values.length > 3 ? values.slice(-3) : values;
+
+  return r === undefined || g === undefined || b === undefined ? undefined : `rgb(${String(r)} ${String(g)} ${String(b)})`;
 };
 
 const extendedColor = (spec: number[]) => {
   const [kind, ...values] = spec;
-  if (kind === 5) return indexed(values[0]);
-  const [r, g, b] = values.length > 3 ? values.slice(-3) : values;
-  return kind === 2 && b !== undefined ? `rgb(${r} ${g} ${b})` : undefined;
+
+  if (kind === 5) {
+    return indexed(values[0]);
+  }
+
+  return kind === 2 ? rgb(values) : undefined;
 };
 
-const plain = (style: Style, code: number, sub: number[]): Style => {
-  if (code === 0) return {};
-  if (code >= 30 && code <= 37) return { ...style, fg: indexed(code - 30) };
-  if (code >= 40 && code <= 47) return { ...style, bg: indexed(code - 40) };
-  if (code >= 90 && code <= 97) return { ...style, fg: indexed(code - 82) };
-  if (code >= 100 && code <= 107) return { ...style, bg: indexed(code - 92) };
-  const changes: Record<number, Style> = {
-    1: { bold: true },
-    2: { dim: true },
-    3: { italic: true },
-    4: { underline: sub[0] !== 0 },
-    7: { inverse: true },
-    8: { hidden: true },
-    9: { strike: true },
-    21: { underline: true },
-    22: { bold: false, dim: false },
-    23: { italic: false },
-    24: { underline: false },
-    27: { inverse: false },
-    28: { hidden: false },
-    29: { strike: false },
-    39: { fg: undefined },
-    49: { bg: undefined },
-  };
-  return { ...style, ...changes[code] };
+const COLORS = [
+  { from: 30, to: 37, key: "fg", base: 30 },
+  { from: 40, to: 47, key: "bg", base: 40 },
+  { from: 90, to: 97, key: "fg", base: 82 },
+  { from: 100, to: 107, key: "bg", base: 92 },
+] as const;
+
+const colored = (style: Style, code: number): Style | undefined => {
+  const range = COLORS.find((candidate) => code >= candidate.from && code <= candidate.to);
+
+  if (!range) {
+    return undefined;
+  }
+
+  const color = indexed(code - range.base);
+
+  return range.key === "fg" ? { ...style, fg: color } : { ...style, bg: color };
+};
+
+const switches = (sub: number[]): Record<number, Style> => ({
+  1: { bold: true },
+  2: { dim: true },
+  3: { italic: true },
+  4: { underline: sub[0] !== 0 },
+  7: { inverse: true },
+  8: { hidden: true },
+  9: { strike: true },
+  21: { underline: true },
+  22: { bold: false, dim: false },
+  23: { italic: false },
+  24: { underline: false },
+  27: { inverse: false },
+  28: { hidden: false },
+  29: { strike: false },
+  39: { fg: undefined },
+  49: { bg: undefined },
+});
+
+const plain = (style: Style, attribute: Attribute): Style => {
+  if (attribute.code === 0) {
+    return {};
+  }
+
+  return colored(style, attribute.code) ?? { ...style, ...switches(attribute.sub)[attribute.code] };
+};
+
+const EXTENDED_LENGTH: Record<number, number> = { 5: 2, 2: 4 };
+
+const groupsOf = (params: string) =>
+  params.split(";").map((group) => group.split(":").map((value) => (value === "" ? 0 : Number(value))));
+
+const followingSpec = (groups: number[][], at: number) => {
+  const length = EXTENDED_LENGTH[groups[at + 1]?.[0] ?? -1] ?? 0;
+
+  return { spec: groups.slice(at + 1, at + 1 + length).map((group) => group[0] ?? 0), skip: length };
+};
+
+const extended = (style: Style, attribute: Attribute): Style =>
+  attribute.code === 38 ? { ...style, fg: extendedColor(attribute.sub) } : { ...style, bg: extendedColor(attribute.sub) };
+
+interface Applying { groups: number[][]; at: number }
+
+const applyAt = (style: Style, applying: Applying) => {
+  const [code = 0, ...sub] = applying.groups[applying.at] ?? [];
+
+  if (code !== 38 && code !== 48) {
+    return { style: plain(style, { code, sub }), skip: 0 };
+  }
+
+  const taken = sub.length ? { spec: sub, skip: 0 } : followingSpec(applying.groups, applying.at);
+
+  return { style: extended(style, { code, sub: taken.spec }), skip: taken.skip };
 };
 
 const applied = (style: Style, params: string): Style => {
-  const groups = params.split(";").map((group) => group.split(":").map((value) => (value === "" ? 0 : Number(value))));
+  const groups = groupsOf(params);
   let next = style;
-  for (let i = 0; i < groups.length; i += 1) {
-    const [code = 0, ...sub] = groups[i] ?? [];
-    if (code !== 38 && code !== 48) {
-      next = plain(next, code, sub);
-      continue;
-    }
-    let spec = sub;
-    if (!sub.length) {
-      const length = groups[i + 1]?.[0] === 5 ? 2 : groups[i + 1]?.[0] === 2 ? 4 : 0;
-      spec = groups.slice(i + 1, i + 1 + length).map((group) => group[0] ?? 0);
-      i += length;
-    }
-    next = code === 38 ? { ...next, fg: extendedColor(spec) } : { ...next, bg: extendedColor(spec) };
+
+  for (let at = 0; at < groups.length; at += 1) {
+    const step = applyAt(next, { groups, at });
+
+    next = step.style;
+    at += step.skip;
   }
+
   return next;
 };
 
-export type Styling = { lines: Run[][]; style: Style };
+export interface Styling { lines: Run[][]; style: Style }
 
 export const UNSTYLED: Styling = { lines: [[]], style: {} };
 
@@ -100,32 +167,53 @@ export const moreStyled = (from: Styling, text: string): Styling => {
   const lines: Run[][] = [...from.lines.slice(0, -1), [...(from.lines.at(-1) ?? [])]];
   let style = from.style;
   let at = 0;
-  const add = (chunk: string) =>
+  const add = (chunk: string) => {
     chunk.split("\n").forEach((part, n) => {
-      if (n > 0) lines.push([]);
-      if (part) lines.at(-1)?.push({ text: part, style });
+      if (n > 0) {
+        lines.push([]);
+      }
+
+      if (part) {
+        lines.at(-1)?.push({ text: part, style });
+      }
     });
-  for (const { index, length, params } of sgrSequences(text)) {
-    add(text.slice(at, index));
-    style = applied(style, params);
-    at = index + length;
+  };
+
+  for (const sequence of sgrSequences(text)) {
+    add(text.slice(at, sequence.index));
+    style = applied(style, sequence.params);
+    at = sequence.index + sequence.length;
   }
+
   add(text.slice(at));
+
   return { lines, style };
 };
 
 export const styledLines = (text: string): Run[][] => {
-  const { lines } = moreStyled(UNSTYLED, text);
-  if (lines.length > 1 && !lines.at(-1)?.length) lines.pop();
+  const lines = moreStyled(UNSTYLED, text).lines;
+
+  if (lines.length > 1 && !lines.at(-1)?.length) {
+    lines.pop();
+  }
+
   return lines;
 };
 
-export const runStyle = ({ fg, bg, bold, dim, italic, underline, inverse, hidden, strike }: Style): CSSProperties => ({
-  color: inverse ? (bg ?? "var(--background)") : fg,
-  backgroundColor: inverse ? (fg ?? "var(--foreground)") : bg,
-  fontWeight: bold ? 700 : undefined,
-  opacity: dim ? 0.6 : undefined,
-  fontStyle: italic ? "italic" : undefined,
-  textDecorationLine: [underline && "underline", strike && "line-through"].filter(Boolean).join(" ") || undefined,
-  visibility: hidden ? "hidden" : undefined,
+const colors = (style: Style): CSSProperties => ({
+  color: style.inverse ? (style.bg ?? "var(--background)") : style.fg,
+  backgroundColor: style.inverse ? (style.fg ?? "var(--foreground)") : style.bg,
 });
+
+const emphasis = (style: Style): CSSProperties => ({
+  fontWeight: style.bold ? 700 : undefined,
+  opacity: style.dim ? 0.6 : undefined,
+  fontStyle: style.italic ? "italic" : undefined,
+});
+
+const decoration = (style: Style): CSSProperties => ({
+  textDecorationLine: [style.underline && "underline", style.strike && "line-through"].filter(Boolean).join(" ") || undefined,
+  visibility: style.hidden ? "hidden" : undefined,
+});
+
+export const runStyle = (style: Style): CSSProperties => ({ ...colors(style), ...emphasis(style), ...decoration(style) });

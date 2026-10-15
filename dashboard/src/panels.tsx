@@ -7,9 +7,9 @@ import { OutputPanel } from "./components/output-panel";
 import { ScreenshotsPanel } from "./components/screenshots-panel";
 import type { TabInfo } from "./lib/protocol";
 
-export type PanelProps = { session: string; tab: TabInfo };
+export interface PanelProps { session: string; tab: TabInfo }
 
-export type Panel = { id: string; label: string; Body: ComponentType<PanelProps> };
+export interface Panel { id: string; label: string; Body: ComponentType<PanelProps> }
 
 export const PANELS: Panel[] = [
   { id: "activity", label: "Activity", Body: ActivityPanel },

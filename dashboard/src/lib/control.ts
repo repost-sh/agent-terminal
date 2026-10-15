@@ -6,19 +6,24 @@ import { toast } from "../components/toaster";
 import { controlUrl } from "./api";
 import { focusNext } from "./focus";
 import type { ControlUpdate, HumanInput } from "./protocol";
-import { tabKey, tabName } from "./tabs";
+import { tabKey, tabName, type TabAddress } from "./tabs";
 
 export type ControlState = "off" | "taking" | "held";
 
-type Held = { socket: WebSocket; state: ControlState };
+interface Held { socket: WebSocket; state: ControlState }
 
 const holds = new Map<string, Held>();
 const listeners = new Set<() => void>();
 
-const publish = () => listeners.forEach((listener) => listener());
+const publish = () => {
+  listeners.forEach((listener) => {
+    listener();
+  });
+};
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
+
   return () => listeners.delete(listener);
 };
 
@@ -29,54 +34,107 @@ export const controlTerminal = (session: string, tab: string) => `control-termin
 export const useControl = (session: string, tab: string): ControlState =>
   useSyncExternalStore(subscribe, () => holds.get(tabKey(session, tab))?.state ?? "off");
 
-const handedBack = (session: string, tab: string, socket: WebSocket) => {
-  const key = tabKey(session, tab);
-  if (holds.get(key)?.socket !== socket) return false;
+const handedBack = (address: TabAddress, socket: WebSocket) => {
+  const key = tabKey(address.session, address.tab);
+
+  if (holds.get(key)?.socket !== socket) {
+    return false;
+  }
+
   holds.delete(key);
   publish();
+
   return true;
 };
 
-export const takeControl = (session: string, tab: string, program: string) => {
-  const key = tabKey(session, tab);
-  if (holds.has(key)) return;
-  const name = tabName(session, tab);
-  const socket = new WebSocket(controlUrl(session, tab));
+interface Taking { address: TabAddress; socket: WebSocket; program: string }
+
+const gotControl = (taking: Taking) => {
+  const address = taking.address;
+
+  holds.set(tabKey(address.session, address.tab), { socket: taking.socket, state: "held" });
+  focusNext(controlTerminal(address.session, address.tab));
+  publish();
+  announce(`You have control of ${tabName(address.session, address.tab)}`);
+};
+
+const refusedHuman = (taking: Taking, message: string) => {
+  const address = taking.address;
+  const name = tabName(address.session, address.tab);
+  const stillTaking = holds.get(tabKey(address.session, address.tab))?.state === "taking";
+
+  if (stillTaking) {
+    handedBack(address, taking.socket);
+  }
+
+  toast("error", { title: stillTaking ? `Could not take control of ${name}` : `Could not send the key to ${taking.program}`, description: message });
+};
+
+const controlUpdate = (taking: Taking, update: ControlUpdate) => {
+  if (update.type === "held") {
+    gotControl(taking);
+
+    return;
+  }
+
+  if (update.type === "agent-refused") {
+    toast("warning", { title: "The agent is waiting for control", description: `${update.command} refused · exit 4 · now: wait --control` });
+
+    return;
+  }
+
+  if (update.type === "refused") {
+    refusedHuman(taking, update.message);
+
+    return;
+  }
+
+  if (handedBack(taking.address, taking.socket)) {
+    announce("Control returned to the agent");
+  }
+};
+
+export const takeControl = (address: TabAddress, program: string) => {
+  const key = tabKey(address.session, address.tab);
+
+  if (holds.has(key)) {
+    return;
+  }
+
+  const socket = new WebSocket(controlUrl(address.session, address.tab));
+  const taking = { address, socket, program };
+
   holds.set(key, { socket, state: "taking" });
   publish();
   socket.onmessage = (event: MessageEvent<string>) => {
-    const update = JSON.parse(event.data) as ControlUpdate;
-    if (update.type === "held") {
-      holds.set(key, { socket, state: "held" });
-      focusNext(controlTerminal(session, tab));
-      publish();
-      announce(`You have control of ${name}`);
-    } else if (update.type === "agent-refused") {
-      toast("warning", "The agent is waiting for control", `${update.command} refused · exit 4 · now: wait --control`);
-    } else if (update.type === "refused") {
-      const taking = holds.get(key)?.state === "taking";
-      if (taking) handedBack(session, tab, socket);
-      toast("error", taking ? `Could not take control of ${name}` : `Could not send the key to ${program}`, update.message);
-    } else if (handedBack(session, tab, socket)) {
+    controlUpdate(taking, JSON.parse(event.data) as ControlUpdate);
+  };
+
+  socket.onclose = () => {
+    if (handedBack(address, socket)) {
       announce("Control returned to the agent");
     }
-  };
-  socket.onclose = () => {
-    if (handedBack(session, tab, socket)) announce("Control returned to the agent");
   };
 };
 
 export const releaseControl = (session: string, tab: string) => {
   const held = holds.get(tabKey(session, tab));
-  if (!held) return;
-  handedBack(session, tab, held.socket);
+
+  if (!held) {
+    return;
+  }
+
+  handedBack({ session, tab }, held.socket);
   held.socket.close();
   announce("Control returned to the agent");
 };
 
-const send = (session: string, tab: string, input: HumanInput) => {
-  const held = holds.get(tabKey(session, tab));
-  if (held?.state === "held" && held.socket.readyState === WebSocket.OPEN) held.socket.send(JSON.stringify(input));
+const send = (address: TabAddress, input: HumanInput) => {
+  const held = holds.get(tabKey(address.session, address.tab));
+
+  if (held?.state === "held" && held.socket.readyState === WebSocket.OPEN) {
+    held.socket.send(JSON.stringify(input));
+  }
 };
 
 const NAMED: Record<string, string> = {
@@ -100,47 +158,116 @@ const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "C
 
 const FUNCTION_KEY = /^F([1-9]|1[0-2])$/;
 
-const baseKey = (event: KeyboardEvent) => {
-  const letter = /^Key([A-Z])$/.exec(event.code)?.[1];
-  if (letter) return letter.toLowerCase();
-  const digit = /^Digit(\d)$/.exec(event.code)?.[1];
-  if (digit) return digit;
-  if (event.key === " ") return "Space";
-  return [...event.key].length === 1 ? event.key : null;
+const CODE_KEYS = [/^Key([A-Z])$/, /^Digit(\d)$/];
+
+const isOneCodePoint = (text: string) => Array.from(text).length === 1;
+
+const fromCode = (code: string) => {
+  for (const pattern of CODE_KEYS) {
+    const found = pattern.exec(code)?.[1];
+
+    if (found) {
+      return found.toLowerCase();
+    }
+  }
+
+  return undefined;
 };
 
+const baseKey = (event: KeyboardEvent) => {
+  const coded = fromCode(event.code);
+
+  if (coded) {
+    return coded;
+  }
+
+  if (event.key === " ") {
+    return "Space";
+  }
+
+  return isOneCodePoint(event.key) ? event.key : null;
+};
+
+const namedKey = (key: string) => NAMED[key] ?? (FUNCTION_KEY.test(key) ? key : null);
+
+const heldModifiers = (event: KeyboardEvent) => [event.ctrlKey && "Ctrl", event.altKey && "Alt"].filter((part): part is string => Boolean(part));
+
 const humanInput = (event: KeyboardEvent): HumanInput | null => {
-  const named = NAMED[event.key] ?? (FUNCTION_KEY.test(event.key) ? event.key : null);
-  const held = [event.ctrlKey && "Ctrl", event.altKey && "Alt"].filter((part): part is string => Boolean(part));
-  if (named) return { pressed: [...held, ...(event.shiftKey ? ["Shift"] : []), named].join("+") };
-  if (held.length === 0) return [...event.key].length === 1 ? { typed: event.key } : null;
+  const named = namedKey(event.key);
+  const held = heldModifiers(event);
+
+  if (named) {
+    return { pressed: [...held, ...(event.shiftKey ? ["Shift"] : []), named].join("+") };
+  }
+
+  if (held.length === 0) {
+    return isOneCodePoint(event.key) ? { typed: event.key } : null;
+  }
+
   const key = baseKey(event);
+
   return key ? { pressed: [...held, key].join("+") } : null;
 };
 
 const ctrlAnd = (event: KeyboardEvent, letter: string) => event.ctrlKey && !event.altKey && event.key.toLowerCase() === letter;
 
+interface Keystroke { chord: boolean; event: KeyboardEvent<HTMLElement> }
+
+const leftChord = (address: TabAddress, keystroke: Keystroke) => {
+  if (!keystroke.chord) {
+    return false;
+  }
+
+  if (ctrlAnd(keystroke.event, "q")) {
+    document.getElementById(controlButtonId(address.session, address.tab))?.focus();
+
+    return true;
+  }
+
+  send(address, { pressed: "Ctrl+p" });
+
+  return false;
+};
+
+const pressedIn = (address: TabAddress, keystroke: Keystroke) => {
+  if (leftChord(address, keystroke)) {
+    return false;
+  }
+
+  if (ctrlAnd(keystroke.event, "p")) {
+    return true;
+  }
+
+  const input = humanInput(keystroke.event);
+
+  if (input) {
+    send(address, input);
+  }
+
+  return false;
+};
+
 export const controlKeys = (session: string, tab: string) => {
+  const address = { session, tab };
   let chord = false;
   const keys = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.metaKey || MODIFIER_KEYS.has(event.key)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (chord && ctrlAnd(event, "q")) {
-      chord = false;
-      document.getElementById(controlButtonId(session, tab))?.focus();
+    if (event.metaKey || MODIFIER_KEYS.has(event.key)) {
       return;
     }
-    if (chord) send(session, tab, { pressed: "Ctrl+p" });
-    chord = ctrlAnd(event, "p");
-    if (chord) return;
-    const input = humanInput(event);
-    if (input) send(session, tab, input);
+
+    event.preventDefault();
+    event.stopPropagation();
+    chord = pressedIn(address, { chord, event });
   };
+
   const paste = (event: ClipboardEvent<HTMLElement>) => {
     event.preventDefault();
     const text = event.clipboardData.getData("text");
-    if (text) send(session, tab, { pasted: text });
+
+    if (text) {
+      send(address, { pasted: text });
+    }
   };
+
   return { keys, paste };
 };

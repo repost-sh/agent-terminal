@@ -12,33 +12,44 @@ import { Button, IconButton, cn, copy } from "./ui";
 const SINGLE_HEIGHT = "min(58vh, 34rem)";
 const PAIR_HEIGHT = "min(40vh, 22rem)";
 
-const share = (part: number, whole: number) => `${(part / whole) * 100}%`;
+const share = (part: number, whole: number) => `${String((part / whole) * 100)}%`;
 
-type FigureProps = { session: string; shot: Screenshot; height: string; boxes: CellBox[] };
+interface FigureProps { session: string; shot: Screenshot; height: string; boxes: CellBox[] }
 
-const Figure = ({ session, shot, height, boxes }: FigureProps) => {
+const frameSize = (shot: Screenshot) => {
+  const width = String(shot.width);
+  const height = String(shot.height);
+
+  return { width: `min(${width}px, 100cqw, calc(100cqh * ${width} / ${height}))`, aspectRatio: `${width} / ${height}` };
+};
+
+interface ChangedProps { shot: Screenshot; boxes: CellBox[] }
+
+const ChangedBoxes = ({ shot, boxes }: ChangedProps) =>
+  boxes.map((box) => (
+    <span
+      key={`${String(box.x)},${String(box.y)}`}
+      data-changed=""
+      className="shot-changed absolute"
+      style={{
+        left: share(box.x, shot.width),
+        top: share(box.y, shot.height),
+        width: share(box.width, shot.width),
+        height: share(box.height, shot.height),
+      }}
+    />
+  ));
+
+const Figure = (props: FigureProps) => {
+  const { session, shot } = props;
   const file = fileName(shot.path);
+
   return (
     <figure className="grid min-w-0 gap-1.5">
-      <div className="term-box flex items-center justify-center rounded-md bg-background" style={{ height }}>
-        <div
-          className="term-frame relative"
-          style={{ width: `min(${shot.width}px, 100cqw, calc(100cqh * ${shot.width} / ${shot.height}))`, aspectRatio: `${shot.width} / ${shot.height}` }}
-        >
-          <img src={screenshotUrl(session, shot.path)} alt={`${file}, frame ${shot.frame}`} className="block size-full" />
-          {boxes.map((box) => (
-            <span
-              key={`${box.x},${box.y}`}
-              data-changed=""
-              className="shot-changed absolute"
-              style={{
-                left: share(box.x, shot.width),
-                top: share(box.y, shot.height),
-                width: share(box.width, shot.width),
-                height: share(box.height, shot.height),
-              }}
-            />
-          ))}
+      <div className="term-box flex items-center justify-center rounded-md bg-background" style={{ height: props.height }}>
+        <div className="term-frame relative" style={frameSize(shot)}>
+          <img src={screenshotUrl(session, shot.path)} alt={`${file}, frame ${String(shot.frame)}`} className="block size-full" />
+          <ChangedBoxes shot={shot} boxes={props.boxes} />
         </div>
       </div>
       <figcaption className="font-mono text-[11px] break-all">
@@ -55,84 +66,127 @@ const Figure = ({ session, shot, height, boxes }: FigureProps) => {
   );
 };
 
-type PairProps = { session: string; older: Screenshot; newer: Screenshot };
+interface PairProps { session: string; older: Screenshot; newer: Screenshot }
+
+interface ComparedProps extends PairProps { comparison: Comparison | null }
 
 const counted = (comparison: Comparison | null) => {
-  if (comparison === null) return "";
-  if ("error" in comparison) return comparison.error;
-  if (comparison.changed === null) return "Different sizes: no cell comparison";
-  return `${comparison.changed} ${comparison.changed === 1 ? "cell" : "cells"} changed`;
+  if (comparison === null) {
+    return "";
+  }
+
+  if ("error" in comparison) {
+    return comparison.error;
+  }
+
+  if (comparison.changed === null) {
+    return "Different sizes: no cell comparison";
+  }
+
+  return `${String(comparison.changed)} ${comparison.changed === 1 ? "cell" : "cells"} changed`;
 };
 
-const Pair = ({ session, older, newer, comparison }: PairProps & { comparison: Comparison | null }) => {
+const Pair = (props: ComparedProps) => {
+  const { comparison } = props;
   const boxes = comparison && "boxes" in comparison ? comparison.boxes : [];
+
   return (
     <div className="@container grid gap-2">
       <p className={cn("text-xs text-muted-foreground", comparison !== null && "error" in comparison && "text-destructive")} role="status">
         {counted(comparison)}
       </p>
       <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
-        <Figure session={session} shot={older} height={PAIR_HEIGHT} boxes={boxes} />
-        <Figure session={session} shot={newer} height={PAIR_HEIGHT} boxes={boxes} />
+        <Figure session={props.session} shot={props.older} height={PAIR_HEIGHT} boxes={boxes} />
+        <Figure session={props.session} shot={props.newer} height={PAIR_HEIGHT} boxes={boxes} />
       </div>
     </div>
   );
 };
 
-const ComparedPair = (props: PairProps) => <Pair {...props} comparison={use(comparisonOf(props.session, props.older, props.newer))} />;
+const ComparedPair = (props: PairProps) => <Pair {...props} comparison={use(comparisonOf(props.session, { older: props.older, newer: props.newer }))} />;
 
-const pairOf = (shot: Screenshot, index: number, other: Screenshot, otherIndex: number) =>
-  otherIndex < index ? { older: other, newer: shot } : { older: shot, newer: other };
+interface Listed { shot: Screenshot; index: number }
 
-type LightboxProps = { session: string; opened: Screenshot };
+const pairOf = (current: Listed, other: Listed) =>
+  other.index < current.index ? { older: other.shot, newer: current.shot } : { older: current.shot, newer: other.shot };
 
-const Lightbox = ({ session, opened }: LightboxProps) => {
-  const selectId = useId();
-  const shots = useScreenshots(session).value;
-  const [path, setPath] = useState(opened.path);
+interface LightboxProps { session: string; opened: Screenshot }
+
+interface Stepping { shots: Screenshot[]; index: number; setPath: (path: string) => void }
+
+const stepThrough = (stepping: Stepping) => (by: number) => {
+  const to = stepping.shots[stepping.index + by];
+
+  if (!to) {
+    return;
+  }
+
+  if (stepping.index + by === 0 || stepping.index + by === stepping.shots.length - 1) {
+    focusNext(by < 0 ? "shot-next" : "shot-prev");
+  }
+
+  stepping.setPath(to.path);
+};
+
+const useLightbox = (props: LightboxProps) => {
+  const shots = useScreenshots(props.session).value;
+  const [path, setPath] = useState(props.opened.path);
   const [picking, setPicking] = useState(false);
   const [against, setAgainst] = useState<string | null>(null);
   const index = shots.findIndex((shot) => shot.path === path);
-  const shot = shots[index] ?? opened;
   const otherIndex = shots.findIndex((other) => other.path === against);
-  const other = shots[otherIndex];
-  const file = fileName(shot.path);
+  const otherShot = shots[otherIndex];
 
-  const step = (by: number) => {
-    const to = shots[index + by];
-    if (!to) return;
-    const last = index + by === 0 || index + by === shots.length - 1;
-    if (last) focusNext(by < 0 ? "shot-next" : "shot-prev");
-    setPath(to.path);
-  };
-  const pick = () => {
-    focusNext("shot-compare");
-    setPicking(true);
-  };
-  const compare = (event: ChangeEvent<HTMLSelectElement>) => {
-    if (!event.target.value) return;
-    focusNext("shot-back");
-    setAgainst(event.target.value);
-    setPicking(false);
-  };
-  const back = () => {
-    focusNext("shot-pick");
-    setAgainst(null);
-  };
+  return {
+    shots,
+    current: { shot: shots[index] ?? props.opened, index },
+    other: otherShot && { shot: otherShot, index: otherIndex },
+    picking,
+    step: stepThrough({ shots, index, setPath }),
+    pick: () => {
+      focusNext("shot-compare");
+      setPicking(true);
+    },
+    compare: (event: ChangeEvent<HTMLSelectElement>) => {
+      if (!event.target.value) {
+        return;
+      }
 
-  const body = other ? (
-    <Suspense fallback={<Pair session={session} {...pairOf(shot, index, other, otherIndex)} comparison={null} />}>
-      <ComparedPair session={session} {...pairOf(shot, index, other, otherIndex)} />
+      focusNext("shot-back");
+      setAgainst(event.target.value);
+      setPicking(false);
+    },
+    back: () => {
+      focusNext("shot-pick");
+      setAgainst(null);
+    },
+  };
+};
+
+type LightboxState = ReturnType<typeof useLightbox>;
+
+interface StateProps { box: LightboxState; session: string }
+
+const LightboxBody = ({ box, session }: StateProps) => {
+  if (!box.other) {
+    return <Figure session={session} shot={box.current.shot} height={SINGLE_HEIGHT} boxes={[]} />;
+  }
+
+  const pair = pairOf(box.current, box.other);
+
+  return (
+    <Suspense fallback={<Pair session={session} {...pair} comparison={null} />}>
+      <ComparedPair session={session} {...pair} />
     </Suspense>
-  ) : (
-    <Figure session={session} shot={shot} height={SINGLE_HEIGHT} boxes={[]} />
   );
+};
 
-  const comparePart = other ? (
-    <Button variant="outline" ref={focusWhenShown("shot-back")} onClick={back}>
-      Back to screenshot
-    </Button>
-  ) : picking ? (
+interface PickerProps { box: LightboxState }
+
+const ComparePicker = ({ box }: PickerProps) => {
+  const selectId = useId();
+
+  return (
     <>
       <label className="sr-only" htmlFor={selectId}>
         Compare with
@@ -141,12 +195,12 @@ const Lightbox = ({ session, opened }: LightboxProps) => {
         id={selectId}
         ref={focusWhenShown("shot-compare")}
         defaultValue=""
-        onChange={compare}
+        onChange={box.compare}
         className="h-7 rounded-md border border-border bg-transparent px-2 font-mono text-xs outline-none focus:ring-2 focus:ring-ring"
       >
         <option value="">Compare with…</option>
-        {shots.map((candidate) =>
-          candidate.path === shot.path ? null : (
+        {box.shots.map((candidate) =>
+          candidate.path === box.current.shot.path ? null : (
             <option key={candidate.path} value={candidate.path}>
               {fileName(candidate.path)}
             </option>
@@ -154,50 +208,74 @@ const Lightbox = ({ session, opened }: LightboxProps) => {
         )}
       </select>
     </>
+  );
+};
+
+const ComparePart = ({ box }: PickerProps) => {
+  if (box.other) {
+    return (
+      <Button look={{ variant: "outline" }} ref={focusWhenShown("shot-back")} onClick={box.back}>
+        Back to screenshot
+      </Button>
+    );
+  }
+
+  return box.picking ? (
+    <ComparePicker box={box} />
   ) : (
-    <Button variant="outline" icon={GitCompare} ref={focusWhenShown("shot-pick")} disabled={shots.length < 2} onClick={pick}>
+    <Button look={{ variant: "outline", icon: GitCompare }} ref={focusWhenShown("shot-pick")} disabled={box.shots.length < 2} onClick={box.pick}>
       Compare with…
     </Button>
   );
+};
 
+const position = (box: LightboxState) => (box.current.index < 0 ? "" : `${String(box.current.index + 1)} of ${String(box.shots.length)}`);
+
+const Stepper = ({ box }: PickerProps) => {
+  const comparing = box.other !== undefined;
+  const at = box.current.index;
+
+  return (
+    <div className="flex flex-1 items-center gap-1">
+      <IconButton look={{ label: "Previous screenshot", icon: ChevronLeft }} ref={focusWhenShown("shot-prev")} disabled={at <= 0 || comparing} onClick={() => {
+        box.step(-1);
+      }} />
+      <span className="text-xs tabular-nums text-muted-foreground">{position(box)}</span>
+      <IconButton look={{ label: "Next screenshot", icon: ChevronRight }} ref={focusWhenShown("shot-next")} disabled={at < 0 || at === box.shots.length - 1 || comparing} onClick={() => {
+        box.step(1);
+      }} />
+    </div>
+  );
+};
+
+const Lightbox = (props: LightboxProps) => {
+  const box = useLightbox(props);
+  const shot = box.current.shot;
   const footer = (
     <>
-      <div className="flex flex-1 items-center gap-1">
-        <IconButton
-          label="Previous screenshot"
-          icon={ChevronLeft}
-          ref={focusWhenShown("shot-prev")}
-          disabled={index <= 0 || other !== undefined}
-          onClick={() => step(-1)}
-        />
-        <span className="text-xs tabular-nums text-muted-foreground">{index < 0 ? "" : `${index + 1} of ${shots.length}`}</span>
-        <IconButton
-          label="Next screenshot"
-          icon={ChevronRight}
-          ref={focusWhenShown("shot-next")}
-          disabled={index < 0 || index === shots.length - 1 || other !== undefined}
-          onClick={() => step(1)}
-        />
-      </div>
-      <Button variant="ghost" icon={Copy} onClick={() => copy(shot.path)}>
+      <Stepper box={box} />
+      <Button look={{ variant: "ghost", icon: Copy }} onClick={() => {
+        void copy(shot.path);
+      }}>
         Copy path
       </Button>
-      {comparePart}
+      <ComparePart box={box} />
     </>
   );
-
   const title = (
     <>
-      <span className="font-mono">{file}</span>
-      {other && " compared"}
+      <span className="font-mono">{fileName(shot.path)}</span>
+      {box.other && " compared"}
     </>
   );
 
   return (
     <Dialog title={title} width={72} footer={footer}>
-      {body}
+      <LightboxBody box={box} session={props.session} />
     </Dialog>
   );
 };
 
-export const openLightbox = (session: string, shot: Screenshot) => showDialog(() => <Lightbox session={session} opened={shot} />);
+export const openLightbox = (session: string, shot: Screenshot) => {
+  showDialog(() => <Lightbox session={session} opened={shot} />);
+};

@@ -1,26 +1,40 @@
 import { compareScreenshots, screenshotsFeedPath } from "./api";
-import { useFeed } from "./feed";
+import { useFeed, type Received } from "./feed";
 import type { Compared, Screenshot, ScreenshotsUpdate } from "./protocol";
+import { settle } from "./settle";
 
 const NONE: Screenshot[] = [];
 
-const listed = (shots: Screenshot[], update: ScreenshotsUpdate) => (update.type === "screenshots" ? update.screenshots : shots);
+const listed = (shots: Screenshot[], received: Received<ScreenshotsUpdate>) =>
+  received.message.type === "screenshots" ? received.message.screenshots : shots;
 
-export const useScreenshots = (session: string) => useFeed(screenshotsFeedPath(session), NONE, listed);
+export const useScreenshots = (session: string) => useFeed(screenshotsFeedPath(session), { initial: NONE, reduce: listed });
 
 export const fileName = (path: string) => path.split("/").pop() ?? path;
 
 export type Comparison = Compared | { error: string };
 
+export interface ScreenshotPair { older: Screenshot; newer: Screenshot }
+
 const comparisons = new Map<string, Promise<Comparison>>();
 
-export const comparisonOf = (session: string, older: Screenshot, newer: Screenshot) => {
-  const key = JSON.stringify([session, older.path, older.time, newer.path, newer.time]);
+const compared = async (session: string, pair: ScreenshotPair): Promise<Comparison> => {
+  const result = await settle(() => compareScreenshots(session, { older: pair.older.path, newer: pair.newer.path }));
+
+  return result.ok ? result.value : { error: result.error instanceof Error ? result.error.message : String(result.error) };
+};
+
+export const comparisonOf = (session: string, pair: ScreenshotPair) => {
+  const key = JSON.stringify([session, pair.older.path, pair.older.time, pair.newer.path, pair.newer.time]);
   const known = comparisons.get(key);
-  if (known) return known;
-  const comparing = compareScreenshots(session, older.path, newer.path).catch(
-    (error: unknown): Comparison => ({ error: error instanceof Error ? error.message : String(error) }),
-  );
+
+  if (known) {
+    return known;
+  }
+
+  const comparing = compared(session, pair);
+
   comparisons.set(key, comparing);
+
   return comparing;
 };

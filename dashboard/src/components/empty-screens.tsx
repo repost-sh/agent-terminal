@@ -23,16 +23,21 @@ export const NoSessions = () => (
           </li>
         ))}
       </ul>
-      <Button icon={Plus} onClick={() => showDialog((live) => <NewSessionDialog sessions={live} existing={null} />)}>
+      <Button look={{ icon: Plus }} onClick={() => {
+        showDialog((live) => <NewSessionDialog sessions={live} existing={null} />);
+      }}>
         New session
       </Button>
     </div>
   </div>
 );
 
-export const Disconnected = ({ onRetry }: { onRetry: () => void }) => {
+interface DisconnectedProps { onRetry: () => void }
+
+export const Disconnected = ({ onRetry }: DisconnectedProps) => {
   const port = location.port || DEFAULT_PORT;
   const start = port === DEFAULT_PORT ? "agent-terminal dashboard start" : `agent-terminal dashboard start --port ${port}`;
+
   return (
     <div className="flex h-full items-center justify-center p-6">
       <div className="w-full max-w-sm space-y-4 text-center">
@@ -44,7 +49,7 @@ export const Disconnected = ({ onRetry }: { onRetry: () => void }) => {
           <p className="text-xs text-muted-foreground/60">The agent-terminal daemon is not running on :{port}</p>
         </div>
         <CliBlock line={start} />
-        <Button variant="outline" icon={RotateCw} onClick={onRetry}>
+        <Button look={{ variant: "outline", icon: RotateCw }} onClick={onRetry}>
           Retry
         </Button>
       </div>
@@ -52,7 +57,9 @@ export const Disconnected = ({ onRetry }: { onRetry: () => void }) => {
   );
 };
 
-export const NotOpen = ({ name }: { name: string }) => (
+interface NotOpenProps { name: string }
+
+export const NotOpen = ({ name }: NotOpenProps) => (
   <div className="flex h-full items-center justify-center p-6 text-center">
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">{name} is not open</p>

@@ -10,23 +10,19 @@ const LAYOUTS: { count: Layout; icon: LucideIcon; label: string }[] = [
   { count: 4, icon: Grid2x2, label: "Four terminals" },
 ];
 
-type LayoutSwitchProps = { layout: Layout; onLayout: (count: Layout) => void };
+interface LayoutSwitchProps { layout: Layout; onLayout: (count: Layout) => void }
 
 export const LayoutSwitch = ({ layout, onLayout }: LayoutSwitchProps) => (
   <div role="group" aria-label="Layout" className="flex items-center">
-    {LAYOUTS.map(({ count, icon, label }) => (
-      <IconButton
-        key={count}
-        ref={focusWhenShown(`layout-${count}`)}
-        label={label}
-        icon={icon}
-        aria-pressed={layout === count}
-        onClick={() => {
-          if (count === layout) return;
-          focusNext(`layout-${count}`);
-          onLayout(count);
-        }}
-      />
+    {LAYOUTS.map((option) => (
+      <IconButton look={{ label: option.label, icon: option.icon }} key={option.count} ref={focusWhenShown(`layout-${String(option.count)}`)} aria-pressed={layout === option.count} onClick={() => {
+          if (option.count === layout) {
+            return;
+          }
+
+          focusNext(`layout-${String(option.count)}`);
+          onLayout(option.count);
+        }} />
     ))}
   </div>
 );

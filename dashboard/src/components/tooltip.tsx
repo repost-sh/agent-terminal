@@ -1,43 +1,70 @@
-const followTooltips = (tip: HTMLDivElement) => {
-  let target: HTMLElement | null = null;
-  const hide = () => {
-    tip.hidden = true;
-    target = null;
-  };
-  const show = (element: HTMLElement) => {
-    tip.textContent = element.dataset.tooltip ?? "";
-    tip.hidden = false;
-    const rect = element.getBoundingClientRect();
-    const left = rect.left + rect.width / 2 - tip.offsetWidth / 2;
-    tip.style.left = `${Math.max(4, Math.min(left, window.innerWidth - tip.offsetWidth - 4))}px`;
-    tip.style.top = `${Math.max(4, Math.min(rect.bottom + 4, window.innerHeight - tip.offsetHeight - 4))}px`;
-    target = element;
-  };
-  const tooltipOf = (event: Event) => (event.target instanceof Element ? event.target.closest<HTMLElement>("[data-tooltip]") : null);
-  const over = (event: MouseEvent) => {
+interface Tip { element: HTMLDivElement; target: HTMLElement | null }
+
+const hide = (tip: Tip) => {
+  tip.element.hidden = true;
+  tip.target = null;
+};
+
+const show = (tip: Tip, target: HTMLElement) => {
+  const element = tip.element;
+
+  element.textContent = target.dataset["tooltip"] ?? "";
+  element.hidden = false;
+  const rect = target.getBoundingClientRect();
+  const left = rect.left + rect.width / 2 - element.offsetWidth / 2;
+
+  element.style.left = `${String(Math.max(4, Math.min(left, window.innerWidth - element.offsetWidth - 4)))}px`;
+  element.style.top = `${String(Math.max(4, Math.min(rect.bottom + 4, window.innerHeight - element.offsetHeight - 4)))}px`;
+  tip.target = target;
+};
+
+const tooltipOf = (event: Event) => (event.target instanceof Element ? event.target.closest<HTMLElement>("[data-tooltip]") : null);
+
+const tipHandlers = (tip: Tip) => ({
+  over: (event: MouseEvent) => {
     const element = tooltipOf(event);
-    if (element && element !== target) show(element);
-    else if (!element && target && target !== document.activeElement) hide();
-  };
-  const focus = (event: FocusEvent) => {
+
+    if (element && element !== tip.target) {
+      show(tip, element);
+    } else if (!element && tip.target && tip.target !== document.activeElement) {
+      hide(tip);
+    }
+  },
+  focus: (event: FocusEvent) => {
     const element = tooltipOf(event);
-    if (element?.matches(":focus-visible")) show(element);
-    else hide();
-  };
-  const escape = (event: KeyboardEvent) => {
-    if (event.key !== "Escape" || !target) return;
+
+    if (element?.matches(":focus-visible")) {
+      show(tip, element);
+    } else {
+      hide(tip);
+    }
+  },
+  escape: (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || !tip.target) {
+      return;
+    }
+
     event.stopPropagation();
-    hide();
-  };
-  document.addEventListener("mouseover", over);
-  document.addEventListener("focusin", focus);
-  document.addEventListener("click", hide);
-  document.addEventListener("keydown", escape, true);
+    hide(tip);
+  },
+  hide: () => {
+    hide(tip);
+  },
+});
+
+const followTooltips = (element: HTMLDivElement) => {
+  const on = tipHandlers({ element, target: null });
+
+  document.addEventListener("mouseover", on.over);
+  document.addEventListener("focusin", on.focus);
+  document.addEventListener("click", on.hide);
+  document.addEventListener("keydown", on.escape, true);
+
   return () => {
-    document.removeEventListener("mouseover", over);
-    document.removeEventListener("focusin", focus);
-    document.removeEventListener("click", hide);
-    document.removeEventListener("keydown", escape, true);
+    document.removeEventListener("mouseover", on.over);
+    document.removeEventListener("focusin", on.focus);
+    document.removeEventListener("click", on.hide);
+    document.removeEventListener("keydown", on.escape, true);
   };
 };
 
