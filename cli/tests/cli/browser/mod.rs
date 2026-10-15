@@ -3,6 +3,7 @@ mod close_all;
 mod commands;
 mod control;
 mod empty;
+mod fast_output;
 mod info;
 mod new_session;
 mod output;
@@ -43,7 +44,7 @@ static OPENED: AtomicUsize = AtomicUsize::new(0);
 impl Browser {
     pub fn open(url: &str) -> Self {
         let n = OPENED.fetch_add(1, Ordering::SeqCst);
-        let browser = Self { session: format!("agent-terminal-test-{}-{n}", std::process::id()) };
+        let browser = Self { session: format!("at-test-{}-{n}", std::process::id()) };
         browser.run(&["set", "viewport", "1440", "900"]);
         browser.run(&["set", "media", "reduced-motion"]);
         browser.run(&["open", url]);

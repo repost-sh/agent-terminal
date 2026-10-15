@@ -120,7 +120,7 @@ struct Screen {
 
 impl Screen {
     fn open(at: &AgentTerminal, size: &str, bytes: &str, wait: &str) -> Self {
-        let dir = tempfile::Builder::new().prefix("screen-").tempdir_in("/tmp").expect("temp screen folder");
+        let dir = crate::support::scratch("screen-");
         let path = dir.path().join("screen");
         std::fs::write(&path, bytes).expect("write the screen");
         let path = path.to_string_lossy().into_owned();

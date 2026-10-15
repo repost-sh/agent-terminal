@@ -10,7 +10,7 @@ pub struct AgentTerminal {
 
 impl AgentTerminal {
     pub fn new() -> Self {
-        let home = tempfile::Builder::new().prefix("at-").tempdir_in("/tmp").expect("temp home");
+        let home = scratch("at-");
         Self { home }
     }
 
@@ -144,7 +144,7 @@ pub struct Cue {
 
 impl Cue {
     pub fn new() -> Self {
-        let dir = tempfile::Builder::new().prefix("cue-").tempdir_in("/tmp").expect("temp cue folder");
+        let dir = scratch("cue-");
         let listener = UnixListener::bind(dir.path().join("cue")).expect("listen for the fixture's cue connection");
         Self { dir, listener, fixture: Mutex::new(None) }
     }
@@ -206,4 +206,8 @@ pub fn snapshot_rows(at: &AgentTerminal, args: &[&str]) -> (Vec<String>, u64) {
     let shown = rows.iter().rposition(|row| !row.is_empty()).map_or(0, |last| last + 1);
     rows.truncate(shown);
     (rows, snapshot["frame"].as_u64().expect("the frame number"))
+}
+
+pub fn scratch(prefix: &str) -> tempfile::TempDir {
+    tempfile::Builder::new().prefix(prefix).tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("scratch folder")
 }

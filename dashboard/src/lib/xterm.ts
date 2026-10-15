@@ -46,6 +46,14 @@ const drawWithWebgl = (terminal: Terminal) => {
   }
 };
 
+const dropAnnouncementsOnceDrawn = (terminal: Terminal) => {
+  const liveRegion = terminal.element?.querySelector(".live-region");
+  if (!liveRegion) return;
+  terminal.onRender(() => {
+    if (liveRegion.textContent) liveRegion.textContent = "";
+  });
+};
+
 export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () => void) => {
   let terminal: Terminal | null = null;
   let release = () => {};
@@ -63,6 +71,7 @@ export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () 
       theme: PALETTE,
     });
     terminal.open(host);
+    dropAnnouncementsOnceDrawn(terminal);
     drawWithWebgl(terminal);
     release = use(terminal);
   });
