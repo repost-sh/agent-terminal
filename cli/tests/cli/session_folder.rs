@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::{Value, json};
 
-use crate::support::{AgentTerminal, DashboardSocket, dashboard, fixture};
+use crate::support::{AgentTerminal, DashboardSocket, dashboard, fixture, open_redraw};
 
 fn names_in(folder: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(folder)
@@ -100,42 +100,13 @@ fn record_start_and_stop_are_unknown_commands_and_the_home_gets_no_recordings_fo
     assert!(!at.home().join("recordings").exists());
 }
 
-fn frame_of(at: &AgentTerminal, session: &str) -> u64 {
-    at.run(&["--session", session, "get", "frame"]).success().stdout().trim().parse().expect("a frame number")
-}
-
-fn open_redraw(at: &AgentTerminal, session: &str, repaint: &str) {
-    at.run(&[
-        "--session",
-        session,
-        "open",
-        "--size",
-        "120x40",
-        "--wait",
-        "ready",
-        &fixture("redraw"),
-        "--hz",
-        "60",
-        repaint,
-    ])
-    .success();
-}
-
-fn watch_one_frame(viewer: &mut DashboardSocket) -> u64 {
-    let message = viewer.next();
-    assert_eq!(message["type"], "frame", "{message}");
-    let shown = message["frame"].as_u64().expect("a frame number");
-    viewer.send(&json!({ "type": "shown", "frame": shown }));
-    shown
-}
-
 #[test]
 fn a_program_repainting_fast_adds_nothing_to_the_session_folder() {
     let at = AgentTerminal::new();
     let folder = at.home().join("sessions").join("qa");
     let shot = at.work_folder().join("fast.png").to_string_lossy().into_owned();
-    open_redraw(&at, "qa", "--full");
-    let opened = frame_of(&at, "qa");
+    open_redraw(&at, "qa", "60", "--full");
+    let opened = at.frame("qa");
     at.run(&["--session", "qa", "wait", "--frame", &(opened + 120).to_string()]).success();
     at.run(&["--session", "qa", "screenshot", &shot]).success();
     assert_eq!(names_in(&folder), ["activity.jsonl", "screenshots.jsonl"]);
@@ -143,8 +114,8 @@ fn a_program_repainting_fast_adds_nothing_to_the_session_folder() {
     let port = dashboard(&at);
     let mut viewer = DashboardSocket::open(port, "/api/session/qa/t1/stream");
     let before = bytes_in(&folder);
-    let from = watch_one_frame(&mut viewer);
-    while watch_one_frame(&mut viewer) < from + 120 {}
+    let from = viewer.acknowledge_next();
+    while viewer.acknowledge_next() < from + 120 {}
     assert_eq!(bytes_in(&folder), before, "the session folder grew while the program ran: {:?}", names_in(&folder));
 }
 
@@ -152,7 +123,7 @@ fn a_program_repainting_fast_adds_nothing_to_the_session_folder() {
 fn an_unwatched_terminal_answers_screenshot_snapshot_wait_frame_and_output_since_a_mark() {
     let at = AgentTerminal::new();
     let shot = at.work_folder().join("unwatched.png");
-    open_redraw(&at, "qa", "--partial");
+    open_redraw(&at, "qa", "60", "--partial");
     let marked = at.run(&["--session", "qa", "--json", "mark", "running"]).success().json()["frame"]
         .as_u64()
         .expect("the frame of the mark");
@@ -169,16 +140,13 @@ fn an_unwatched_terminal_answers_screenshot_snapshot_wait_frame_and_output_since
 }
 
 #[test]
-fn restart_and_close_add_no_file_to_the_session_folder_and_frames_count_on_across_restart() {
+fn restart_and_close_add_no_file_to_the_session_folder() {
     let at = AgentTerminal::new();
     let folder = at.home().join("sessions").join("qa");
     open_printer(&at, "qa", "open");
     assert_eq!(names_in(&folder), ["activity.jsonl"]);
-    let before = frame_of(&at, "qa");
 
     at.run(&["--session", "qa", "restart", "--wait", "line 3"]).success();
-    let after = frame_of(&at, "qa");
-    assert!(after > before, "frame {after} after the restart, {before} before it");
     assert_eq!(names_in(&folder), ["activity.jsonl"]);
 
     at.run(&["--session", "qa", "close"]).success();
@@ -192,10 +160,6 @@ fn screenshots_listed(at: &AgentTerminal, session: &str) -> Vec<Value> {
         .lines()
         .map(|line| serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}")))
         .collect()
-}
-
-fn frame(at: &AgentTerminal) -> u64 {
-    at.run(&["get", "frame"]).success().stdout().trim().parse().expect("a frame number")
 }
 
 #[track_caller]
@@ -218,9 +182,9 @@ fn every_png_screenshot_is_listed_in_the_session_folder_with_the_call_that_took_
     let began = SystemTime::now() - Duration::from_secs(1);
     at.run(&["open", "--size", "20x4", "--wait", "line 3", &printer, "--hold"]).success();
     at.run(&["screenshot", &first]).success();
-    let first_frame = frame(&at);
+    let first_frame = at.frame("default");
     at.run(&["type", "x", "--wait", "x", "--screenshot"]).success();
-    let typed_frame = frame(&at);
+    let typed_frame = at.frame("default");
     at.run(&["screenshot", "--scale", "2", "--rows", "2:3", &crop]).success();
     at.run(&["screenshot", &text]).success();
     assert_eq!(at.run(&["diff", "screenshot", "--baseline", &first, "--output", &diff]).code(), 2);

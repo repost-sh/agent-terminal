@@ -59,11 +59,11 @@ fn frame_numbers_go_on_after_a_restart() {
         COUNT_RUNS,
     ])
     .success();
-    let before: u64 = at.run(&["get", "frame"]).success().stdout().trim().parse().unwrap();
+    let before = at.frame("default");
 
     at.run(&["restart", "--wait", "run 2"]).success();
 
-    let after: u64 = at.run(&["get", "frame"]).success().stdout().trim().parse().unwrap();
+    let after = at.frame("default");
     assert!(after > before, "frame numbers go on after a restart: {after} after {before}");
 }
 

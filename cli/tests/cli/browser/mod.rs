@@ -43,12 +43,15 @@ pub struct Dashboard {
 
 impl Dashboard {
     pub fn start(at: &AgentTerminal) -> Self {
-        let started = at.run(&["--json", "dashboard", "start", "--port", "0"]).success().json();
-        Self { port: started["port"].as_u64().expect("the dashboard's port") as u16 }
+        Self { port: crate::support::dashboard(at) }
     }
 
     pub fn url(&self, path: &str) -> String {
         format!("http://localhost:{}{path}", self.port)
+    }
+
+    pub fn stream(&self, tab: &str) -> String {
+        format!("ws://localhost:{}/api/session/{tab}/stream", self.port)
     }
 }
 
@@ -142,6 +145,11 @@ impl Browser {
         self.run(&["eval", script]).trim().to_string()
     }
 
+    pub fn eval_json<T: serde::de::DeserializeOwned>(&self, script: &str) -> T {
+        let value = self.eval(script);
+        serde_json::from_str(&value).unwrap_or_else(|e| panic!("{script} gave {value}, not the JSON expected: {e}"))
+    }
+
     pub fn click_button(&self, name: &str) {
         self.run(&["find", "role", "button", "click", "--name", name, "--exact"]);
     }
@@ -173,12 +181,10 @@ impl Browser {
     }
 
     pub fn screen_in(&self, scope: &str) -> Vec<String> {
-        let listed = self.eval(&format!(
-            "JSON.stringify(Array.from(document.querySelectorAll({})).map((row) => row.textContent))",
+        let mut rows: Vec<String> = self.eval_json(&format!(
+            "Array.from(document.querySelectorAll({})).map((row) => row.textContent)",
             js_string(&format!("{scope} [aria-label=\"Screen\"] > *"))
         ));
-        let mut rows: Vec<String> =
-            serde_json::from_str(&serde_json::from_str::<String>(&listed).expect("a string")).expect("the rows");
         for row in &mut rows {
             row.truncate(row.trim_end().len());
         }
@@ -207,10 +213,9 @@ pub fn js_string(text: &str) -> String {
 }
 
 pub fn timeline_controls(browser: &Browser) -> Vec<String> {
-    let found = browser.eval(
+    browser.eval_json(
         "[...document.querySelectorAll('main input[type=range], main [role=slider]')].map((control) => `slider ${control.ariaLabel}`)\
          .concat([...document.querySelectorAll('main button')].filter((button) => button.textContent.trim() === 'Live').map(() => 'Live button'))\
          .concat(document.querySelector('main').innerText.includes('Viewing frame') ? ['Viewing frame label'] : [])",
-    );
-    serde_json::from_str(&found).unwrap_or_else(|e| panic!("{found} is not a list of controls: {e}"))
+    )
 }

@@ -65,6 +65,10 @@ impl AgentTerminal {
         self.home.path()
     }
 
+    pub fn frame(&self, session: &str) -> u64 {
+        self.run(&["--session", session, "get", "frame"]).success().stdout().trim().parse().expect("a frame number")
+    }
+
     pub fn work_folder(&self) -> PathBuf {
         let work = self.home.path().join("work");
         std::fs::create_dir_all(&work).expect("create the work folder");
@@ -186,18 +190,20 @@ pub struct DashboardSocket {
 }
 
 impl DashboardSocket {
-    pub fn open(port: u16, path: &str) -> Self {
+    fn connect(port: u16, path: &str) -> (TcpStream, String) {
         let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to the dashboard");
         stream.set_read_timeout(Some(READ_TIMEOUT)).expect("bound every read");
-        let url = format!("ws://localhost:{port}{path}");
+        (stream, format!("ws://localhost:{port}{path}"))
+    }
+
+    pub fn open(port: u16, path: &str) -> Self {
+        let (stream, url) = Self::connect(port, path);
         let (socket, _) = tungstenite::client(url.as_str(), stream).unwrap_or_else(|e| panic!("open {url}: {e}"));
         Self { socket }
     }
 
     pub fn refusal(port: u16, path: &str) -> (u16, String) {
-        let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to the dashboard");
-        stream.set_read_timeout(Some(READ_TIMEOUT)).expect("bound every read");
-        let url = format!("ws://localhost:{port}{path}");
+        let (stream, url) = Self::connect(port, path);
         match tungstenite::client(url.as_str(), stream) {
             Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(response))) => {
                 let body = response.body().as_deref().map(String::from_utf8_lossy).unwrap_or_default();
@@ -230,6 +236,39 @@ impl DashboardSocket {
     pub fn send(&mut self, message: &serde_json::Value) {
         self.socket.send(Message::text(message.to_string())).expect("send a dashboard message");
     }
+
+    pub fn acknowledge(&mut self, message: &serde_json::Value) -> u64 {
+        let frame = frame_number(message);
+        self.send(&serde_json::json!({ "type": "shown", "frame": frame }));
+        frame
+    }
+
+    pub fn acknowledge_next(&mut self) -> u64 {
+        let message = self.next();
+        self.acknowledge(&message)
+    }
+}
+
+pub fn frame_number(message: &serde_json::Value) -> u64 {
+    assert_eq!(message["type"], "frame", "{message}");
+    message["frame"].as_u64().expect("a frame number")
+}
+
+pub fn open_redraw(at: &AgentTerminal, session: &str, hz: &str, repaint: &str) {
+    at.run(&[
+        "--session",
+        session,
+        "open",
+        "--size",
+        "120x40",
+        "--wait",
+        "ready",
+        &fixture("redraw"),
+        "--hz",
+        hz,
+        repaint,
+    ])
+    .success();
 }
 
 pub fn dashboard(at: &AgentTerminal) -> u16 {
