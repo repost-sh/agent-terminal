@@ -11,7 +11,7 @@ use tokio::sync::watch;
 use super::stream::{hung_up, send};
 use super::{Backend, tab_id};
 use crate::native::terminal::Terminal;
-use crate::protocol::{CommandOutput, CommandRecord, Shell};
+use crate::protocol::{CommandOutput, CommandRecord, Shell, TabId};
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -36,7 +36,7 @@ pub async fn stream(
     }
 }
 
-async fn follow_commands(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: u32) {
+async fn follow_commands(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
     let mut lifecycle = backend.changes();
     let mut watched: Option<Watched> = None;
     let home = std::env::var("HOME").ok();

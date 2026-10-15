@@ -7,7 +7,9 @@ use rustix::termios::{self, OptionalActions, Termios};
 use crate::connection::{self, Launch};
 use crate::key::{Key, KeyCode, Mods};
 use crate::output;
-use crate::protocol::{self, AttachEvent, AttachInput, Attached, Call, HumanInput, Mirror, Reply, Request, Response};
+use crate::protocol::{
+    self, AttachEvent, AttachInput, Attached, Call, HumanInput, Mirror, Reply, Request, Response, Target,
+};
 
 const DETACH: [u8; 2] = [0x10, 0x11];
 const PASTE_START: &[u8] = b"\x1b[200~";
@@ -20,7 +22,7 @@ enum End {
     Closed,
 }
 
-pub fn run(session: String, tab: Option<u32>, read_only: bool, json: bool, launch: Launch) -> i32 {
+pub fn run(target: Target, read_only: bool, json: bool, launch: Launch) -> i32 {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return output::fail(
             "attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead",
@@ -28,7 +30,7 @@ pub fn run(session: String, tab: Option<u32>, read_only: bool, json: bool, launc
         );
     }
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
-    let call = Call { typed: Some(typed), request: Request::Attach { session, tab, read_only } };
+    let call = Call { typed: Some(typed), request: Request::Attach { target, read_only } };
     let (response, stream) = match connection::keep_open(&call, &launch) {
         Ok(opened) => opened,
         Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),

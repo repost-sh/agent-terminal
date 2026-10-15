@@ -186,6 +186,24 @@ async fn tools_take_a_session_and_default_to_agent_terminal_session() {
 }
 
 #[tokio::test]
+async fn the_tab_property_takes_a_tab_id_like_t2() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "20x2", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
+        .success();
+    at.run(&["tab", "new", "--size", "30x3", "--wait", "line 2", &fixture("line-printer"), "--lines", "2", "--hold"])
+        .success();
+    at.run(&["tab", "t1"]).success();
+    let client = connect(&at, &[]).await;
+
+    let tools = client.list_all_tools().await.expect("list the tools");
+    let snapshot = tools.iter().find(|tool| tool.name == "snapshot").expect("a snapshot tool");
+    assert_eq!(snapshot.input_schema["properties"]["tab"]["type"], "string");
+
+    let second = call(&client, "snapshot", json!({ "tab": "t2" })).await;
+    assert_eq!((json_of(&second)["tab"].clone(), json_of(&second)["cols"].clone()), (json!("t2"), json!(30)));
+}
+
+#[tokio::test]
 async fn a_failing_command_is_a_tool_error_carrying_the_clis_json_error() {
     let at = AgentTerminal::new();
     at.run(&["open", "--wait", "line 2", &fixture("line-printer"), "--lines", "2", "--hold"]).success();

@@ -14,7 +14,8 @@ use crate::output;
 use crate::protocol::{
     Baseline, BatchStep, Call, ClickTarget, ClipFormat, ClipPoint, ClipRange, ClipSpec, DashboardStopped, Direction,
     Expect, Get, Input, Look, MouseButton, MouseEvent, Reply, Request, Response, RowRange, ScreenshotFormat,
-    Scrollback, SessionInfo, Sessions, Shell, Shot, Signal, Size, SnapshotOptions, Style, TextMatch, Theme, Wait,
+    Scrollback, SessionInfo, Sessions, Shell, Shot, Signal, Size, SnapshotOptions, Style, TabId, Target, TextMatch,
+    Theme, Wait,
 };
 use crate::session_id;
 use crate::skills;
@@ -38,8 +39,8 @@ struct Cli {
     #[arg(long, global = true, help = "Give up waiting after this long", value_name = "MS", default_value_t = 25_000)]
     timeout: u64,
 
-    #[arg(long, global = true, help = "Act on this tab instead of the current one", value_name = "ID", value_parser = parse_tab)]
-    tab: Option<u32>,
+    #[arg(long, global = true, help = "Act on this tab instead of the current one", value_name = "ID", value_parser = clap::value_parser!(TabId))]
+    tab: Option<TabId>,
 
     #[arg(
         long,
@@ -112,8 +113,8 @@ enum Command {
     },
     #[command(about = "List tabs in this session (tab <id> switches to one)", args_conflicts_with_subcommands = true)]
     Tab {
-        #[arg(help = "Switch to this tab", value_name = "ID", value_parser = parse_tab)]
-        id: Option<u32>,
+        #[arg(help = "Switch to this tab", value_name = "ID", value_parser = clap::value_parser!(TabId))]
+        id: Option<TabId>,
         #[command(subcommand)]
         action: Option<TabAction>,
     },
@@ -585,8 +586,8 @@ enum TabAction {
     New(OpenArgs),
     #[command(about = "Close a tab (the current one when no id is given)")]
     Close {
-        #[arg(value_parser = parse_tab, value_name = "ID")]
-        id: Option<u32>,
+        #[arg(value_parser = clap::value_parser!(TabId), value_name = "ID")]
+        id: Option<TabId>,
     },
 }
 
@@ -1106,7 +1107,12 @@ pub fn run() -> i32 {
         Command::Install { .. } => return skills::install(json),
         Command::Mcp => return mcp::run(Cli::command()),
         Command::Attach { read_only } => {
-            return attach::run(cli.session, cli.tab, read_only, json, Launch { idle_timeout });
+            return attach::run(
+                Target { session: cli.session, tab: cli.tab },
+                read_only,
+                json,
+                Launch { idle_timeout },
+            );
         }
         Command::Session { action: None } => {
             output::session(&cli.session, json);
@@ -1137,7 +1143,7 @@ pub fn run() -> i32 {
 }
 
 fn request(cli: Cli) -> Result<Request, String> {
-    let session = cli.session;
+    let target = Target { session: cli.session, tab: cli.tab };
     let dir = cli.screenshot_dir;
     let request = match cli.command {
         Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
@@ -1145,9 +1151,9 @@ fn request(cli: Cli) -> Result<Request, String> {
         Command::Dashboard { action: Some(DashboardAction::Start(DashboardArgs { port })), .. }
         | Command::Dashboard { start: DashboardArgs { port }, action: None } => Request::DashboardStart { port },
         Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
-            open(session, args, cli.timeout)?
+            open(target.session, args, cli.timeout)?
         }
-        Command::Shell(args) => shell(session, args, cli.timeout)?,
+        Command::Shell(args) => shell(target.session, args, cli.timeout)?,
         Command::Exec { line, check } => {
             if line.trim().is_empty() {
                 return Err("exec needs a command line, e.g. exec \"cargo test\"".into());
@@ -1155,89 +1161,69 @@ fn request(cli: Cli) -> Result<Request, String> {
             if line.contains(['\n', '\r']) {
                 return Err("exec runs one command line; join commands with ; or && instead of newlines".into());
             }
-            Request::Exec { session, tab: cli.tab, line, check, timeout_ms: cli.timeout }
+            Request::Exec { target, line, check, timeout_ms: cli.timeout }
         }
-        Command::History { action: Some(HistoryAction::Show { id }), .. } => {
-            Request::HistoryShow { session, tab: cli.tab, id }
-        }
-        Command::History { last, failed, action: None } => Request::History { session, tab: cli.tab, last, failed },
-        Command::Tab { id: Some(tab), .. } => Request::SwitchTab { session, tab },
-        Command::Tab { id: None, action: None | Some(TabAction::List) } => Request::Tabs { session },
+        Command::History { action: Some(HistoryAction::Show { id }), .. } => Request::HistoryShow { target, id },
+        Command::History { last, failed, action: None } => Request::History { target, last, failed },
+        Command::Tab { id: Some(tab), .. } => Request::SwitchTab { session: target.session, tab },
+        Command::Tab { id: None, action: None | Some(TabAction::List) } => Request::Tabs { session: target.session },
         Command::Tab { action: Some(TabAction::Close { id }), .. } => {
-            Request::Close { session, all: false, tab: id.or(cli.tab) }
+            Request::Close { target: Target { tab: id.or(target.tab), ..target }, all: false }
         }
         Command::Session { action: Some(SessionAction::List) } => Request::Sessions,
-        Command::Restart(wait) => {
-            Request::Restart { session, tab: cli.tab, wait: wait.until(), timeout_ms: cli.timeout }
-        }
-        Command::Resize { size, wait } => {
-            Request::Resize { session, tab: cli.tab, size, wait: wait.until(), timeout_ms: cli.timeout }
-        }
-        Command::Snapshot(args) => Request::Snapshot { session, tab: cli.tab, options: args.options() },
-        Command::Close { all } => Request::Close { session, all, tab: cli.tab },
-        Command::Get { what } => Request::Get { session, tab: cli.tab, what: what.request() },
-        Command::Find { text, regex, all } => Request::Find { session, tab: cli.tab, text, regex, all },
-        Command::Mark { name } => Request::Mark { session, tab: cli.tab, name },
-        Command::Output { since, raw } => Request::Output { session, tab: cli.tab, since, raw },
+        Command::Restart(wait) => Request::Restart { target, wait: wait.until(), timeout_ms: cli.timeout },
+        Command::Resize { size, wait } => Request::Resize { target, size, wait: wait.until(), timeout_ms: cli.timeout },
+        Command::Snapshot(args) => Request::Snapshot { target, options: args.options() },
+        Command::Close { all } => Request::Close { target, all },
+        Command::Get { what } => Request::Get { target, what: what.request() },
+        Command::Find { text, regex, all } => Request::Find { target, text, regex, all },
+        Command::Mark { name } => Request::Mark { target, name },
+        Command::Output { since, raw } => Request::Output { target, since, raw },
         Command::Diff { what: DiffCommand::Snapshot { baseline } } => {
             let baseline = baseline.map(|path| read_baseline(&path)).transpose()?;
-            Request::DiffSnapshot { session, tab: cli.tab, baseline }
+            Request::DiffSnapshot { target, baseline }
         }
         Command::Diff { what: DiffCommand::Screenshot { baseline, output, threshold, look } } => {
             let png = ScreenshotArgs { path: output, annotate: false, format: Some(ScreenshotFormat::Png), look };
-            Request::DiffScreenshot {
-                session,
-                tab: cli.tab,
-                baseline: absolute(&baseline)?,
-                shot: png.shot(dir)?,
-                threshold,
-            }
+            Request::DiffScreenshot { target, baseline: absolute(&baseline)?, shot: png.shot(dir)?, threshold }
         }
         Command::Record { action: RecordAction::Start { path } } => {
             let path = path.map(|path| absolute(&path)).transpose()?;
-            Request::RecordStart { session, tab: cli.tab, path }
+            Request::RecordStart { target, path }
         }
-        Command::Record { action: RecordAction::Stop } => Request::RecordStop { session, tab: cli.tab },
+        Command::Record { action: RecordAction::Stop } => Request::RecordStop { target },
         Command::Trace { action: TraceAction::Export { path } } => {
-            Request::TraceExport { session, path: absolute(&path)? }
+            Request::TraceExport { session: target.session, path: absolute(&path)? }
         }
-        Command::Screenshot(args) => Request::Screenshot { session, tab: cli.tab, shot: args.shot(dir)? },
-        Command::Clip(args) => Request::Clip { session, tab: cli.tab, clip: args.spec(dir)? },
+        Command::Screenshot(args) => Request::Screenshot { target, shot: args.shot(dir)? },
+        Command::Clip(args) => Request::Clip { target, clip: args.spec(dir)? },
         Command::Type(args) => {
             let typed = Input::Type { text: args.text, delay_ms: args.delay };
-            input(session, cli.tab, typed, args.after, dir, cli.timeout)?
+            input(target, typed, args.after, dir, cli.timeout)?
         }
         Command::Press(args) => {
             let pressed = Input::Press { keys: args.keys, repeat: args.repeat };
-            input(session, cli.tab, pressed, args.after, dir, cli.timeout)?
+            input(target, pressed, args.after, dir, cli.timeout)?
         }
-        Command::Paste(args) => {
-            input(session, cli.tab, Input::Paste { text: args.text }, args.after, dir, cli.timeout)?
-        }
-        Command::Send(args) => {
-            input(session, cli.tab, Input::Send { bytes: args.bytes.0 }, args.after, dir, cli.timeout)?
-        }
-        Command::Signal(args) => {
-            input(session, cli.tab, Input::Signal { signal: args.signal }, args.after, dir, cli.timeout)?
-        }
+        Command::Paste(args) => input(target, Input::Paste { text: args.text }, args.after, dir, cli.timeout)?,
+        Command::Send(args) => input(target, Input::Send { bytes: args.bytes.0 }, args.after, dir, cli.timeout)?,
+        Command::Signal(args) => input(target, Input::Signal { signal: args.signal }, args.after, dir, cli.timeout)?,
         Command::Click(args) => {
             let button = if args.right { MouseButton::Right } else { MouseButton::Left };
             let click = Input::Click { target: args.target, button, double: args.double };
-            input(session, cli.tab, click, args.after, dir, cli.timeout)?
+            input(target, click, args.after, dir, cli.timeout)?
         }
         Command::Scroll(args) => {
             let scroll = Input::Scroll { direction: args.direction, count: args.count, keys: args.keys };
-            input(session, cli.tab, scroll, args.after, dir, cli.timeout)?
+            input(target, scroll, args.after, dir, cli.timeout)?
         }
         Command::Mouse { event } => {
             let (event, after) = event.event();
-            input(session, cli.tab, Input::Mouse { event }, after, dir, cli.timeout)?
+            input(target, Input::Mouse { event }, after, dir, cli.timeout)?
         }
-        Command::Wait(UntilArgs { control: true, .. }) => {
-            Request::WaitControl { session, tab: cli.tab, timeout_ms: cli.timeout }
-        }
-        Command::Wait(args) => Request::Wait { session, tab: cli.tab, wait: args.until(), timeout_ms: cli.timeout },
-        Command::Expect(args) => Request::Expect { session, tab: cli.tab, expect: args.check() },
+        Command::Wait(UntilArgs { control: true, .. }) => Request::WaitControl { target, timeout_ms: cli.timeout },
+        Command::Wait(args) => Request::Wait { target, wait: args.until(), timeout_ms: cli.timeout },
+        Command::Expect(args) => Request::Expect { target, expect: args.check() },
         Command::Daemon { action: DaemonAction::Run }
         | Command::Skills { .. }
         | Command::Install { .. }
@@ -1258,7 +1244,7 @@ fn request(cli: Cli) -> Result<Request, String> {
 fn batch(
     args: &BatchArgs,
     session: &str,
-    tab: Option<u32>,
+    tab: Option<TabId>,
     timeout: u64,
     screenshot_dir: Option<&std::path::Path>,
 ) -> Result<Request, String> {
@@ -1311,8 +1297,7 @@ fn send(request: Request, json: bool, idle_timeout: Duration) -> i32 {
 }
 
 fn input(
-    session: String,
-    tab: Option<u32>,
+    target: Target,
     input: Input,
     after: AfterInput,
     dir: Option<PathBuf>,
@@ -1323,7 +1308,7 @@ fn input(
         .screenshot
         .map(|path| ScreenshotArgs { path, annotate: false, format: None, look: LookArgs::plain() }.shot(dir))
         .transpose()?;
-    Ok(Request::Input { session, tab, input, wait, snapshot: after.snapshot, screenshot, timeout_ms })
+    Ok(Request::Input { target, input, wait, snapshot: after.snapshot, screenshot, timeout_ms })
 }
 
 fn environment(extra: Vec<(String, String)>) -> Vec<(String, String)> {
@@ -1377,16 +1362,6 @@ fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, Str
 
 fn absolute(path: &std::path::Path) -> Result<PathBuf, String> {
     std::path::absolute(path).map_err(|e| format!("current directory: {e}"))
-}
-
-fn parse_tab(value: &str) -> Result<u32, String> {
-    value
-        .strip_prefix('t')
-        .unwrap_or(value)
-        .parse()
-        .ok()
-        .filter(|id| *id > 0)
-        .ok_or_else(|| format!("invalid tab id: {value} (expected t1, t2, ...)"))
 }
 
 fn parse_duration(value: &str) -> Result<Duration, String> {

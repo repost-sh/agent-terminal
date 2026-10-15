@@ -18,7 +18,7 @@ use crate::native::recording;
 use crate::native::store::{PendingCall, SessionFolder};
 use crate::native::terminal::Terminal;
 use crate::output::call_line;
-use crate::protocol::{Modes, Shell};
+use crate::protocol::{Modes, Shell, TabId};
 
 const SECRET_NAME_PARTS: [&str; 6] = ["TOKEN", "SECRET", "KEY", "PASSWORD", "PASSWD", "CREDENTIAL"];
 
@@ -77,7 +77,7 @@ struct EnvVar {
 struct Follow {
     backend: Arc<dyn Backend>,
     session: String,
-    id: u32,
+    id: TabId,
     lifecycle: watch::Receiver<u64>,
     folder: Weak<SessionFolder>,
     logged: Option<watch::Receiver<u64>>,
@@ -85,7 +85,7 @@ struct Follow {
 }
 
 impl Follow {
-    fn new(backend: Arc<dyn Backend>, session: String, id: u32) -> Self {
+    fn new(backend: Arc<dyn Backend>, session: String, id: TabId) -> Self {
         let folder = backend.folder(&session);
         Self {
             lifecycle: backend.changes(),
@@ -99,7 +99,7 @@ impl Follow {
     }
 
     fn tab(&self) -> String {
-        format!("t{}", self.id)
+        self.id.to_string()
     }
 
     fn terminal(&mut self) -> Option<(Arc<Terminal>, bool)> {

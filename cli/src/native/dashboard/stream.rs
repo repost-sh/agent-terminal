@@ -9,7 +9,7 @@ use tokio::sync::watch;
 
 use super::{Backend, tab_id};
 use crate::native::terminal::{Picture, Terminal};
-use crate::protocol::Size;
+use crate::protocol::{Size, TabId};
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -74,7 +74,7 @@ pub async fn tab(
     }
 }
 
-async fn follow_tab(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: u32) {
+async fn follow_tab(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
     let mut lifecycle = backend.changes();
     let mut watched: Option<Watched> = None;
     let mut shown: Option<Shown> = None;

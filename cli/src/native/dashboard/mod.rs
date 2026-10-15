@@ -22,17 +22,17 @@ use tokio::sync::{oneshot, watch};
 use crate::native::control::Hold;
 use crate::native::store::SessionFolder;
 use crate::native::terminal::Terminal;
-use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions};
+use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions, TabId};
 
 pub trait Backend: Send + Sync + 'static {
     fn call(&self, request: Request) -> Result<Reply, ErrorBody>;
     fn sessions(&self) -> Sessions;
-    fn terminal(&self, session: &str, tab: u32) -> Option<Arc<Terminal>>;
+    fn terminal(&self, session: &str, tab: TabId) -> Option<Arc<Terminal>>;
     fn folder(&self, session: &str) -> Option<Arc<SessionFolder>>;
     fn changes(&self) -> watch::Receiver<u64>;
-    fn take_control(&self, session: &str, tab: u32) -> Result<Hold, ErrorBody>;
-    fn holds(&self, session: &str, tab: u32, hold: &Hold) -> bool;
-    fn type_as_human(&self, session: &str, tab: u32, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody>;
+    fn take_control(&self, session: &str, tab: TabId) -> Result<Hold, ErrorBody>;
+    fn holds(&self, session: &str, tab: TabId, hold: &Hold) -> bool;
+    fn type_as_human(&self, session: &str, tab: TabId, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody>;
 }
 
 pub struct Server {
@@ -154,6 +154,6 @@ fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
         .layer(axum::middleware::from_fn_with_state(port, guard::same_origin))
 }
 
-fn tab_id(tab: &str) -> Option<u32> {
-    tab.strip_prefix('t').and_then(|id| id.parse().ok()).filter(|id| *id > 0)
+fn tab_id(tab: &str) -> Option<TabId> {
+    tab.parse().ok()
 }

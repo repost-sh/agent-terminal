@@ -7,7 +7,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use super::{Backend, tab_id};
-use crate::protocol::{ErrorBody, Request, Sessions, Shot, Wait};
+use crate::protocol::{ErrorBody, Request, Sessions, Shot, Target, Wait};
 
 const RESTART_SETTLES_AFTER_MS: u64 = 300;
 const RESTART_TIMEOUT_MS: u64 = 25_000;
@@ -51,16 +51,16 @@ pub async fn restart(
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
     let wait = Wait::Stable { quiet_ms: RESTART_SETTLES_AFTER_MS };
-    call(backend, Request::Restart { session, tab: Some(id), wait, timeout_ms: RESTART_TIMEOUT_MS }).await
+    call(backend, Request::Restart { target: Target::tab(&session, id), wait, timeout_ms: RESTART_TIMEOUT_MS }).await
 }
 
 pub async fn close(State(backend): State<Arc<dyn Backend>>, Path((session, tab)): Path<(String, String)>) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Close { session, all: false, tab: Some(id) }).await
+    call(backend, Request::Close { target: Target::tab(&session, id), all: false }).await
 }
 
 pub async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
-    call(backend, Request::Close { session: String::new(), all: true, tab: None }).await
+    call(backend, Request::Close { target: Target { session: String::new(), tab: None }, all: true }).await
 }
 
 pub async fn screenshot(
@@ -68,7 +68,7 @@ pub async fn screenshot(
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Screenshot { session, tab: Some(id), shot: Shot::default() }).await
+    call(backend, Request::Screenshot { target: Target::tab(&session, id), shot: Shot::default() }).await
 }
 
 pub async fn record_start(
@@ -76,7 +76,7 @@ pub async fn record_start(
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::RecordStart { session, tab: Some(id), path: None }).await
+    call(backend, Request::RecordStart { target: Target::tab(&session, id), path: None }).await
 }
 
 pub async fn record_stop(
@@ -84,7 +84,7 @@ pub async fn record_stop(
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::RecordStop { session, tab: Some(id) }).await
+    call(backend, Request::RecordStop { target: Target::tab(&session, id) }).await
 }
 
 pub async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {

@@ -23,7 +23,8 @@ use crate::protocol::{
     self, Addressed, AttachEvent, AttachInput, Attached, BatchOutcome, BatchStep, Call, Checked, Closed, CommandOutput,
     CommandRecord, Dashboard, DashboardStopped, Delivered, ErrorBody, Expect, Export, History, HumanInput, Input,
     Marked, Matches, Mirror, Printed, RecordingFile, Reply, Request, Response, RowRange, SavedRecording, Screenshot,
-    SessionInfo, Sessions, Shell, Shot, Size, Snapshot, SnapshotOptions, Style, TabRef, TextMatch, Wait, Waited,
+    SessionInfo, Sessions, Shell, Shot, Size, Snapshot, SnapshotOptions, Style, TabId, TabRef, Target, TextMatch, Wait,
+    Waited,
 };
 
 const CONTROL_HANDED_BACK: &str = "a human to hand back control";
@@ -41,8 +42,8 @@ struct Daemon {
 }
 
 struct Session {
-    tabs: BTreeMap<u32, Tab>,
-    current: Option<u32>,
+    tabs: BTreeMap<TabId, Tab>,
+    current: Option<TabId>,
     folder: Arc<SessionFolder>,
 }
 
@@ -54,7 +55,7 @@ struct Tab {
 
 struct Logged {
     session: String,
-    tab: Option<u32>,
+    tab: Option<TabId>,
     folder: Option<Arc<SessionFolder>>,
     pending: Option<Pending>,
     typed: Vec<String>,
@@ -131,8 +132,8 @@ impl Daemon {
             }
         };
         let request = match call.request {
-            Request::Attach { session, tab, read_only } if busy.is_some() => {
-                return self.attach(stream, &session, tab, read_only);
+            Request::Attach { target, read_only } if busy.is_some() => {
+                return self.attach(stream, &target, read_only);
             }
             request => request,
         };
@@ -162,18 +163,16 @@ impl Daemon {
             Request::Open { session, program, args, size, cwd, env, wait, timeout_ms } => {
                 self.open(session, pty::Command { program, args, cwd, env, size }, wait.as_ref(), timeout_ms)
             }
-            Request::Snapshot { session, tab, options } => {
-                let (tab, terminal) = self.target(&session, tab)?;
-                terminal.snapshot_with(&session, &tab_name(tab), &options).map(Reply::Snapshot).map_err(failure)
+            Request::Snapshot { target, options } => {
+                let (id, terminal) = self.target(&target)?;
+                terminal.snapshot_with(&target.session, &id.to_string(), &options).map(Reply::Snapshot).map_err(failure)
             }
-            Request::Close { session, all, tab } => {
-                let closed = if all { self.close_all() } else { vec![self.close(&session, tab)?] };
+            Request::Close { target, all } => {
+                let closed = if all { self.close_all() } else { vec![self.close(&target)?] };
                 Ok(Reply::Closed(Closed { closed }))
             }
-            Request::Resize { session, tab, size, wait, timeout_ms } => {
-                self.resize(&session, tab, size, &wait, timeout_ms)
-            }
-            Request::Restart { session, tab, wait, timeout_ms } => self.restart(&session, tab, &wait, timeout_ms),
+            Request::Resize { target, size, wait, timeout_ms } => self.resize(&target, size, &wait, timeout_ms),
+            Request::Restart { target, wait, timeout_ms } => self.restart(&target, &wait, timeout_ms),
             Request::Sessions => Ok(Reply::Sessions(self.list())),
             Request::Tabs { session } => {
                 let sessions = self.sessions.lock().unwrap();
@@ -181,7 +180,7 @@ impl Daemon {
                     sessions.get(&session).map_or_else(|| SessionInfo::empty(&session), |s| s.info(&session)),
                 ))
             }
-            Request::WaitControl { session, tab, timeout_ms } => self.wait_control(session, tab, timeout_ms),
+            Request::WaitControl { target, timeout_ms } => self.wait_control(target, timeout_ms),
             Request::Attach { .. } => Err(failure(
                 "attach shows the tab in your terminal, so it runs on its own, not in batch or from the dashboard"
                     .into(),
@@ -195,76 +194,77 @@ impl Daemon {
                 entry.current = Some(tab);
                 Ok(Reply::Tabs(entry.info(&session)))
             }
-            Request::Input { session, tab, input, wait, snapshot, screenshot, timeout_ms } => {
+            Request::Input { target, input, wait, snapshot, screenshot, timeout_ms } => {
                 let after = After { wait: wait.as_ref(), snapshot, screenshot: screenshot.as_ref() };
-                self.input(session, tab, &input, after, timeout_ms, typed)
+                self.input(target, &input, after, timeout_ms, typed)
             }
-            Request::Screenshot { session, tab, shot } => {
-                let (id, terminal) = self.target(&session, tab)?;
-                self.screenshot(&session, &tab_name(id), &terminal, &shot, typed).map(Reply::Screenshot)
+            Request::Screenshot { target, shot } => {
+                let (id, terminal) = self.target(&target)?;
+                self.screenshot(&target.session, &id.to_string(), &terminal, &shot, typed).map(Reply::Screenshot)
             }
-            Request::DiffScreenshot { session, tab, baseline, shot, threshold } => {
-                let (id, terminal) = self.target(&session, tab)?;
-                screenshots::diff(&session, &tab_name(id), &terminal, baseline, &shot, threshold)
+            Request::DiffScreenshot { target, baseline, shot, threshold } => {
+                let (id, terminal) = self.target(&target)?;
+                screenshots::diff(&target.session, &id.to_string(), &terminal, baseline, &shot, threshold)
                     .map(Reply::ScreenshotDiff)
                     .map_err(error_body)
             }
-            Request::Clip { session, tab, clip } => {
-                let (id, terminal) = self.target(&session, tab)?;
-                let folder = self.sessions.lock().unwrap().get(&session).map(|entry| Arc::clone(&entry.folder));
-                let folder = folder.ok_or_else(|| no_terminal(&session))?;
-                clips::cut(&session, &tab_name(id), &terminal, &folder, &clip).map(Reply::Clip).map_err(error_body)
+            Request::Clip { target, clip } => {
+                let (id, terminal) = self.target(&target)?;
+                let session = &target.session;
+                let folder = self.sessions.lock().unwrap().get(session).map(|entry| Arc::clone(&entry.folder));
+                let folder = folder.ok_or_else(|| no_terminal(session))?;
+                clips::cut(session, &id.to_string(), &terminal, &folder, &clip).map(Reply::Clip).map_err(error_body)
             }
-            Request::Wait { session, tab, wait: Wait::Elapsed { ms }, timeout_ms } => {
-                self.wait(session, tab, &Wait::Elapsed { ms }, timeout_ms.max(ms))
+            Request::Wait { target, wait: Wait::Elapsed { ms }, timeout_ms } => {
+                self.wait(target, &Wait::Elapsed { ms }, timeout_ms.max(ms))
             }
-            Request::Wait { session, tab, wait, timeout_ms } => self.wait(session, tab, &wait, timeout_ms),
-            Request::Expect { session, tab, expect } => self.expect(session, tab, &expect),
-            Request::Get { session, tab, what } => {
-                let (_, terminal) = self.target(&session, tab)?;
+            Request::Wait { target, wait, timeout_ms } => self.wait(target, &wait, timeout_ms),
+            Request::Expect { target, expect } => self.expect(target, &expect),
+            Request::Get { target, what } => {
+                let (_, terminal) = self.target(&target)?;
                 terminal.fact(what).map(Reply::Fact).map_err(failure)
             }
-            Request::Find { session, tab, text, regex, all } => {
-                let (_, terminal) = self.target(&session, tab)?;
+            Request::Find { target, text, regex, all } => {
+                let (_, terminal) = self.target(&target)?;
                 let matches = terminal.find(&text, regex, all).map_err(failure)?;
                 Ok(Reply::Matches(Matches { matches }))
             }
-            Request::Mark { session, tab, name } => {
-                let (_, terminal) = self.target(&session, tab)?;
+            Request::Mark { target, name } => {
+                let (_, terminal) = self.target(&target)?;
                 let frame = terminal.mark(name.clone());
                 Ok(Reply::Marked(Marked { mark: name, frame }))
             }
-            Request::Output { session, tab, since, raw } => {
-                let (_, terminal) = self.target(&session, tab)?;
+            Request::Output { target, since, raw } => {
+                let (_, terminal) = self.target(&target)?;
                 let output = terminal.printed(since.as_deref(), raw).map_err(failure)?;
                 Ok(Reply::Printed(Printed { output }))
             }
-            Request::DiffSnapshot { session, tab, baseline } => {
-                let (_, terminal) = self.target(&session, tab)?;
+            Request::DiffSnapshot { target, baseline } => {
+                let (_, terminal) = self.target(&target)?;
                 terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(failure)
             }
-            Request::RecordStart { session, tab, path } => {
-                let (id, terminal) = self.target(&session, tab)?;
-                let tab = tab_name(id);
+            Request::RecordStart { target, path } => {
+                let (id, terminal) = self.target(&target)?;
+                let Target { session, .. } = target;
                 let path = match path {
                     Some(path) => path,
                     None => home().map_err(error_body)?.join("recordings").join(format!(
-                        "{}-{tab}-{}.cast",
+                        "{}-{id}-{}.cast",
                         store::file_name(&session),
                         terminal.frame()
                     )),
                 };
                 terminal.recording().save_to(&path).map_err(error_body)?;
                 self.changes.notify();
-                Ok(Reply::Recording(RecordingFile { session, tab, path }))
+                Ok(Reply::Recording(RecordingFile { session, tab: id.to_string(), path }))
             }
-            Request::RecordStop { session, tab } => {
-                let (id, terminal) = self.target(&session, tab)?;
+            Request::RecordStop { target } => {
+                let (id, terminal) = self.target(&target)?;
                 let saved = terminal.recording().stop_saving().map_err(error_body)?;
                 self.changes.notify();
                 Ok(Reply::Saved(SavedRecording {
-                    session,
-                    tab: tab_name(id),
+                    session: target.session,
+                    tab: id.to_string(),
                     path: saved.path,
                     duration_ms: saved.duration.as_millis() as u64,
                     bytes: saved.bytes,
@@ -281,12 +281,10 @@ impl Daemon {
                 wait.as_ref(),
                 timeout_ms,
             ),
-            Request::Exec { session, tab, line, check, timeout_ms } => {
-                self.exec(session, tab, &line, check, timeout_ms)
-            }
-            Request::History { session, tab, last, failed } => {
-                let (id, terminal) = self.target(&session, tab)?;
-                let tab = tab_name(id);
+            Request::Exec { target, line, check, timeout_ms } => self.exec(target, &line, check, timeout_ms),
+            Request::History { target, last, failed } => {
+                let (id, terminal) = self.target(&target)?;
+                let (session, tab) = (target.session, id.to_string());
                 let mut commands = terminal.commands().ok_or_else(|| no_integration(&session, &tab, &terminal))?;
                 let total = commands.len();
                 if failed {
@@ -297,9 +295,9 @@ impl Daemon {
                 }
                 Ok(Reply::History(History { session, tab, total, commands }))
             }
-            Request::HistoryShow { session, tab, id } => {
-                let (tab_id, terminal) = self.target(&session, tab)?;
-                let tab = tab_name(tab_id);
+            Request::HistoryShow { target, id } => {
+                let (tab_id, terminal) = self.target(&target)?;
+                let (session, tab) = (target.session, tab_id.to_string());
                 if terminal.shell().is_none() {
                     return Err(no_integration(&session, &tab, &terminal));
                 }
@@ -387,7 +385,7 @@ impl Daemon {
         };
         let time = SystemTime::now();
         let folder = sessions.get(session).map(|s| Arc::clone(&s.folder));
-        let pending = folder.as_ref().map(|folder| folder.begin(time, tab.map(tab_name), &typed));
+        let pending = folder.as_ref().map(|folder| folder.begin(time, tab.map(|id| id.to_string()), &typed));
         Some(Logged { session: session.to_string(), tab, folder, pending, typed, time, started: Instant::now() })
     }
 
@@ -403,9 +401,9 @@ impl Daemon {
             Err(failure) => failure.snapshot.as_deref(),
             Ok(_) => None,
         };
-        entry.tab = shown.map(|snapshot| snapshot.tab.clone()).or_else(|| logged.tab.map(tab_name));
+        entry.tab = shown.map(|snapshot| snapshot.tab.clone()).or_else(|| logged.tab.map(|id| id.to_string()));
         entry.frame = shown.map(|snapshot| snapshot.frame).or_else(|| {
-            let (_, terminal) = self.target(&logged.session, Some(logged.tab?)).ok()?;
+            let (_, terminal) = self.target(&Target::tab(&logged.session, logged.tab?)).ok()?;
             Some(terminal.frame())
         });
         match handled {
@@ -500,9 +498,8 @@ impl Daemon {
         first_screen(&session, tab, &terminal, wait, timeout_ms).map_err(|mut error| {
             if matches!(wait, Some(Wait::Command)) && error.code == crate::exit::TIMEOUT {
                 error.message = format!(
-                    "timed out after {timeout_ms} ms waiting for the first prompt of {} in {session} {}; its startup files may be waiting for input or the shell integration did not load (read the screen with `agent-terminal snapshot`, check with `agent-terminal doctor`)",
-                    terminal.program,
-                    tab_name(tab)
+                    "timed out after {timeout_ms} ms waiting for the first prompt of {} in {session} {tab}; its startup files may be waiting for input or the shell integration did not load (read the screen with `agent-terminal snapshot`, check with `agent-terminal doctor`)",
+                    terminal.program
                 );
             }
             error
@@ -514,7 +511,7 @@ impl Daemon {
         session: &str,
         command: pty::Command,
         shell: Option<Shell>,
-    ) -> Result<(u32, Arc<Terminal>), ErrorBody> {
+    ) -> Result<(TabId, Arc<Terminal>), ErrorBody> {
         let spawned = pty::spawn(command.clone()).map_err(error_body)?;
         let folder = match self.folder(session) {
             Ok(folder) => folder,
@@ -524,8 +521,8 @@ impl Daemon {
             }
         };
         let tab = folder.next_tab();
-        let recording = folder.record(&tab_name(tab), &command);
-        let command_log = folder.command_log(&tab_name(tab));
+        let recording = folder.record(&tab.to_string(), &command);
+        let command_log = folder.command_log(&tab.to_string());
         let terminal = Terminal::start(command, shell, spawned, recording, command_log, self.changes.clone());
         {
             let mut sessions = self.sessions.lock().unwrap();
@@ -549,29 +546,23 @@ impl Daemon {
         Ok(folder)
     }
 
-    fn resize(
-        &self,
-        session: &str,
-        tab: Option<u32>,
-        size: Size,
-        wait: &Wait,
-        timeout_ms: u64,
-    ) -> Result<Reply, ErrorBody> {
-        let (tab, terminal) = self.target(session, tab)?;
-        terminal.resize(size).map_err(|e| error_body(e.context(format!("{session} {}", tab_name(tab)))))?;
+    fn resize(&self, target: &Target, size: Size, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+        let (tab, terminal) = self.target(target)?;
+        let session = &target.session;
+        terminal.resize(size).map_err(|e| error_body(e.context(format!("{session} {tab}"))))?;
         settle(session, tab, &terminal, wait, timeout_ms)
     }
 
-    fn restart(&self, session: &str, tab: Option<u32>, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+    fn restart(&self, target: &Target, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
         let restarting = self.restarting.lock().unwrap();
-        let (tab, old) = self.target(session, tab)?;
+        let (tab, old) = self.target(target)?;
+        let session = &target.session;
         if !old.stop(Duration::from_millis(timeout_ms)) {
             return Err(ErrorBody {
                 code: crate::exit::TIMEOUT,
                 message: format!(
-                    "{} in {session} {} did not stop within {timeout_ms} ms, so it was not restarted",
-                    old.program,
-                    tab_name(tab)
+                    "{} in {session} {tab} did not stop within {timeout_ms} ms, so it was not restarted",
+                    old.program
                 ),
                 snapshot: None,
             });
@@ -599,15 +590,14 @@ impl Daemon {
 
     fn input(
         &self,
-        session: String,
-        tab: Option<u32>,
+        target: Target,
         input: &Input,
         after: After<'_>,
         timeout_ms: u64,
         typed: Option<&[String]>,
     ) -> Result<Reply, ErrorBody> {
-        let (id, Tab { terminal, control }) = self.tab(&session, tab)?;
-        let tab = tab_name(id);
+        let (id, Tab { terminal, control }) = self.tab(&target)?;
+        let (session, tab) = (target.session, id.to_string());
         let condition = after.wait.map(condition).transpose()?;
         let delivery = {
             let _turn = control.agent().ok_or_else(|| human_has_control(&session, &tab))?;
@@ -641,9 +631,9 @@ impl Daemon {
         Ok(taken.screenshot)
     }
 
-    fn wait(&self, session: String, tab: Option<u32>, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
-        let (id, terminal) = self.target(&session, tab)?;
-        let tab = tab_name(id);
+    fn wait(&self, target: Target, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+        let (id, terminal) = self.target(&target)?;
+        let (session, tab) = (target.session, id.to_string());
         if matches!(wait, Wait::Command) && terminal.shell().is_none() {
             return Err(no_integration(&session, &tab, &terminal));
         }
@@ -659,13 +649,14 @@ impl Daemon {
         Ok(Reply::Waited(Waited { session, tab, until: describe(wait), waited_ms, frame, exit_code }))
     }
 
-    fn wait_control(&self, session: String, tab: Option<u32>, timeout_ms: u64) -> Result<Reply, ErrorBody> {
-        let (id, Tab { terminal, control }) = self.tab(&session, tab)?;
-        let tab = tab_name(id);
+    fn wait_control(&self, target: Target, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+        let (id, Tab { terminal, control }) = self.tab(&target)?;
+        let (session, tab) = (target.session, id.to_string());
         let started = Instant::now();
         match control.wait_for_agent(Duration::from_millis(timeout_ms)) {
             Handed::Back => {
-                let frame = self.target(&session, Some(id)).map_or_else(|_| terminal.frame(), |(_, now)| now.frame());
+                let frame =
+                    self.target(&Target::tab(&session, id)).map_or_else(|_| terminal.frame(), |(_, now)| now.frame());
                 let waited_ms = started.elapsed().as_millis() as u64;
                 let until = CONTROL_HANDED_BACK.to_string();
                 Ok(Reply::Waited(Waited { session, tab, until, waited_ms, frame, exit_code: None }))
@@ -681,8 +672,9 @@ impl Daemon {
         }
     }
 
-    fn attach(&self, mut stream: UnixStream, session: &str, tab: Option<u32>, read_only: bool) {
-        let taken = self.tab(session, tab).map(|(id, tab)| {
+    fn attach(&self, mut stream: UnixStream, target: &Target, read_only: bool) {
+        let session = target.session.as_str();
+        let taken = self.tab(target).map(|(id, tab)| {
             let hold = (!read_only).then(|| tab.control.take());
             (id, tab, hold)
         });
@@ -697,19 +689,19 @@ impl Daemon {
         };
         let reply = Reply::Attached(Attached {
             session: session.to_string(),
-            tab: tab_name(id),
+            tab: id.to_string(),
             program: attached.terminal.program.clone(),
             read_only,
         });
         if let Err(e) = protocol::write(&mut stream, &Response::Ok(reply)) {
-            eprintln!("attach: answering the attach to {session} {} failed: {e:#}", tab_name(id));
+            eprintln!("attach: answering the attach to {session} {id} failed: {e:#}");
             return;
         }
         if let Err(e) = self.mirror(&stream, session, id, &attached.control, hold.as_ref()) {
-            eprintln!("attach: mirroring {session} {} ended: {e:#}", tab_name(id));
+            eprintln!("attach: mirroring {session} {id} ended: {e:#}");
         }
         if let Err(e) = stream.shutdown(std::net::Shutdown::Both) {
-            eprintln!("attach: closing the connection to {session} {} failed: {e}", tab_name(id));
+            eprintln!("attach: closing the connection to {session} {id} failed: {e}");
         }
     }
 
@@ -717,7 +709,7 @@ impl Daemon {
         &self,
         stream: &UnixStream,
         session: &str,
-        id: u32,
+        id: TabId,
         control: &Arc<Control>,
         hold: Option<&Hold>,
     ) -> Result<()> {
@@ -765,7 +757,7 @@ impl Daemon {
         })
     }
 
-    fn terminal_of(&self, session: &str, id: u32) -> Option<Arc<Terminal>> {
+    fn terminal_of(&self, session: &str, id: TabId) -> Option<Arc<Terminal>> {
         self.sessions
             .lock()
             .unwrap()
@@ -774,22 +766,15 @@ impl Daemon {
             .map(|tab| Arc::clone(&tab.terminal))
     }
 
-    fn terminal_under(&self, session: &str, id: u32, control: &Arc<Control>) -> Option<Arc<Terminal>> {
+    fn terminal_under(&self, session: &str, id: TabId, control: &Arc<Control>) -> Option<Arc<Terminal>> {
         let sessions = self.sessions.lock().unwrap();
         let tab = sessions.get(session).and_then(|entry| entry.tabs.get(&id))?;
         Arc::ptr_eq(&tab.control, control).then(|| Arc::clone(&tab.terminal))
     }
 
-    fn exec(
-        &self,
-        session: String,
-        tab: Option<u32>,
-        line: &str,
-        check: bool,
-        timeout_ms: u64,
-    ) -> Result<Reply, ErrorBody> {
-        let (id, Tab { terminal, control }) = self.tab(&session, tab)?;
-        let tab = tab_name(id);
+    fn exec(&self, target: Target, line: &str, check: bool, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+        let (id, Tab { terminal, control }) = self.tab(&target)?;
+        let (session, tab) = (target.session, id.to_string());
         if terminal.shell().is_none() {
             return Err(no_integration(&session, &tab, &terminal));
         }
@@ -838,9 +823,9 @@ impl Daemon {
         Ok(Reply::Command(CommandOutput { session, tab, record, output, check }))
     }
 
-    fn expect(&self, session: String, tab: Option<u32>, expect: &Expect) -> Result<Reply, ErrorBody> {
-        let (id, terminal) = self.target(&session, tab)?;
-        let tab = tab_name(id);
+    fn expect(&self, target: Target, expect: &Expect) -> Result<Reply, ErrorBody> {
+        let (id, terminal) = self.target(&target)?;
+        let (session, tab) = (target.session, id.to_string());
         let place = format!("{session} {tab}");
         let excerpt = |rows: Option<RowRange>| {
             let options = SnapshotOptions { rows, ..SnapshotOptions::default() };
@@ -886,7 +871,8 @@ impl Daemon {
         Ok(Reply::Checked(Checked { session, tab, fact }))
     }
 
-    fn close(&self, session: &str, tab: Option<u32>) -> Result<TabRef, ErrorBody> {
+    fn close(&self, target: &Target) -> Result<TabRef, ErrorBody> {
+        let Target { session, tab } = target;
         let mut sessions = self.sessions.lock().unwrap();
         let missing = || tab.map_or_else(|| no_terminal(session), |id| no_tab(session, id));
         let entry = sessions.get_mut(session).ok_or_else(missing)?;
@@ -902,7 +888,7 @@ impl Daemon {
         }
         drop(sessions);
         self.changes.notify();
-        Ok(TabRef { session: session.to_string(), tab: tab_name(id) })
+        Ok(TabRef { session: session.to_string(), tab: id.to_string() })
     }
 
     fn close_all(&self) -> Vec<TabRef> {
@@ -913,20 +899,21 @@ impl Daemon {
             for (id, closing) in session.tabs {
                 closing.terminal.kill();
                 closing.control.close();
-                closed.push(TabRef { session: name.clone(), tab: tab_name(id) });
+                closed.push(TabRef { session: name.clone(), tab: id.to_string() });
             }
         }
         closed
     }
 
-    fn target(&self, session: &str, tab: Option<u32>) -> Result<(u32, Arc<Terminal>), ErrorBody> {
-        self.tab(session, tab).map(|(id, tab)| (id, tab.terminal))
+    fn target(&self, target: &Target) -> Result<(TabId, Arc<Terminal>), ErrorBody> {
+        self.tab(target).map(|(id, tab)| (id, tab.terminal))
     }
 
-    fn tab(&self, session: &str, tab: Option<u32>) -> Result<(u32, Tab), ErrorBody> {
+    fn tab(&self, target: &Target) -> Result<(TabId, Tab), ErrorBody> {
+        let Target { session, tab } = target;
         let sessions = self.sessions.lock().unwrap();
         let entry = sessions.get(session);
-        match tab {
+        match *tab {
             Some(id) => entry.and_then(|s| s.tabs.get(&id)).map(|t| (id, t.clone())).ok_or_else(|| no_tab(session, id)),
             None => entry
                 .and_then(|s| s.current.and_then(|id| s.tabs.get(&id).map(|t| (id, t.clone()))))
@@ -947,7 +934,7 @@ impl Backend for Daemon {
         self.list()
     }
 
-    fn terminal(&self, session: &str, tab: u32) -> Option<Arc<Terminal>> {
+    fn terminal(&self, session: &str, tab: TabId) -> Option<Arc<Terminal>> {
         self.terminal_of(session, tab)
     }
 
@@ -959,16 +946,16 @@ impl Backend for Daemon {
         self.changes.subscribe()
     }
 
-    fn take_control(&self, session: &str, tab: u32) -> Result<Hold, ErrorBody> {
-        self.tab(session, Some(tab)).map(|(_, tab)| tab.control.take())
+    fn take_control(&self, session: &str, tab: TabId) -> Result<Hold, ErrorBody> {
+        self.tab(&Target::tab(session, tab)).map(|(_, tab)| tab.control.take())
     }
 
-    fn holds(&self, session: &str, tab: u32, hold: &Hold) -> bool {
+    fn holds(&self, session: &str, tab: TabId, hold: &Hold) -> bool {
         let sessions = self.sessions.lock().unwrap();
         sessions.get(session).and_then(|entry| entry.tabs.get(&tab)).is_some_and(|tab| hold.holds(&tab.control))
     }
 
-    fn type_as_human(&self, session: &str, id: u32, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody> {
+    fn type_as_human(&self, session: &str, id: TabId, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody> {
         let time = SystemTime::now();
         let started = Instant::now();
         let (folder, terminal) = {
@@ -977,15 +964,15 @@ impl Backend for Daemon {
                 let tab = s.tabs.get(&id).filter(|tab| hold.holds(&tab.control))?;
                 Some((Arc::clone(&s.folder), Arc::clone(&tab.terminal)))
             });
-            held.ok_or_else(|| failure(format!("{session} {} was closed", tab_name(id))))?
+            held.ok_or_else(|| failure(format!("{session} {id} was closed")))?
         };
         let delivered = terminal.input(&input.input()).map(drop).map_err(|e| {
             let mut error = error_body(e);
-            error.message = format!("{session} {}: {}", tab_name(id), error.message);
+            error.message = format!("{session} {id}: {}", error.message);
             error
         });
         let mut entry = ActivityEntry::at(time, &input.call(), started.elapsed());
-        entry.tab = Some(tab_name(id));
+        entry.tab = Some(id.to_string());
         entry.frame = Some(terminal.frame());
         entry.human = Some(input.clone());
         if let Err(error) = &delivered {
@@ -1005,8 +992,8 @@ impl Session {
     fn info(&self, name: &str) -> SessionInfo {
         SessionInfo {
             session: name.to_string(),
-            current: self.current.map(tab_name),
-            tabs: self.tabs.iter().map(|(id, tab)| tab.terminal.info(&tab_name(*id), tab.control.owner())).collect(),
+            current: self.current.map(|id| id.to_string()),
+            tabs: self.tabs.iter().map(|(id, tab)| tab.terminal.info(&id.to_string(), tab.control.owner())).collect(),
         }
     }
 }
@@ -1019,19 +1006,19 @@ struct After<'a> {
 
 fn first_screen(
     session: &str,
-    tab: u32,
+    tab: TabId,
     terminal: &Terminal,
     wait: Option<&Wait>,
     timeout_ms: u64,
 ) -> Result<Reply, ErrorBody> {
     match wait {
         Some(wait) => settle(session, tab, terminal, wait, timeout_ms),
-        None => Ok(Reply::Snapshot(terminal.snapshot(session, &tab_name(tab)))),
+        None => Ok(Reply::Snapshot(terminal.snapshot(session, &tab.to_string()))),
     }
 }
 
-fn settle(session: &str, tab: u32, terminal: &Terminal, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
-    let tab = tab_name(tab);
+fn settle(session: &str, tab: TabId, terminal: &Terminal, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+    let tab = tab.to_string();
     let settled = terminal.wait(condition(wait)?, Duration::from_millis(timeout_ms));
     let snapshot = terminal.snapshot(session, &tab);
     match settled {
@@ -1183,10 +1170,6 @@ fn stopping() -> ErrorBody {
     failure("the daemon is stopping because it was idle; run the command again to start a new one".into())
 }
 
-fn tab_name(id: u32) -> String {
-    format!("t{id}")
-}
-
 fn no_terminal(session: &str) -> ErrorBody {
     ErrorBody {
         code: crate::exit::ERROR,
@@ -1195,8 +1178,8 @@ fn no_terminal(session: &str) -> ErrorBody {
     }
 }
 
-fn no_tab(session: &str, id: u32) -> ErrorBody {
-    failure(format!("no tab {} in session {session}; list tabs with `agent-terminal tab`", tab_name(id)))
+fn no_tab(session: &str, id: TabId) -> ErrorBody {
+    failure(format!("no tab {id} in session {session}; list tabs with `agent-terminal tab`"))
 }
 
 fn failure(message: String) -> ErrorBody {

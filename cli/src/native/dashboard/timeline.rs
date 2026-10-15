@@ -13,6 +13,7 @@ use super::{Backend, tab_id};
 use crate::native::commands::epoch_ms;
 use crate::native::replay::Replay;
 use crate::native::terminal::{Run, Terminal};
+use crate::protocol::TabId;
 
 const KEYFRAME_EVERY: u64 = 32;
 const FRAMES_PER_MESSAGE: usize = 256;
@@ -151,8 +152,8 @@ pub async fn tab(
     }
 }
 
-async fn follow_timeline(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: u32) {
-    let name = format!("{session} t{id}");
+async fn follow_timeline(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
+    let name = format!("{session} {id}");
     let mut lifecycle = backend.changes();
     let mut following: Option<Following> = None;
     loop {

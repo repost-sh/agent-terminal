@@ -1,7 +1,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -15,12 +15,12 @@ use crate::native::pty;
 use crate::native::recording::Recording;
 use crate::native::render::Cells;
 use crate::output::call_line;
-use crate::protocol::{CommandRecord, HumanInput};
+use crate::protocol::{CommandRecord, HumanInput, TabId};
 
 pub struct SessionFolder {
     session: String,
     path: PathBuf,
-    last_tab: AtomicU32,
+    last_tab: Mutex<Option<TabId>>,
     activity: Mutex<Calls>,
     logged: Changes,
     screenshots: Mutex<()>,
@@ -141,7 +141,7 @@ impl SessionFolder {
         Ok(Self {
             session: session.to_string(),
             path,
-            last_tab: AtomicU32::new(0),
+            last_tab: Mutex::new(None),
             activity: Mutex::new(Calls::default()),
             logged: Changes::default(),
             screenshots: Mutex::new(()),
@@ -149,8 +149,11 @@ impl SessionFolder {
         })
     }
 
-    pub fn next_tab(&self) -> u32 {
-        self.last_tab.fetch_add(1, Ordering::SeqCst) + 1
+    pub fn next_tab(&self) -> TabId {
+        let mut last = self.last_tab.lock().unwrap();
+        let next = last.map_or(TabId::FIRST, TabId::next);
+        *last = Some(next);
+        next
     }
 
     pub fn begin(self: &Arc<Self>, time: SystemTime, tab: Option<String>, typed: &[String]) -> Pending {
