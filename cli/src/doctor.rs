@@ -82,7 +82,7 @@ fn fonts() -> Check {
         Err(missing) => Check::problem(
             "fonts",
             format!("the built-in {missing} did not load, so screenshots show □ for what it draws"),
-            "reinstall agent-terminal (npm i -g agent-terminal, or brew reinstall agent-terminal)",
+            "reinstall agent-terminal (npm i -g @repost/agent-terminal, or brew reinstall agent-terminal)",
         ),
     }
 }

@@ -51,15 +51,18 @@ impl Install {
     }
 }
 
+const NPM_INSTALLED_BINARY: &str =
+    "prefix/lib/node_modules/@repost/agent-terminal/node_modules/@repost/agent-terminal-linux-x64/bin/agent-terminal";
+
 const REPLACE_BINARY_WITH_9_9_9: &str = "printf '#!/bin/sh\\necho agent-terminal 9.9.9\\n' > \"$BINARY.new\"\nchmod +x \"$BINARY.new\"\nmv \"$BINARY.new\" \"$BINARY\"\necho 'changed 1 package'\n";
 
 #[test]
 fn upgrade_of_an_npm_install_runs_npm_and_reports_the_new_version() {
     let at = AgentTerminal::new();
-    let install = Install::new(&at, "prefix/lib/node_modules/agent-terminal/bin/agent-terminal");
+    let install = Install::new(&at, NPM_INSTALLED_BINARY);
     install.package_manager("npm", REPLACE_BINARY_WITH_9_9_9);
     let run = install.upgrade(&at, &["upgrade"]).success();
-    assert_eq!(install.calls(), "install -g agent-terminal@latest\n");
+    assert_eq!(install.calls(), "install -g @repost/agent-terminal@latest\n");
     assert_eq!(run.stdout(), format!("upgraded agent-terminal {VERSION} to 9.9.9 with npm\n"));
     assert!(run.stderr().contains("changed 1 package"), "npm's own output goes to stderr: {}", run.stderr());
 }
@@ -86,7 +89,7 @@ fn upgrade_refuses_a_binary_that_npm_or_homebrew_did_not_install() {
     assert_eq!(
         run.stderr(),
         format!(
-            "error: agent-terminal at {} was not installed with npm or Homebrew, so upgrade cannot update it; install it with `npm i -g agent-terminal`, or update it the way you installed it\n",
+            "error: agent-terminal at {} was not installed with npm or Homebrew, so upgrade cannot update it; install it with `npm i -g @repost/agent-terminal`, or update it the way you installed it\n",
             binary.display()
         )
     );
@@ -95,17 +98,21 @@ fn upgrade_refuses_a_binary_that_npm_or_homebrew_did_not_install() {
 #[test]
 fn upgrade_fails_when_the_package_manager_fails_or_is_missing() {
     let at = AgentTerminal::new();
-    let install = Install::new(&at, "prefix/lib/node_modules/agent-terminal/bin/agent-terminal");
+    let install = Install::new(&at, NPM_INSTALLED_BINARY);
 
     let run = install.upgrade(&at, &["upgrade"]);
     assert_eq!((run.code(), run.stdout().as_str()), (1, ""));
-    assert!(run.stderr().starts_with("error: cannot run `npm install -g agent-terminal@latest`: "), "{}", run.stderr());
+    assert!(
+        run.stderr().starts_with("error: cannot run `npm install -g @repost/agent-terminal@latest`: "),
+        "{}",
+        run.stderr()
+    );
 
     install.package_manager("npm", "echo 'npm error 404 Not Found' >&2\nexit 1\n");
     let run = install.upgrade(&at, &["upgrade"]);
     assert_eq!((run.code(), run.stdout().as_str()), (1, ""));
     assert_eq!(
         run.stderr(),
-        "npm error 404 Not Found\nerror: `npm install -g agent-terminal@latest` failed (exit status: 1); see its output above\n"
+        "npm error 404 Not Found\nerror: `npm install -g @repost/agent-terminal@latest` failed (exit status: 1); see its output above\n"
     );
 }

@@ -1,7 +1,7 @@
 ---
 name: tui-qa
 description: Systematically test a full-screen terminal app (TUI) and find bugs, broken layouts, dead keys and confusing flows. Use when asked to QA, dogfood, test, or bug hunt a TUI or interactive terminal program. Produces a report where every finding has repro steps, a screenshot and, for anything that moves, a short clip.
-allowed-tools: Bash(agent-terminal:*), Bash(npx agent-terminal:*)
+allowed-tools: Bash(agent-terminal:*), Bash(npx @repost/agent-terminal:*)
 ---
 
 # TUI QA

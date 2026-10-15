@@ -48,11 +48,23 @@ fn skills_get_prints_the_shipped_guide_stamped_with_this_version() {
          description: Test a command-line tool the way users run it, from a real terminal. Use when asked to QA or \
          review a CLI's help text, errors, exit codes, prompts, colors, or behavior when piped. Produces a report \
          with the exact commands, their output and exit codes.\n\
-         allowed-tools: Bash(agent-terminal:*), Bash(npx agent-terminal:*)\n\
+         allowed-tools: Bash(agent-terminal:*), Bash(npx @repost/agent-terminal:*)\n\
          metadata:\n  version: \"{VERSION}\"\n\
          ---\n{body}"
     );
     assert_eq!(guide, expected);
+}
+
+#[test]
+fn every_skill_allows_the_command_and_npx_of_the_repost_package() {
+    let at = AgentTerminal::new();
+    for name in ["agent-terminal", "core", "tui-qa", "cli-qa"] {
+        let guide = at.run(&["skills", "get", name]).success().stdout();
+        assert!(
+            guide.contains("\nallowed-tools: Bash(agent-terminal:*), Bash(npx @repost/agent-terminal:*)\n"),
+            "{name}:\n{guide}"
+        );
+    }
 }
 
 #[test]
@@ -210,6 +222,7 @@ fn install_skills_writes_the_discovery_stub_into_the_agent_skills_folder() {
     let shipped = shipped("skills/agent-terminal/SKILL.md");
     let body = shipped.split_once("\n---\n").expect("frontmatter").1;
     assert!(installed.starts_with("---\nname: agent-terminal\n"), "{installed}");
+    assert!(installed.contains("\nInstall: `npm i -g @repost/agent-terminal`\n"), "{installed}");
     assert!(
         installed.ends_with(&format!("hidden: true\nmetadata:\n  version: \"{VERSION}\"\n---\n{body}")),
         "{installed}"

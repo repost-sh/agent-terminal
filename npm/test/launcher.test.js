@@ -12,12 +12,12 @@ function installed(t, packages) {
   distRelease(dir, TARGETS, echoArgs);
   const run = build(dir);
   assert.equal(run.status, 0, run.stderr);
-  const built = path.join(dir, 'npm');
-  const prefix = path.join(dir, 'prefix');
-  for (const name of fs.readdirSync(built).filter(packages)) {
-    fs.cpSync(path.join(built, name), path.join(prefix, 'node_modules', name), { recursive: true });
+  const scope = path.join(dir, 'npm', '@repost');
+  const installedScope = path.join(dir, 'prefix', 'node_modules', '@repost');
+  for (const name of fs.readdirSync(scope).filter((name) => packages(`@repost/${name}`))) {
+    fs.cpSync(path.join(scope, name), path.join(installedScope, name), { recursive: true });
   }
-  return path.join(prefix, 'node_modules', 'agent-terminal', 'bin', 'agent-terminal.js');
+  return path.join(installedScope, 'agent-terminal', 'bin', 'agent-terminal.js');
 }
 
 function launch(launcher, args, input) {
@@ -35,7 +35,7 @@ test('the launcher runs the platform binary with the same arguments, input and e
 });
 
 test('without the platform package the launcher says which package is missing and how to get it', (t) => {
-  const launcher = installed(t, (name) => name === 'agent-terminal');
+  const launcher = installed(t, (name) => name === '@repost/agent-terminal');
 
   const run = launch(launcher, ['snapshot'], '');
 
@@ -43,6 +43,6 @@ test('without the platform package the launcher says which package is missing an
   assert.equal(run.stdout, '');
   assert.match(
     run.stderr,
-    /^agent-terminal-(darwin|linux)-(arm64|x64)(-musl)? is not installed\. It holds the agent-terminal binary for this platform; reinstall with optional dependencies: npm i -g agent-terminal\n$/,
+    /^@repost\/agent-terminal-(darwin|linux)-(arm64|x64)(-musl)? is not installed\. It holds the agent-terminal binary for this platform; reinstall with optional dependencies: npm i -g @repost\/agent-terminal\n$/,
   );
 });
