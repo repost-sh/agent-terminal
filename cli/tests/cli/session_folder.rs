@@ -75,6 +75,25 @@ fn a_session_with_an_empty_name_gets_a_folder_of_its_own() {
     assert_eq!(casts_in(&at.home().join("sessions").join("qa")), ["t1.cast"]);
 }
 
+#[test]
+fn record_start_and_stop_are_unknown_commands_and_the_home_gets_no_recordings_folder() {
+    let at = AgentTerminal::new();
+    open_printer(&at, "qa", "open");
+    for action in ["start", "stop"] {
+        let refused = at.run(&["--session", "qa", "record", action]);
+        assert_eq!(refused.code(), 1, "record {action}: {}", refused.stdout());
+        assert!(
+            refused.stderr().starts_with("error: unrecognized subcommand 'record'\n"),
+            "record {action}: {}",
+            refused.stderr()
+        );
+    }
+    at.run(&["--session", "qa", "type", "x", "--wait", "x"]).success();
+    at.run(&["--session", "qa", "close"]).success();
+    assert_eq!(casts_in(&at.home().join("sessions").join("qa")), ["t1.cast"]);
+    assert!(!at.home().join("recordings").exists());
+}
+
 fn screenshots_listed(at: &AgentTerminal, session: &str) -> Vec<Value> {
     let path = at.home().join("sessions").join(session).join("screenshots.jsonl");
     std::fs::read_to_string(&path)

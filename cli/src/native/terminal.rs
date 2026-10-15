@@ -485,14 +485,6 @@ impl Terminal {
         }
     }
 
-    pub fn save_recording(&self, path: &std::path::Path) -> Result<()> {
-        let state = self.state.lock().unwrap();
-        let picture = Picture::of(&state.screen, state.frame, state.exit);
-        let alt_screen = if picture.alt_screen { "\x1b[?1049h" } else { "" };
-        let blank = vec![String::new(); picture.rows.len()];
-        self.recording.save_to(path, picture.size, &format!("{alt_screen}{}", picture.paint(Some(&blank))))
-    }
-
     pub fn recording(&self) -> Arc<Recording> {
         Arc::clone(&self.recording)
     }
@@ -548,7 +540,6 @@ impl Terminal {
             rows: size.rows,
             exited: state.exit.is_some(),
             exit_code: state.exit.flatten(),
-            recording: self.recording.saving_to(),
             control,
         }
     }

@@ -28,7 +28,7 @@
 
 **activity**: one CLI call to agent-terminal as recorded in the session's log: time, command as typed, duration and result.
 
-**recording**: a tab's output, input and resizes as an asciicast file, written from the moment the tab opens. `record start` saves a copy of it from that point to a file of your choice.
+**recording**: a tab's output, input and resizes as an asciicast file, written from the moment the tab opens.
 
 **session folder**: the plain folder where a session keeps its recordings, activity log and command logs (`~/.agent-terminal/sessions/<session>/`); `trace export` zips it.
 

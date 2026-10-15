@@ -87,22 +87,6 @@ pub async fn screenshot(
     call(backend, Request::Screenshot { target: Target::tab(&session, id), shot }).await
 }
 
-pub async fn record_start(
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::RecordStart { target: Target::tab(&session, id), path: None }).await
-}
-
-pub async fn record_stop(
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::RecordStop { target: Target::tab(&session, id) }).await
-}
-
 pub async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
     let asked = serde_json::to_value(&request).map_or_else(|e| e.to_string(), |asked| asked["command"].to_string());
     match tokio::task::spawn_blocking(move || backend.call(request)).await {

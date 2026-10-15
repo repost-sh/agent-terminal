@@ -7,7 +7,6 @@ export type TabInfo = {
   rows: number;
   exited: boolean;
   exit_code: number | null;
-  recording: string | null;
   control: "agent" | "human";
 };
 

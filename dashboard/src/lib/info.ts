@@ -20,7 +20,6 @@ export type TabSetup = {
   rows: number;
   shell_integration: boolean | null;
   modes: Modes;
-  recording: string | null;
   started: string;
   exited: boolean;
   exit_code: number | null;

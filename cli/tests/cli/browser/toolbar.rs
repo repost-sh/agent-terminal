@@ -38,15 +38,50 @@ fn the_toolbar_shows_the_command_line_with_its_working_directory_dimmed() {
     assert_ne!(parts[0].1, parts[1].1, "the working directory is dimmed");
 }
 
-fn newest_toast(browser: &Browser) -> Vec<String> {
-    browser.text(".toast").lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_string).collect()
+fn toolbar_buttons(browser: &Browser) -> Vec<String> {
+    let names = browser.eval(
+        "JSON.stringify([...document.querySelector('[role=group][aria-label=\"Command line\"]').nextElementSibling.querySelectorAll('button')].map((button) => button.textContent))",
+    );
+    let names: String = serde_json::from_str(&names).expect("a JSON string");
+    serde_json::from_str(&names).expect("the toolbar buttons")
 }
 
-fn wait_for_button(browser: &Browser, name: &str) {
-    browser.wait_until(&format!(
-        "[...document.querySelectorAll('button')].some((button) => button.textContent === {})",
-        serde_json::to_string(name).unwrap()
-    ));
+#[test]
+fn the_toolbar_offers_restart_screenshot_layouts_and_control_and_no_record_button() {
+    let at = AgentTerminal::new();
+    at.run(&[
+        "--session",
+        "qa",
+        "open",
+        "--size",
+        "30x4",
+        "--wait",
+        "line 1",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--hold",
+    ])
+    .success();
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/s/qa/t1"));
+    browser.wait_for_status("Live");
+
+    assert_eq!(
+        toolbar_buttons(&browser),
+        [
+            "Restart line-printer",
+            "Take a screenshot",
+            "Single terminal",
+            "Two terminals side by side",
+            "Four terminals",
+            "Take control",
+        ]
+    );
+}
+
+fn newest_toast(browser: &Browser) -> Vec<String> {
+    browser.text(".toast").lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_string).collect()
 }
 
 fn wait_for_toast(browser: &Browser, title: &str) {
@@ -54,16 +89,6 @@ fn wait_for_toast(browser: &Browser, title: &str) {
         "document.querySelector('.toast .font-medium')?.textContent === {}",
         serde_json::to_string(title).unwrap()
     ));
-}
-
-fn record_button(browser: &Browser) -> (String, String, String) {
-    let found = browser.eval(
-        "JSON.stringify(['Start recording', 'Stop recording'].flatMap((name) => [...document.querySelectorAll('button')].filter((button) => button.textContent === name).map((button) => [name, button.getAttribute('aria-pressed'), button.dataset.tooltip])))",
-    );
-    let found: String = serde_json::from_str(&found).expect("a JSON string");
-    let mut found: Vec<(String, String, String)> = serde_json::from_str(&found).expect("the record button");
-    assert_eq!(found.len(), 1, "one record button: {found:?}");
-    found.remove(0)
 }
 
 #[test]
@@ -95,60 +120,6 @@ fn screenshot_saves_a_png_of_the_screen_and_says_where() {
     assert_eq!(newest_toast(&browser), [format!("Saved {file}"), saved.clone()]);
     let png = std::fs::read(&saved).expect("the screenshot");
     assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"), "not a PNG: {:?}", &png[..8.min(png.len())]);
-}
-
-#[test]
-fn record_saves_the_tab_to_a_cast_file_until_stopped_and_follows_record_from_the_cli() {
-    let at = AgentTerminal::new();
-    at.run(&[
-        "--session",
-        "qa",
-        "open",
-        "--size",
-        "30x4",
-        "--wait",
-        "line 1",
-        &fixture("line-printer"),
-        "--lines",
-        "1",
-        "--hold",
-    ])
-    .success();
-    let frame = at.run(&["--session", "qa", "get", "frame"]).success().stdout();
-    let saved = at.home().join("recordings").join(format!("qa-t1-{}.cast", frame.trim()));
-    let saved = saved.to_string_lossy().into_owned();
-    let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/qa/t1"));
-    browser.wait_for_status("Live");
-    assert_eq!(record_button(&browser), ("Start recording".into(), "false".into(), "Record".into()));
-
-    browser.click_button("Start recording");
-    wait_for_button(&browser, "Stop recording");
-    wait_for_toast(&browser, "Recording");
-    assert_eq!(newest_toast(&browser), ["Recording", saved.as_str()]);
-    assert_eq!(record_button(&browser), ("Stop recording".into(), "true".into(), format!("Recording to {saved}")));
-    browser.click_button("Close notification");
-
-    browser.click_button("Stop recording");
-    wait_for_button(&browser, "Start recording");
-    wait_for_toast(&browser, "Recording saved");
-    assert_eq!(newest_toast(&browser), ["Recording saved", saved.as_str()]);
-    assert_eq!(record_button(&browser), ("Start recording".into(), "false".into(), "Record".into()));
-    let cast = std::fs::read_to_string(&saved).expect("the saved recording");
-    assert!(cast.starts_with("{\"version\":2,"), "{cast}");
-
-    let chosen = at.home().join("chosen.cast").to_string_lossy().into_owned();
-    at.run(&["--session", "qa", "record", "start", &chosen]).success();
-    wait_for_button(&browser, "Stop recording");
-    assert_eq!(record_button(&browser), ("Stop recording".into(), "true".into(), format!("Recording to {chosen}")));
-    at.run(&["--session", "qa", "record", "stop"]).success();
-    wait_for_button(&browser, "Start recording");
-
-    at.run(&["--session", "qa", "press", "Enter"]).success();
-    browser.wait_for_status("Exited");
-    browser.wait_until(
-        "[...document.querySelectorAll('button')].find((button) => button.textContent === 'Start recording').disabled",
-    );
 }
 
 fn dialog(browser: &Browser) -> Vec<String> {

@@ -63,7 +63,6 @@ const generalRows = (setup: TabSetup): Row[] => [
   { term: "TERM", value: setup.term ?? <Muted>none</Muted> },
   { term: "size", value: `${setup.cols} × ${setup.rows}` },
   { term: "shell integration", value: shellIntegration(setup) },
-  { term: "recording", value: setup.recording ?? <Muted>off</Muted> },
   { term: "started", value: <Started at={setup.started} /> },
 ];
 

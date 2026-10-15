@@ -10,7 +10,6 @@ Every session keeps plain files in `<home>/sessions/<session>/`, where `<home>` 
     t1.cast            the recording of tab t1 (asciicast v2), from open to close
     t1.commands.jsonl  the command log of shell tab t1, one JSON object per finished command
     t2.cast
-  recordings/          `record start` files when no path is given: <session>-<tab>-<frame>.cast
   screenshots/         screenshots and clips when no path and no --screenshot-dir is given: <session>-<tab>-<frame>.png
 ```
 
