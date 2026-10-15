@@ -78,6 +78,31 @@ jobs:
           path: target/distrib/agent-terminal.rb
           if-no-files-found: error
 
+  glibc-floor:
+    name: Check the glibc ${{ matrix.target }} needs
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Fetch the ${{ matrix.target }} release archive
+        uses: actions/download-artifact@v8
+        with:
+          name: artifacts-build-local-${{ matrix.target }}
+          path: ${{ runner.temp }}/archive
+      - name: Fail when agent-terminal needs a glibc newer than 2.28
+        run: |
+          tar -xJf "$RUNNER_TEMP/archive/agent-terminal-${{ matrix.target }}.tar.xz" -C "$RUNNER_TEMP/archive"
+          sh scripts/glibc-floor.sh "$RUNNER_TEMP/archive/agent-terminal-${{ matrix.target }}/agent-terminal"
+
   fixtures:
     name: Build the line-printer fixture for ${{ matrix.target }}
     strategy:
@@ -97,9 +122,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - name: Install the Rust toolchain rust-toolchain.toml pins, with the ${{ matrix.target }} target
+        run: |
+          rustup toolchain install
+          rustup target add ${{ matrix.target }}
       - name: Install musl-tools
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
@@ -215,3 +241,60 @@ jobs:
         run: >-
           $IN_ROW sh npm/install-test/offline.sh
           sh npm/install-test/check.sh "$RUNNER_TEMP/state" "$VERSION" "$RUNNER_TEMP/fixture/line-printer"
+
+  glibc:
+    name: gnu binary on ${{ matrix.distro }} ${{ matrix.arch }}
+    needs: fixtures
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [Debian 11, Ubuntu 20.04, Rocky Linux 8]
+        arch: [x64, arm64]
+        include:
+          - distro: Debian 11
+            image: debian:11
+          - distro: Ubuntu 20.04
+            image: ubuntu:20.04
+          - distro: Rocky Linux 8
+            image: rockylinux/rockylinux:8
+          - arch: x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            fixture: x86_64-unknown-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            fixture: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Fetch the ${{ matrix.target }} release archive
+        uses: actions/download-artifact@v8
+        with:
+          name: artifacts-build-local-${{ matrix.target }}
+          path: ${{ runner.temp }}/artifacts/archive
+      - name: Fetch the line-printer fixture
+        uses: actions/download-artifact@v8
+        with:
+          name: fixture-${{ matrix.fixture }}
+          path: ${{ runner.temp }}/fixture
+      - name: Read the version the release carries
+        env:
+          PLAN: ${{ inputs.plan }}
+        run: |
+          chmod +x "$RUNNER_TEMP/fixture/line-printer"
+          version=$(printf '%s' "$PLAN" | jq -r '.releases[] | select(.app_name == "agent-terminal") | .app_version')
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Unpack the release archive after checking its checksum
+        run: sh npm/install-test/install.sh archive "$RUNNER_TEMP/artifacts" "$RUNNER_TEMP/state"
+      - name: Start a clean ${{ matrix.image }} container
+        run: >-
+          docker run --detach --name clean
+          --volume "$RUNNER_TEMP:$RUNNER_TEMP" --volume "$PWD:$PWD:ro" --workdir "$PWD"
+          ${{ matrix.image }} sleep infinity
+      - name: Show the container's glibc
+        run: docker exec clean getconf GNU_LIBC_VERSION
+      - name: Run the gnu binary on ${{ matrix.distro }}, with no TTY
+        run: docker exec clean sh npm/install-test/check.sh "$RUNNER_TEMP/state" "$VERSION" "$RUNNER_TEMP/fixture/line-printer"
