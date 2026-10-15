@@ -10,11 +10,6 @@ fn open_input_echo(at: &AgentTerminal) {
     at.run(&["open", "--size", "40x6", "--wait", "ready", &fixture("input-echo")]).success();
 }
 
-fn received(at: &AgentTerminal) -> String {
-    let snapshot = at.run(&["--json", "snapshot"]).success().json();
-    snapshot["lines"][1].as_str().expect("the second row").to_string()
-}
-
 fn take_control(browser: &Browser) {
     browser.wait_for_status("Live");
     browser.click_button("Take control");
@@ -119,7 +114,7 @@ fn keys_typed_in_the_dashboard_reach_the_program_and_show_in_activity_as_human_r
     browser.run(&["focus", "[role=application]"]);
     browser.run(&["press", "z"]);
     at.run(&["wait", r"\e[Az"]).success();
-    assert_eq!(received(&at), r"hi\t\e\x03\e[Az");
+    assert_eq!(at.received("default"), r"hi\t\e\x03\e[Az");
 }
 
 #[test]
@@ -172,5 +167,5 @@ fn keys_typed_while_viewing_the_past_do_not_reach_the_program_and_reach_it_again
     browser.run(&["press", "Tab"]);
     browser.run(&["press", "z"]);
     at.run(&["wait", "z"]).success();
-    assert_eq!(received(&at), "kz");
+    assert_eq!(at.received("default"), "kz");
 }

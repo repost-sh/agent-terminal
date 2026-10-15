@@ -1,14 +1,8 @@
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::support::{AgentTerminal, fixture};
-
-fn work_folder(at: &AgentTerminal) -> PathBuf {
-    let work = at.home().join("work");
-    std::fs::create_dir_all(&work).unwrap();
-    work.canonicalize().unwrap()
-}
 
 fn unzip(path: &Path) -> BTreeMap<String, String> {
     let file = std::fs::File::open(path).unwrap_or_else(|e| panic!("open {}: {e}", path.display()));
@@ -38,7 +32,7 @@ fn open_printer(at: &AgentTerminal, session: &str, command: &[&str]) {
 #[test]
 fn trace_export_zips_the_session_folder() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     let folder = at.home().join("sessions").join("qa");
     open_printer(&at, "qa", &["open"]);
     open_printer(&at, "qa", &["tab", "new"]);
@@ -62,7 +56,7 @@ fn trace_export_zips_the_session_folder() {
 #[test]
 fn trace_export_includes_the_command_log_of_a_shell_tab() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     let folder = at.home().join("sessions").join("default");
     let cwd = work.to_string_lossy().into_owned();
     at.run_with_env(&["shell", "--shell", "bash", "--cwd", &cwd], &[("HOME", work.as_path())]).success();
@@ -86,7 +80,7 @@ fn trace_export_includes_the_command_log_of_a_shell_tab() {
 #[test]
 fn trace_export_answers_in_json() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     open_printer(&at, "default", &["open"]);
     let exported = at.run_in(&work, &["--json", "trace", "export", "trace.zip"]).success().json();
     let zip = work.join("trace.zip");
@@ -104,7 +98,7 @@ fn trace_export_answers_in_json() {
 #[test]
 fn trace_export_still_works_after_the_session_closed() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     open_printer(&at, "default", &["open"]);
     at.run(&["close"]).success();
     at.run_in(&work, &["trace", "export", "after-close.zip"]).success();
@@ -116,7 +110,7 @@ fn trace_export_still_works_after_the_session_closed() {
 #[test]
 fn trace_export_of_a_session_that_never_ran_explains_what_to_do() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     let exported = at.run_in(&work, &["--session", "ghost", "trace", "export", "ghost.zip"]);
     assert_eq!(exported.code(), 1);
     assert_eq!(
@@ -129,7 +123,7 @@ fn trace_export_of_a_session_that_never_ran_explains_what_to_do() {
 #[test]
 fn trace_export_leaves_out_an_event_still_being_written() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     open_printer(&at, "default", &["open"]);
     let folder = at.home().join("sessions/default");
     let written = |name: &str| read(&folder.join(name));

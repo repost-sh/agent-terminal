@@ -59,6 +59,26 @@ impl AgentTerminal {
         self.home.path()
     }
 
+    pub fn work_folder(&self) -> PathBuf {
+        let work = self.home.path().join("work");
+        std::fs::create_dir_all(&work).expect("create the work folder");
+        work.canonicalize().expect("the work folder's canonical path")
+    }
+
+    pub fn activity(&self, session: &str) -> Vec<serde_json::Value> {
+        let path = self.home.path().join("sessions").join(session).join("activity.jsonl");
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}")))
+            .collect()
+    }
+
+    pub fn received(&self, session: &str) -> String {
+        let snapshot = self.run(&["--session", session, "--json", "snapshot"]).success().json();
+        snapshot["lines"][1].as_str().expect("the second row").to_string()
+    }
+
     pub fn daemon_log(&self) -> String {
         let path = self.home.path().join("daemon.log");
         std::fs::read_to_string(&path).unwrap_or_else(|e| format!("(could not read {}: {e})", path.display()))
@@ -146,6 +166,16 @@ impl Cue {
 
     pub fn restarted(&self) {
         self.fixture.lock().unwrap().take();
+    }
+
+    pub fn open_line_printer(&self, at: &AgentTerminal, options: &[&str]) {
+        let printer = fixture("line-printer");
+        let path = self.path();
+        let mut args = vec!["open"];
+        args.extend_from_slice(options);
+        args.extend_from_slice(&["--wait", "line 2", &printer, "--lines", "2", "--cue", &path]);
+        at.run(&args).success();
+        self.print("");
     }
 }
 

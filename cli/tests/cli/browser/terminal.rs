@@ -19,7 +19,7 @@ fn the_live_terminal_shows_the_screen_on_connect_then_streams_matching_snapshot(
         "--lines",
         "2",
         "--cue",
-        &cue.dir(),
+        &cue.path(),
     ])
     .success();
     cue.print("");
@@ -53,7 +53,7 @@ fn the_live_terminal_shows_the_screen_on_connect_then_streams_matching_snapshot(
 fn a_tab_that_has_not_drawn_yet_shows_connected_until_its_first_frame() {
     let at = AgentTerminal::new();
     let cue = Cue::new();
-    at.run(&["open", "--size", "40x6", &fixture("line-printer"), "--lines", "0", "--cue", &cue.dir()]).success();
+    at.run(&["open", "--size", "40x6", &fixture("line-printer"), "--lines", "0", "--cue", &cue.path()]).success();
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/s/default/t1"));
 

@@ -5,14 +5,6 @@ use crate::support::{AgentTerminal, fixture};
 
 const CALLS: &str = "[aria-label='Calls to default t1'] > li:not([aria-busy])";
 
-fn logged(at: &AgentTerminal) -> Vec<Value> {
-    std::fs::read_to_string(at.home().join("sessions/default/activity.jsonl"))
-        .expect("the activity log")
-        .lines()
-        .map(|line| serde_json::from_str(line).expect("an activity entry"))
-        .collect()
-}
-
 fn calls(browser: &Browser) -> Vec<Value> {
     let rows = browser.eval(&format!(
         "[...document.querySelectorAll({})].map((row) => {{ \
@@ -59,7 +51,7 @@ fn activity_lists_every_call_to_the_tab_live_with_its_time_duration_and_result()
     assert_eq!(at.run(&["--tab", "t1", "press", "y"]).code(), 5);
     wait_for_calls(&browser, 8);
 
-    let log: Vec<Value> = logged(&at).into_iter().filter(|entry| entry["tab"] == "t1").collect();
+    let log: Vec<Value> = at.activity("default").into_iter().filter(|entry| entry["tab"] == "t1").collect();
     let shown = calls(&browser);
     let results = [
         None,

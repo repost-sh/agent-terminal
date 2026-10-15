@@ -16,7 +16,7 @@ fn open_printer(at: &AgentTerminal, cue: &Cue) {
         "--lines",
         "1",
         "--cue",
-        &cue.dir(),
+        &cue.path(),
     ])
     .success();
 }

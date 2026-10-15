@@ -7,18 +7,13 @@ fn open_input_echo(at: &AgentTerminal, modes: &[&str]) {
     at.run(&args).success();
 }
 
-pub fn received(at: &AgentTerminal) -> String {
-    let snapshot = at.run(&["--json", "snapshot"]).success().json();
-    snapshot["lines"][1].as_str().expect("the second row").to_string()
-}
-
 #[test]
 fn type_types_text_key_by_key() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &[]);
     let typed = at.run(&["type", "héllo\tworld\n", "--wait", r"h\xc3\xa9llo\tworld\r"]).success();
     assert_eq!(typed.stdout(), "typed 12 keys into default t1\n");
-    assert_eq!(received(&at), r"h\xc3\xa9llo\tworld\r");
+    assert_eq!(at.received("default"), r"h\xc3\xa9llo\tworld\r");
 }
 
 #[test]
@@ -28,7 +23,7 @@ fn type_with_a_delay_sends_each_key_on_its_own() {
     let started = std::time::Instant::now();
     at.run(&["type", "abc", "--delay", "60", "--wait", "a|b|c|"]).success();
     assert!(started.elapsed() >= std::time::Duration::from_millis(120), "took {:?}", started.elapsed());
-    assert_eq!(received(&at), "a|b|c|");
+    assert_eq!(at.received("default"), "a|b|c|");
 }
 
 #[test]
@@ -59,7 +54,7 @@ fn press_sends_named_keys_in_order() {
     args.extend(["--wait", expected]);
     let pressed = at.run(&args).success();
     assert_eq!(pressed.stdout(), "pressed 16 keys in default t1\n");
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -70,7 +65,7 @@ fn press_sends_function_keys() {
     let mut args = vec!["press", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"];
     args.extend(["--wait", expected]);
     at.run(&args).success();
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -93,7 +88,7 @@ fn press_sends_ctrl_alt_and_shift_chords() {
     ];
     args.extend(["--wait", expected]);
     at.run(&args).success();
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -102,7 +97,7 @@ fn cursor_keys_follow_application_cursor_mode_when_the_app_turns_it_on() {
     open_input_echo(&at, &["--app-cursor"]);
     let expected = r"\eOA\eOB\eOC\eOD\eOH\eOF\e[1;5A";
     at.run(&["press", "Up", "Down", "Right", "Left", "Home", "End", "Ctrl+Up", "--wait", expected]).success();
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -126,7 +121,7 @@ fn keys_use_the_kitty_keyboard_protocol_when_the_app_turns_it_on() {
     ];
     args.extend(["--wait", expected]);
     at.run(&args).success();
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -137,7 +132,7 @@ fn every_kitty_enhancement_shapes_the_keys_the_app_receives() {
     at.run(&["press", "Shift+a", "Enter", "--wait", pressed]).success();
     let typed = format!(r"{pressed}\e[98;;98u\e[98;1:3u");
     at.run(&["type", "b", "--wait", &typed]).success();
-    assert_eq!(received(&at), typed);
+    assert_eq!(at.received("default"), typed);
 }
 
 #[test]
@@ -146,7 +141,7 @@ fn press_repeats_the_whole_sequence() {
     open_input_echo(&at, &[]);
     let pressed = at.run(&["press", "a", "b", "--repeat", "3", "--wait", "ababab"]).success();
     assert_eq!(pressed.stdout(), "pressed 6 keys in default t1\n");
-    assert_eq!(received(&at), "ababab");
+    assert_eq!(at.received("default"), "ababab");
 }
 
 #[test]
@@ -186,7 +181,7 @@ fn a_chord_the_app_cannot_receive_is_refused_before_any_key_is_sent() {
         "error: default t1: Ctrl+1 has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on\n"
     );
     at.run(&["press", "b", "--wait", "b"]).success();
-    assert_eq!(received(&at), "b");
+    assert_eq!(at.received("default"), "b");
 }
 
 #[test]
@@ -196,7 +191,7 @@ fn paste_is_a_bracketed_paste_when_the_app_turned_it_on() {
     let expected = r"\e[200~one\ntwo\e[201~";
     let pasted = at.run(&["paste", "one\ntwo", "--wait", expected]).success();
     assert_eq!(pasted.stdout(), "pasted 19 bytes into default t1 (bracketed paste)\n");
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -205,7 +200,7 @@ fn a_bracketed_paste_cannot_end_itself_early() {
     open_input_echo(&at, &["--bracketed-paste"]);
     let expected = r"\e[200~a[201~b\e[201~";
     at.run(&["paste", "a\x1b[201~b", "--wait", expected]).success();
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -215,7 +210,7 @@ fn paste_writes_the_text_as_typed_lines_when_the_app_has_no_bracketed_paste() {
     let expected = r"one\rtwo\rthree";
     let pasted = at.run(&["paste", "one\ntwo\r\nthree", "--wait", expected]).success();
     assert_eq!(pasted.stdout(), "pasted 13 bytes into default t1 (plain, the app has not turned on bracketed paste)\n");
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -236,7 +231,7 @@ fn signal_sends_each_supported_signal_to_the_program() {
         let name = shown.trim_matches(['[', ']']);
         assert!(sent.stdout().starts_with(&format!("sent {name} to default t1 (process group ")), "{}", sent.stdout());
     }
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -277,7 +272,7 @@ fn simultaneous_input_calls_never_interleave_their_keys() {
         assert_eq!((first.join().unwrap(), second.join().unwrap()), (0, 0));
     });
     at.run(&["type", "z", "--wait", "z"]).success();
-    let line = received(&at);
+    let line = at.received("default");
     assert!(line == "aaaabbbbz" || line == "bbbbaaaaz", "{line}");
 }
 
@@ -287,7 +282,7 @@ fn send_writes_raw_bytes_given_with_escapes() {
     open_input_echo(&at, &[]);
     let sent = at.run(&["send", r"a\x01\e[Z\t\\", "--wait", r"a\x01\e[Z\t\\"]).success();
     assert_eq!(sent.stdout(), "sent 7 raw bytes to default t1\n");
-    assert_eq!(received(&at), r"a\x01\e[Z\t\\");
+    assert_eq!(at.received("default"), r"a\x01\e[Z\t\\");
 }
 
 #[test]
@@ -354,7 +349,7 @@ fn type_refuses_control_characters_and_sends_nothing() {
         "error: default t1: cannot type the control character U+001B; press it as a key (Ctrl+c, Esc) or send it with `agent-terminal send`\n"
     );
     at.run(&["type", "c", "--wait", "c"]).success();
-    assert_eq!(received(&at), "c");
+    assert_eq!(at.received("default"), "c");
 }
 
 #[test]

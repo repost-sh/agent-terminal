@@ -246,18 +246,12 @@ fn screenshots_of_the_same_frame_taken_at_once_all_succeed_and_leave_one_whole_f
     assert_eq!(png_size(&folder.join(&files[0])), (200, 100));
 }
 
-fn work_folder(at: &AgentTerminal) -> PathBuf {
-    let work = at.home().join("work");
-    std::fs::create_dir_all(&work).unwrap();
-    work.canonicalize().unwrap()
-}
-
 #[test]
 fn screenshots_go_to_the_screenshot_dir_its_variable_or_the_path_given() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     let frame = frame(&at);
-    let work = work_folder(&at);
+    let work = at.work_folder();
     let name = format!("default-t1-{frame}.png");
 
     let by_option = at.run_in(&work, &["--screenshot-dir", "shots", "screenshot"]).success();
@@ -291,7 +285,7 @@ fn scale_rows_theme_and_cursor_options_change_the_picture() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     at.run(&["wait", "--cursor", "4,1"]).success();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     let shot = |name: &str, options: &[&str]| {
         let path = work.join(name);
         let mut args = vec!["screenshot", path.to_str().unwrap()];
@@ -349,7 +343,7 @@ fn other_formats_follow_the_extension_or_the_format_option() {
 fn annotate_draws_a_box_and_a_name_on_each_ref_with_a_legend_and_prints_the_refs() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     let path = work.join("annotated.png");
 
     let run = at.run(&["screenshot", "--annotate", path.to_str().unwrap()]).success();
@@ -396,7 +390,7 @@ fn annotate_draws_a_box_and_a_name_on_each_ref_with_a_legend_and_prints_the_refs
 fn diff_screenshot_passes_when_the_screen_still_looks_like_the_baseline() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     at.run_in(&work, &["screenshot", "before.png"]).success();
     let frame = frame(&at);
 
@@ -420,7 +414,7 @@ const CHANGED: [u8; 3] = [0xe6, 0x1e, 0x3c];
 fn diff_screenshot_highlights_what_changed_and_fails_above_the_threshold() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     at.run_in(&work, &["screenshot", "before.png"]).success();
     at.run(&["press", "j", "--wait", "Selected: beta.txt"]).success();
 
@@ -455,7 +449,7 @@ fn diff_screenshot_highlights_what_changed_and_fails_above_the_threshold() {
 fn an_input_command_saves_a_screenshot_once_its_wait_is_over() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     let given = work.join("beta.png");
 
     let pressed = at.run(&["press", "j", "--wait", "Selected: beta.txt", "--screenshot", given.to_str().unwrap()]);

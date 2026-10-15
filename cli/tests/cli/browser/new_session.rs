@@ -59,7 +59,7 @@ fn new_session_writes_the_cli_line_as_the_form_fills_then_opens_the_tab_and_goes
 
     browser.fill("Session name", "qa");
     assert_eq!(cli_line(&browser), "agent-terminal --session qa open <program> --size 120x40");
-    let command = format!("{} --lines 0 --cue {}", fixture("line-printer"), cue.dir());
+    let command = format!("{} --lines 0 --cue {}", fixture("line-printer"), cue.path());
     browser.fill("Command", &command);
     assert_eq!(cli_line(&browser), format!("agent-terminal --session qa open {command} --size 120x40"));
     browser.fill("Working directory", &cwd);

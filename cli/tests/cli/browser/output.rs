@@ -34,7 +34,7 @@ fn output_shows_the_text_stream_with_marks_as_dividers_escapes_on_raw_and_search
         "--lines",
         "2",
         "--cue",
-        &cue.dir(),
+        &cue.path(),
     ])
     .success();
     cue.print("");

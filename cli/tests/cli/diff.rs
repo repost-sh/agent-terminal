@@ -1,22 +1,5 @@
 use crate::support::{AgentTerminal, Cue, fixture};
 
-fn open_with_cue(at: &AgentTerminal, cue: &Cue) {
-    at.run(&[
-        "open",
-        "--size",
-        "30x5",
-        "--wait",
-        "line 2",
-        &fixture("line-printer"),
-        "--lines",
-        "2",
-        "--cue",
-        &cue.path(),
-    ])
-    .success();
-    cue.print("");
-}
-
 fn frame(at: &AgentTerminal) -> u64 {
     at.run(&["--json", "get", "frame"]).success().json()["frame"].as_u64().unwrap()
 }
@@ -25,7 +8,7 @@ fn frame(at: &AgentTerminal) -> u64 {
 fn diff_snapshot_shows_the_rows_that_changed_since_the_last_snapshot() {
     let at = AgentTerminal::new();
     let cue = Cue::new();
-    open_with_cue(&at, &cue);
+    cue.open_line_printer(&at, &["--size", "30x5"]);
     let before = at.run(&["--json", "snapshot"]).success().json()["frame"].as_u64().unwrap();
     cue.print("line 3\x1b[1;1Hfirst\n");
     let after = frame(&at);
@@ -76,7 +59,7 @@ fn diff_snapshot_counts_open_as_a_snapshot_and_has_json() {
 fn diff_snapshot_against_a_saved_baseline() {
     let at = AgentTerminal::new();
     let cue = Cue::new();
-    open_with_cue(&at, &cue);
+    cue.open_line_printer(&at, &["--size", "30x5"]);
     let text = at.home().join("before.txt");
     let json = at.home().join("before.json");
     std::fs::write(&text, at.run(&["snapshot"]).success().stdout()).unwrap();
@@ -101,7 +84,7 @@ fn diff_snapshot_against_a_saved_baseline() {
 fn diff_snapshot_refuses_a_baseline_that_is_not_a_snapshot() {
     let at = AgentTerminal::new();
     let cue = Cue::new();
-    open_with_cue(&at, &cue);
+    cue.open_line_printer(&at, &["--size", "30x5"]);
     let missing = at.home().join("missing.txt").to_string_lossy().into_owned();
     let run = at.run(&["diff", "snapshot", "--baseline", &missing]);
     assert_eq!(run.code(), 1);

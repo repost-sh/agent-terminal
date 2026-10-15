@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 use serde_json::Value;
@@ -114,16 +114,10 @@ fn assert_close_picture(width: u32, height: u32, rgb: &[u8], screenshot: &Path) 
     );
 }
 
-fn work_folder(at: &AgentTerminal) -> PathBuf {
-    let work = at.home().join("work");
-    std::fs::create_dir_all(&work).unwrap();
-    work.canonicalize().unwrap()
-}
-
 #[test]
 fn a_gif_of_the_last_second_of_a_still_screen_is_one_frame_a_second_long_ending_on_the_screen() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     at.run(&["open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     at.run(&["wait", "--idle", "1000"]).success();
     let screenshot = work.join("now.png");
@@ -144,7 +138,7 @@ fn a_gif_of_the_last_second_of_a_still_screen_is_one_frame_a_second_long_ending_
 #[test]
 fn clips_land_in_the_screenshot_dir_by_default_and_the_activity_log_links_them() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     at.run(&["open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     at.run(&["wait", "--idle", "1000"]).success();
     let frame = at.run(&["get", "frame"]).success().stdout().trim().to_string();
@@ -159,7 +153,7 @@ fn clips_land_in_the_screenshot_dir_by_default_and_the_activity_log_links_them()
     assert_eq!(by_option.stdout(), format!("saved {} (default t1, 1 frame, 1.0 s)\n", option_path.display()));
     assert_eq!(gif(&default_path).delays_ms, [1000]);
     assert_eq!(gif(&option_path).delays_ms, [1000]);
-    let log = activity(&at);
+    let log = at.activity("default");
     let clips: Vec<&Value> = log.iter().rev().take(2).rev().map(|entry| &entry["clips"]).collect();
     assert_eq!(
         clips,
@@ -171,7 +165,7 @@ fn clips_land_in_the_screenshot_dir_by_default_and_the_activity_log_links_them()
 #[test]
 fn a_screen_that_changes_all_the_time_makes_at_most_ten_frames_a_second() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     let counter = "i=0; while :; do i=$((i+1)); printf '\\rtick %d' $i; sleep 0.01; done";
     at.run(&["open", "--size", "20x4", "--wait", "tick", "sh", "-c", counter]).success();
     at.run(&["wait", "--frame", "100"]).success();
@@ -190,7 +184,7 @@ fn a_screen_that_changes_all_the_time_makes_at_most_ten_frames_a_second() {
 #[test]
 fn a_clip_across_a_resize_is_as_large_as_the_largest_screen_and_ends_on_the_last_one() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     at.run(&["open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     at.run(&["mark", "small"]).success();
     at.run(&["resize", "30x6"]).success();
@@ -218,7 +212,7 @@ fn three_lines_after_enter(at: &AgentTerminal) {
 #[test]
 fn a_gif_between_two_marks_has_one_frame_per_screen_and_lasts_from_mark_to_mark() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     three_lines_after_enter(&at);
     let before_start = Instant::now();
     at.run(&["mark", "start"]).success();
@@ -248,7 +242,7 @@ fn a_gif_between_two_marks_has_one_frame_per_screen_and_lasts_from_mark_to_mark(
 #[test]
 fn an_mp4_between_two_marks_has_one_frame_per_screen_and_lasts_from_mark_to_mark() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     three_lines_after_enter(&at);
     at.run(&["mark", "start"]).success();
     at.run(&["press", "Enter", "--wait", "line 3"]).success();
@@ -272,7 +266,7 @@ fn an_mp4_between_two_marks_has_one_frame_per_screen_and_lasts_from_mark_to_mark
 #[test]
 fn an_mp4_of_a_screen_an_odd_number_of_pixels_wide_gets_one_more_column_of_the_edge() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     at.run(&["open", "--size", "21x4", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     at.run(&["wait", "--idle", "1000"]).success();
     let screenshot = work.join("now.png");
@@ -290,24 +284,15 @@ fn an_mp4_of_a_screen_an_odd_number_of_pixels_wide_gets_one_more_column_of_the_e
     assert_close_picture(209, 100, &cropped, &screenshot);
 }
 
-fn activity(at: &AgentTerminal) -> Vec<Value> {
-    let path = at.home().join("sessions").join("default").join("activity.jsonl");
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}")))
-        .collect()
-}
-
 #[test]
 fn a_gif_of_one_activity_entry_lasts_as_long_as_the_call_and_shows_what_it_did() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     three_lines_after_enter(&at);
     at.run(&["press", "Enter", "--wait", "line 3"]).success();
     let screenshot = work.join("end.png");
     at.run(&["screenshot", screenshot.to_str().unwrap()]).success();
-    let pressed = &activity(&at)[1];
+    let pressed = &at.activity("default")[1];
     assert_eq!(pressed["command"], "press Enter --wait 'line 3'");
     let path = work.join("press.gif");
 
@@ -349,7 +334,7 @@ fn a_clip_from_an_activity_entry_that_does_not_exist_says_how_many_there_are() {
 #[test]
 fn a_gif_of_one_shell_command_runs_from_its_start_to_its_end() {
     let at = AgentTerminal::new();
-    let work = work_folder(&at);
+    let work = at.work_folder();
     let home = work.join("home");
     std::fs::create_dir_all(&home).unwrap();
     let run = |args: &[&str]| at.run_with_env(args, &[("HOME", &home)]).success();

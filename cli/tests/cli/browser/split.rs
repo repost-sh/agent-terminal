@@ -68,7 +68,7 @@ fn two_up_from_a_tab_shows_it_beside_the_tab_after_it_both_live() {
         "--lines",
         "2",
         "--cue",
-        &cue.dir(),
+        &cue.path(),
     ])
     .success();
     cue.print("");
