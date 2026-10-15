@@ -158,7 +158,7 @@ fn clicking_an_activity_row_shows_its_frame_and_viewing_the_past_pauses_followin
     let browser = Browser::open(&dashboard.url("/s/default/t1"));
     browser.wait_for_status(&format!("frame {}", third.1));
     wait_for_timeline(&browser, third.1);
-    browser.wait_until(&format!("document.querySelectorAll(\"{CALLS} > li\").length === 4"));
+    browser.wait_until(&format!("document.querySelectorAll(\"{CALLS} > li:not([aria-busy])\").length === 4"));
     browser.wait_until("document.querySelectorAll('main [data-tick=call]').length === 4");
     assert_eq!((ticks(&browser, "call"), ticks(&browser, "command"), ticks(&browser, "shot")), (4, 0, 1));
     assert!(follow_pressed(&browser));
@@ -172,15 +172,17 @@ fn clicking_an_activity_row_shows_its_frame_and_viewing_the_past_pauses_followin
     wait_for_live(&browser, third.1, &third.0);
     assert!(follow_pressed(&browser));
 
-    browser.run(&["click", &format!("{CALLS} > li:nth-child(2) button")]);
+    browser.run(&["click", &format!("{CALLS} > li:not([aria-busy]):nth-child(2) button")]);
     wait_for_past(&browser, second.1, &second.0);
     assert_viewing(&browser, &dashboard, second.1);
     assert_eq!(
-        browser.eval(&format!("document.querySelector(\"{CALLS} > li:nth-child(2) button\").ariaExpanded")),
+        browser.eval(&format!(
+            "document.querySelector(\"{CALLS} > li:not([aria-busy]):nth-child(2) button\").ariaExpanded"
+        )),
         "\"true\""
     );
 
-    browser.run(&["click", &format!("{CALLS} > li:nth-child(4) button")]);
+    browser.run(&["click", &format!("{CALLS} > li:not([aria-busy]):nth-child(4) button")]);
     wait_for_live(&browser, third.1, &third.0);
 }
 

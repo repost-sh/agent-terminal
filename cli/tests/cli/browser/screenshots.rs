@@ -264,7 +264,9 @@ fn a_screenshot_thumbnail_in_activity_opens_the_lightbox_and_escape_returns_to_i
     let shots = Shots::opened();
     let dashboard = Dashboard::start(&shots.at);
     let browser = Browser::open(&dashboard.url("/s/default/t1"));
-    browser.wait_until("document.querySelectorAll(\"[aria-label='Calls to default t1'] > li\").length === 1");
+    browser.wait_until(
+        "document.querySelectorAll(\"[aria-label='Calls to default t1'] > li:not([aria-busy])\").length === 1",
+    );
     shots.before();
     shots.after();
     browser.wait_until(
