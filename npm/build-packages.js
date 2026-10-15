@@ -83,6 +83,7 @@ function platformManifest(main, platform, version) {
     description: `The ${BINARY} binary for ${platform.os} ${platform.cpu}${variant}`,
     license: main.license,
     repository: main.repository,
+    publishConfig: main.publishConfig,
     os: [platform.os],
     cpu: [platform.cpu],
   };
