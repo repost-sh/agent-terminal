@@ -7,7 +7,8 @@ use crate::rust_source::scan;
 const LINT_FLAGS: &[&str] =
     &["RUSTFLAGS", "cap-lints", "CLIPPY_CONF_DIR", "-A clippy", "-Aclippy", "-A warnings", "-Awarnings", "--no-verify"];
 
-const TEST_ROOTS: &[&str] = &["tests/cli/main.rs", "tests/static_checks/main.rs", "perf/tests/perf/main.rs"];
+const TEST_ROOTS: &[&str] =
+    &["tests/cli/main.rs", "tests/static_checks/main.rs", "perf/tests/perf/main.rs", "gauntlet/tests/gauntlet/main.rs"];
 
 fn sealed() -> Offenses {
     Offenses::of(Rule {

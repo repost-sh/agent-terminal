@@ -191,6 +191,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "at-gauntlet"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "proc-macro2",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "tempfile",
+]
+
+[[package]]
 name = "at-perf"
 version = "0.0.0"
 dependencies = [

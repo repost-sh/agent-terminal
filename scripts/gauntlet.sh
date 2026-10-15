@@ -21,8 +21,18 @@ rust() {
   step "fix the code each finding names; never allow a lint → GAUNTLET.md#rust-lint" cargo clippy --workspace --all-targets -- -D warnings
   step "fix the code each finding names; never allow a lint → GAUNTLET.md#rust-lint" cargo clippy --all-targets --features browser-tests -- -D warnings
   step "replace or update the crate cargo-deny names → GAUNTLET.md#dependency-policy" cargo deny check
-  step "remove the dependency cargo-machete names from its Cargo.toml → GAUNTLET.md#unused-dependencies" cargo machete . perf tests/fixtures
+  step "remove the dependency cargo-machete names from its Cargo.toml → GAUNTLET.md#unused-dependencies" cargo machete . gauntlet perf tests/fixtures
   step "fix the code the failing test or static check names → GAUNTLET.md#rust-tests" cargo test --workspace
+}
+
+coverage() {
+  command -v cargo-llvm-cov >/dev/null || fail "cargo-llvm-cov is not on PATH: run \`cargo install cargo-llvm-cov --locked\` → GAUNTLET.md#coverage-floor"
+  command -v agent-browser >/dev/null || fail "agent-browser is not on PATH: coverage runs the browser tests too; install it → GAUNTLET.md#coverage-floor"
+  cd "$root/cli"
+  step "fix the error cargo-llvm-cov printed → GAUNTLET.md#coverage-floor" cargo llvm-cov clean --workspace
+  step "fix the code the failing test names → GAUNTLET.md#rust-tests" cargo llvm-cov --workspace --all-targets --features browser-tests --no-report
+  step "fix the error cargo-llvm-cov printed → GAUNTLET.md#coverage-floor" cargo llvm-cov report --lcov --no-default-ignore-filename-regex --output-path target/llvm-cov/lcov.info
+  step "test the uncovered behaviour through the crate's real surface → GAUNTLET.md#coverage-floor" cargo run --quiet -p at-gauntlet -- coverage target/llvm-cov/lcov.info
 }
 
 npm_tests() {
@@ -60,7 +70,8 @@ for area in "${areas[@]}"; do
     dashboard) dashboard ;;
     npm) npm_tests ;;
     browser) browser ;;
-    *) fail "unknown area \`$area\`: use rust, dashboard, npm or browser" ;;
+    coverage) coverage ;;
+    *) fail "unknown area \`$area\`: use rust, dashboard, npm, browser or coverage" ;;
   esac
 done
 
