@@ -3,8 +3,11 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdout, Command, Output, Stdio};
 
 use anyhow::{Context, Result, ensure};
+use serde_json::Value;
 
-pub struct Agent {
+use crate::log;
+
+pub(crate) struct Agent {
     pub side: &'static str,
     pub binary: PathBuf,
     pub work: PathBuf,
@@ -12,7 +15,7 @@ pub struct Agent {
 }
 
 impl Agent {
-    pub fn command(&self, args: &[&str]) -> Command {
+    pub(crate) fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(&self.binary);
         command
             .args(args)
@@ -24,7 +27,7 @@ impl Agent {
         command
     }
 
-    pub fn run(&self, args: &[&str]) -> Result<Output> {
+    pub(crate) fn run(&self, args: &[&str]) -> Result<Output> {
         let output = self.command(args).output().with_context(|| format!("run {}", self.binary.display()))?;
         ensure!(
             output.status.success(),
@@ -38,19 +41,19 @@ impl Agent {
         Ok(output)
     }
 
-    pub fn home(&self) -> PathBuf {
+    pub(crate) fn home(&self) -> PathBuf {
         self.work.join(&self.home)
     }
 }
 
-pub struct Daemon {
-    pub agent: Agent,
+pub(crate) struct Daemon {
+    agent: Agent,
     process: Child,
     _ready: BufReader<ChildStdout>,
 }
 
 impl Daemon {
-    pub fn start(agent: Agent) -> Result<Daemon> {
+    pub(crate) fn start(agent: Agent) -> Result<Daemon> {
         let home = agent.home();
         std::fs::create_dir(&home)
             .with_context(|| format!("create {}; measure into an empty folder", home.display()))?;
@@ -69,6 +72,10 @@ impl Daemon {
         Ok(daemon)
     }
 
+    pub(crate) fn agent(&self) -> &Agent {
+        &self.agent
+    }
+
     fn ps(&self, field: &str) -> Result<String> {
         let output =
             Command::new("ps").args(["-o", field, "-p", &self.process.id().to_string()]).output().context("run ps")?;
@@ -76,14 +83,14 @@ impl Daemon {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
-    pub fn memory(&self) -> Result<f64> {
+    pub(crate) fn memory(&self) -> Result<f64> {
         let printed = self.ps("rss=")?;
         let kibibytes: f64 =
             printed.parse().with_context(|| format!("read the resident size ps printed: {printed:?}"))?;
         Ok(kibibytes * 1024.0 / 1_000_000.0)
     }
 
-    pub fn cpu_seconds(&self) -> Result<f64> {
+    pub(crate) fn cpu_seconds(&self) -> Result<f64> {
         let time = self.ps("time=")?;
         let mut seconds = 0.0;
         for part in time.split(':') {
@@ -92,7 +99,7 @@ impl Daemon {
         Ok(seconds)
     }
 
-    pub fn fds(&self) -> Result<usize> {
+    pub(crate) fn fds(&self) -> Result<usize> {
         let output = Command::new("lsof")
             .args(["-n", "-P", "-p", &self.process.id().to_string()])
             .output()
@@ -100,14 +107,14 @@ impl Daemon {
         Ok(String::from_utf8_lossy(&output.stdout).lines().count().saturating_sub(1))
     }
 
-    pub fn dashboard(&self) -> Result<u16> {
+    pub(crate) fn dashboard(&self) -> Result<u16> {
         let output = self.agent.run(&["--json", "dashboard", "start", "--port", "0"])?;
-        let started: serde_json::Value = serde_json::from_slice(&output.stdout).context("read the dashboard")?;
-        let port = started["port"].as_u64().context("the dashboard's port")?;
+        let started: Value = serde_json::from_slice(&output.stdout).context("read the dashboard")?;
+        let port = started.get("port").and_then(Value::as_u64).context("the dashboard's port")?;
         Ok(u16::try_from(port)?)
     }
 
-    pub fn stop(&mut self) -> Result<()> {
+    pub(crate) fn stop(&mut self) -> Result<()> {
         if self.process.try_wait().context("check the daemon")?.is_some() {
             return Ok(());
         }
@@ -121,9 +128,9 @@ impl Daemon {
 impl Drop for Daemon {
     fn drop(&mut self) {
         if let Err(e) = self.stop() {
-            eprintln!("stopping the {} daemon failed: {e:#}", self.agent.side);
+            log::note(format_args!("stopping the {} daemon failed: {e:#}", self.agent.side));
             if let Err(e) = self.process.kill() {
-                eprintln!("killing the {} daemon failed: {e}", self.agent.side);
+                log::note(format_args!("killing the {} daemon failed: {e}", self.agent.side));
             }
         }
     }

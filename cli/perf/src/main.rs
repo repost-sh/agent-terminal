@@ -1,9 +1,11 @@
 mod check;
 mod daemon;
 mod load;
+mod log;
 mod measure;
 mod metrics;
 
+use std::error::Error;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -17,12 +19,13 @@ const USAGE: &str = "usage: at-perf measure --base <agent-terminal> --change <ag
 
 const FAILED: u8 = 2;
 
-fn main() -> ExitCode {
+fn main() -> Result<ExitCode, Box<dyn Error>> {
+    log::start()?;
     match run() {
-        Ok(code) => code,
+        Ok(code) => Ok(code),
         Err(e) => {
-            eprintln!("error: {e:#}");
-            ExitCode::FAILURE
+            writeln!(std::io::stderr().lock(), "error: {e:#}")?;
+            Ok(ExitCode::FAILURE)
         }
     }
 }
@@ -64,63 +67,81 @@ fn measure(mut args: impl Iterator<Item = String>) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn load(mut args: impl Iterator<Item = String>) -> Result<ExitCode> {
-    let (mut agent, mut fixtures, mut work, mut out) = (None, None, None, None);
-    let mut seconds = 10;
-    let mut rates = vec![1, 30, 60, 120];
-    let mut tabs = vec![1, 10, 20];
-    let mut repaints = vec![load::Repaint::Partial, load::Repaint::Full];
-    let mut viewers = load::Viewer::ALL.to_vec();
-    while let Some(arg) = args.next() {
-        let value = args.next().with_context(|| format!("{arg} needs a value"))?;
-        let path = match arg.as_str() {
-            "--agent" => &mut agent,
-            "--fixtures" => &mut fixtures,
-            "--work" => &mut work,
-            "--out" => &mut out,
-            "--seconds" => {
-                seconds = value.parse().context("--seconds needs a whole number")?;
-                continue;
-            }
-            "--rates" => {
-                rates = list(&value, |rate| rate.parse().context("--rates needs whole numbers"))?;
-                continue;
-            }
-            "--tabs" => {
-                tabs = list(&value, |tabs| tabs.parse().context("--tabs needs whole numbers"))?;
-                continue;
-            }
-            "--repaints" => {
-                repaints = list(&value, load::Repaint::parse)?;
-                continue;
-            }
-            "--viewers" => {
-                viewers = list(&value, load::Viewer::parse)?;
-                continue;
-            }
-            other => bail!("unexpected argument {other}\n{USAGE}"),
+struct LoadArgs {
+    agent: Option<PathBuf>,
+    fixtures: Option<PathBuf>,
+    work: Option<PathBuf>,
+    out: Option<PathBuf>,
+    seconds: u64,
+    rates: Vec<u32>,
+    tabs: Vec<usize>,
+    repaints: Vec<load::Repaint>,
+    viewers: Vec<load::Viewer>,
+}
+
+impl LoadArgs {
+    fn parse(mut args: impl Iterator<Item = String>) -> Result<(load::Plan, PathBuf)> {
+        let mut parsed = Self {
+            agent: None,
+            fixtures: None,
+            work: None,
+            out: None,
+            seconds: 10,
+            rates: vec![1, 30, 60, 120],
+            tabs: vec![1, 10, 20],
+            repaints: vec![load::Repaint::Partial, load::Repaint::Full],
+            viewers: load::Viewer::ALL.to_vec(),
         };
-        *path = Some(PathBuf::from(value));
+        while let Some(arg) = args.next() {
+            let value = args.next().with_context(|| format!("{arg} needs a value"))?;
+            parsed.set(&arg, value)?;
+        }
+        parsed.plan()
     }
-    let missing = |name: &str| format!("{name} is missing\n{USAGE}");
-    let plan = load::Plan {
-        agent: agent.with_context(|| missing("--agent"))?,
-        fixtures: fixtures.with_context(|| missing("--fixtures"))?,
-        work: work.with_context(|| missing("--work"))?,
-        seconds,
-        rates,
-        tabs,
-        repaints,
-        viewers,
-    };
-    let out = out.with_context(|| missing("--out"))?;
-    eprintln!("{}", load::HEADER);
-    let rows = load::run(&plan)?;
+
+    fn set(&mut self, arg: &str, value: String) -> Result<()> {
+        match arg {
+            "--agent" => self.agent = Some(PathBuf::from(value)),
+            "--fixtures" => self.fixtures = Some(PathBuf::from(value)),
+            "--work" => self.work = Some(PathBuf::from(value)),
+            "--out" => self.out = Some(PathBuf::from(value)),
+            "--seconds" => self.seconds = value.parse().context("--seconds needs a whole number")?,
+            "--rates" => self.rates = list(&value, |rate| rate.parse().context("--rates needs whole numbers"))?,
+            "--tabs" => self.tabs = list(&value, |tabs| tabs.parse().context("--tabs needs whole numbers"))?,
+            "--repaints" => self.repaints = list(&value, load::Repaint::parse)?,
+            "--viewers" => self.viewers = list(&value, load::Viewer::parse)?,
+            other => bail!("unexpected argument {other}\n{USAGE}"),
+        }
+        Ok(())
+    }
+
+    fn plan(self) -> Result<(load::Plan, PathBuf)> {
+        let missing = |name: &str| format!("{name} is missing\n{USAGE}");
+        let plan = load::Plan {
+            agent: self.agent.with_context(|| missing("--agent"))?,
+            fixtures: self.fixtures.with_context(|| missing("--fixtures"))?,
+            work: self.work.with_context(|| missing("--work"))?,
+            seconds: self.seconds,
+            rates: self.rates,
+            tabs: self.tabs,
+            repaints: self.repaints,
+            viewers: self.viewers,
+        };
+        Ok((plan, self.out.with_context(|| missing("--out"))?))
+    }
+}
+
+fn load(args: impl Iterator<Item = String>) -> Result<ExitCode> {
+    let (plan, out) = LoadArgs::parse(args)?;
+    let mut progress = std::io::stderr();
+    writeln!(progress, "{}", load::HEADER).context("report the progress")?;
+    let rows = load::run(&plan, &mut progress)?;
     std::fs::write(&out, serde_json::to_string_pretty(&rows).context("serialize the rows")?)
         .with_context(|| format!("write {}", out.display()))?;
-    println!("{}", load::HEADER);
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "{}", load::HEADER).context("print the rows")?;
     for row in &rows {
-        println!("{}", load::line(row));
+        writeln!(stdout, "{}", load::line(row)).context("print the rows")?;
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -143,7 +164,7 @@ fn check(mut args: impl Iterator<Item = String>) -> Result<ExitCode> {
     let json = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
     let results: Results = serde_json::from_str(&json).with_context(|| format!("parse {}", path.display()))?;
     let report = check::check(&results)?;
-    print!("{}", report.text);
+    std::io::stdout().lock().write_all(report.text.as_bytes()).context("print the report")?;
     if let Some(summary) = summary {
         std::fs::OpenOptions::new()
             .create(true)

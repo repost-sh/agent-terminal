@@ -1,3 +1,5 @@
+use std::fmt;
+use std::io::Write;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -5,16 +7,16 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
-use tungstenite::Message;
+use tungstenite::{Message, WebSocket};
 
 use crate::daemon::{Agent, Daemon};
 use crate::measure::{SIZE, utf8};
 
-const SETTLE: Duration = Duration::from_secs(2);
+const SETTLE_SECONDS: u64 = 2;
 
-pub struct Plan {
+pub(crate) struct Plan {
     pub agent: PathBuf,
     pub fixtures: PathBuf,
     pub work: PathBuf,
@@ -27,7 +29,7 @@ pub struct Plan {
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Repaint {
+pub(crate) enum Repaint {
     Partial,
     Full,
 }
@@ -42,7 +44,7 @@ impl Repaint {
         }
     }
 
-    pub fn parse(text: &str) -> Result<Self> {
+    pub(crate) fn parse(text: &str) -> Result<Self> {
         Self::ALL
             .into_iter()
             .find(|repaint| repaint.name() == text)
@@ -56,13 +58,13 @@ impl Repaint {
 
 #[derive(Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub enum Viewer {
+pub(crate) enum Viewer {
     None,
     Dashboard,
 }
 
 impl Viewer {
-    pub const ALL: [Self; 2] = [Self::None, Self::Dashboard];
+    pub(crate) const ALL: [Self; 2] = [Self::None, Self::Dashboard];
 
     fn name(self) -> &'static str {
         match self {
@@ -71,7 +73,7 @@ impl Viewer {
         }
     }
 
-    pub fn parse(text: &str) -> Result<Self> {
+    pub(crate) fn parse(text: &str) -> Result<Self> {
         Self::ALL
             .into_iter()
             .find(|viewer| viewer.name() == text)
@@ -80,7 +82,7 @@ impl Viewer {
 }
 
 #[derive(Serialize)]
-pub struct Row {
+pub(crate) struct Row {
     pub hz: u32,
     pub repaint: Repaint,
     pub tabs: usize,
@@ -96,36 +98,52 @@ pub struct Row {
     pub stream_bytes_per_sec: f64,
 }
 
-pub fn run(plan: &Plan) -> Result<Vec<Row>> {
+#[derive(Clone, Copy)]
+struct Case {
+    hz: u32,
+    repaint: Repaint,
+    tabs: usize,
+    viewer: Viewer,
+}
+
+impl fmt::Display for Case {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} Hz {} x{} viewer {}", self.hz, self.repaint.name(), self.tabs, self.viewer.name())
+    }
+}
+
+impl Plan {
+    fn cases(&self) -> Vec<Case> {
+        self.repaints
+            .iter()
+            .flat_map(|&repaint| self.rates.iter().map(move |&hz| (repaint, hz)))
+            .flat_map(|(repaint, hz)| self.tabs.iter().map(move |&tabs| (repaint, hz, tabs)))
+            .flat_map(|(repaint, hz, tabs)| self.viewers.iter().map(move |&viewer| Case { hz, repaint, tabs, viewer }))
+            .collect()
+    }
+}
+
+pub(crate) fn run(plan: &Plan, progress: &mut impl Write) -> Result<Vec<Row>> {
     std::fs::create_dir_all(&plan.work).with_context(|| format!("create {}", plan.work.display()))?;
     let work = std::fs::canonicalize(&plan.work).with_context(|| format!("find {}", plan.work.display()))?;
     let mut rows = Vec::new();
-    let mut run = 0;
-    for &repaint in &plan.repaints {
-        for &hz in &plan.rates {
-            for &tabs in &plan.tabs {
-                for &viewer in &plan.viewers {
-                    run += 1;
-                    let agent = Agent {
-                        side: "measured binary",
-                        binary: plan.agent.clone(),
-                        work: work.clone(),
-                        home: format!("run-{run}"),
-                    };
-                    let home = agent.home();
-                    let row = measure(plan, agent, hz, repaint, tabs, viewer)
-                        .with_context(|| format!("{hz} Hz {} x{tabs} viewer {}", repaint.name(), viewer.name()))?;
-                    eprintln!("{}", line(&row));
-                    rows.push(row);
-                    std::fs::remove_dir_all(&home).with_context(|| format!("remove {}", home.display()))?;
-                }
-            }
-        }
+    for (run, case) in (1u32..).zip(plan.cases()) {
+        let agent = Agent {
+            side: "measured binary",
+            binary: plan.agent.clone(),
+            work: work.clone(),
+            home: format!("run-{run}"),
+        };
+        let home = agent.home();
+        let row = measure(plan, agent, case).with_context(|| case.to_string())?;
+        writeln!(progress, "{}", line(&row)).context("report the progress")?;
+        rows.push(row);
+        std::fs::remove_dir_all(&home).with_context(|| format!("remove {}", home.display()))?;
     }
     Ok(rows)
 }
 
-pub fn line(row: &Row) -> String {
+pub(crate) fn line(row: &Row) -> String {
     format!(
         "| {} Hz | {} | {} | {} | {:.0} | {:.1} | {:.1} | {:.1} | {:.1} | {} | {:.1} | {:.1} |",
         row.hz,
@@ -143,17 +161,35 @@ pub fn line(row: &Row) -> String {
     )
 }
 
-pub const HEADER: &str = "| rate | repaint | tabs | viewer | program KiB/s | program frames/s | daemon frames/s | daemon CPU % | daemon RSS MB | daemon fds | stream msgs/s | stream KiB/s |\n|---|---|---|---|---|---|---|---|---|---|---|---|";
+pub(crate) const HEADER: &str = "| rate | repaint | tabs | viewer | program KiB/s | program frames/s | daemon frames/s | daemon CPU % | daemon RSS MB | daemon fds | stream msgs/s | stream KiB/s |\n|---|---|---|---|---|---|---|---|---|---|---|---|";
 
-fn measure(plan: &Plan, agent: Agent, hz: u32, repaint: Repaint, tabs: usize, viewer: Viewer) -> Result<Row> {
+fn measure(plan: &Plan, agent: Agent, case: Case) -> Result<Row> {
     let home = agent.home();
-    let daemon = Daemon::start(agent)?;
+    let mut daemon = Daemon::start(agent)?;
+    open_tabs(plan, &daemon, &home, case)?;
+    let readers = match case.viewer {
+        Viewer::None => Vec::new(),
+        Viewer::Dashboard => {
+            let port = daemon.dashboard()?;
+            (0..case.tabs).map(|tab| Reader::follow(port, &format!("s{tab}"))).collect::<Result<_>>()?
+        }
+    };
+    run_for(&daemon, case.hz, SETTLE_SECONDS)?;
+    let window = Window::watch(&daemon, &home, case, plan.seconds, &readers)?;
+    let rss = daemon.memory()?;
+    let fds = daemon.fds()?;
+    readers.into_iter().try_for_each(Reader::stop)?;
+    daemon.stop()?;
+    window.row(case, rss, fds)
+}
+
+fn open_tabs(plan: &Plan, daemon: &Daemon, home: &Path, case: Case) -> Result<()> {
     let redraw = plan.fixtures.join("redraw");
-    let hz_text = hz.to_string();
-    let flag = repaint.flag();
-    for tab in 0..tabs {
+    let hz = case.hz.to_string();
+    let flag = case.repaint.flag();
+    for tab in 0..case.tabs {
         let stats = home.join(format!("s{tab}.stats"));
-        daemon.agent.run(&[
+        daemon.agent().run(&[
             "--session",
             &format!("s{tab}"),
             "open",
@@ -163,56 +199,82 @@ fn measure(plan: &Plan, agent: Agent, hz: u32, repaint: Repaint, tabs: usize, vi
             "ready",
             utf8(&redraw)?,
             "--hz",
-            &hz_text,
+            &hz,
             &flag,
             "--stats",
             utf8(&stats)?,
         ])?;
     }
-    let readers = match viewer {
-        Viewer::None => Vec::new(),
-        Viewer::Dashboard => {
-            let port = daemon.dashboard()?;
-            (0..tabs).map(|tab| Reader::follow(port, &format!("s{tab}"))).collect::<Result<_>>()?
+    Ok(())
+}
+
+fn run_for(daemon: &Daemon, hz: u32, seconds: u64) -> Result<()> {
+    let until = frame(daemon, "s0")? + u64::from(hz) * seconds;
+    let timeout = (seconds * 10 + 10) * 1000;
+    daemon.agent().run(&[
+        "--session",
+        "s0",
+        "--timeout",
+        &timeout.to_string(),
+        "wait",
+        "--frame",
+        &until.to_string(),
+    ])?;
+    Ok(())
+}
+
+fn frame(daemon: &Daemon, session: &str) -> Result<u64> {
+    let frame = daemon.agent().run(&["--session", session, "get", "frame"])?;
+    String::from_utf8_lossy(&frame.stdout).trim().parse::<u64>().context("read the frame")
+}
+
+struct Window {
+    seconds: f64,
+    before: Sample,
+    after: Sample,
+    streamed: (u64, u64),
+}
+
+impl Window {
+    fn watch(daemon: &Daemon, home: &Path, case: Case, seconds: u64, readers: &[Reader]) -> Result<Self> {
+        let before = Sample::take(daemon, home, case.tabs)?;
+        let counted: Vec<(u64, u64)> = readers.iter().map(Reader::counts).collect();
+        let started = Instant::now();
+        run_for(daemon, case.hz, seconds)?;
+        let after = Sample::take(daemon, home, case.tabs)?;
+        let seconds = started.elapsed().as_secs_f64();
+        let mut streamed = (0u64, 0u64);
+        for (reader, (messages, bytes)) in readers.iter().zip(&counted) {
+            let (now_messages, now_bytes) = reader.counts();
+            streamed.0 += now_messages - messages;
+            streamed.1 += now_bytes - bytes;
         }
-    };
-    std::thread::sleep(SETTLE);
-
-    let before = Sample::take(&daemon, &home, tabs)?;
-    let counted: Vec<(u64, u64)> = readers.iter().map(Reader::counts).collect();
-    let started = Instant::now();
-    std::thread::sleep(Duration::from_secs(plan.seconds));
-    let after = Sample::take(&daemon, &home, tabs)?;
-    let seconds = started.elapsed().as_secs_f64();
-    let mut streamed = (0u64, 0u64);
-    for (reader, (messages, bytes)) in readers.iter().zip(&counted) {
-        let (now_messages, now_bytes) = reader.counts();
-        streamed.0 += now_messages - messages;
-        streamed.1 += now_bytes - bytes;
+        Ok(Self { seconds, before, after, streamed })
     }
-    let rss = daemon.memory()?;
-    let fds = daemon.fds()?;
-    for reader in readers {
-        reader.stop();
-    }
-    drop(daemon);
 
-    let per_sec = |value: f64| value / seconds;
-    Ok(Row {
-        hz,
-        repaint,
-        tabs,
-        viewer,
-        seconds,
-        program_bytes_per_sec: per_sec((after.program_bytes - before.program_bytes) as f64),
-        program_frames_per_sec: per_sec((after.program_frames - before.program_frames) as f64),
-        daemon_frames_per_sec: per_sec((after.frames - before.frames) as f64),
-        daemon_cpu_percent: per_sec(after.cpu_seconds - before.cpu_seconds) * 100.0,
-        daemon_rss_mb: rss,
-        daemon_fds: fds,
-        stream_messages_per_sec: per_sec(streamed.0 as f64),
-        stream_bytes_per_sec: per_sec(streamed.1 as f64),
-    })
+    fn per_sec(&self, count: u64) -> Result<f64> {
+        let count = u32::try_from(count).with_context(|| format!("{count} is too many to report as a rate"))?;
+        Ok(f64::from(count) / self.seconds)
+    }
+
+    fn row(&self, case: Case, rss: f64, fds: usize) -> Result<Row> {
+        let (before, after) = (&self.before, &self.after);
+        Ok(Row {
+            hz: case.hz,
+            repaint: case.repaint,
+            tabs: case.tabs,
+            viewer: case.viewer,
+            seconds: self.seconds,
+            program_bytes_per_sec: self.per_sec(after.program_bytes - before.program_bytes)?,
+            program_frames_per_sec: self.per_sec(after.program_frames - before.program_frames)?,
+            daemon_frames_per_sec: self.per_sec(after.frames - before.frames)?,
+            daemon_cpu_percent: (after.cpu_seconds - before.cpu_seconds) / self.seconds * 100.0,
+            daemon_rss_mb: rss,
+            daemon_fds: fds,
+            stream_messages_per_sec: self.per_sec(self.streamed.0)?,
+            stream_bytes_per_sec: self.per_sec(self.streamed.1)?,
+        })
+    }
 }
 
 struct Sample {
@@ -227,8 +289,7 @@ impl Sample {
         let mut sample = Self { cpu_seconds: daemon.cpu_seconds()?, frames: 0, program_frames: 0, program_bytes: 0 };
         for tab in 0..tabs {
             let session = format!("s{tab}");
-            let frame = daemon.agent.run(&["--session", &session, "get", "frame"])?;
-            sample.frames += String::from_utf8_lossy(&frame.stdout).trim().parse::<u64>().context("read the frame")?;
+            sample.frames += frame(daemon, &session)?;
             let stats = std::fs::read_to_string(home.join(format!("{session}.stats"))).unwrap_or_default();
             let mut counts = stats.split_whitespace().map(|value| value.parse::<u64>().unwrap_or(0));
             sample.program_frames += counts.next().unwrap_or(0);
@@ -238,10 +299,39 @@ impl Sample {
     }
 }
 
+#[derive(Default)]
+struct Counters {
+    messages: AtomicU64,
+    bytes: AtomicU64,
+    stop: AtomicBool,
+}
+
+impl Counters {
+    fn read(&self, mut websocket: WebSocket<TcpStream>) {
+        let mut open = true;
+        while open && !self.stop.load(Ordering::Relaxed) {
+            open = self.take(&mut websocket);
+        }
+    }
+
+    fn take(&self, websocket: &mut WebSocket<TcpStream>) -> bool {
+        match websocket.read() {
+            Ok(Message::Text(text)) => {
+                self.messages.fetch_add(1, Ordering::Relaxed);
+                self.bytes.fetch_add(text.len() as u64, Ordering::Relaxed);
+                !is_frame(&text) || websocket.send(Message::text(SHOWN)).is_ok()
+            }
+            Ok(_) => true,
+            Err(tungstenite::Error::Io(e)) => {
+                matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
+            }
+            Err(_) => false,
+        }
+    }
+}
+
 struct Reader {
-    messages: Arc<AtomicU64>,
-    bytes: Arc<AtomicU64>,
-    stop: Arc<AtomicBool>,
+    counters: Arc<Counters>,
     thread: JoinHandle<()>,
 }
 
@@ -250,40 +340,27 @@ impl Reader {
         let url = format!("ws://localhost:{port}/api/session/{session}/t1/stream");
         let stream = TcpStream::connect(("127.0.0.1", port)).context("connect to the dashboard")?;
         stream.set_read_timeout(Some(Duration::from_millis(200))).context("set a read timeout")?;
-        let (mut websocket, _) = tungstenite::client(url.as_str(), stream).with_context(|| format!("open {url}"))?;
-        let messages = Arc::new(AtomicU64::new(0));
-        let bytes = Arc::new(AtomicU64::new(0));
-        let stop = Arc::new(AtomicBool::new(false));
-        let (counted, sized, stopping) = (Arc::clone(&messages), Arc::clone(&bytes), Arc::clone(&stop));
-        let thread = std::thread::spawn(move || {
-            while !stopping.load(Ordering::Relaxed) {
-                match websocket.read() {
-                    Ok(Message::Text(text)) => {
-                        counted.fetch_add(1, Ordering::Relaxed);
-                        sized.fetch_add(text.len() as u64, Ordering::Relaxed);
-                        if is_frame(&text) && websocket.send(Message::text(SHOWN)).is_err() {
-                            return;
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(tungstenite::Error::Io(e))
-                        if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
-                    Err(_) => return,
-                }
-            }
-        });
-        Ok(Self { messages, bytes, stop, thread })
+        let (websocket, _) = tungstenite::client(url.as_str(), stream).with_context(|| format!("open {url}"))?;
+        let counters = Arc::new(Counters::default());
+        let counting = Arc::clone(&counters);
+        let thread = std::thread::spawn(move || counting.read(websocket));
+        Ok(Self { counters, thread })
     }
 
     fn counts(&self) -> (u64, u64) {
-        (self.messages.load(Ordering::Relaxed), self.bytes.load(Ordering::Relaxed))
+        (self.counters.messages.load(Ordering::Relaxed), self.counters.bytes.load(Ordering::Relaxed))
     }
 
-    fn stop(self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if self.thread.join().is_err() {
-            eprintln!("a stream reader panicked");
-        }
+    fn stop(self) -> Result<()> {
+        self.counters.stop.store(true, Ordering::Relaxed);
+        self.thread.join().map_err(|panic| {
+            let message = panic
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("with no message");
+            anyhow!("a stream reader panicked: {message}")
+        })
     }
 }
 
@@ -296,5 +373,5 @@ struct Update<'a> {
 }
 
 fn is_frame(text: &str) -> bool {
-    serde_json::from_str::<Update>(text).is_ok_and(|update| update.kind == "frame")
+    serde_json::from_str::<Update<'_>>(text).is_ok_and(|update| update.kind == "frame")
 }

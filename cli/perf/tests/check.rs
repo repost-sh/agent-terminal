@@ -6,16 +6,16 @@ struct Checked {
     stderr: String,
 }
 
-fn check(results: &str) -> Checked {
-    let dir = tempfile::tempdir().expect("temp dir");
+fn check(results: &str) -> std::io::Result<Checked> {
+    let dir = tempfile::tempdir()?;
     let path = dir.path().join("results.json");
-    std::fs::write(&path, results).expect("write the results");
-    let output = Command::new(env!("CARGO_BIN_EXE_at-perf")).arg("check").arg(&path).output().expect("run at-perf");
-    Checked {
+    std::fs::write(&path, results)?;
+    let output = Command::new(env!("CARGO_BIN_EXE_at-perf")).arg("check").arg(&path).output()?;
+    Ok(Checked {
         code: output.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    })
 }
 
 #[test]
@@ -29,7 +29,8 @@ fn medians_within_the_targets_and_close_to_the_base_pass() {
             {"metric": "idle-memory", "base": [5.4], "change": [5.4]},
             {"metric": "tab-memory", "base": [3.7], "change": [3.8]}
         ]}"#,
-    );
+    )
+    .expect("run at-perf check");
 
     assert_eq!(
         checked.stdout,
@@ -56,7 +57,8 @@ fn a_median_over_its_target_fails_even_when_the_base_misses_it_too() {
             {"metric": "idle-memory", "base": [5.4], "change": [5.4]},
             {"metric": "tab-memory", "base": [5.0], "change": [5.0]}
         ]}"#,
-    );
+    )
+    .expect("run at-perf check");
 
     assert_eq!(
         checked.stdout,
@@ -85,7 +87,8 @@ fn a_median_more_than_the_tolerance_over_the_base_is_a_regression() {
             {"metric": "idle-memory", "base": [4.85], "change": [5.05]},
             {"metric": "tab-memory", "base": [3.0], "change": [3.4]}
         ]}"#,
-    );
+    )
+    .expect("run at-perf check");
 
     assert_eq!(
         checked.stdout,
@@ -117,7 +120,8 @@ fn memory_per_tab_over_its_reference_passes_when_it_has_not_regressed() {
             {"metric": "idle-memory", "base": [4.9], "change": [4.9]},
             {"metric": "tab-memory", "base": [9.0, 8.9, 9.1], "change": [9.0, 9.2, 8.8]}
         ]}"#,
-    );
+    )
+    .expect("run at-perf check");
 
     assert_eq!(
         checked.stdout,
@@ -144,7 +148,8 @@ fn memory_per_tab_over_its_reference_fails_when_it_regressed() {
             {"metric": "idle-memory", "base": [4.9], "change": [4.9]},
             {"metric": "tab-memory", "base": [9.0], "change": [10.8]}
         ]}"#,
-    );
+    )
+    .expect("run at-perf check");
 
     assert_eq!(
         checked.stdout,
@@ -173,7 +178,8 @@ fn a_median_over_its_limit_fails_while_memory_per_tab_is_only_over_its_reference
             {"metric": "idle-memory", "base": [4.9], "change": [4.9]},
             {"metric": "tab-memory", "base": [9.0], "change": [9.0]}
         ]}"#,
-    );
+    )
+    .expect("run at-perf check");
 
     assert_eq!(
         checked.stdout,
@@ -241,7 +247,8 @@ fn results_without_a_metric_are_an_error() {
             {"metric": "idle-memory", "base": [4.85], "change": [4.85]},
             {"metric": "tab-memory", "base": [3.0], "change": [3.0]}
         ]}"#,
-    );
+    )
+    .expect("run at-perf check");
 
     assert_eq!(checked.stdout, "");
     assert_eq!(checked.stderr, "error: the results have no samples of `press --wait <text>` after the text appears\n");
@@ -259,7 +266,8 @@ fn a_metric_the_base_could_not_measure_is_held_to_its_limit_and_shows_no_base() 
             {"metric": "idle-memory", "base": [4.0], "change": [4.0]},
             {"metric": "tab-memory", "base": [], "no_base": "the base has no `tab new`", "change": [9.0]}
         ]}"#,
-    );
+    )
+    .expect("run at-perf check");
 
     assert_eq!(
         checked.stdout,

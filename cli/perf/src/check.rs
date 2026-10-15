@@ -1,8 +1,10 @@
+use std::fmt::Write;
+
 use anyhow::{Context, Result};
 
 use crate::metrics::{Metric, Results, Target};
 
-pub struct Report {
+pub(crate) struct Report {
     pub text: String,
     pub passed: bool,
 }
@@ -92,25 +94,26 @@ impl Row {
     }
 }
 
-pub fn check(results: &Results) -> Result<Report> {
+pub(crate) fn check(results: &Results) -> Result<Report> {
     let rows = Metric::ALL.iter().map(|&metric| row(results, metric)).collect::<Result<Vec<_>>>()?;
     let mut text = String::from("| metric | target | base | this change | verdict |\n|---|---|---|---|---|\n");
     for row in &rows {
-        text.push_str(&format!(
-            "| {} | {} | {} | {} | {} |\n",
+        writeln!(
+            text,
+            "| {} | {} | {} | {} | {} |",
             row.metric.label(),
             row.target(),
             row.base(),
             row.amount(row.change),
             row.verdict()
-        ));
+        )?;
     }
     let failures: Vec<String> = rows.iter().flat_map(Row::failures).collect();
     if !failures.is_empty() {
         text.push('\n');
     }
     for failure in &failures {
-        text.push_str(&format!("- {failure}\n"));
+        writeln!(text, "- {failure}")?;
     }
     let missing: Vec<String> = rows
         .iter()
@@ -149,9 +152,10 @@ fn median(samples: &[f64]) -> Option<f64> {
     let mut sorted = samples.to_vec();
     sorted.sort_by(f64::total_cmp);
     let middle = sorted.len() / 2;
-    match sorted.len() {
-        0 => None,
-        n if n % 2 == 1 => Some(sorted[middle]),
-        _ => Some((sorted[middle - 1] + sorted[middle]) / 2.0),
+    let upper = *sorted.get(middle)?;
+    if sorted.len() % 2 == 1 {
+        return Some(upper);
     }
+    let lower = *sorted.get(middle.checked_sub(1)?)?;
+    Some(lower.midpoint(upper))
 }
