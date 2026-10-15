@@ -19,7 +19,22 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::support::AgentTerminal;
-pub use crate::support::snapshot_rows;
+
+pub fn snapshot_rows(at: &AgentTerminal, args: &[&str]) -> (Vec<String>, u64) {
+    let mut call = vec!["--json"];
+    call.extend_from_slice(args);
+    call.push("snapshot");
+    let snapshot = at.run(&call).success().json();
+    let mut rows: Vec<String> = snapshot["lines"]
+        .as_array()
+        .expect("snapshot lines")
+        .iter()
+        .map(|row| row.as_str().unwrap().to_string())
+        .collect();
+    let shown = rows.iter().rposition(|row| !row.is_empty()).map_or(0, |last| last + 1);
+    rows.truncate(shown);
+    (rows, snapshot["frame"].as_u64().expect("the frame number"))
+}
 
 pub struct Dashboard {
     pub port: u16,

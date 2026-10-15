@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 
 use crate::connection::home;
 use crate::native::render::{self, Cells};
@@ -23,45 +23,33 @@ pub struct Taken {
 }
 
 pub fn take(session: &str, tab: &str, terminal: &Terminal, shot: &Shot, by: Option<String>) -> Result<Taken> {
-    let drawn = match (shot.frame, shot.format) {
-        (Some(frame), ScreenshotFormat::Png) if !shot.annotate => {
-            let capture = terminal
-                .capture_at(frame, shot.rows)?
-                .ok_or_else(|| anyhow!("frame {frame} is not on the timeline of {session} {tab}"))?;
-            let image = render::image(&capture.grid, capture.rows, &shot.look, &[]);
+    let drawn = match shot.format {
+        ScreenshotFormat::Txt | ScreenshotFormat::Ansi => {
+            let ansi = shot.format == ScreenshotFormat::Ansi;
+            let (frame, rows) = terminal.text_rows(shot.rows, ansi).map_err(|e| anyhow!(e))?;
+            let text: String = rows.iter().map(|row| format!("{row}\n")).collect();
+            Drawn { frame, bytes: text.into_bytes(), size: None, refs: None, cells: None }
+        }
+        ScreenshotFormat::Png => {
+            let capture = terminal.capture(shot.rows, shot.annotate).map_err(|e| anyhow!(e))?;
+            let refs = capture.refs.as_deref().unwrap_or_default();
+            let image = render::image(&capture.grid, capture.rows, &shot.look, refs);
             let size = Some((image.width(), image.height()));
             let cells = Some(render::cells(&capture.grid, capture.rows, &shot.look));
-            Drawn { frame, bytes: image.png()?, size, refs: None, cells }
+            Drawn { frame: capture.frame, bytes: image.png()?, size, refs: capture.refs, cells }
         }
-        (Some(_), _) => bail!("a screenshot of an earlier frame is a PNG without --annotate"),
-        (None, format) => match format {
-            ScreenshotFormat::Txt | ScreenshotFormat::Ansi => {
-                let ansi = shot.format == ScreenshotFormat::Ansi;
-                let (frame, rows) = terminal.text_rows(shot.rows, ansi).map_err(|e| anyhow!(e))?;
-                let text: String = rows.iter().map(|row| format!("{row}\n")).collect();
-                Drawn { frame, bytes: text.into_bytes(), size: None, refs: None, cells: None }
-            }
-            ScreenshotFormat::Png => {
-                let capture = terminal.capture(shot.rows, shot.annotate).map_err(|e| anyhow!(e))?;
-                let refs = capture.refs.as_deref().unwrap_or_default();
-                let image = render::image(&capture.grid, capture.rows, &shot.look, refs);
-                let size = Some((image.width(), image.height()));
-                let cells = Some(render::cells(&capture.grid, capture.rows, &shot.look));
-                Drawn { frame: capture.frame, bytes: image.png()?, size, refs: capture.refs, cells }
-            }
-            ScreenshotFormat::Svg => {
-                let capture = terminal.capture(shot.rows, shot.annotate).map_err(|e| anyhow!(e))?;
-                let refs = capture.refs.as_deref().unwrap_or_default();
-                let svg = render::svg(&capture.grid, capture.rows, &shot.look, refs);
-                let size = Some((svg.width, svg.height));
-                Drawn { frame: capture.frame, bytes: svg.text.into_bytes(), size, refs: capture.refs, cells: None }
-            }
-            ScreenshotFormat::Html => {
-                let capture = terminal.capture(shot.rows, false).map_err(|e| anyhow!(e))?;
-                let html = render::html(&capture.grid, capture.rows, &shot.look);
-                Drawn { frame: capture.frame, bytes: html.into_bytes(), size: None, refs: None, cells: None }
-            }
-        },
+        ScreenshotFormat::Svg => {
+            let capture = terminal.capture(shot.rows, shot.annotate).map_err(|e| anyhow!(e))?;
+            let refs = capture.refs.as_deref().unwrap_or_default();
+            let svg = render::svg(&capture.grid, capture.rows, &shot.look, refs);
+            let size = Some((svg.width, svg.height));
+            Drawn { frame: capture.frame, bytes: svg.text.into_bytes(), size, refs: capture.refs, cells: None }
+        }
+        ScreenshotFormat::Html => {
+            let capture = terminal.capture(shot.rows, false).map_err(|e| anyhow!(e))?;
+            let html = render::html(&capture.grid, capture.rows, &shot.look);
+            Drawn { frame: capture.frame, bytes: html.into_bytes(), size: None, refs: None, cells: None }
+        }
     };
     let path = match &shot.path {
         Some(path) => path.clone(),

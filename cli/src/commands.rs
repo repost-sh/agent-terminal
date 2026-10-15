@@ -429,7 +429,6 @@ impl ScreenshotArgs {
             look: self.look.look(),
             rows: self.look.rows,
             annotate: self.annotate,
-            frame: None,
         })
     }
 }

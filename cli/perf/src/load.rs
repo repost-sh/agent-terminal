@@ -66,14 +66,6 @@ impl Viewer {
             other => anyhow::bail!("{other} is not a viewer; use none, live or dashboard"),
         }
     }
-
-    fn sockets(self) -> &'static [&'static str] {
-        match self {
-            Self::None => &[],
-            Self::Live => &["stream"],
-            Self::Dashboard => &["stream", "timeline"],
-        }
-    }
 }
 
 #[derive(Serialize)]
@@ -93,8 +85,6 @@ pub struct Row {
     pub cast_mb_per_hour: f64,
     pub stream_messages_per_sec: f64,
     pub stream_bytes_per_sec: f64,
-    pub timeline_messages_per_sec: f64,
-    pub timeline_bytes_per_sec: f64,
 }
 
 pub fn run(plan: &Plan) -> Result<Vec<Row>> {
@@ -128,7 +118,7 @@ fn name(viewer: Viewer) -> &'static str {
 
 pub fn line(row: &Row) -> String {
     format!(
-        "| {} Hz | {} | {} | {} | {:.0} | {:.1} | {:.1} | {:.1} | {:.1} | {} | {:.1} | {:.1} | {:.1} | {:.1} |",
+        "| {} Hz | {} | {} | {} | {:.0} | {:.1} | {:.1} | {:.1} | {:.1} | {} | {:.1} | {:.1} | {:.1} |",
         row.hz,
         match row.repaint {
             Repaint::Partial => "partial",
@@ -145,11 +135,10 @@ pub fn line(row: &Row) -> String {
         row.cast_mb_per_hour,
         row.stream_messages_per_sec,
         row.stream_bytes_per_sec / 1024.0,
-        row.timeline_bytes_per_sec / 1024.0,
     )
 }
 
-pub const HEADER: &str = "| rate | repaint | tabs | viewer | program KiB/s | program frames/s | daemon frames/s | daemon CPU % | daemon RSS MB | daemon fds | .cast MB/hour | stream msgs/s | stream KiB/s | timeline KiB/s |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|";
+pub const HEADER: &str = "| rate | repaint | tabs | viewer | program KiB/s | program frames/s | daemon frames/s | daemon CPU % | daemon RSS MB | daemon fds | .cast MB/hour | stream msgs/s | stream KiB/s |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|";
 
 fn measure(plan: &Plan, home: &Path, hz: u32, repaint: Repaint, tabs: usize, viewer: Viewer) -> Result<Row> {
     let daemon = Daemon::start(&plan.agent, home)?;
@@ -177,13 +166,7 @@ fn measure(plan: &Plan, home: &Path, hz: u32, repaint: Repaint, tabs: usize, vie
         Viewer::None => Vec::new(),
         Viewer::Live | Viewer::Dashboard => {
             let port = daemon.dashboard()?;
-            let mut readers = Vec::new();
-            for tab in 0..tabs {
-                for socket in viewer.sockets() {
-                    readers.push(Reader::follow(port, &format!("s{tab}"), socket)?);
-                }
-            }
-            readers
+            (0..tabs).map(|tab| Reader::follow(port, &format!("s{tab}"))).collect::<Result<_>>()?
         }
     };
     std::thread::sleep(SETTLE);
@@ -194,12 +177,11 @@ fn measure(plan: &Plan, home: &Path, hz: u32, repaint: Repaint, tabs: usize, vie
     std::thread::sleep(Duration::from_secs(plan.seconds));
     let after = Sample::take(&daemon, home, tabs)?;
     let seconds = started.elapsed().as_secs_f64();
-    let mut streamed = [(0u64, 0u64); 2];
+    let mut streamed = (0u64, 0u64);
     for (reader, (messages, bytes)) in readers.iter().zip(&counted) {
         let (now_messages, now_bytes) = reader.counts();
-        let slot = usize::from(reader.socket == "timeline");
-        streamed[slot].0 += now_messages - messages;
-        streamed[slot].1 += now_bytes - bytes;
+        streamed.0 += now_messages - messages;
+        streamed.1 += now_bytes - bytes;
     }
     let rss = daemon.rss_mb()?;
     let fds = daemon.fds()?;
@@ -224,10 +206,8 @@ fn measure(plan: &Plan, home: &Path, hz: u32, repaint: Repaint, tabs: usize, vie
         daemon_fds: fds,
         cast_bytes_per_sec,
         cast_mb_per_hour: cast_bytes_per_sec * 3600.0 / 1_000_000.0,
-        stream_messages_per_sec: per_sec(streamed[0].0 as f64),
-        stream_bytes_per_sec: per_sec(streamed[0].1 as f64),
-        timeline_messages_per_sec: per_sec(streamed[1].0 as f64),
-        timeline_bytes_per_sec: per_sec(streamed[1].1 as f64),
+        stream_messages_per_sec: per_sec(streamed.0 as f64),
+        stream_bytes_per_sec: per_sec(streamed.1 as f64),
     })
 }
 
@@ -356,7 +336,6 @@ fn command(agent: &Path, home: &Path) -> Command {
 }
 
 struct Reader {
-    socket: &'static str,
     messages: Arc<AtomicU64>,
     bytes: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
@@ -364,8 +343,8 @@ struct Reader {
 }
 
 impl Reader {
-    fn follow(port: u16, session: &str, socket: &'static str) -> Result<Self> {
-        let url = format!("ws://localhost:{port}/api/session/{session}/t1/{socket}");
+    fn follow(port: u16, session: &str) -> Result<Self> {
+        let url = format!("ws://localhost:{port}/api/session/{session}/t1/stream");
         let stream = TcpStream::connect(("127.0.0.1", port)).context("connect to the dashboard")?;
         stream.set_read_timeout(Some(Duration::from_millis(200))).context("set a read timeout")?;
         let (mut websocket, _) = tungstenite::client(url.as_str(), stream).with_context(|| format!("open {url}"))?;
@@ -379,7 +358,7 @@ impl Reader {
                     Ok(Message::Text(text)) => {
                         counted.fetch_add(1, Ordering::Relaxed);
                         sized.fetch_add(text.len() as u64, Ordering::Relaxed);
-                        if let Some(shown) = acknowledgement(socket, &text)
+                        if let Some(shown) = acknowledgement(&text)
                             && websocket.send(Message::text(shown)).is_err()
                         {
                             return;
@@ -392,7 +371,7 @@ impl Reader {
                 }
             }
         });
-        Ok(Self { socket, messages, bytes, stop, thread })
+        Ok(Self { messages, bytes, stop, thread })
     }
 
     fn counts(&self) -> (u64, u64) {
@@ -402,15 +381,12 @@ impl Reader {
     fn stop(self) {
         self.stop.store(true, Ordering::Relaxed);
         if self.thread.join().is_err() {
-            eprintln!("a {} reader panicked", self.socket);
+            eprintln!("a stream reader panicked");
         }
     }
 }
 
-fn acknowledgement(socket: &str, text: &str) -> Option<String> {
-    if socket != "stream" {
-        return None;
-    }
+fn acknowledgement(text: &str) -> Option<String> {
     let message: serde_json::Value = serde_json::from_str(text).ok()?;
     (message["type"] == "frame").then(|| serde_json::json!({ "type": "shown", "frame": message["frame"] }).to_string())
 }

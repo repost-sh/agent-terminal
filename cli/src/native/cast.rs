@@ -34,10 +34,6 @@ pub enum Change {
 }
 
 impl Change {
-    pub fn draws(&self) -> bool {
-        matches!(self, Change::Output(_) | Change::Resize(_))
-    }
-
     pub fn apply(&self, screen: &mut Screen) {
         match self {
             Change::Output(text) => screen.draw(text.as_bytes()),
@@ -70,14 +66,6 @@ impl Reader {
 
     pub fn header(&self) -> &Header {
         &self.header
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    pub fn at(&self) -> u64 {
-        self.at
     }
 
     pub fn seek(&mut self, offset: u64) -> Result<()> {
