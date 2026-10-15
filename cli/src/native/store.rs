@@ -81,6 +81,8 @@ pub struct ActivityEntry {
     pub screenshots: Vec<PathBuf>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub clips: Vec<PathBuf>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub raw: bool,
     pub output: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub human: Option<HumanInput>,
@@ -113,6 +115,7 @@ impl ActivityEntry {
             frame: None,
             screenshots: Vec::new(),
             clips: Vec::new(),
+            raw: false,
             output: String::new(),
             human: None,
         }

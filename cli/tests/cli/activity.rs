@@ -54,6 +54,28 @@ fn every_call_is_logged_with_its_command_duration_and_result() {
 }
 
 #[test]
+fn raw_bytes_sent_with_send_are_flagged_raw_in_the_activity_log() {
+    let at = AgentTerminal::new();
+    let echo = fixture("input-echo");
+    at.run(&["open", "--size", "40x4", "--wait", "ready", &echo]).success();
+    at.run(&["send", r"\e[A", "--wait", r"\e[A"]).success();
+    at.run(&["press", "Up"]).success();
+    at.run(&["--json", "batch", r"send 'x\x01'"]).success();
+
+    let log = at.activity("default");
+    assert_eq!(
+        field(&log, "command"),
+        json!([
+            format!("open --size 40x4 --wait ready {echo}"),
+            r#"send "\\e[A" --wait "\\e[A""#,
+            "press Up",
+            r#"send "x\\x01""#
+        ])
+    );
+    assert_eq!(field(&log, "raw"), json!([null, true, null, true]));
+}
+
+#[test]
 fn each_session_logs_its_own_calls_and_the_tab_they_acted_on() {
     let at = AgentTerminal::new();
     let printer = fixture("line-printer");

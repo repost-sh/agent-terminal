@@ -56,6 +56,7 @@ struct Tab {
 struct Logged {
     session: String,
     tab: Option<TabId>,
+    raw: bool,
     folder: Option<Arc<SessionFolder>>,
     pending: Option<Pending>,
     typed: Vec<String>,
@@ -386,11 +387,21 @@ impl Daemon {
         let time = SystemTime::now();
         let folder = sessions.get(session).map(|s| Arc::clone(&s.folder));
         let pending = folder.as_ref().map(|folder| folder.begin(time, tab.map(|id| id.to_string()), &typed));
-        Some(Logged { session: session.to_string(), tab, folder, pending, typed, time, started: Instant::now() })
+        Some(Logged {
+            session: session.to_string(),
+            tab,
+            raw: matches!(request, Request::Input { input: Input::Send { .. }, .. }),
+            folder,
+            pending,
+            typed,
+            time,
+            started: Instant::now(),
+        })
     }
 
     fn log(&self, logged: Logged, handled: &Result<Reply, ErrorBody>) {
         let mut entry = ActivityEntry::at(logged.time, &logged.typed, logged.started.elapsed());
+        entry.raw = logged.raw;
         let folder =
             logged.folder.or_else(|| self.sessions.lock().unwrap().get(&logged.session).map(|s| Arc::clone(&s.folder)));
         let Some(folder) = folder else {
