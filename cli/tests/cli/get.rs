@@ -42,7 +42,8 @@ fn get_exit_code_says_running_until_the_program_exits() {
         serde_json::json!({ "exit_code": { "exited": false, "code": null } })
     );
 
-    at.run(&["open", "--wait-stable", "5000", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    at.run(&["open", "--no-wait", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    at.run(&["wait", "--exit"]).success();
     assert_eq!(at.run(&["get", "exit-code"]).success().stdout(), "7\n");
     assert_eq!(
         at.run(&["--json", "get", "exit-code"]).success().json(),

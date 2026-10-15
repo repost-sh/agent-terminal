@@ -44,19 +44,8 @@ fn resize_reaches_a_tab_other_than_the_current_one() {
 #[test]
 fn resizing_a_tab_whose_program_exited_fails_with_exit_code_5() {
     let at = AgentTerminal::new();
-    at.run(&[
-        "open",
-        "--size",
-        "20x3",
-        "--wait-stable",
-        "5000",
-        &fixture("line-printer"),
-        "--lines",
-        "1",
-        "--exit",
-        "7",
-    ])
-    .success();
+    at.run(&["open", "--size", "20x3", "--no-wait", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    at.run(&["wait", "--exit"]).success();
 
     let run = at.run(&["resize", "30x5"]);
     assert_eq!(run.code(), 5);

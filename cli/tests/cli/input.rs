@@ -301,19 +301,8 @@ fn send_refuses_an_unknown_escape_with_exit_code_1() {
 #[test]
 fn input_to_a_program_that_has_exited_fails_with_exit_code_5() {
     let at = AgentTerminal::new();
-    at.run(&[
-        "open",
-        "--size",
-        "20x3",
-        "--wait-stable",
-        "5000",
-        &fixture("line-printer"),
-        "--lines",
-        "1",
-        "--exit",
-        "7",
-    ])
-    .success();
+    at.run(&["open", "--size", "20x3", "--no-wait", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    at.run(&["wait", "--exit"]).success();
     let sent = at.run(&["send", "x"]);
     assert_eq!(sent.code(), 5, "{}", sent.stderr());
     assert_eq!(
