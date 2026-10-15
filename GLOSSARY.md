@@ -1,6 +1,6 @@
 # Glossary
 
-**session**: a named workspace (`--session qa`, default `default`). Owns one or more terminals and isolates their history, recordings and screenshots.
+**session**: a named workspace (`--session qa`, default `default`). Owns one or more terminals and isolates their history and screenshots.
 
 **terminal**, also **tab**: one PTY running one program, addressed as `t1`, `t2`, … within its session. Say "terminal" for the thing and "tab" for its place in a session; never "pane" or "window".
 
@@ -24,11 +24,9 @@
 
 **shell integration**: the small startup scripts agent-terminal injects into zsh, bash or fish when `shell` opens a tab, without changing the user's own startup files. They report prompts and commands (OSC 133), the cwd (OSC 7) and the title; the terminal turns those reports into commands. `exec`, `history` and `wait --command` need it.
 
-**activity**: one CLI call to agent-terminal as recorded in the session's log: time, command as typed, duration and result.
+**activity**: one CLI call to agent-terminal as logged in the session's activity log: time, command as typed, duration and result.
 
-**recording**: a tab's output, input and resizes as an asciicast file, written from the moment the tab opens.
-
-**session folder**: the plain folder where a session keeps its recordings, activity log and command logs (`~/.agent-terminal/sessions/<session>/`); `trace export` zips it.
+**session folder**: the plain folder where a session keeps its activity log, screenshot list and command logs (`~/.agent-terminal/sessions/<session>/`); `trace export` zips it.
 
 **control**: who may send input to a terminal: the agent (default) or a human who took it from the dashboard or with `attach`. While a human holds it, agent input exits 4; `wait --control` returns when they hand it back.
 

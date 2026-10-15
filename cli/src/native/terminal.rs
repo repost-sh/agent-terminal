@@ -12,7 +12,6 @@ use crate::native::keyboard;
 use crate::native::mouse::{self, Action};
 use crate::native::output_log::{Offsets, Output, OutputLog};
 use crate::native::pty::{self, Signaller, Spawned, Stopper};
-use crate::native::recording::Recording;
 use crate::native::refs::{self, Found, Grid};
 use crate::native::screen::{Screen, ShellReport};
 use crate::native::store::CommandLog;
@@ -39,7 +38,6 @@ pub struct Terminal {
     signaller: Box<dyn Signaller>,
     command: pty::Command,
     shell: Option<Shell>,
-    recording: Arc<Recording>,
     command_log: CommandLog,
     frames: Changes,
     history: Changes,
@@ -186,7 +184,6 @@ impl Terminal {
         command: pty::Command,
         shell: Option<Shell>,
         spawned: Spawned,
-        recording: Arc<Recording>,
         command_log: CommandLog,
         lifecycle: Changes,
         continued: Option<Continued>,
@@ -226,7 +223,6 @@ impl Terminal {
             signaller: spawned.signaller,
             command,
             shell,
-            recording,
             command_log,
             frames: Changes::default(),
             history: Changes::default(),
@@ -271,7 +267,6 @@ impl Terminal {
     fn output(&self, bytes: &[u8]) {
         let (replies, history_changed) = {
             let mut state = self.state.lock().unwrap();
-            self.recording.output(bytes);
             let replies = state.screen.feed(bytes);
             let printed = state.screen.take_printed();
             let reports = state.screen.take_shell_reports();
@@ -388,7 +383,6 @@ impl Terminal {
             return Err(self.exited(None).into());
         }
         state.screen.resize(size);
-        self.recording.resize(size);
         state.refresh(Instant::now());
         drop(state);
         self.changed.notify_all();
@@ -426,10 +420,6 @@ impl Terminal {
             started: self.started,
             exit: state.exit,
         }
-    }
-
-    pub fn recording(&self) -> Arc<Recording> {
-        Arc::clone(&self.recording)
     }
 
     pub fn command_log(&self) -> CommandLog {
@@ -550,7 +540,6 @@ impl Terminal {
     pub fn mark(&self, name: String) -> u64 {
         let mut state = self.state.lock().unwrap();
         let frame = state.frame;
-        self.recording.mark(&name);
         state.log.mark(name, frame);
         frame
     }
@@ -755,7 +744,6 @@ impl Terminal {
         }
         let mut writer = self.writer.lock().unwrap();
         writer.write_all(bytes).and_then(|()| writer.flush()).with_context(|| format!("write to {}", self.program))?;
-        self.recording.input(bytes);
         Ok(())
     }
 

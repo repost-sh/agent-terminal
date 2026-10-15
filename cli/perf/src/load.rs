@@ -81,8 +81,6 @@ pub struct Row {
     pub daemon_cpu_percent: f64,
     pub daemon_rss_mb: f64,
     pub daemon_fds: usize,
-    pub cast_bytes_per_sec: f64,
-    pub cast_mb_per_hour: f64,
     pub stream_messages_per_sec: f64,
     pub stream_bytes_per_sec: f64,
 }
@@ -118,7 +116,7 @@ fn name(viewer: Viewer) -> &'static str {
 
 pub fn line(row: &Row) -> String {
     format!(
-        "| {} Hz | {} | {} | {} | {:.0} | {:.1} | {:.1} | {:.1} | {:.1} | {} | {:.1} | {:.1} | {:.1} |",
+        "| {} Hz | {} | {} | {} | {:.0} | {:.1} | {:.1} | {:.1} | {:.1} | {} | {:.1} | {:.1} |",
         row.hz,
         match row.repaint {
             Repaint::Partial => "partial",
@@ -132,13 +130,12 @@ pub fn line(row: &Row) -> String {
         row.daemon_cpu_percent,
         row.daemon_rss_mb,
         row.daemon_fds,
-        row.cast_mb_per_hour,
         row.stream_messages_per_sec,
         row.stream_bytes_per_sec / 1024.0,
     )
 }
 
-pub const HEADER: &str = "| rate | repaint | tabs | viewer | program KiB/s | program frames/s | daemon frames/s | daemon CPU % | daemon RSS MB | daemon fds | .cast MB/hour | stream msgs/s | stream KiB/s |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|";
+pub const HEADER: &str = "| rate | repaint | tabs | viewer | program KiB/s | program frames/s | daemon frames/s | daemon CPU % | daemon RSS MB | daemon fds | stream msgs/s | stream KiB/s |\n|---|---|---|---|---|---|---|---|---|---|---|---|";
 
 fn measure(plan: &Plan, home: &Path, hz: u32, repaint: Repaint, tabs: usize, viewer: Viewer) -> Result<Row> {
     let daemon = Daemon::start(&plan.agent, home)?;
@@ -191,7 +188,6 @@ fn measure(plan: &Plan, home: &Path, hz: u32, repaint: Repaint, tabs: usize, vie
     drop(daemon);
 
     let per_sec = |value: f64| value / seconds;
-    let cast_bytes_per_sec = per_sec((after.cast_bytes - before.cast_bytes) as f64);
     Ok(Row {
         hz,
         repaint,
@@ -204,8 +200,6 @@ fn measure(plan: &Plan, home: &Path, hz: u32, repaint: Repaint, tabs: usize, vie
         daemon_cpu_percent: per_sec(after.cpu_seconds - before.cpu_seconds) * 100.0,
         daemon_rss_mb: rss,
         daemon_fds: fds,
-        cast_bytes_per_sec,
-        cast_mb_per_hour: cast_bytes_per_sec * 3600.0 / 1_000_000.0,
         stream_messages_per_sec: per_sec(streamed.0 as f64),
         stream_bytes_per_sec: per_sec(streamed.1 as f64),
     })
@@ -216,13 +210,11 @@ struct Sample {
     frames: u64,
     program_frames: u64,
     program_bytes: u64,
-    cast_bytes: u64,
 }
 
 impl Sample {
     fn take(daemon: &Daemon, home: &Path, tabs: usize) -> Result<Self> {
-        let mut sample =
-            Self { cpu_seconds: daemon.cpu_seconds()?, frames: 0, program_frames: 0, program_bytes: 0, cast_bytes: 0 };
+        let mut sample = Self { cpu_seconds: daemon.cpu_seconds()?, frames: 0, program_frames: 0, program_bytes: 0 };
         for tab in 0..tabs {
             let session = format!("s{tab}");
             let frame = daemon.run(&["--session", &session, "get", "frame"])?;
@@ -231,8 +223,6 @@ impl Sample {
             let mut counts = stats.split_whitespace().map(|value| value.parse::<u64>().unwrap_or(0));
             sample.program_frames += counts.next().unwrap_or(0);
             sample.program_bytes += counts.next().unwrap_or(0);
-            let cast = home.join("sessions").join(&session).join("t1.cast");
-            sample.cast_bytes += std::fs::metadata(&cast).with_context(|| format!("read {}", cast.display()))?.len();
         }
         Ok(sample)
     }
