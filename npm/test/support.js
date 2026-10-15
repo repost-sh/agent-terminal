@@ -10,7 +10,7 @@ const BUILD = path.resolve(__dirname, '..', 'build-packages.js');
 const TARGETS = PLATFORMS.map((platform) => platform.target);
 
 function tempDir(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'at-npm-'));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'at-npm-')));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }

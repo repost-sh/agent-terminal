@@ -35,8 +35,7 @@ fn wait_for_listed(browser: &Browser, text: &str) {
 }
 
 fn open_commands(browser: &Browser) {
-    browser.run(&["find", "role", "tab", "click", "--name", "Commands", "--exact"]);
-    browser.wait_until("document.querySelector('[role=tab][aria-selected=true]')?.textContent === 'Commands'");
+    browser.select_panel("Commands");
 }
 
 fn rows(browser: &Browser) -> Vec<Vec<String>> {

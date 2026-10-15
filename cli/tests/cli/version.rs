@@ -1,5 +1,5 @@
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::skills::{put_stub, stub_in, stub_of_version};
 use crate::support::{AgentTerminal, Run};
@@ -29,7 +29,7 @@ impl Install {
         let at = AgentTerminal::new();
         let binary = at.home().join(binary);
         std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
-        std::fs::copy(env!("CARGO_BIN_EXE_agent-terminal"), &binary).unwrap();
+        written_in_a_child(Command::new("cp").arg(env!("CARGO_BIN_EXE_agent-terminal")).arg(&binary));
         let bin = at.home().join("fake-bin");
         std::fs::create_dir_all(&bin).unwrap();
         let install = Self {
@@ -82,8 +82,14 @@ impl Install {
 }
 
 fn executable(path: &Path, contents: &str) {
-    std::fs::write(path, contents).unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    written_in_a_child(
+        Command::new("sh").args(["-c", "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"", "sh", contents]).arg(path),
+    );
+}
+
+fn written_in_a_child(command: &mut Command) {
+    let status = command.status().expect("run the command that writes the executable");
+    assert!(status.success(), "{command:?} failed with {status}");
 }
 
 const NPM_INSTALLED_BINARY: &str =

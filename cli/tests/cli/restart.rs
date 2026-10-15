@@ -31,7 +31,9 @@ fn restart_runs_the_same_program_again_in_the_same_cwd_env_and_size() {
     .success();
     at.run(&["resize", "36x3", "--wait", "run 1"]).success();
 
-    let restarted = at.run(&["restart", "--wait", "run 2"]).success();
+    at.run(&["restart", "--wait", "run 2"]).success();
+    at.run(&["wait", "--cursor", "2,1"]).success();
+    let restarted = at.run(&["snapshot"]).success();
     insta::assert_snapshot!(restarted.screen(), @r"
     default t1 · sh · 36x3 · cursor 2,1 · frame N
     1│run 2 hello in work size 3 36
@@ -65,7 +67,9 @@ fn restart_brings_back_a_program_that_exited() {
     assert!(opened.stdout().starts_with("default t1 · sh · 40x3 · cursor 2,1 · frame "), "{}", opened.stdout());
     assert!(opened.stdout().lines().next().unwrap().ends_with(" · exited 3"), "{}", opened.stdout());
 
-    let restarted = at.run(&["restart", "--wait", "run 2"]).success();
+    at.run(&["restart", "--wait", "run 2"]).success();
+    at.run(&["wait", "--cursor", "2,1"]).success();
+    let restarted = at.run(&["snapshot"]).success();
     insta::assert_snapshot!(restarted.screen(), @r"
     default t1 · sh · 40x3 · cursor 2,1 · frame N
     1│run 2 hi in work size 3 40

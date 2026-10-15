@@ -155,8 +155,8 @@ fn activity_follows_new_calls_until_scrolled_up_then_offers_jump_to_latest_and_c
         ["get", "frame"]
     );
 
-    browser.run(&["find", "role", "tab", "click", "--name", "Output", "--exact"]);
-    browser.run(&["find", "role", "tab", "click", "--name", "Activity", "--exact"]);
+    browser.select_panel("Output");
+    browser.select_panel("Activity");
     wait_for_calls(&browser, 1);
 
     at.run(&["close"]).success();

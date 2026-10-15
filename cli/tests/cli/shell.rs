@@ -33,7 +33,7 @@ impl ShellTab {
 
     fn run_with(&self, args: &[&str], env: &[(&str, Option<&str>)]) -> Run {
         let mut command = self.at.command(args);
-        command.env("HOME", self.home.path()).env_remove("ZDOTDIR");
+        command.env("HOME", self.home.path()).env_remove("ZDOTDIR").env_remove("XDG_CONFIG_HOME");
         for (key, value) in env {
             match value {
                 Some(value) => command.env(key, value),

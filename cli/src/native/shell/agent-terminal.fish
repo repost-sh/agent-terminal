@@ -19,7 +19,7 @@ if status is-interactive
     end
 
     function __agent_terminal_cancel --on-event fish_cancel
-        printf '\e]133;A\a'
+        printf '\e]133;A\a\e]133;B\a'
     end
 
     function __agent_terminal_refused --on-event fish_posterror
