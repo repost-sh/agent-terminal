@@ -146,13 +146,9 @@ pub enum Stub {
     Newer(Version),
 }
 
-fn this_version() -> Version {
-    Version::parse(VERSION).expect("the package version is semver")
-}
-
 impl Stub {
     fn of(contents: &[u8]) -> Self {
-        let ours = this_version();
+        let ours = crate::this_version();
         match stamped_version(&String::from_utf8_lossy(contents)) {
             None => Stub::Unversioned,
             Some(theirs) if theirs == ours => Stub::Current,
@@ -295,7 +291,7 @@ fn path(name: Option<&str>, json: bool) -> Result<()> {
 }
 
 fn remove_older_versions(cache: &Path) -> Result<()> {
-    let ours = this_version();
+    let ours = crate::this_version();
     for entry in std::fs::read_dir(cache).with_context(|| format!("read {}", cache.display()))? {
         let entry = entry.with_context(|| format!("read {}", cache.display()))?;
         let folder = entry.path();

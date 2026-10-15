@@ -122,7 +122,9 @@ Everything else:
   install [--skills]           Install the agent skill stub into ~/.claude/skills
   upgrade                      Upgrade to the latest version with what installed this one: npm, pnpm, yarn, bun or Homebrew
                                asks that installer for the latest version first; already the latest: reinstalls nothing (exit 0)
-                               after reinstalling, refreshes an installed skill stub by the rules of install --skills
+                               after reinstalling, runs the new version through the installer's own entry point (npm prefix -g,
+                               pnpm bin -g, yarn global bin, bun pm bin -g, brew --prefix) to read its version and to refresh
+                               an installed skill stub by the rules of install --skills
                                exit 1 when the registry can't be reached, or when the installer can't be told (it prints
                                each installer's command); --json: installed_with, from, latest, to, stub_refreshed
   version
