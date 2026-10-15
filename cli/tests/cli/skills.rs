@@ -77,6 +77,22 @@ fn skills_get_core_full_appends_the_full_command_reference() {
 }
 
 #[test]
+fn no_guide_and_no_help_mentions_clips() {
+    let at = AgentTerminal::new();
+    let mut read = vec![("--help".to_string(), at.run(&["--help"]).success().stdout())];
+    for skill in ["agent-terminal", "core", "tui-qa", "cli-qa"] {
+        read.push((
+            format!("skills get {skill} --full"),
+            at.run(&["skills", "get", skill, "--full"]).success().stdout(),
+        ));
+    }
+    for (command, text) in read {
+        let clips: Vec<&str> = text.lines().filter(|line| line.to_lowercase().contains("clip")).collect();
+        assert!(clips.is_empty(), "`agent-terminal {command}` mentions clips:\n{}", clips.join("\n"));
+    }
+}
+
+#[test]
 fn skills_get_full_appends_a_skills_other_files() {
     let at = AgentTerminal::new();
     let guide = at.run(&["skills", "get", "tui-qa"]).success().stdout();

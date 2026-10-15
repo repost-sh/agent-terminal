@@ -9,7 +9,6 @@ use tokio::sync::watch;
 
 use crate::connection::{READY, home, socket_path};
 use crate::native::changes::Changes;
-use crate::native::clips;
 use crate::native::control::{Control, Handed, Hold};
 use crate::native::dashboard::{self, Backend};
 use crate::native::pty;
@@ -208,13 +207,6 @@ impl Daemon {
                 screenshots::diff(&target.session, &id.to_string(), &terminal, baseline, &shot, threshold)
                     .map(Reply::ScreenshotDiff)
                     .map_err(error_body)
-            }
-            Request::Clip { target, clip } => {
-                let (id, terminal) = self.target(&target)?;
-                let session = &target.session;
-                let folder = self.sessions.lock().unwrap().get(session).map(|entry| Arc::clone(&entry.folder));
-                let folder = folder.ok_or_else(|| no_terminal(session))?;
-                clips::cut(session, &id.to_string(), &terminal, &folder, &clip).map(Reply::Clip).map_err(error_body)
             }
             Request::Wait { target, wait: Wait::Elapsed { ms }, timeout_ms, assert } => {
                 self.wait(target, &Wait::Elapsed { ms }, timeout_ms.max(ms), assert)
@@ -418,9 +410,6 @@ impl Daemon {
             Ok(Reply::Delivered(delivered)) => delivered.screenshot.iter().map(|shot| shot.path.clone()).collect(),
             Ok(_) | Err(_) => Vec::new(),
         };
-        if let Ok(Reply::Clip(clip)) = handled {
-            entry.clips = vec![clip.path.clone()];
-        }
         match logged.pending {
             Some(pending) => pending.log(&entry),
             None => folder.log(&entry),

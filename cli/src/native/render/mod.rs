@@ -31,10 +31,6 @@ impl Image {
         self.pixmap.height()
     }
 
-    pub fn rgba(&self) -> &[u8] {
-        self.pixmap.data()
-    }
-
     pub fn png(&self) -> Result<Vec<u8>> {
         let rgb: Vec<u8> =
             self.pixmap.data().chunks_exact(4).flat_map(|pixel| [pixel[0], pixel[1], pixel[2]]).collect();

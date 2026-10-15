@@ -1,6 +1,5 @@
 pub mod cast;
 pub mod changes;
-pub mod clips;
 pub mod commands;
 pub mod control;
 pub mod daemon;

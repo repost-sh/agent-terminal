@@ -16,8 +16,6 @@
 
 **screenshot**: a picture of the screen drawn from the terminal's grid with the fonts built into agent-terminal (PNG by default; SVG, HTML, text or ANSI on request), never captured from a window, so it looks the same on every machine.
 
-**clip**: a GIF or MP4 of a stretch of a tab's recording (the last seconds, between two marks or activity entries, or one command), replayed through a fresh screen and drawn like a screenshot, at most 10 frames a second.
-
 **ref**: `@t3`, a handle for an on-screen element found by `snapshot -i`. Valid until a later frame changes its cells.
 
 **mark**: a named point in a terminal's output stream (`mark before-login`); `output --since before-login` reads from it.
