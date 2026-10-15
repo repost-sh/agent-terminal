@@ -64,13 +64,28 @@ fn report(attached: &Attached, end: &End, json: bool) {
 }
 
 fn watch(attached: &Attached, stream: UnixStream) -> Result<End> {
-    let keys = stream.try_clone().context("share the connection to the daemon")?;
+    let mut keys = stream.try_clone().context("share the connection to the daemon")?;
     let takeover = Takeover::start()?;
     let read_only = attached.read_only;
-    std::thread::spawn(move || forward_keys(keys, read_only));
+    let (forwarded, outcome) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let sent = forward_keys(&mut keys, read_only);
+        let failed = sent.is_err();
+        if let Err(unheard) = forwarded.send(sent)
+            && let Err(e) = unheard.0
+        {
+            eprintln!("error: {e:#}");
+        }
+        if failed && let Err(e) = keys.shutdown(std::net::Shutdown::Both) {
+            eprintln!("error: closing the connection to the daemon failed: {e}");
+        }
+    });
     let ended = mirror(attached, stream);
     drop(takeover);
-    ended
+    match outcome.try_recv() {
+        Ok(Err(e)) => Err(e),
+        Ok(Ok(())) | Err(_) => ended,
+    }
 }
 
 fn mirror(attached: &Attached, mut stream: UnixStream) -> Result<End> {
@@ -85,39 +100,32 @@ fn mirror(attached: &Attached, mut stream: UnixStream) -> Result<End> {
     }
 }
 
-fn forward_keys(mut daemon: UnixStream, read_only: bool) {
+fn forward_keys(daemon: &mut UnixStream, read_only: bool) -> Result<()> {
     let mut stdin = std::io::stdin().lock();
     let mut keys = Keys::default();
     let mut buffer = [0u8; 4096];
     loop {
         let read = match stdin.read(&mut buffer) {
-            Ok(0) => break,
+            Ok(0) => return send(daemon, &AttachInput::Detach),
             Ok(read) => read,
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             Err(e) => {
-                eprintln!("error: reading your keys failed: {e}");
-                break;
+                send(daemon, &AttachInput::Detach)?;
+                return Err(anyhow::Error::new(e).context("read your keys"));
             }
         };
         for pressed in keys.feed(&buffer[..read]) {
-            let sent = match pressed {
-                Pressed::Detach => {
-                    send(&mut daemon, &AttachInput::Detach);
-                    return;
-                }
-                Pressed::Human(_) if read_only => true,
-                Pressed::Human(input) => send(&mut daemon, &AttachInput::Human(input)),
-            };
-            if !sent {
-                return;
+            match pressed {
+                Pressed::Detach => return send(daemon, &AttachInput::Detach),
+                Pressed::Human(_) if read_only => {}
+                Pressed::Human(input) => send(daemon, &AttachInput::Human(input))?,
             }
         }
     }
-    send(&mut daemon, &AttachInput::Detach);
 }
 
-fn send(daemon: &mut UnixStream, input: &AttachInput) -> bool {
-    protocol::write(daemon, input).is_ok()
+fn send(daemon: &mut UnixStream, input: &AttachInput) -> Result<()> {
+    protocol::write(daemon, input).context("send your keys to the daemon")
 }
 
 struct Takeover {
