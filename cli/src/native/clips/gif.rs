@@ -108,7 +108,7 @@ fn indexed(rgba: &[u8], width: usize, rect: &Rect) -> (Vec<u8>, Vec<u8>) {
     };
     let mut counts: HashMap<[u8; 3], usize> = HashMap::new();
     for row in rows() {
-        let mut pixels = row.chunks_exact(4).map(rgb).peekable();
+        let mut pixels = row.as_chunks::<4>().0.iter().map(rgb).peekable();
         while let Some(color) = pixels.next() {
             let mut run = 1;
             while pixels.next_if_eq(&color).is_some() {
@@ -127,7 +127,7 @@ fn indexed(rgba: &[u8], width: usize, rect: &Rect) -> (Vec<u8>, Vec<u8>) {
         .collect();
     let mut indices = Vec::with_capacity(rect.width * rect.height);
     for row in rows() {
-        let mut pixels = row.chunks_exact(4).map(rgb).peekable();
+        let mut pixels = row.as_chunks::<4>().0.iter().map(rgb).peekable();
         while let Some(color) = pixels.next() {
             let i = index[&color];
             indices.push(i);
@@ -139,7 +139,7 @@ fn indexed(rgba: &[u8], width: usize, rect: &Rect) -> (Vec<u8>, Vec<u8>) {
     (kept.concat(), indices)
 }
 
-fn rgb(pixel: &[u8]) -> [u8; 3] {
+fn rgb(pixel: &[u8; 4]) -> [u8; 3] {
     [pixel[0], pixel[1], pixel[2]]
 }
 

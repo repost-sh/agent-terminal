@@ -36,8 +36,7 @@ impl Image {
     }
 
     pub fn png(&self) -> Result<Vec<u8>> {
-        let rgb: Vec<u8> =
-            self.pixmap.data().chunks_exact(4).flat_map(|pixel| [pixel[0], pixel[1], pixel[2]]).collect();
+        let rgb: Vec<u8> = self.pixmap.data().as_chunks::<4>().0.iter().flat_map(|&[r, g, b, _]| [r, g, b]).collect();
         let mut png = Vec::new();
         let mut encoder = png::Encoder::new(&mut png, self.width(), self.height());
         encoder.set_color(png::ColorType::Rgb);
