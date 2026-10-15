@@ -4,6 +4,7 @@ mod commands;
 mod control;
 mod empty;
 mod fast_output;
+mod fonts;
 mod info;
 mod new_session;
 mod output;

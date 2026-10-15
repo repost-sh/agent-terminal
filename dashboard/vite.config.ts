@@ -14,6 +14,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": { target: dashboard, ws: true, changeOrigin: true },
+      "/fonts": { target: dashboard, changeOrigin: true },
     },
   },
 });

@@ -7,7 +7,7 @@ import { daemonWidths } from "./unicode";
 
 export const LARGEST_FONT_PX = 13;
 
-const FONT = '"JetBrains Mono", ui-monospace, monospace';
+const FONT = '"JetBrains Mono NL", "Symbols Nerd Font Mono", "Noto Emoji", monospace';
 
 const PALETTE: ITheme = {
   background: "#111113",
@@ -33,8 +33,17 @@ const PALETTE: ITheme = {
   brightWhite: "#fafafa",
 };
 
+const FACES = [
+  `${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
+  `bold ${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
+  `italic ${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
+  `bold italic ${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
+  `${LARGEST_FONT_PX}px "Symbols Nerd Font Mono"`,
+  `${LARGEST_FONT_PX}px "Noto Emoji"`,
+];
+
 const fontsReady = () =>
-  Promise.all([document.fonts.load(`${LARGEST_FONT_PX}px ${FONT}`), document.fonts.load(`bold ${LARGEST_FONT_PX}px ${FONT}`)]).catch((error: unknown) =>
+  Promise.all(FACES.map((face) => document.fonts.load(face))).catch((error: unknown) =>
     console.warn("agent-terminal: the terminal font did not load; using a fallback", error),
   );
 
