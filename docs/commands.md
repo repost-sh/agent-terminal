@@ -63,7 +63,7 @@ Send input:
   Any input command also takes:
     --wait <text>              then wait until the text is on screen
     --wait-gone <text>         then wait until it is gone
-    --wait-stable [ms]         then wait until the screen stops changing (default 300 ms)
+    --wait-stable [ms]         then wait until the screen has not changed for ms since the input (default 300)
     --snapshot                 then print the screen
     --screenshot [path]        then save a PNG
 

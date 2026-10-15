@@ -615,6 +615,7 @@ impl Daemon {
             terminal.input(input).map_err(|e| error_body(e.context(format!("{session} {tab}"))))?
         };
         if let Some((wait, condition)) = after.wait.zip(condition) {
+            let condition = condition.counted_from(Instant::now());
             wait_for(&terminal, &session, &tab, wait, condition, timeout_ms)?;
         }
         let screenshot = after
@@ -1042,7 +1043,7 @@ fn first_screen(
 
 fn settle(session: &str, tab: TabId, terminal: &Terminal, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
     let tab = tab.to_string();
-    let settled = terminal.wait(condition(wait)?, Duration::from_millis(timeout_ms));
+    let settled = terminal.wait(condition(wait)?.counted_from(Instant::now()), Duration::from_millis(timeout_ms));
     let snapshot = terminal.snapshot(session, &tab);
     match settled {
         Settled::Met { .. } | Settled::Exited => Ok(Reply::Snapshot(snapshot)),

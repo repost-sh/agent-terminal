@@ -332,11 +332,15 @@ fn input_wait_gone_returns_once_the_text_has_left_the_screen() {
 }
 
 #[test]
-fn input_wait_stable_returns_once_the_screen_settles() {
+fn input_wait_stable_returns_once_the_screen_has_settled_after_the_input() {
     let at = AgentTerminal::new();
     open_tui(&at);
-    assert_eq!(at.run(&["press", "j", "--wait-stable"]).success().stdout(), "pressed 1 key in default t1\n");
-    assert_eq!(at.run(&["press", "k", "--wait-stable", "100"]).success().stdout(), "pressed 1 key in default t1\n");
+    at.run(&["wait", "--stable", "100"]).success();
+    for (key, selected) in [("j", "beta.txt"), ("j", "gamma.txt"), ("k", "beta.txt")] {
+        let pressed = at.run(&["--json", "press", key, "--wait-stable", "100", "--snapshot"]).success().json();
+        assert_eq!(pressed["snapshot"]["lines"][1], format!("│alpha.txt         ││Selected: {selected:<18}│"));
+        assert_eq!(pressed["snapshot"]["frame"], at.run(&["--json", "get", "frame"]).success().json()["frame"]);
+    }
 }
 
 #[test]
