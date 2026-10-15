@@ -1,4 +1,5 @@
 use std::ffi::OsStr;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output, Stdio};
 
@@ -104,7 +105,7 @@ fn formula_version(printed: &str) -> Option<String> {
 }
 
 impl Installer {
-    fn of(binary: &Path) -> Option<&'static Self> {
+    fn of(binary: &Path) -> Result<&'static Self, String> {
         let parts: Vec<&OsStr> = binary.components().map(|part| part.as_os_str()).collect();
         let has = |run: &[&str]| parts.windows(run.len()).any(|window| window == run);
         let pnpm_store_links = parts.windows(2).any(|window| {
@@ -115,33 +116,54 @@ impl Installer {
                     .is_some_and(|number| !number.is_empty() && number.bytes().all(|digit| digit.is_ascii_digit()))
         });
         if has(&["Cellar"]) {
-            return Some(&HOMEBREW);
+            return Ok(&HOMEBREW);
         }
         if pnpm_store_links || has(&["node_modules", ".pnpm"]) {
-            return Some(&PNPM);
+            return Ok(&PNPM);
         }
         if has(&["yarn", "global", "node_modules"]) {
-            return Some(&YARN);
+            return Ok(&YARN);
         }
         if has(&["install", "global", "node_modules"]) {
-            return Some(&BUN);
+            return Ok(&BUN);
         }
         if has(&NPM_NESTING) {
-            return Some(&NPM);
+            return Ok(&NPM);
         }
         if !has(&["node_modules"]) {
-            return None;
+            return Err(undetectable(binary, &[]));
         }
-        let listed: Vec<&'static Self> = EVERY_INSTALLER
-            .into_iter()
-            .filter(|installer| {
-                installer.listing.is_some_and(|listing| lists_agent_terminal(installer.program, listing))
-            })
-            .collect();
-        match listed[..] {
-            [installer] => Some(installer),
-            _ => None,
+        let mut listed = Vec::new();
+        let mut failed = Vec::new();
+        for installer in EVERY_INSTALLER {
+            let Some(listing) = installer.listing else {
+                continue;
+            };
+            match installer.lists_agent_terminal(listing) {
+                Ok(true) => listed.push(installer),
+                Ok(false) => {}
+                Err(reason) => failed.push(reason),
+            }
         }
+        match (&listed[..], &failed[..]) {
+            ([installer], []) => Ok(installer),
+            _ => Err(undetectable(binary, &failed)),
+        }
+    }
+
+    fn lists_agent_terminal(&self, listing: &[&str]) -> Result<bool, String> {
+        let listed = match self.output(listing, Stdio::piped()) {
+            Ok(listed) => listed,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(self.cannot_run(listing, &e)),
+        };
+        if !listed.status.success() {
+            return Err(format!("`{}` failed ({})", self.line(listing), listed.status));
+        }
+        let listed = String::from_utf8_lossy(&listed.stdout);
+        Ok(listed
+            .match_indices(PACKAGE)
+            .any(|(at, _)| matches!(listed[at + PACKAGE.len()..].chars().next(), Some('@' | ' '))))
     }
 
     fn line(&self, args: &[&str]) -> String {
@@ -196,31 +218,24 @@ impl Installer {
     }
 
     fn run(&self, args: &[&str], stdout: Stdio) -> Result<Output, String> {
-        Command::new(self.program)
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(stdout)
-            .stderr(Stdio::inherit())
-            .output()
-            .map_err(|e| format!("cannot run `{}`: {e}", self.line(args)))
+        self.output(args, stdout).map_err(|e| self.cannot_run(args, &e))
+    }
+
+    fn output(&self, args: &[&str], stdout: Stdio) -> std::io::Result<Output> {
+        Command::new(self.program).args(args).stdin(Stdio::null()).stdout(stdout).stderr(Stdio::inherit()).output()
+    }
+
+    fn cannot_run(&self, args: &[&str], error: &std::io::Error) -> String {
+        format!("cannot run `{}`: {error}", self.line(args))
     }
 }
 
-fn lists_agent_terminal(program: &str, args: &[&str]) -> bool {
-    Command::new(program).args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().is_ok_and(|listing| {
-        let listed = String::from_utf8_lossy(&listing.stdout);
-        listing.status.success()
-            && listed
-                .match_indices(PACKAGE)
-                .any(|(at, _)| matches!(listed[at + PACKAGE.len()..].chars().next(), Some('@' | ' ')))
-    })
-}
-
-fn undetectable(binary: &Path) -> String {
+fn undetectable(binary: &Path, failed: &[String]) -> String {
     let commands: Vec<String> =
         EVERY_INSTALLER.iter().map(|installer| format!("  {}", installer.line(installer.reinstall))).collect();
+    let because = if failed.is_empty() { String::new() } else { format!(" ({})", failed.join("; ")) };
     format!(
-        "cannot tell which installer put agent-terminal at {}, so upgrade cannot update it; run the command of the one you used:\n{}",
+        "cannot tell which installer put agent-terminal at {}{because}, so upgrade cannot update it; run the command of the one you used:\n{}",
         binary.display(),
         commands.join("\n")
     )
@@ -236,7 +251,7 @@ pub fn run(json: bool) -> i32 {
 fn upgrade(json: bool) -> Result<(), String> {
     let invoked = std::env::current_exe().map_err(|e| format!("cannot find the agent-terminal binary: {e}"))?;
     let binary = invoked.canonicalize().map_err(|e| format!("cannot resolve {}: {e}", invoked.display()))?;
-    let installer = Installer::of(&binary).ok_or_else(|| undetectable(&binary))?;
+    let installer = Installer::of(&binary)?;
     let latest = installer.latest()?;
     let from = VERSION;
     let mut report = serde_json::json!({

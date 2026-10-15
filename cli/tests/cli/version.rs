@@ -1,3 +1,4 @@
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -348,6 +349,31 @@ fn upgrade_cannot_tell_the_installer_when_two_global_listings_have_agent_termina
         )
     );
     assert_eq!(install.calls(), "npm ls -g --depth=0\npnpm ls -g --depth=0\nyarn global list\nbun pm ls -g\n");
+}
+
+#[test]
+fn upgrade_cannot_tell_the_installer_when_a_global_listing_fails_or_cannot_run() {
+    let install = Install::new(RELOCATED_BINARY);
+    global_listings(&install, "corepack@0.29.4");
+    install.answering(
+        "pnpm",
+        &[(
+            "ls -g --depth=0",
+            "echo 'ERR_PNPM_NO_GLOBAL_BIN_DIR  Unable to find the global bin directory' >&2\nexit 1",
+        )],
+    );
+    std::fs::set_permissions(install.bin.join("bun"), std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let run = install.upgrade(&["upgrade"]);
+    assert_eq!((run.code(), run.stdout().as_str()), (1, ""));
+    assert_eq!(
+        run.stderr(),
+        format!(
+            "ERR_PNPM_NO_GLOBAL_BIN_DIR  Unable to find the global bin directory\nerror: cannot tell which installer put agent-terminal at {} (`pnpm ls -g --depth=0` failed (exit status: 1); cannot run `bun pm ls -g`: Permission denied (os error 13)), so upgrade cannot update it; run the command of the one you used:\n{EVERY_INSTALLER}\n",
+            install.binary.canonicalize().unwrap().display()
+        )
+    );
+    assert_eq!(install.calls(), "npm ls -g --depth=0\npnpm ls -g --depth=0\nyarn global list\n");
 }
 
 #[test]

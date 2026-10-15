@@ -126,7 +126,8 @@ Everything else:
                                pnpm bin -g, yarn global bin, bun pm bin -g, brew --prefix) to read its version and to refresh
                                an installed skill stub by the rules of install --skills
                                exit 1 when the registry can't be reached, or when the installer can't be told (it prints
-                               each installer's command); --json: installed_with, from, latest, to, stub_refreshed
+                               each installer's command, and why when a global listing it asked failed or could not run);
+                               --json: installed_with, from, latest, to, stub_refreshed
   version
 
 Options:
