@@ -4,6 +4,7 @@ mod commands;
 mod control;
 mod details;
 mod follow;
+mod fonts;
 mod guard;
 mod open;
 mod screenshots;
@@ -156,6 +157,7 @@ fn router(pages: guard::Pages, backend: Arc<dyn Backend>) -> Router {
         .route("/api/session/{session}/{tab}/control", get(control::take))
         .route("/api/session/{session}/{tab}/commands/stream", get(commands::stream))
         .route("/api/session/{session}/{tab}/commands/{id}", get(commands::output))
+        .route("/fonts/{name}", get(fonts::serve))
         .fallback(assets::serve)
         .with_state(backend)
         .layer(axum::middleware::from_fn_with_state(Arc::new(pages), guard::same_origin))

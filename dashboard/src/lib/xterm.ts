@@ -3,9 +3,11 @@ import "@xterm/xterm/css/xterm.css";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type ITheme } from "@xterm/xterm";
 
+import { mirrorRows, type ScreenRows } from "./screen-rows";
+
 export const LARGEST_FONT_PX = 13;
 
-const FONT = '"JetBrains Mono", ui-monospace, monospace';
+const FONT = '"JetBrains Mono NL", "Symbols Nerd Font Mono", "Noto Emoji", monospace';
 
 const PALETTE: ITheme = {
   background: "#111113",
@@ -31,8 +33,17 @@ const PALETTE: ITheme = {
   brightWhite: "#fafafa",
 };
 
+const FACES = [
+  `${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
+  `bold ${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
+  `italic ${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
+  `bold italic ${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
+  `${LARGEST_FONT_PX}px "Symbols Nerd Font Mono"`,
+  `${LARGEST_FONT_PX}px "Noto Emoji"`,
+];
+
 const fontsReady = () =>
-  Promise.all([document.fonts.load(`${LARGEST_FONT_PX}px ${FONT}`), document.fonts.load(`bold ${LARGEST_FONT_PX}px ${FONT}`)]).catch((error: unknown) =>
+  Promise.all(FACES.map((face) => document.fonts.load(face))).catch((error: unknown) =>
     console.warn("agent-terminal: the terminal font did not load; using a fallback", error),
   );
 
@@ -46,16 +57,9 @@ const drawWithWebgl = (terminal: Terminal) => {
   }
 };
 
-const dropAnnouncementsOnceDrawn = (terminal: Terminal) => {
-  const liveRegion = terminal.element?.querySelector(".live-region");
-  if (!liveRegion) return;
-  terminal.onRender(() => {
-    if (liveRegion.textContent) liveRegion.textContent = "";
-  });
-};
-
-export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () => void) => {
+export const openTerminal = (host: HTMLElement, use: (terminal: Terminal, drawn: () => void) => () => void) => {
   let terminal: Terminal | null = null;
+  let rows: ScreenRows | null = null;
   let release = () => {};
   let disposed = false;
   fontsReady().then(() => {
@@ -65,19 +69,19 @@ export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () 
       fontSize: LARGEST_FONT_PX,
       scrollback: 0,
       disableStdin: true,
-      screenReaderMode: true,
       cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches,
       cursorInactiveStyle: "block",
       theme: PALETTE,
     });
     terminal.open(host);
-    dropAnnouncementsOnceDrawn(terminal);
+    rows = mirrorRows(terminal, host);
     drawWithWebgl(terminal);
-    release = use(terminal);
+    release = use(terminal, rows.update);
   });
   return () => {
     disposed = true;
     release();
+    rows?.dispose();
     terminal?.dispose();
   };
 };
