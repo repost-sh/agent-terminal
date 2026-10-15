@@ -1089,6 +1089,11 @@ enum DaemonAction {
 pub fn run() -> i32 {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
+        Err(e) if e.use_stderr() && json_asked() => {
+            let rendered = e.render().to_string();
+            let message = rendered.strip_prefix("error: ").unwrap_or(&rendered).trim_end();
+            return output::refuse(message, true);
+        }
         Err(e) => {
             let code = if e.use_stderr() { crate::exit::ERROR } else { 0 };
             if let Err(print) = e.print() {
@@ -1130,7 +1135,7 @@ pub fn run() -> i32 {
                     output::session_id(&id, json);
                     0
                 }
-                Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
+                Err(e) => output::refuse(&format!("{e:#}"), json),
             };
         }
         Command::Version => return output::version(json),
@@ -1141,8 +1146,12 @@ pub fn run() -> i32 {
     };
     match request {
         Ok(request) => send(request, json, idle_timeout),
-        Err(message) => output::fail(&message, crate::exit::ERROR),
+        Err(message) => output::refuse(&message, json),
     }
+}
+
+fn json_asked() -> bool {
+    std::env::args_os().skip(1).take_while(|arg| arg != "--").any(|arg| arg == "--json")
 }
 
 fn request(cli: Cli) -> Result<Request, String> {
@@ -1293,7 +1302,7 @@ fn send(request: Request, json: bool, idle_timeout: Duration) -> i32 {
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     let response = match connection::send(&Call { typed: Some(typed), request }, if_not_running) {
         Ok(response) => response,
-        Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
+        Err(e) => return output::refuse(&format!("{e:#}"), json),
     };
     match response {
         Response::Err(error) => output::error(&error, json),

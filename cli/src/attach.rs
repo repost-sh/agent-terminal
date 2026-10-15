@@ -24,21 +24,21 @@ enum End {
 
 pub fn run(target: Target, read_only: bool, json: bool, launch: Launch) -> i32 {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        return output::fail(
+        return output::refuse(
             "attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead",
-            crate::exit::ERROR,
+            json,
         );
     }
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     let call = Call { typed: Some(typed), request: Request::Attach { target, read_only } };
     let (response, stream) = match connection::keep_open(&call, &launch) {
         Ok(opened) => opened,
-        Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
+        Err(e) => return output::refuse(&format!("{e:#}"), json),
     };
     let attached = match response {
         Response::Ok(Reply::Attached(attached)) => attached,
         Response::Ok(other) => {
-            return output::fail(&format!("the daemon answered attach with {other:?}"), crate::exit::ERROR);
+            return output::refuse(&format!("the daemon answered attach with {other:?}"), json);
         }
         Response::Err(error) => return output::error(&error, json),
     };
@@ -47,7 +47,7 @@ pub fn run(target: Target, read_only: bool, json: bool, launch: Launch) -> i32 {
             report(&attached, &end, json);
             0
         }
-        Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
+        Err(e) => output::refuse(&format!("{e:#}"), json),
     }
 }
 

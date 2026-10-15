@@ -462,6 +462,16 @@ pub fn fail(message: &str, code: i32) -> i32 {
     code
 }
 
+pub fn refuse(message: &str, json: bool) -> i32 {
+    if json {
+        return error(
+            &ErrorBody { code: crate::exit::ERROR, message: message.trim_end().to_string(), snapshot: None },
+            true,
+        );
+    }
+    fail(message, crate::exit::ERROR)
+}
+
 pub fn version(json: bool) -> i32 {
     let version = env!("CARGO_PKG_VERSION");
     if json {

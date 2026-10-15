@@ -258,7 +258,10 @@ async fn the_attach_tool_says_it_needs_a_terminal_and_what_to_use_instead() {
     let attached = call(&client, "attach", json!({ "read_only": true })).await;
     assert_eq!(attached.is_error, Some(true));
     assert_eq!(
-        text(&attached),
-        "error: attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead"
+        json_of(&attached),
+        json!({ "error": {
+            "code": 1,
+            "message": "attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead"
+        } })
     );
 }

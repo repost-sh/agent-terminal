@@ -274,3 +274,17 @@ fn batch_in_a_terminal_without_commands_does_not_wait_for_input() {
         run.stdout()
     );
 }
+
+#[test]
+fn a_batch_command_that_is_not_valid_with_json_is_a_json_error_on_stdout() {
+    let at = AgentTerminal::new();
+    let run = at.run(&["batch", "--json", "get nonsense"]);
+    assert_eq!((run.code(), run.stderr().as_str()), (1, ""));
+    assert_eq!(
+        run.json(),
+        serde_json::json!({ "error": {
+            "code": 1,
+            "message": "batch command 1 is not valid, so nothing ran: get nonsense\nerror: unrecognized subcommand 'nonsense'\n\nUsage: get [OPTIONS] <COMMAND>\n\nFor more information, try '--help'."
+        } })
+    );
+}
