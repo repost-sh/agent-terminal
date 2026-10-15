@@ -683,9 +683,9 @@ impl Terminal {
                     .map_err(anyhow::Error::msg)?;
                 let mut bytes = 0;
                 for _ in 0..*repeat {
-                    for key in &encoded {
-                        self.write(key)?;
-                        bytes += key.len();
+                    for (key, encoded) in keys.iter().zip(&encoded) {
+                        self.write_key(*key, encoded)?;
+                        bytes += encoded.len();
                     }
                 }
                 Ok(Delivery::Keys { keys: keys.len() * *repeat as usize, bytes })
@@ -793,7 +793,7 @@ impl Terminal {
     fn press(&self, key: Key) -> Result<usize> {
         let modes = self.state.lock().unwrap().screen.keyboard_modes();
         let bytes = keyboard::encode(key, modes).map_err(anyhow::Error::msg)?;
-        self.write(&bytes)?;
+        self.write_key(key, &bytes)?;
         Ok(bytes.len())
     }
 
@@ -812,11 +812,19 @@ impl Terminal {
         }
     }
 
+    fn write_key(&self, key: Key, bytes: &[u8]) -> Result<()> {
+        self.send(bytes, key.code == KeyCode::Enter || ends_a_line(bytes))
+    }
+
     fn write(&self, bytes: &[u8]) -> Result<()> {
+        self.send(bytes, ends_a_line(bytes))
+    }
+
+    fn send(&self, bytes: &[u8], enters: bool) -> Result<()> {
         {
             let mut state = self.running()?;
             if let Some(commands) = &mut state.commands
-                && bytes.iter().any(|byte| matches!(byte, b'\r' | b'\n'))
+                && enters
             {
                 commands.entered();
             }
@@ -919,6 +927,10 @@ fn matches_on(screen: &Screen, pattern: &regex::Regex, first: i32) -> Vec<Match>
         }
     }
     matches
+}
+
+fn ends_a_line(bytes: &[u8]) -> bool {
+    bytes.iter().any(|byte| matches!(byte, b'\r' | b'\n'))
 }
 
 fn no_mouse() -> anyhow::Error {
