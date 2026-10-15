@@ -133,3 +133,13 @@ test('a release missing a platform is refused, naming the platform', (t) => {
   assert.match(run.stderr, /no agent-terminal archive for aarch64-unknown-linux-musl/);
   assert.equal(fs.existsSync(path.join(dir, 'npm')), false);
 });
+
+test('a release with a platform no npm package carries is refused, naming the platform', (t) => {
+  const dir = tempDir(t);
+  distRelease(dir, [...TARGETS, 'riscv64gc-unknown-linux-gnu'], printTarget);
+
+  const run = build(dir);
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /dist builds riscv64gc-unknown-linux-gnu, which has no entry in npm\/agent-terminal\/lib\/platform\.js/);
+  assert.equal(fs.existsSync(path.join(dir, 'npm')), false);
+});

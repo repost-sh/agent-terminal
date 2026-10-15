@@ -49,8 +49,12 @@ grep -q '^default t1 · line-printer · 40x10 ·' "$out" || fail "the snapshot h
 grep -q '^ 3│line 3$' "$out" || fail "the snapshot does not show the fixture's third line"
 run agent-terminal close
 run agent-terminal daemon stop
-agent-terminal doctor < /dev/null > "$out" 2>&1 || true
+agent-terminal --json doctor < /dev/null > "$out" 2>&1 || true
 cat "$out"
-grep -q '^ok  *daemon  *not running' "$out" || fail "the daemon is still running after daemon stop"
+daemon=$(grep -o '{[^{}]*"name":"daemon"[^{}]*}' "$out")
+case $daemon in
+  *'"status":"ok"'*'not running'* | *'not running'*'"status":"ok"'*) ;;
+  *) fail "the daemon is still running after daemon stop: $daemon" ;;
+esac
 
 echo "agent-terminal $version from $bin passed every check"

@@ -94,18 +94,35 @@ function platformManifest(main, platform, version) {
   return manifest;
 }
 
-function writePackagesWithoutBinaries(version, out) {
+function unpackagedTargets(manifest) {
+  const known = new Set(PLATFORMS.map((platform) => platform.target));
+  return Object.values(manifest.artifacts)
+    .filter((artifact) => artifact.kind === 'executable-zip')
+    .flatMap((artifact) => artifact.target_triples)
+    .filter((target) => !known.has(target));
+}
+
+function build({ manifest: manifestPath, artifacts, out }) {
+  const dist = readJson(manifestPath);
+  const version = releaseVersion(dist);
+  const unpackaged = unpackagedTargets(dist);
+  if (unpackaged.length > 0) {
+    throw new Error(
+      `dist builds ${unpackaged.join(', ')}, which has no entry in npm/agent-terminal/lib/platform.js, so no npm package would carry it`,
+    );
+  }
+  const archives = PLATFORMS.map((platform) => archiveFor(dist, artifacts, platform.target));
   const main = readJson(path.join(TEMPLATE, 'package.json'));
 
   fs.mkdirSync(out, { recursive: true });
-  const platforms = PLATFORMS.map((platform) => {
+  PLATFORMS.forEach((platform, index) => {
     const manifest = platformManifest(main, platform, version);
     const directory = path.join(out, manifest.name);
     fs.mkdirSync(directory, { recursive: true });
     writeJson(path.join(directory, 'package.json'), manifest);
     fs.copyFileSync(path.join(ROOT, 'LICENSE'), path.join(directory, 'LICENSE'));
     fs.cpSync(path.join(ROOT, 'licenses'), path.join(directory, 'licenses'), { recursive: true });
-    return directory;
+    extractBinary(archives[index], path.join(directory, 'bin', BINARY));
   });
 
   const directory = path.join(out, main.name);
@@ -116,15 +133,6 @@ function writePackagesWithoutBinaries(version, out) {
   writeJson(path.join(directory, 'package.json'), { name: main.name, version, ...main, optionalDependencies });
   fs.copyFileSync(path.join(ROOT, 'README.md'), path.join(directory, 'README.md'));
   fs.copyFileSync(path.join(ROOT, 'LICENSE'), path.join(directory, 'LICENSE'));
-  return { platforms, main: directory };
-}
-
-function build({ manifest: manifestPath, artifacts, out }) {
-  const dist = readJson(manifestPath);
-  const version = releaseVersion(dist);
-  const archives = PLATFORMS.map((platform) => archiveFor(dist, artifacts, platform.target));
-  const { platforms } = writePackagesWithoutBinaries(version, out);
-  platforms.forEach((directory, index) => extractBinary(archives[index], path.join(directory, 'bin', BINARY)));
 }
 
 if (require.main === module) {
@@ -136,4 +144,3 @@ if (require.main === module) {
   }
 }
 
-module.exports = { writePackagesWithoutBinaries };

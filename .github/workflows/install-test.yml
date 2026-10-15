@@ -1,0 +1,149 @@
+name: Install test
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version every install must report
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rows:
+    name: List the platforms to install on
+    runs-on: ubuntu-24.04
+    outputs:
+      install: ${{ steps.rows.outputs.install }}
+      fixtures: ${{ steps.rows.outputs.fixtures }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - id: rows
+        run: node .github/install-test/rows.js >> "$GITHUB_OUTPUT"
+
+  fixtures:
+    name: Build the line-printer fixture for ${{ matrix.target }}
+    needs: rows
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.rows.outputs.fixtures) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install the Rust toolchain rust-toolchain.toml pins, with the ${{ matrix.target }} target
+        run: |
+          rustup toolchain install
+          rustup target add ${{ matrix.target }}
+      - name: Install musl-tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build the line-printer fixture
+        working-directory: cli
+        run: cargo build --release -p at-fixtures --bin line-printer --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fixture-${{ matrix.target }}
+          path: cli/target/${{ matrix.target }}/release/line-printer
+          if-no-files-found: error
+
+  install:
+    name: ${{ matrix.channel }} on ${{ matrix.target }}
+    needs: [rows, fixtures]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.rows.outputs.install) }}
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm
+          path: ${{ runner.temp }}/artifacts/npm
+      - uses: actions/download-artifact@v8
+        with:
+          name: archive-${{ matrix.target }}
+          path: ${{ runner.temp }}/artifacts/archive
+      - uses: actions/download-artifact@v8
+        with:
+          name: fixture-${{ matrix.fixture }}
+          path: ${{ runner.temp }}/fixture
+      - run: chmod +x "$RUNNER_TEMP/fixture/line-printer"
+      - name: Install with ${{ matrix.channel }} in a clean ${{ matrix.image }} container, then check it with no TTY
+        if: matrix.image
+        run: >-
+          docker run --rm
+          --volume "$RUNNER_TEMP:$RUNNER_TEMP" --volume "$PWD:$PWD:ro" --workdir "$PWD"
+          --env VERSION --env RUNNER_TEMP
+          ${{ matrix.image }} sh -c '
+          sh .github/install-test/install.sh ${{ matrix.channel }} "$RUNNER_TEMP/artifacts" "$RUNNER_TEMP/state" "${{ matrix.package }}" &&
+          sh .github/install-test/check.sh "$RUNNER_TEMP/state" "$VERSION" "$RUNNER_TEMP/fixture/line-printer"'
+      - name: Check the install again in a container with no network
+        if: matrix.image
+        run: >-
+          docker run --rm --network none
+          --volume "$RUNNER_TEMP:$RUNNER_TEMP" --volume "$PWD:$PWD:ro" --workdir "$PWD"
+          --env VERSION --env RUNNER_TEMP
+          ${{ matrix.image }} sh -c 'sh .github/install-test/check.sh "$RUNNER_TEMP/state" "$VERSION" "$RUNNER_TEMP/fixture/line-printer"'
+      - name: Install with ${{ matrix.channel }}, then check it with no TTY
+        if: ${{ !matrix.image }}
+        run: |
+          sh .github/install-test/install.sh ${{ matrix.channel }} "$RUNNER_TEMP/artifacts" "$RUNNER_TEMP/state" "${{ matrix.package }}"
+          sh .github/install-test/check.sh "$RUNNER_TEMP/state" "$VERSION" "$RUNNER_TEMP/fixture/line-printer"
+
+  old-glibc:
+    name: The gnu binary on ${{ matrix.distro }} ${{ matrix.arch }}
+    needs: fixtures
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [debian:11, ubuntu:20.04, rockylinux/rockylinux:8]
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            fixture: x86_64-unknown-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            fixture: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: archive-${{ matrix.target }}
+          path: ${{ runner.temp }}/artifacts/archive
+      - uses: actions/download-artifact@v8
+        with:
+          name: fixture-${{ matrix.fixture }}
+          path: ${{ runner.temp }}/fixture
+      - run: chmod +x "$RUNNER_TEMP/fixture/line-printer"
+      - name: Unpack the release archive after checking its checksum
+        run: sh .github/install-test/install.sh archive "$RUNNER_TEMP/artifacts" "$RUNNER_TEMP/state"
+      - name: Run the gnu binary on ${{ matrix.distro }}, with no TTY and no network
+        run: >-
+          docker run --rm --network none
+          --volume "$RUNNER_TEMP:$RUNNER_TEMP" --volume "$PWD:$PWD:ro" --workdir "$PWD"
+          --env VERSION --env RUNNER_TEMP
+          ${{ matrix.distro }} sh -c 'getconf GNU_LIBC_VERSION && sh .github/install-test/check.sh "$RUNNER_TEMP/state" "$VERSION" "$RUNNER_TEMP/fixture/line-printer"'
