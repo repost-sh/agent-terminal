@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::{ArgGroup, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
 use crate::attach;
 use crate::batch;
@@ -1097,7 +1097,10 @@ enum DaemonAction {
 }
 
 pub fn run() -> i32 {
-    let cli = match Cli::try_parse_from(open_options_first(&Cli::command(), std::env::args_os().collect())) {
+    let mut parser = Cli::command();
+    let parsed = parse(&mut parser, std::env::args_os().collect())
+        .and_then(|mut matches| Cli::from_arg_matches_mut(&mut matches).map_err(|e| e.format(&mut parser)));
+    let cli = match parsed {
         Ok(cli) => cli,
         Err(e) if e.use_stderr() && json_asked() => {
             let rendered = e.render().to_string();
@@ -1332,27 +1335,32 @@ pub fn without_global_options(typed: &[String]) -> Vec<String> {
     words
 }
 
-fn open_options_first(parser: &clap::Command, argv: Vec<OsString>) -> Vec<OsString> {
-    let Ok(matches) = parser.clone().try_get_matches_from(&argv) else { return argv };
-    let (path, opened) = match matches.subcommand() {
-        Some(("open", opened)) => (["open", ""], opened),
-        Some(("tab", tab)) => match tab.subcommand() {
-            Some(("new", opened)) => (["tab", "new"], opened),
-            _ => return argv,
+fn parse(parser: &mut clap::Command, argv: Vec<OsString>) -> Result<ArgMatches, clap::Error> {
+    let matches = parser.try_get_matches_from_mut(&argv)?;
+    match open_options_first(parser, &matches, &argv) {
+        Some(reordered) => parser.try_get_matches_from_mut(reordered),
+        None => Ok(matches),
+    }
+}
+
+fn open_options_first(parser: &clap::Command, matches: &ArgMatches, argv: &[OsString]) -> Option<Vec<OsString>> {
+    let (path, opened) = match matches.subcommand()? {
+        ("open", opened) => (["open", ""], opened),
+        ("tab", tab) => match tab.subcommand()? {
+            ("new", opened) => (["tab", "new"], opened),
+            _ => return None,
         },
-        _ => return argv,
+        _ => return None,
     };
-    let Some(command) = opened.get_many::<String>("command") else { return argv };
-    let command: Vec<&String> = command.collect();
+    let command: Vec<&String> = opened.get_many::<String>("command")?.collect();
     let program_at = argv.len() - command.len();
     if argv[..program_at].last().is_some_and(|before| before == "--") {
-        return argv;
+        return None;
     }
     let mut parser = parser.clone();
     parser.build();
     let open =
-        path.iter().filter(|name| !name.is_empty()).try_fold(&parser, |command, name| command.find_subcommand(name));
-    let Some(open) = open else { return argv };
+        path.iter().filter(|name| !name.is_empty()).try_fold(&parser, |command, name| command.find_subcommand(name))?;
     let own = |token: &str| {
         let name = token.strip_prefix("--")?.split('=').next()?;
         let arg = open.get_arguments().find(|arg| arg.get_long() == Some(name))?;
@@ -1391,18 +1399,17 @@ fn open_options_first(parser: &clap::Command, argv: Vec<OsString>) -> Vec<OsStri
         options.extend(value.map(OsString::from));
     }
     if options.is_empty() && !separated {
-        return argv;
+        return None;
     }
     let mut reordered = argv[..program_at].to_vec();
     reordered.extend(options);
     reordered.push("--".into());
     reordered.extend(program);
-    reordered
+    Some(reordered)
 }
 
-fn batch_step(parser: clap::Command, call: &[String]) -> Result<Request, String> {
-    let call = open_options_first(&parser, call.iter().map(OsString::from).collect());
-    let matches = parser.try_get_matches_from(call).map_err(|e| e.render().to_string())?;
+fn batch_step(mut parser: clap::Command, call: &[String]) -> Result<Request, String> {
+    let matches = parse(&mut parser, call.iter().map(OsString::from).collect()).map_err(|e| e.render().to_string())?;
     request(Cli::from_arg_matches(&matches).map_err(|e| e.render().to_string())?)
 }
 

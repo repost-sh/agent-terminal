@@ -21,6 +21,22 @@ fn batch_runs_commands_in_order_and_prints_each_output_and_exit_code() {
 }
 
 #[test]
+fn options_of_open_after_the_program_are_open_options_in_a_batch_too() {
+    let at = AgentTerminal::new();
+    let run =
+        at.run(&["batch", "open sh -c 'echo \"args: $#\"; read _' sh --size 30x3 --wait args", "close"]).success();
+    insta::assert_snapshot!(run.screen(), @r#"
+    [1] open sh -c 'echo "args: $#"; read _' sh --size 30x3 --wait args · exit 0
+    default t1 · sh · 30x3 · cursor 2,1 · frame N
+    1│args: 0
+    …│ (rows 2-3 blank)
+
+    [2] close · exit 0
+    closed default t1
+    "#);
+}
+
+#[test]
 fn a_failed_command_does_not_stop_the_batch_and_sets_its_exit_code() {
     let at = AgentTerminal::new();
     let run = at.run(&["batch", "snapshot", "open --size 20x2 cat", "close", "close"]);
