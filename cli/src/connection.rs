@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, ErrorKind};
+use std::io::{BufRead, BufReader, ErrorKind, Read};
 use std::os::fd::RawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
@@ -9,9 +9,12 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
-use crate::protocol::{self, Call, Reply, Response};
+use crate::VERSION;
+use crate::output::count;
+use crate::protocol::{self, Call, ErrorBody, OtherVersion, Reply, Request, Response};
 
 pub const READY: &str = "ready";
+const STOPS_WITHIN: Duration = Duration::from_secs(10);
 
 pub enum IfNotRunning {
     Start(Launch),
@@ -36,10 +39,54 @@ pub fn socket_path() -> Result<PathBuf> {
     Ok(home()?.join("daemon.sock"))
 }
 
+pub fn version_path() -> Result<PathBuf> {
+    Ok(home()?.join("daemon.version"))
+}
+
+pub fn running_version() -> Result<Option<String>> {
+    let path = version_path()?;
+    match std::fs::read_to_string(&path) {
+        Ok(version) => Ok(Some(version.trim().to_string())),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("read the daemon's version from {}", path.display())),
+    }
+}
+
+pub fn started_version() -> Result<Option<String>> {
+    let running = running_version()?;
+    if running.as_deref() == Some(VERSION) {
+        return Ok(running);
+    }
+    let _lock = start_lock(&home()?)?;
+    running_version()
+}
+
+pub fn daemon_stop_advice(cli_version: Option<&str>) -> String {
+    let next = match cli_version {
+        Some(version) => format!("a {version} daemon"),
+        None => "a daemon of the command's version".to_string(),
+    };
+    format!("`agent-terminal daemon stop` ends it and its terminals, and the next command starts {next}")
+}
+
+pub fn daemon_of(version: Option<&str>) -> String {
+    match version {
+        Some(version) => format!("agent-terminal {version}"),
+        None => "an agent-terminal that does not record its version".to_string(),
+    }
+}
+
+enum Reached {
+    Daemon(UnixStream),
+    NotRunning,
+    Refused(ErrorBody),
+}
+
 pub fn send(call: &Call, if_not_running: IfNotRunning) -> Result<Response> {
-    let mut stream = match connect()? {
-        Some(stream) => stream,
-        None => match if_not_running {
+    let mut stream = match reach(&call.request)? {
+        Reached::Daemon(stream) => stream,
+        Reached::Refused(refusal) => return Ok(Response::Err(refusal)),
+        Reached::NotRunning => match if_not_running {
             IfNotRunning::Answer(reply) => return Ok(Response::Ok(reply)),
             IfNotRunning::Start(launch) => connect_or_start(&launch)?,
         },
@@ -48,14 +95,70 @@ pub fn send(call: &Call, if_not_running: IfNotRunning) -> Result<Response> {
     protocol::read(&mut stream)?.context("the daemon closed the connection without replying")
 }
 
-pub fn keep_open(call: &Call, launch: &Launch) -> Result<(Response, UnixStream)> {
-    let mut stream = match connect()? {
-        Some(stream) => stream,
-        None => connect_or_start(launch)?,
+pub fn keep_open(call: &Call, launch: &Launch) -> Result<Result<(Response, UnixStream), ErrorBody>> {
+    let mut stream = match reach(&call.request)? {
+        Reached::Daemon(stream) => stream,
+        Reached::Refused(refusal) => return Ok(Err(refusal)),
+        Reached::NotRunning => connect_or_start(launch)?,
     };
     protocol::write(&mut stream, call)?;
     let response = protocol::read(&mut stream)?.context("the daemon closed the connection without replying")?;
-    Ok((response, stream))
+    Ok(Ok((response, stream)))
+}
+
+fn reach(request: &Request) -> Result<Reached> {
+    let Some(stream) = connect()? else {
+        return Ok(Reached::NotRunning);
+    };
+    if matches!(request, Request::Stop) || running_version()?.as_deref() == Some(VERSION) {
+        return Ok(Reached::Daemon(stream));
+    }
+    drop(stream);
+    replace_other_version()
+}
+
+fn replace_other_version() -> Result<Reached> {
+    let _lock = start_lock(&home()?)?;
+    let Some(mut stream) = connect()? else {
+        return Ok(Reached::NotRunning);
+    };
+    let running = running_version()?;
+    if running.as_deref() == Some(VERSION) {
+        return Ok(Reached::Daemon(stream));
+    }
+    let asking = || format!("ask the daemon ({}) to stop", daemon_of(running.as_deref()));
+    stream.set_read_timeout(Some(STOPS_WITHIN)).with_context(asking)?;
+    protocol::write(&mut stream, &Call { typed: None, request: Request::StopIfNoTerminals }).with_context(asking)?;
+    match protocol::read(&mut stream).with_context(asking)? {
+        Some(Response::Ok(Reply::Stopped)) => {
+            let exit = || format!("wait for the daemon ({}) to exit", daemon_of(running.as_deref()));
+            stream.read_to_end(&mut Vec::new()).with_context(exit)?;
+            Ok(Reached::NotRunning)
+        }
+        Some(Response::Ok(Reply::KeptRunning(kept))) => {
+            Ok(Reached::Refused(other_version(running.as_deref(), Some(kept.terminals))))
+        }
+        Some(Response::Ok(other)) => {
+            bail!("{} answered the request to stop with {other:?}", daemon_of(running.as_deref()))
+        }
+        Some(Response::Err(error)) => Ok(Reached::Refused(error)),
+        None => Ok(Reached::Refused(other_version(running.as_deref(), None))),
+    }
+}
+
+fn other_version(running: Option<&str>, terminals: Option<usize>) -> ErrorBody {
+    let open = match terminals {
+        Some(terminals) => format!("it has {}", count(terminals, "open terminal")),
+        None => "it did not say how many terminals it has open".to_string(),
+    };
+    ErrorBody::other_version(
+        format!(
+            "the daemon is {}, not {VERSION} like this command, and {open}, so it was left running; {}",
+            daemon_of(running),
+            daemon_stop_advice(Some(VERSION))
+        ),
+        OtherVersion { cli_version: Some(VERSION.to_string()), daemon_version: running.map(str::to_string), terminals },
+    )
 }
 
 fn connect() -> Result<Option<UnixStream>> {

@@ -88,7 +88,7 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Delivered(delivered) => println!("{}", serde_json::json!(delivered)),
         Reply::Waited(waited) => println!("{}", serde_json::json!(waited)),
         Reply::Checked(checked) => println!("{}", serde_json::json!(checked)),
-        Reply::Stopped => {}
+        Reply::Stopped | Reply::KeptRunning(_) => {}
         Reply::Batch(outcomes) => println!("{}", batch_json(outcomes)),
         Reply::Fact(fact) => println!("{}", serde_json::json!(fact)),
         Reply::Matches(matches) => println!("{}", serde_json::json!(matches)),
@@ -131,7 +131,7 @@ pub fn reply_text(reply: &Reply) -> String {
             format!("waited {waited_ms} ms for {until} in {session} {tab}{code}\n")
         }
         Reply::Checked(Checked { session, tab, fact }) => format!("{fact} in {session} {tab}\n"),
-        Reply::Stopped => String::new(),
+        Reply::Stopped | Reply::KeptRunning(_) => String::new(),
         Reply::Batch(outcomes) => batch_text(outcomes),
         Reply::Fact(fact) => fact_text(fact),
         Reply::Matches(matches) => {
@@ -405,7 +405,7 @@ fn modes_text(modes: &Modes) -> String {
     )
 }
 
-fn count(n: usize, noun: &str) -> String {
+pub fn count(n: usize, noun: &str) -> String {
     if n == 1 { format!("1 {noun}") } else { format!("{n} {noun}s") }
 }
 
@@ -476,20 +476,16 @@ pub fn fail(message: &str, code: i32) -> i32 {
 
 pub fn refuse(message: &str, json: bool) -> i32 {
     if json {
-        return error(
-            &ErrorBody { code: crate::exit::ERROR, message: message.trim_end().to_string(), snapshot: None },
-            true,
-        );
+        return error(&ErrorBody::failure(message.trim_end()), true);
     }
     fail(message, crate::exit::ERROR)
 }
 
 pub fn version(json: bool) -> i32 {
-    let version = env!("CARGO_PKG_VERSION");
     if json {
-        println!("{}", serde_json::json!({ "version": version }));
+        println!("{}", serde_json::json!({ "version": crate::VERSION }));
     } else {
-        println!("agent-terminal {version}");
+        println!("agent-terminal {}", crate::VERSION);
     }
     0
 }

@@ -83,6 +83,7 @@ function platformManifest(main, platform, version) {
     description: `The ${BINARY} binary for ${platform.os} ${platform.cpu}${variant}`,
     license: main.license,
     repository: main.repository,
+    publishConfig: main.publishConfig,
     os: [platform.os],
     cpu: [platform.cpu],
   };
@@ -93,21 +94,18 @@ function platformManifest(main, platform, version) {
   return manifest;
 }
 
-function build({ manifest: manifestPath, artifacts, out }) {
-  const dist = readJson(manifestPath);
-  const version = releaseVersion(dist);
-  const archives = PLATFORMS.map((platform) => archiveFor(dist, artifacts, platform.target));
+function writePackagesWithoutBinaries(version, out) {
   const main = readJson(path.join(TEMPLATE, 'package.json'));
 
   fs.mkdirSync(out, { recursive: true });
-  PLATFORMS.forEach((platform, index) => {
+  const platforms = PLATFORMS.map((platform) => {
     const manifest = platformManifest(main, platform, version);
     const directory = path.join(out, manifest.name);
     fs.mkdirSync(directory, { recursive: true });
     writeJson(path.join(directory, 'package.json'), manifest);
     fs.copyFileSync(path.join(ROOT, 'LICENSE'), path.join(directory, 'LICENSE'));
     fs.cpSync(path.join(ROOT, 'licenses'), path.join(directory, 'licenses'), { recursive: true });
-    extractBinary(archives[index], path.join(directory, 'bin', BINARY));
+    return directory;
   });
 
   const directory = path.join(out, main.name);
@@ -118,11 +116,24 @@ function build({ manifest: manifestPath, artifacts, out }) {
   writeJson(path.join(directory, 'package.json'), { name: main.name, version, ...main, optionalDependencies });
   fs.copyFileSync(path.join(ROOT, 'README.md'), path.join(directory, 'README.md'));
   fs.copyFileSync(path.join(ROOT, 'LICENSE'), path.join(directory, 'LICENSE'));
+  return { platforms, main: directory };
 }
 
-try {
-  build(parseArgs(process.argv.slice(2)));
-} catch (error) {
-  console.error(error.message);
-  process.exit(1);
+function build({ manifest: manifestPath, artifacts, out }) {
+  const dist = readJson(manifestPath);
+  const version = releaseVersion(dist);
+  const archives = PLATFORMS.map((platform) => archiveFor(dist, artifacts, platform.target));
+  const { platforms } = writePackagesWithoutBinaries(version, out);
+  platforms.forEach((directory, index) => extractBinary(archives[index], path.join(directory, 'bin', BINARY)));
 }
+
+if (require.main === module) {
+  try {
+    build(parseArgs(process.argv.slice(2)));
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+}
+
+module.exports = { writePackagesWithoutBinaries };

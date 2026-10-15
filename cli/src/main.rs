@@ -15,12 +15,19 @@ mod upgrade;
 
 use std::fmt;
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub fn this_version() -> semver::Version {
+    semver::Version::parse(VERSION).expect("the package version is semver")
+}
+
 pub mod exit {
     pub const ERROR: i32 = 1;
     pub const ASSERTION: i32 = 2;
     pub const TIMEOUT: i32 = 3;
     pub const HUMAN_CONTROL: i32 = 4;
     pub const EXITED: i32 = 5;
+    pub const OTHER_VERSION: i32 = 6;
 }
 
 #[derive(Debug)]

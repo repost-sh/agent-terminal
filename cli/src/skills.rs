@@ -1,16 +1,16 @@
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use clap::Subcommand;
 use semver::Version;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
+use crate::VERSION;
 use crate::connection;
 use crate::output;
 use crate::protocol::ErrorBody;
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Subcommand)]
 pub enum Action {
@@ -65,7 +65,8 @@ impl Skill {
 
     fn guide(&self) -> String {
         let (front, body) = self.sections();
-        format!("---\n{front}\nmetadata:\n  version: \"{VERSION}\"\n---\n{body}")
+        let fields = front.split_once("\nmetadata:\n").map_or(front, |(fields, _)| fields);
+        format!("---\n{fields}\nmetadata:\n  version: \"{VERSION}\"\n---\n{body}")
     }
 
     fn files(&self) -> Vec<(&'static str, String)> {
@@ -87,8 +88,8 @@ impl Skill {
         description.find(". ").map_or(description, |end| &description[..=end])
     }
 
-    fn hidden(&self) -> bool {
-        self.frontmatter("hidden") == Some("true")
+    fn is_stub(&self) -> bool {
+        self.name == "agent-terminal"
     }
 }
 
@@ -124,44 +125,104 @@ pub fn install(json: bool) -> i32 {
 fn finish(result: Result<()>, json: bool) -> i32 {
     match result {
         Ok(()) => 0,
-        Err(e) => {
-            output::error(&ErrorBody { code: crate::exit::ERROR, message: format!("{e:#}"), snapshot: None }, json)
+        Err(e) => output::error(&ErrorBody::failure(format!("{e:#}")), json),
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Installed {
+    pub installed: bool,
+    pub path: PathBuf,
+    pub version: String,
+}
+
+pub enum Stub {
+    Missing,
+    Current,
+    Older(Version),
+    Unversioned,
+    Newer(Version),
+}
+
+impl Stub {
+    fn of(contents: &[u8]) -> Self {
+        let ours = crate::this_version();
+        match stamped_version(&String::from_utf8_lossy(contents)) {
+            None => Stub::Unversioned,
+            Some(theirs) if theirs == ours => Stub::Current,
+            Some(theirs) if theirs > ours => Stub::Newer(theirs),
+            Some(theirs) => Stub::Older(theirs),
         }
     }
 }
 
-#[derive(Serialize)]
-struct Installed {
-    installed: bool,
-    path: PathBuf,
-    version: String,
+pub struct InstalledStub {
+    pub path: PathBuf,
+    pub stub: Stub,
+    pub rewritten: bool,
+}
+
+pub fn installed_stub() -> Result<InstalledStub> {
+    let path = stub_path()?;
+    let stub =
+        open_stub(&path, OpenOptions::new().read(true), File::lock_shared)?.map_or(Stub::Missing, |(_, stub)| stub);
+    Ok(InstalledStub { path, stub, rewritten: false })
+}
+
+pub fn repair_stub() -> Result<InstalledStub> {
+    let path = stub_path()?;
+    let Some((mut file, stub)) = open_stub(&path, OpenOptions::new().read(true).write(true), File::lock)? else {
+        return Ok(InstalledStub { path, stub: Stub::Missing, rewritten: false });
+    };
+    let rewritten = matches!(stub, Stub::Older(_) | Stub::Unversioned);
+    if rewritten {
+        write_stub(&mut file, &path)?;
+    }
+    Ok(InstalledStub { path, stub, rewritten })
+}
+
+fn stub_path() -> Result<PathBuf> {
+    let user =
+        std::env::var_os("HOME").context("HOME is not set; it locates the agent skills folder ~/.claude/skills")?;
+    Ok(PathBuf::from(user).join(".claude/skills/agent-terminal/SKILL.md"))
 }
 
 fn install_stub() -> Result<Installed> {
-    let user =
-        std::env::var_os("HOME").context("HOME is not set; it locates the agent skills folder ~/.claude/skills")?;
-    let path = PathBuf::from(user).join(".claude/skills/agent-terminal/SKILL.md");
+    let path = stub_path()?;
     let folder = path.parent().context("the stub has a folder")?;
     std::fs::create_dir_all(folder).with_context(|| format!("create {}", folder.display()))?;
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&path)
-        .with_context(|| format!("open {}", path.display()))?;
-    file.lock().with_context(|| format!("lock {}", path.display()))?;
-    let mut existing = Vec::new();
-    file.read_to_end(&mut existing).with_context(|| format!("read {}", path.display()))?;
-    let ours = Version::parse(VERSION).expect("the package version is semver");
-    if let Some(theirs) = stamped_version(&String::from_utf8_lossy(&existing)).filter(|theirs| *theirs > ours) {
+    let mut creating = OpenOptions::new();
+    creating.read(true).write(true).create(true).truncate(false);
+    let (mut file, stub) =
+        open_stub(&path, &creating, File::lock)?.with_context(|| format!("create {}", path.display()))?;
+    if let Stub::Newer(theirs) = stub {
         return Ok(Installed { installed: false, path, version: theirs.to_string() });
     }
+    write_stub(&mut file, &path)?;
+    Ok(Installed { installed: true, path, version: VERSION.to_string() })
+}
+
+fn open_stub(
+    path: &Path,
+    options: &OpenOptions,
+    lock: fn(&File) -> std::io::Result<()>,
+) -> Result<Option<(File, Stub)>> {
+    let mut file = match options.open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e).with_context(|| format!("open {}", path.display())),
+    };
+    lock(&file).with_context(|| format!("lock {}", path.display()))?;
+    let mut contents = Vec::new();
+    file.read_to_end(&mut contents).with_context(|| format!("read {}", path.display()))?;
+    Ok(Some((file, Stub::of(&contents))))
+}
+
+fn write_stub(file: &mut File, path: &Path) -> Result<()> {
     let stub = find("agent-terminal")?.guide();
     file.set_len(0).with_context(|| format!("truncate {}", path.display()))?;
     file.seek(SeekFrom::Start(0)).with_context(|| format!("rewind {}", path.display()))?;
-    file.write_all(stub.as_bytes()).with_context(|| format!("write {}", path.display()))?;
-    Ok(Installed { installed: true, path, version: VERSION.to_string() })
+    file.write_all(stub.as_bytes()).with_context(|| format!("write {}", path.display()))
 }
 
 fn stamped_version(stub: &str) -> Option<Version> {
@@ -183,7 +244,7 @@ fn find(name: &str) -> Result<&'static Skill> {
 }
 
 fn list(json: bool) {
-    let listed: Vec<&Skill> = SKILLS.iter().filter(|skill| !skill.hidden()).collect();
+    let listed: Vec<&Skill> = SKILLS.iter().filter(|skill| !skill.is_stub()).collect();
     if json {
         let skills: Vec<_> = listed
             .iter()
@@ -219,17 +280,38 @@ fn get(name: &str, full: bool, json: bool, cli: clap::Command) -> Result<()> {
 
 fn path(name: Option<&str>, json: bool) -> Result<()> {
     let skill = name.map(find).transpose()?;
-    let root = connection::home()?.join("skills").join(VERSION);
+    let cache = connection::home()?.join("skills");
+    let root = cache.join(VERSION);
     for each in SKILLS {
         for (relative, text) in each.files() {
             write_atomically(&root.join(each.name).join(relative), &text)?;
         }
     }
+    remove_older_versions(&cache)?;
     let path = skill.map_or_else(|| root.clone(), |skill| root.join(skill.name));
     if json {
         println!("{}", serde_json::json!({ "path": path }));
     } else {
         println!("{}", path.display());
+    }
+    Ok(())
+}
+
+fn remove_older_versions(cache: &Path) -> Result<()> {
+    let ours = crate::this_version();
+    for entry in std::fs::read_dir(cache).with_context(|| format!("read {}", cache.display()))? {
+        let entry = entry.with_context(|| format!("read {}", cache.display()))?;
+        let folder = entry.path();
+        let older =
+            entry.file_name().to_str().and_then(|name| Version::parse(name).ok()).is_some_and(|theirs| theirs < ours);
+        if !older || !entry.file_type().with_context(|| format!("inspect {}", folder.display()))?.is_dir() {
+            continue;
+        }
+        if let Err(e) = std::fs::remove_dir_all(&folder)
+            && e.kind() != ErrorKind::NotFound
+        {
+            return Err(e).with_context(|| format!("remove {}", folder.display()));
+        }
     }
     Ok(())
 }

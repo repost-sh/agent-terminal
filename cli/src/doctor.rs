@@ -3,9 +3,12 @@ use std::os::unix::net::UnixStream;
 
 use serde::Serialize;
 
+use crate::VERSION;
 use crate::connection;
 use crate::native::{pty, render, shell};
 use crate::protocol::Shell;
+use crate::skills::{self, Stub};
+use crate::upgrade;
 
 #[derive(Serialize)]
 struct Check {
@@ -49,7 +52,7 @@ impl Check {
 }
 
 pub fn run(fix: bool, json: bool) -> i32 {
-    let checks = [pty(), fonts(), shell(fix), daemon(fix)];
+    let checks = [pty(), fonts(), shell(fix), daemon(fix), skill(fix)];
     let healthy = checks.iter().all(|check| check.status != Status::Problem);
     if json {
         println!("{}", serde_json::json!({ "ok": healthy, "checks": checks }));
@@ -81,7 +84,7 @@ fn fonts() -> Check {
         Err(missing) => Check::problem(
             "fonts",
             format!("the built-in {missing} did not load, so screenshots show □ for what it draws"),
-            "reinstall agent-terminal (npm i -g agent-terminal, or brew reinstall agent-terminal)",
+            format!("reinstall agent-terminal (npm i -g {}, or brew reinstall {})", upgrade::PACKAGE, upgrade::FORMULA),
         ),
     }
 }
@@ -155,7 +158,7 @@ fn daemon(fix: bool) -> Check {
         Err(e) => return Check::problem("daemon", format!("{e:#}"), "set HOME, or AGENT_TERMINAL_HOME"),
     };
     match UnixStream::connect(&socket) {
-        Ok(_) => Check::ok("daemon", format!("running, listening on {}", socket.display())),
+        Ok(_) => running(&socket),
         Err(e) if e.kind() == ErrorKind::NotFound => Check::ok("daemon", "not running; the next command starts it"),
         Err(e) if e.kind() == ErrorKind::ConnectionRefused && fix => match connection::remove_stale_socket() {
             Ok(true) => Check::fixed("daemon", format!("removed the stale socket {}", socket.display())),
@@ -175,6 +178,69 @@ fn daemon(fix: bool) -> Check {
             "daemon",
             format!("cannot reach the daemon socket {}: {e}", socket.display()),
             "set AGENT_TERMINAL_HOME to a short folder you own",
+        ),
+    }
+}
+
+fn running(socket: &std::path::Path) -> Check {
+    let socket = socket.display();
+    let running = match connection::started_version() {
+        Ok(running) => running,
+        Err(e) => return Check::problem("daemon", format!("{e:#}"), "set AGENT_TERMINAL_HOME to a folder you own"),
+    };
+    let daemon = connection::daemon_of(running.as_deref());
+    if running.as_deref() == Some(VERSION) {
+        return Check::ok("daemon", format!("running {daemon}, listening on {socket}"));
+    }
+    Check::problem(
+        "daemon",
+        format!("running {daemon}, not {VERSION} like this command, listening on {socket}"),
+        connection::daemon_stop_advice(Some(VERSION)),
+    )
+}
+
+fn skill(fix: bool) -> Check {
+    let checked = if fix { skills::repair_stub() } else { skills::installed_stub() };
+    let installed = match checked {
+        Ok(installed) => installed,
+        Err(e) => {
+            return Check::problem(
+                "skill",
+                format!("{e:#}"),
+                "check that HOME is set and that you can read and write ~/.claude/skills/agent-terminal/SKILL.md",
+            );
+        }
+    };
+    let path = installed.path.display();
+    if installed.rewritten {
+        return Check::fixed(
+            "skill",
+            format!("rewrote the agent-terminal skill at {path} as this version ({VERSION})"),
+        );
+    }
+    let rewrite = "agent-terminal doctor --fix rewrites it";
+    match installed.stub {
+        Stub::Missing => Check::ok(
+            "skill",
+            format!(
+                "the agent-terminal skill is not installed at {path}; `agent-terminal install --skills` installs it"
+            ),
+        ),
+        Stub::Current => Check::ok("skill", format!("the agent-terminal skill at {path} is this version ({VERSION})")),
+        Stub::Older(theirs) => Check::problem(
+            "skill",
+            format!("the agent-terminal skill at {path} is {theirs}, older than this version ({VERSION})"),
+            rewrite,
+        ),
+        Stub::Unversioned => Check::problem(
+            "skill",
+            format!("the agent-terminal skill at {path} has no version, so it may not be this version ({VERSION})"),
+            rewrite,
+        ),
+        Stub::Newer(theirs) => Check::problem(
+            "skill",
+            format!("the agent-terminal skill at {path} is {theirs}, newer than this version ({VERSION})"),
+            "agent-terminal upgrade brings agent-terminal up to it (doctor --fix does not downgrade a skill)",
         ),
     }
 }

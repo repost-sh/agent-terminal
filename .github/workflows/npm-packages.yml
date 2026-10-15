@@ -1,4 +1,4 @@
-name: npm packages
+name: npm packages and clean install
 
 on:
   workflow_call:
@@ -31,7 +31,7 @@ jobs:
           printf '%s' "$PLAN" > "$RUNNER_TEMP/plan.json"
           node npm/build-packages.js --manifest "$RUNNER_TEMP/plan.json" --artifacts target/distrib --out target/npm
           mkdir target/npm-tarballs
-          for package in target/npm/*/; do
+          for package in target/npm/@repost/*/; do
             npm pack "$package" --pack-destination target/npm-tarballs
           done
       - uses: actions/upload-artifact@v7
@@ -40,75 +40,261 @@ jobs:
           path: target/npm-tarballs/*.tgz
           if-no-files-found: error
 
-  install-test:
-    name: npm i -g on a clean ${{ matrix.name }}
-    needs: pack
+  formula:
+    name: Build the Homebrew formula
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Fetch dist
+        uses: actions/download-artifact@v8
+        with:
+          name: cargo-dist-cache
+          path: ~/.cargo/bin/
+      - run: chmod +x ~/.cargo/bin/dist
+      - name: Fetch the release archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: artifacts-build-local-*
+          path: target/distrib/
+          merge-multiple: true
+      - name: Build the formula the release publishes, with a checksum for every archive
+        env:
+          PLAN: ${{ inputs.plan }}
+        run: |
+          tag=$(printf '%s' "$PLAN" | jq -r .announcement_tag)
+          dist build --tag="$tag" --output-format=json --artifacts=global > "$RUNNER_TEMP/global-dist-manifest.json"
+          cat target/distrib/agent-terminal.rb
+          urls=$(grep -c '^ *url "' target/distrib/agent-terminal.rb)
+          checksums=$(grep -c '^ *sha256 "' target/distrib/agent-terminal.rb)
+          if [ "$urls" -eq 0 ] || [ "$urls" -ne "$checksums" ]; then
+            echo "the formula has $urls archive URLs and $checksums checksums" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: formula
+          path: target/distrib/agent-terminal.rb
+          if-no-files-found: error
+
+  glibc-floor:
+    name: Check the glibc ${{ matrix.target }} needs
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Debian x64
+          - target: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
-            image: node:24-bookworm-slim
-            fixture-target: x86_64-unknown-linux-musl
-            package: agent-terminal-linux-x64
-          - name: Alpine x64
-            runner: ubuntu-24.04
-            image: node:24-alpine
-            fixture-target: x86_64-unknown-linux-musl
-            package: agent-terminal-linux-x64-musl
-          - name: Debian arm64
+          - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
-            image: node:24-bookworm-slim
-            fixture-target: aarch64-unknown-linux-musl
-            package: agent-terminal-linux-arm64
-          - name: Alpine arm64
-            runner: ubuntu-24.04-arm
-            image: node:24-alpine
-            fixture-target: aarch64-unknown-linux-musl
-            package: agent-terminal-linux-arm64-musl
-          - name: macOS arm64
-            runner: macos-15
-            fixture-target: aarch64-apple-darwin
-            package: agent-terminal-darwin-arm64
-          - name: macOS x64
-            runner: macos-15-intel
-            fixture-target: x86_64-apple-darwin
-            package: agent-terminal-darwin-x64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Fetch the ${{ matrix.target }} release archive
+        uses: actions/download-artifact@v8
         with:
-          targets: ${{ matrix.fixture-target }}
+          name: artifacts-build-local-${{ matrix.target }}
+          path: ${{ runner.temp }}/archive
+      - name: Fail when agent-terminal needs a glibc newer than 2.28
+        run: |
+          tar -xJf "$RUNNER_TEMP/archive/agent-terminal-${{ matrix.target }}.tar.xz" -C "$RUNNER_TEMP/archive"
+          sh scripts/glibc-floor.sh "$RUNNER_TEMP/archive/agent-terminal-${{ matrix.target }}/agent-terminal"
+
+  fixtures:
+    name: Build the line-printer fixture for ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-14
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install the Rust toolchain rust-toolchain.toml pins, with the ${{ matrix.target }} target
+        run: |
+          rustup toolchain install
+          rustup target add ${{ matrix.target }}
       - name: Install musl-tools
-        if: matrix.image
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: Build the line-printer fixture
         working-directory: cli
-        run: cargo build --release -p at-fixtures --bin line-printer --target ${{ matrix.fixture-target }}
-      - name: Fetch the npm packages
-        uses: actions/download-artifact@v8
+        run: cargo build --release -p at-fixtures --bin line-printer --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v7
         with:
-          name: npm-packages
-          path: npm-tarballs
-      - name: Install from npm and drive the fixture in a fresh ${{ matrix.image }} container
-        if: matrix.image
-        run: >-
-          docker run --rm
-          -v "$PWD/npm-tarballs:/tarballs:ro"
-          -v "$PWD/cli/target/${{ matrix.fixture-target }}/release/line-printer:/fixture/line-printer:ro"
-          -v "$PWD/npm/install-test:/install-test:ro"
-          ${{ matrix.image }}
-          sh /install-test/run.sh /tarballs /fixture/line-printer ${{ matrix.package }}
+          name: fixture-${{ matrix.target }}
+          path: cli/target/${{ matrix.target }}/release/line-printer
+          if-no-files-found: error
+
+  clean-install:
+    name: ${{ matrix.channel }} on a clean ${{ matrix.name }}
+    needs: [pack, formula, fixtures]
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [Ubuntu x64, Ubuntu arm64, Alpine x64, Alpine arm64, macOS arm64, macOS x64]
+        channel: [npm, pnpm, bun, archive, homebrew]
+        include:
+          - name: Ubuntu x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            package: "@repost/agent-terminal-linux-x64"
+            fixture: x86_64-unknown-linux-musl
+          - name: Ubuntu arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            package: "@repost/agent-terminal-linux-arm64"
+            fixture: aarch64-unknown-linux-musl
+          - name: Alpine x64
+            runner: ubuntu-24.04
+            image: node:24-alpine
+            target: x86_64-unknown-linux-musl
+            package: "@repost/agent-terminal-linux-x64-musl"
+            fixture: x86_64-unknown-linux-musl
+          - name: Alpine arm64
+            runner: ubuntu-24.04-arm
+            image: node:24-alpine
+            target: aarch64-unknown-linux-musl
+            package: "@repost/agent-terminal-linux-arm64-musl"
+            fixture: aarch64-unknown-linux-musl
+          - name: macOS arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+            package: "@repost/agent-terminal-darwin-arm64"
+            fixture: aarch64-apple-darwin
+          - name: macOS x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            package: "@repost/agent-terminal-darwin-x64"
+            fixture: x86_64-apple-darwin
+        exclude:
+          - name: Alpine x64
+            channel: homebrew
+          - name: Alpine arm64
+            channel: homebrew
+    runs-on: ${{ matrix.runner }}
+    env:
+      IN_ROW: ${{ matrix.image && 'docker exec clean' || '' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         if: ${{ !matrix.image }}
         with:
           node-version: 24
-      - name: Install from npm and drive the fixture on the runner
-        if: ${{ !matrix.image }}
+      - name: Fetch the npm packages
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-packages
+          path: ${{ runner.temp }}/artifacts/npm
+      - name: Fetch the ${{ matrix.target }} release archive
+        uses: actions/download-artifact@v8
+        with:
+          name: artifacts-build-local-${{ matrix.target }}
+          path: ${{ runner.temp }}/artifacts/archive
+      - name: Fetch the Homebrew formula
+        uses: actions/download-artifact@v8
+        with:
+          name: formula
+          path: ${{ runner.temp }}/artifacts/formula
+      - name: Fetch the line-printer fixture
+        uses: actions/download-artifact@v8
+        with:
+          name: fixture-${{ matrix.fixture }}
+          path: ${{ runner.temp }}/fixture
+      - name: Read the version the release carries
+        env:
+          PLAN: ${{ inputs.plan }}
+        run: |
+          chmod +x "$RUNNER_TEMP/fixture/line-printer"
+          version=$(printf '%s' "$PLAN" | jq -r '.releases[] | select(.app_name == "agent-terminal") | .app_version')
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Start a clean ${{ matrix.image }} container
+        if: matrix.image
         run: >-
-          sh npm/install-test/run.sh "$PWD/npm-tarballs"
-          "$PWD/cli/target/${{ matrix.fixture-target }}/release/line-printer" ${{ matrix.package }}
+          docker run --detach --name clean --cap-add SYS_ADMIN
+          --volume "$RUNNER_TEMP:$RUNNER_TEMP" --volume "$PWD:$PWD:ro" --workdir "$PWD"
+          ${{ matrix.image }} sleep infinity
+      - name: Install Homebrew if the runner image has none
+        if: matrix.channel == 'homebrew'
+        run: >-
+          command -v brew || test -x /home/linuxbrew/.linuxbrew/bin/brew
+          || NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      - name: Install with ${{ matrix.channel }}
+        run: $IN_ROW sh npm/install-test/install.sh ${{ matrix.channel }} "$RUNNER_TEMP/artifacts" "$RUNNER_TEMP/state" "${{ matrix.package }}"
+      - name: Check the install, with no TTY
+        run: $IN_ROW sh npm/install-test/check.sh "$RUNNER_TEMP/state" "$VERSION" "$RUNNER_TEMP/fixture/line-printer"
+      - name: Check the install again with networking cut
+        run: >-
+          $IN_ROW sh npm/install-test/offline.sh
+          sh npm/install-test/check.sh "$RUNNER_TEMP/state" "$VERSION" "$RUNNER_TEMP/fixture/line-printer"
+
+  glibc:
+    name: gnu binary on ${{ matrix.distro }} ${{ matrix.arch }}
+    needs: fixtures
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [Debian 11, Ubuntu 20.04, Rocky Linux 8]
+        arch: [x64, arm64]
+        include:
+          - distro: Debian 11
+            image: debian:11
+          - distro: Ubuntu 20.04
+            image: ubuntu:20.04
+          - distro: Rocky Linux 8
+            image: rockylinux/rockylinux:8
+          - arch: x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            fixture: x86_64-unknown-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            fixture: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Fetch the ${{ matrix.target }} release archive
+        uses: actions/download-artifact@v8
+        with:
+          name: artifacts-build-local-${{ matrix.target }}
+          path: ${{ runner.temp }}/artifacts/archive
+      - name: Fetch the line-printer fixture
+        uses: actions/download-artifact@v8
+        with:
+          name: fixture-${{ matrix.fixture }}
+          path: ${{ runner.temp }}/fixture
+      - name: Read the version the release carries
+        env:
+          PLAN: ${{ inputs.plan }}
+        run: |
+          chmod +x "$RUNNER_TEMP/fixture/line-printer"
+          version=$(printf '%s' "$PLAN" | jq -r '.releases[] | select(.app_name == "agent-terminal") | .app_version')
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Unpack the release archive after checking its checksum
+        run: sh npm/install-test/install.sh archive "$RUNNER_TEMP/artifacts" "$RUNNER_TEMP/state"
+      - name: Start a clean ${{ matrix.image }} container
+        run: >-
+          docker run --detach --name clean
+          --volume "$RUNNER_TEMP:$RUNNER_TEMP" --volume "$PWD:$PWD:ro" --workdir "$PWD"
+          ${{ matrix.image }} sleep infinity
+      - name: Show the container's glibc
+        run: docker exec clean getconf GNU_LIBC_VERSION
+      - name: Run the gnu binary on ${{ matrix.distro }}, with no TTY
+        run: docker exec clean sh npm/install-test/check.sh "$RUNNER_TEMP/state" "$VERSION" "$RUNNER_TEMP/fixture/line-printer"

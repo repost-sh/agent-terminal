@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{Context, Result};
 use tokio::sync::watch;
 
-use crate::connection::{READY, home, socket_path};
+use crate::connection::{READY, daemon_stop_advice, home, socket_path, version_path};
 use crate::native::changes::Changes;
 use crate::native::clips;
 use crate::native::control::{Control, Handed, Hold};
@@ -22,13 +22,14 @@ use crate::output::{self, call_line};
 use crate::protocol::{
     self, Addressed, AttachEvent, AttachInput, Attached, BatchOutcome, BatchStep, Call, Checked, Closed, CommandOutput,
     CommandRecord, Dashboard, DashboardStopped, Delivered, ErrorBody, Expect, Export, History, HumanInput, Input,
-    Marked, Matches, Mirror, Printed, RecordingFile, Reply, Request, Response, RowRange, SavedRecording, Screenshot,
-    SessionInfo, Sessions, Shell, Shot, Size, Snapshot, SnapshotOptions, Style, TabId, TabRef, Target, TextMatch, Wait,
-    Waited,
+    KeptRunning, Marked, Matches, Mirror, OtherVersion, Printed, RecordingFile, Reply, Request, Response, RowRange,
+    SavedRecording, Screenshot, SessionInfo, Sessions, Shell, Shot, Size, Snapshot, SnapshotOptions, Style, TabId,
+    TabRef, Target, TextMatch, Wait, Waited,
 };
 
 const CONTROL_HANDED_BACK: &str = "a human to hand back control";
 const KILLED_WITHIN: Duration = Duration::from_secs(5);
+const OTHER_CALLS_WITHIN: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
 struct Daemon {
@@ -101,6 +102,7 @@ pub fn run(idle_timeout: Duration) -> Result<()> {
         }
         Err(e) => return Err(e).with_context(|| format!("listen on {}", path.display())),
     };
+    record_version(&home)?;
 
     let mut stdout = std::io::stdout();
     writeln!(stdout, "{READY}").and_then(|()| stdout.flush()).context("tell the CLI the daemon is ready")?;
@@ -122,16 +124,27 @@ pub fn run(idle_timeout: Duration) -> Result<()> {
     Ok(())
 }
 
+fn record_version(home: &std::path::Path) -> Result<()> {
+    let path = version_path()?;
+    let written = home.join("daemon.version.new");
+    std::fs::write(&written, crate::VERSION).with_context(|| format!("write {}", written.display()))?;
+    std::fs::rename(&written, &path).with_context(|| format!("move {} to {}", written.display(), path.display()))
+}
+
 impl Daemon {
     fn serve(&self, mut stream: UnixStream) {
         let busy = self.busy();
-        let call: Call = match protocol::read(&mut stream) {
-            Ok(Some(call)) => call,
+        let body = match protocol::read_body(&mut stream) {
+            Ok(Some(body)) => body,
             Ok(None) => return,
             Err(e) => {
                 eprintln!("reading a request failed: {e:#}");
                 return;
             }
+        };
+        let call: Call = match serde_json::from_slice(&body) {
+            Ok(call) => call,
+            Err(e) => return self.not_understood(stream, &e),
         };
         let request = match call.request {
             Request::Attach { target, read_only } if busy.is_some() => {
@@ -139,7 +152,6 @@ impl Daemon {
             }
             request => request,
         };
-        let stop = matches!(request, Request::Stop);
         let logged = call.typed.and_then(|typed| self.about_to_handle(typed, &request));
         let handled = match &busy {
             Some(_) => self.handle(request, logged.as_ref().map(|logged| logged.typed.as_slice())),
@@ -155,8 +167,29 @@ impl Daemon {
         if let Err(e) = protocol::write(&mut stream, &response) {
             eprintln!("sending a reply failed: {e:#}");
         }
-        if stop {
+        if matches!(response, Response::Ok(Reply::Stopped)) {
             std::process::exit(0);
+        }
+    }
+
+    fn not_understood(&self, mut stream: UnixStream, error: &serde_json::Error) {
+        eprintln!("a request this daemon does not understand: {error}");
+        let terminals = self.terminals();
+        let response = Response::Err(ErrorBody::other_version(
+            format!(
+                "the daemon is agent-terminal {} and does not understand this request, so the command is another version; it has {}: {}",
+                crate::VERSION,
+                output::count(terminals, "open terminal"),
+                daemon_stop_advice(None)
+            ),
+            OtherVersion {
+                cli_version: None,
+                daemon_version: Some(crate::VERSION.to_string()),
+                terminals: Some(terminals),
+            },
+        ));
+        if let Err(e) = protocol::write(&mut stream, &response) {
+            eprintln!("sending a reply failed: {e:#}");
         }
     }
 
@@ -167,7 +200,10 @@ impl Daemon {
             }
             Request::Snapshot { target, options } => {
                 let (id, terminal) = self.target(&target)?;
-                terminal.snapshot_with(&target.session, &id.to_string(), &options).map(Reply::Snapshot).map_err(failure)
+                terminal
+                    .snapshot_with(&target.session, &id.to_string(), &options)
+                    .map(Reply::Snapshot)
+                    .map_err(ErrorBody::failure)
             }
             Request::Close { target, all } => {
                 let closed = if all { self.close_all() } else { vec![self.close(&target)?] };
@@ -183,9 +219,8 @@ impl Daemon {
                 ))
             }
             Request::WaitControl { target, timeout_ms, assert } => self.wait_control(target, timeout_ms, assert),
-            Request::Attach { .. } => Err(failure(
-                "attach shows the tab in your terminal, so it runs on its own, not in batch or from the dashboard"
-                    .into(),
+            Request::Attach { .. } => Err(ErrorBody::failure(
+                "attach shows the tab in your terminal, so it runs on its own, not in batch or from the dashboard",
             )),
             Request::SwitchTab { session, tab } => {
                 let mut sessions = self.sessions.lock().unwrap();
@@ -224,11 +259,11 @@ impl Daemon {
             Request::Expect { target, expect } => self.expect(target, &expect),
             Request::Get { target, what } => {
                 let (_, terminal) = self.target(&target)?;
-                terminal.fact(what).map(Reply::Fact).map_err(failure)
+                terminal.fact(what).map(Reply::Fact).map_err(ErrorBody::failure)
             }
             Request::Find { target, text, regex, all } => {
                 let (_, terminal) = self.target(&target)?;
-                let matches = terminal.find(&text, regex, all).map_err(failure)?;
+                let matches = terminal.find(&text, regex, all).map_err(ErrorBody::failure)?;
                 Ok(Reply::Matches(Matches { matches }))
             }
             Request::Mark { target, name } => {
@@ -238,12 +273,12 @@ impl Daemon {
             }
             Request::Output { target, since, raw } => {
                 let (_, terminal) = self.target(&target)?;
-                let output = terminal.printed(since.as_deref(), raw).map_err(failure)?;
+                let output = terminal.printed(since.as_deref(), raw).map_err(ErrorBody::failure)?;
                 Ok(Reply::Printed(Printed { output }))
             }
             Request::DiffSnapshot { target, baseline } => {
                 let (_, terminal) = self.target(&target)?;
-                terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(failure)
+                terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(ErrorBody::failure)
             }
             Request::RecordStart { target, path } => {
                 let (id, terminal) = self.target(&target)?;
@@ -310,7 +345,9 @@ impl Daemon {
                     return Err(no_integration(&session, &tab, &terminal));
                 }
                 let (record, output) = terminal.command(id).ok_or_else(|| {
-                    failure(format!("no command {id} in {session} {tab}; list them with `agent-terminal history`"))
+                    ErrorBody::failure(format!(
+                        "no command {id} in {session} {tab}; list them with `agent-terminal history`"
+                    ))
                 })?;
                 Ok(Reply::Command(CommandOutput { session, tab, record, output, check: false }))
             }
@@ -318,6 +355,7 @@ impl Daemon {
                 self.shut_down();
                 Ok(Reply::Stopped)
             }
+            Request::StopIfNoTerminals => Ok(self.stop_if_no_terminals()),
             Request::Batch { steps, bail } => Ok(Reply::Batch(self.batch(steps, bail))),
             Request::DashboardStart { port, origins } => self.start_dashboard(port, origins).map(Reply::Dashboard),
             Request::DashboardStop => Ok(Reply::DashboardStopped(DashboardStopped { stopped: self.stop_dashboard() })),
@@ -335,13 +373,13 @@ impl Daemon {
             if (port == 0 || port == server.port()) && origins.iter().all(|origin| server.allows(origin)) {
                 return Ok(server.info());
             }
-            return Err(failure(format!(
+            return Err(ErrorBody::failure(format!(
                 "the dashboard already runs at {}; stop it first with `agent-terminal dashboard stop`",
                 server.info().url
             )));
         }
         let backend: Arc<dyn Backend> =
-            self.me.upgrade().ok_or_else(|| failure("the daemon is shutting down".into()))?;
+            self.me.upgrade().ok_or_else(|| ErrorBody::failure("the daemon is shutting down"))?;
         let server = dashboard::Server::start(port, origins, backend).map_err(error_body)?;
         let info = server.info();
         *running = Some(server);
@@ -365,12 +403,8 @@ impl Daemon {
     }
 
     fn batch_step(&self, args: &[String], request: Request) -> Response {
-        if matches!(request, Request::Stop) {
-            return Response::Err(ErrorBody {
-                code: crate::exit::ERROR,
-                message: "stopping the daemon cannot be part of a batch".into(),
-                snapshot: None,
-            });
+        if matches!(request, Request::Stop | Request::StopIfNoTerminals) {
+            return Response::Err(ErrorBody::failure("stopping the daemon cannot be part of a batch"));
         }
         let logged = self.about_to_handle(args.to_vec(), &request);
         let handled = self.handle(request, Some(args));
@@ -484,8 +518,36 @@ impl Daemon {
         std::process::exit(0);
     }
 
+    fn stop_if_no_terminals(&self) -> Reply {
+        let deadline = Instant::now() + OTHER_CALLS_WITHIN;
+        let mut activity = self.activity.lock().unwrap();
+        while activity.in_flight > 1 && self.terminals() == 0 {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            activity = self.quiet.wait_timeout(activity, left).unwrap().0;
+        }
+        let terminals = self.terminals();
+        if terminals > 0 {
+            return Reply::KeptRunning(KeptRunning { terminals });
+        }
+        activity.stopping = true;
+        drop(activity);
+        eprintln!("a command of another version stopped this daemon, which had no terminals");
+        self.shut_down();
+        Reply::Stopped
+    }
+
+    fn terminals(&self) -> usize {
+        self.sessions.lock().unwrap().values().map(|session| session.tabs.len()).sum()
+    }
+
     fn shut_down(&self) {
         self.stop_dashboard();
+        if let Err(e) = version_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
+            eprintln!("removing the version file failed: {e:#}");
+        }
         if let Err(e) = socket_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
             eprintln!("removing the socket failed: {e:#}");
         }
@@ -576,14 +638,13 @@ impl Daemon {
         let (tab, old) = self.target(target)?;
         let session = &target.session;
         if !old.stop(Duration::from_millis(timeout_ms)) {
-            return Err(ErrorBody {
-                code: crate::exit::TIMEOUT,
-                message: format!(
+            return Err(ErrorBody::new(
+                crate::exit::TIMEOUT,
+                format!(
                     "{} in {session} {tab} did not stop within {timeout_ms} ms, so it was not restarted",
                     old.program
                 ),
-                snapshot: None,
-            });
+            ));
         }
         let command = old.rerun();
         let spawned = pty::spawn(command.clone()).map_err(error_body)?;
@@ -668,9 +729,11 @@ impl Daemon {
         let started = Instant::now();
         let frame = wait_for(&terminal, &session, &tab, wait, condition, timeout_ms).map_err(|error| match error {
             ErrorBody { code: crate::exit::TIMEOUT, snapshot, .. } if assert => ErrorBody {
-                code: crate::exit::ASSERTION,
-                message: format!("{} within {timeout_ms} ms in {session} {tab}", not_met(wait)),
                 snapshot,
+                ..ErrorBody::new(
+                    crate::exit::ASSERTION,
+                    format!("{} within {timeout_ms} ms in {session} {tab}", not_met(wait)),
+                )
             },
             error => error,
         })?;
@@ -695,19 +758,19 @@ impl Daemon {
                 let until = CONTROL_HANDED_BACK.to_string();
                 Ok(Reply::Waited(Waited { session, tab, until, waited_ms, frame, exit_code: None }))
             }
-            Handed::TimedOut if assert => Err(ErrorBody {
-                code: crate::exit::ASSERTION,
-                message: format!("a human did not hand back control of {session} {tab} within {timeout_ms} ms"),
-                snapshot: None,
-            }),
-            Handed::TimedOut => Err(ErrorBody {
-                code: crate::exit::TIMEOUT,
-                message: format!(
+            Handed::TimedOut if assert => Err(ErrorBody::new(
+                crate::exit::ASSERTION,
+                format!("a human did not hand back control of {session} {tab} within {timeout_ms} ms"),
+            )),
+            Handed::TimedOut => Err(ErrorBody::new(
+                crate::exit::TIMEOUT,
+                format!(
                     "timed out after {timeout_ms} ms waiting for {CONTROL_HANDED_BACK} of {session} {tab}; wait longer with --timeout <ms>"
                 ),
-                snapshot: None,
-            }),
-            Handed::Closed => Err(failure(format!("stopped waiting for control: {session} {tab} was closed"))),
+            )),
+            Handed::Closed => {
+                Err(ErrorBody::failure(format!("stopped waiting for control: {session} {tab} was closed")))
+            }
         }
     }
 
@@ -840,7 +903,11 @@ impl Daemon {
                     let message = format!(
                         "timed out after {timeout_ms} ms waiting for {waiting} in {session} {tab}, so `{line}` did not run (read the screen with `agent-terminal snapshot`, interrupt a command with `agent-terminal signal INT`)"
                     );
-                    return Err(with_screen(crate::exit::TIMEOUT, message, terminal.snapshot(&session, &tab)));
+                    return Err(ErrorBody::with_screen(
+                        crate::exit::TIMEOUT,
+                        message,
+                        terminal.snapshot(&session, &tab),
+                    ));
                 }
             }
         };
@@ -859,12 +926,12 @@ impl Daemon {
                         "{waited}; the shell has not started a command for it, so the line may be unfinished (read the screen with `agent-terminal snapshot`, cancel the line with `agent-terminal press Ctrl+c`)"
                     ),
                 };
-                return Err(with_screen(crate::exit::TIMEOUT, message, terminal.snapshot(&session, &tab)));
+                return Err(ErrorBody::with_screen(crate::exit::TIMEOUT, message, terminal.snapshot(&session, &tab)));
             }
         }
         let (record, output) = terminal.command(submitted.first_id).ok_or_else(|| {
             let message = format!("the shell in {session} {tab} ran no command for `{line}`; the screen shows why");
-            with_screen(crate::exit::ERROR, message, terminal.snapshot(&session, &tab))
+            ErrorBody::with_screen(crate::exit::ERROR, message, terminal.snapshot(&session, &tab))
         })?;
         Ok(Reply::Command(CommandOutput { session, tab, record, output, check }))
     }
@@ -875,17 +942,17 @@ impl Daemon {
         let place = format!("{session} {tab}");
         let excerpt = |rows: Option<RowRange>| {
             let options = SnapshotOptions { rows, ..SnapshotOptions::default() };
-            terminal.snapshot_with(&session, &tab, &options).map_err(failure)
+            terminal.snapshot_with(&session, &tab, &options).map_err(ErrorBody::failure)
         };
         let fact = match expect {
             Expect::Text(text) => {
-                if !Pattern::new(text).map_err(failure)?.found(&terminal.lines()) {
+                if !Pattern::new(text).map_err(ErrorBody::failure)?.found(&terminal.lines()) {
                     return Err(assertion(format!("{text} is not on screen in {place}"), excerpt(None)?));
                 }
                 format!("{text} is on screen")
             }
             Expect::Gone(text) => {
-                let rows = Pattern::new(text).map_err(failure)?.rows_found(&terminal.lines());
+                let rows = Pattern::new(text).map_err(ErrorBody::failure)?.rows_found(&terminal.lines());
                 if let (Some(&first), Some(&last)) = (rows.first(), rows.last()) {
                     let which = if first == last { format!("row {first}") } else { format!("rows {first}-{last}") };
                     let shown = excerpt(Some(RowRange { first, last }))?;
@@ -905,7 +972,7 @@ impl Daemon {
                 }
             },
             Expect::Cell { row, col, style } => {
-                let cell = terminal.cell(*row, *col).map_err(failure)?;
+                let cell = terminal.cell(*row, *col).map_err(ErrorBody::failure)?;
                 let missing: Vec<&Style> = style.iter().filter(|style| !style.holds(&cell)).collect();
                 if !missing.is_empty() {
                     let message = format!("cell {row},{col} in {place} is not {}: it is {cell}", listed(&missing));
@@ -1012,7 +1079,7 @@ impl Backend for Daemon {
                 let tab = s.tabs.get(&id).filter(|tab| hold.holds(&tab.control))?;
                 Some((Arc::clone(&s.folder), Arc::clone(&tab.terminal)))
             });
-            held.ok_or_else(|| failure(format!("{session} {id} was closed")))?
+            held.ok_or_else(|| ErrorBody::failure(format!("{session} {id} was closed")))?
         };
         let delivered = terminal.input(&input.input()).map(drop).map_err(|e| {
             let mut error = error_body(e);
@@ -1096,7 +1163,7 @@ fn settle(session: &str, tab: TabId, terminal: &Terminal, wait: &Wait, timeout_m
 }
 
 fn condition(wait: &Wait) -> Result<Condition, ErrorBody> {
-    Condition::new(wait).map_err(failure)
+    Condition::new(wait).map_err(ErrorBody::failure)
 }
 
 fn wait_for(
@@ -1120,11 +1187,10 @@ fn wait_for(
 }
 
 fn human_has_control(session: &str, tab: &str) -> ErrorBody {
-    ErrorBody {
-        code: crate::exit::HUMAN_CONTROL,
-        message: format!("A human has control of {session} {tab}. Run `agent-terminal wait --control`."),
-        snapshot: None,
-    }
+    ErrorBody::new(
+        crate::exit::HUMAN_CONTROL,
+        format!("A human has control of {session} {tab}. Run `agent-terminal wait --control`."),
+    )
 }
 
 fn mirrored(program: &str, picture: Picture) -> Mirror {
@@ -1158,19 +1224,15 @@ fn read_attach_inputs(mut reader: UnixStream, inputs: tokio::sync::mpsc::Unbound
     }
 }
 
-fn with_screen(code: i32, message: String, snapshot: Snapshot) -> ErrorBody {
-    ErrorBody { code, message, snapshot: Some(Box::new(snapshot)) }
-}
-
 fn no_integration(session: &str, tab: &str, terminal: &Terminal) -> ErrorBody {
-    failure(format!(
+    ErrorBody::failure(format!(
         "{session} {tab} runs {} without shell integration, so it keeps no command history; exec, history and wait --command work in a tab opened with `agent-terminal shell`",
         terminal.program
     ))
 }
 
 fn assertion(message: String, snapshot: Snapshot) -> ErrorBody {
-    ErrorBody { code: crate::exit::ASSERTION, message, snapshot: Some(Box::new(snapshot)) }
+    ErrorBody::with_screen(crate::exit::ASSERTION, message, snapshot)
 }
 
 fn listed(styles: &[&Style]) -> String {
@@ -1185,30 +1247,24 @@ fn exited_otherwise(expected: i32, snapshot: Snapshot) -> ErrorBody {
 
 fn exited_while_waiting(wait: &Wait, snapshot: Snapshot) -> ErrorBody {
     let how = snapshot.exit_code.map_or_else(String::new, |code| format!(" with code {code}"));
-    ErrorBody {
-        code: crate::exit::EXITED,
-        message: format!(
-            "stopped waiting for {}: {} in {} {} has exited{how}",
-            describe(wait),
-            snapshot.program,
-            snapshot.session,
-            snapshot.tab
-        ),
-        snapshot: Some(Box::new(snapshot)),
-    }
+    let message = format!(
+        "stopped waiting for {}: {} in {} {} has exited{how}",
+        describe(wait),
+        snapshot.program,
+        snapshot.session,
+        snapshot.tab
+    );
+    ErrorBody::with_screen(crate::exit::EXITED, message, snapshot)
 }
 
 fn timed_out(wait: &Wait, timeout_ms: u64, snapshot: Snapshot) -> ErrorBody {
-    ErrorBody {
-        code: crate::exit::TIMEOUT,
-        message: format!(
-            "timed out after {timeout_ms} ms waiting for {}; {} {} is still running (read it with `agent-terminal snapshot`, stop it with `agent-terminal close`)",
-            describe(wait),
-            snapshot.session,
-            snapshot.tab
-        ),
-        snapshot: Some(Box::new(snapshot)),
-    }
+    let message = format!(
+        "timed out after {timeout_ms} ms waiting for {}; {} {} is still running (read it with `agent-terminal snapshot`, stop it with `agent-terminal close`)",
+        describe(wait),
+        snapshot.session,
+        snapshot.tab
+    );
+    ErrorBody::with_screen(crate::exit::TIMEOUT, message, snapshot)
 }
 
 fn describe(wait: &Wait) -> String {
@@ -1250,26 +1306,20 @@ fn not_met(wait: &Wait) -> String {
 }
 
 fn stopping() -> ErrorBody {
-    failure("the daemon is stopping because it was idle; run the command again to start a new one".into())
+    ErrorBody::failure("the daemon is stopping because it was idle; run the command again to start a new one")
 }
 
 fn no_terminal(session: &str) -> ErrorBody {
-    ErrorBody {
-        code: crate::exit::ERROR,
-        message: format!("no terminal is open in session {session}; start one with `agent-terminal open <program>`"),
-        snapshot: None,
-    }
+    ErrorBody::failure(format!(
+        "no terminal is open in session {session}; start one with `agent-terminal open <program>`"
+    ))
 }
 
 fn no_tab(session: &str, id: TabId) -> ErrorBody {
-    failure(format!("no tab {id} in session {session}; list tabs with `agent-terminal tab`"))
-}
-
-fn failure(message: String) -> ErrorBody {
-    ErrorBody { code: crate::exit::ERROR, message, snapshot: None }
+    ErrorBody::failure(format!("no tab {id} in session {session}; list tabs with `agent-terminal tab`"))
 }
 
 fn error_body(error: anyhow::Error) -> ErrorBody {
     let code = error.downcast_ref::<crate::Error>().map_or(crate::exit::ERROR, |e| e.code);
-    ErrorBody { code, message: format!("{error:#}"), snapshot: None }
+    ErrorBody::new(code, format!("{error:#}"))
 }

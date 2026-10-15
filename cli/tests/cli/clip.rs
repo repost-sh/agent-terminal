@@ -23,7 +23,7 @@ fn gif(path: &Path) -> Gif {
     let mut delays_ms = Vec::new();
     while let Some(frame) = decoder.read_next_frame().unwrap_or_else(|e| panic!("decode {}: {e}", path.display())) {
         delays_ms.push(u32::from(frame.delay) * 10);
-        for (i, pixel) in frame.buffer.chunks_exact(4).enumerate() {
+        for (i, pixel) in frame.buffer.as_chunks::<4>().0.iter().enumerate() {
             if pixel[3] == 0 {
                 continue;
             }
@@ -41,8 +41,10 @@ fn assert_same_picture(width: u32, height: u32, rgb: &[u8], screenshot: &Path) {
     let expected = picture(screenshot);
     assert_eq!((width, height), (expected.width, expected.height), "the clip and the screenshot differ in size");
     let differing = rgb
-        .chunks_exact(3)
-        .zip(expected.rgb.chunks_exact(3))
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected.rgb.as_chunks::<3>().0)
         .filter(|(a, b)| a.iter().zip(b.iter()).any(|(a, b)| a != b))
         .count();
     assert_eq!(differing, 0, "{differing} pixels of the last frame differ from {}", screenshot.display());
@@ -101,8 +103,10 @@ fn assert_close_picture(width: u32, height: u32, rgb: &[u8], screenshot: &Path) 
     let expected = picture(screenshot);
     assert_eq!((width, height), (expected.width, expected.height), "the clip and the screenshot differ in size");
     let differing = rgb
-        .chunks_exact(3)
-        .zip(expected.rgb.chunks_exact(3))
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected.rgb.as_chunks::<3>().0)
         .filter(|(a, b)| a.iter().zip(b.iter()).any(|(a, b)| a.abs_diff(*b) > LOSSY_CHANNEL_TOLERANCE))
         .count();
     let share = differing as f64 / f64::from(width * height);
@@ -280,7 +284,8 @@ fn an_mp4_of_a_screen_an_odd_number_of_pixels_wide_gets_one_more_column_of_the_e
     assert_eq!((clip["width"].as_u64().unwrap(), clip["height"].as_u64().unwrap()), (210, 100));
     let video = mp4(&path);
     assert_eq!((video.width, video.height, video.durations_ms.clone()), (210, 100, vec![1000]));
-    let cropped: Vec<u8> = video.last.chunks_exact(210 * 3).flat_map(|row| row[..209 * 3].to_vec()).collect();
+    let cropped: Vec<u8> =
+        video.last.as_chunks::<{ 210 * 3 }>().0.iter().flat_map(|row| row[..209 * 3].to_vec()).collect();
     assert_close_picture(209, 100, &cropped, &screenshot);
 }
 

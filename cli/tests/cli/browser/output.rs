@@ -17,7 +17,7 @@ fn wait_for_output(browser: &Browser, text: &str) {
 }
 
 fn open_output(browser: &Browser) {
-    browser.run(&["find", "role", "tab", "click", "--name", "Output", "--exact"]);
+    browser.select_panel("Output");
 }
 
 #[test]

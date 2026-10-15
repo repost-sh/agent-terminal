@@ -134,7 +134,7 @@ fn the_side_panel_keeps_its_tab_and_width_from_one_terminal_to_the_next() {
     let width = || browser.eval(&format!("document.querySelector(\"{handle}\").ariaValueNow"));
     assert_eq!(width(), "\"30\"");
 
-    browser.run(&["find", "role", "tab", "click", "--name", "Output", "--exact"]);
+    browser.select_panel("Output");
     browser.run(&["focus", handle]);
     browser.run(&["press", "ArrowLeft"]);
     assert_eq!(width(), "\"32\"");

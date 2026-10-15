@@ -36,14 +36,18 @@ impl Timeline {
         assert_eq!(first["type"], "frames", "{first}");
         assert_eq!(first["reset"], true, "a run starts with a reset: {first}");
         let started_ms = first["started_ms"].as_u64().expect("the run's start");
-        let mut frames: Vec<Value> = first["frames"].as_array().expect("frames").clone();
+        let frames = self.frames_through(first["frames"].as_array().expect("frames").clone(), last);
+        Run { started_ms, frames }
+    }
+
+    fn frames_through(&mut self, mut frames: Vec<Value>, last: u64) -> Vec<Value> {
         while frames.last().and_then(|frame| frame["frame"].as_u64()).unwrap_or(0) < last {
             let more = self.next();
             assert_eq!(more["type"], "frames", "{more}");
             assert_eq!(more["reset"], false, "{more}");
             frames.extend(more["frames"].as_array().expect("frames").iter().cloned());
         }
-        Run { started_ms, frames }
+        frames
     }
 }
 
@@ -147,10 +151,7 @@ fn the_timeline_serves_keyframes_and_every_frame_after_them_redrawing_what_snaps
 
     cue.print("cue 41\n");
     let (rows, frame) = snapshot_rows(&at, &[]);
-    let more = timeline.next();
-    assert_eq!(more["reset"], false, "{more}");
-    let mut frames = run.frames;
-    frames.extend(more["frames"].as_array().expect("frames").iter().cloned());
+    let frames = timeline.frames_through(run.frames, frame);
     assert_eq!(frames.iter().map(number).collect::<Vec<_>>(), (1..=frame).collect::<Vec<_>>());
     assert_eq!(rows_at(&frames, frame), rows);
 }

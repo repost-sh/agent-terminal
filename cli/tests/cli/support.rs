@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::{Mutex, OnceLock};
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub struct AgentTerminal {
     home: tempfile::TempDir,
 }

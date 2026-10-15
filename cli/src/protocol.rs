@@ -256,6 +256,7 @@ pub enum Request {
         expect: Expect,
     },
     Stop,
+    StopIfNoTerminals,
     Batch {
         steps: Vec<BatchStep>,
         bail: bool,
@@ -371,6 +372,7 @@ impl Request {
         match self {
             Request::Sessions
             | Request::Stop
+            | Request::StopIfNoTerminals
             | Request::Batch { .. }
             | Request::DashboardStart { .. }
             | Request::DashboardStop
@@ -890,6 +892,7 @@ pub enum Reply {
     Waited(Waited),
     Checked(Checked),
     Stopped,
+    KeptRunning(KeptRunning),
     Batch(Vec<BatchOutcome>),
     Fact(Fact),
     Matches(Matches),
@@ -981,6 +984,11 @@ pub struct Dashboard {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DashboardStopped {
     pub stopped: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct KeptRunning {
+    pub terminals: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -1202,6 +1210,33 @@ pub struct ErrorBody {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot: Option<Box<Snapshot>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_version: Option<OtherVersion>,
+}
+
+impl ErrorBody {
+    pub fn new(code: i32, message: impl Into<String>) -> Self {
+        Self { code, message: message.into(), snapshot: None, other_version: None }
+    }
+
+    pub fn failure(message: impl Into<String>) -> Self {
+        Self::new(crate::exit::ERROR, message)
+    }
+
+    pub fn with_screen(code: i32, message: impl Into<String>, snapshot: Snapshot) -> Self {
+        Self { snapshot: Some(Box::new(snapshot)), ..Self::new(code, message) }
+    }
+
+    pub fn other_version(message: impl Into<String>, other_version: OtherVersion) -> Self {
+        Self { other_version: Some(other_version), ..Self::new(crate::exit::OTHER_VERSION, message) }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct OtherVersion {
+    pub cli_version: Option<String>,
+    pub daemon_version: Option<String>,
+    pub terminals: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1397,6 +1432,13 @@ pub fn write<T: Serialize>(stream: &mut impl Write, message: &T) -> Result<()> {
 }
 
 pub fn read<T: DeserializeOwned>(stream: &mut impl Read) -> Result<Option<T>> {
+    match read_body(stream)? {
+        Some(body) => Ok(Some(serde_json::from_slice(&body)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn read_body(stream: &mut impl Read) -> Result<Option<Vec<u8>>> {
     let mut len = [0u8; 4];
     let first = loop {
         match stream.read(&mut len[..1]) {
@@ -1415,5 +1457,5 @@ pub fn read<T: DeserializeOwned>(stream: &mut impl Read) -> Result<Option<T>> {
     }
     let mut body = vec![0u8; len as usize];
     stream.read_exact(&mut body).context("read message")?;
-    Ok(Some(serde_json::from_slice(&body)?))
+    Ok(Some(body))
 }

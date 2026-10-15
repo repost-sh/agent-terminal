@@ -47,7 +47,7 @@ fn info_shows_the_setup_modes_recording_and_the_environment_with_secrets_masked_
     let pid = at.run(&["get", "pid"]).success().stdout().trim().to_string();
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/s/default/t1"));
-    browser.run(&["find", "role", "tab", "click", "--name", "Info", "--exact"]);
+    browser.select_panel("Info");
     browser.wait_for_text("xterm-256color");
 
     let shown = lists(&browser);

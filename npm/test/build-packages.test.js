@@ -14,7 +14,8 @@ test('one package per platform, each holding only its own binary', (t) => {
   assert.equal(run.status, 0, run.stderr);
 
   const out = path.join(dir, 'npm');
-  assert.deepEqual(fs.readdirSync(out).sort(), [
+  assert.deepEqual(fs.readdirSync(out), ['@repost']);
+  assert.deepEqual(fs.readdirSync(path.join(out, '@repost')).sort(), [
     'agent-terminal',
     'agent-terminal-darwin-arm64',
     'agent-terminal-darwin-x64',
@@ -24,13 +25,14 @@ test('one package per platform, each holding only its own binary', (t) => {
     'agent-terminal-linux-x64-musl',
   ]);
 
-  const musl = path.join(out, 'agent-terminal-linux-x64-musl');
+  const musl = path.join(out, '@repost', 'agent-terminal-linux-x64-musl');
   assert.deepEqual(readJson(path.join(musl, 'package.json')), {
-    name: 'agent-terminal-linux-x64-musl',
+    name: '@repost/agent-terminal-linux-x64-musl',
     version: '0.1.0',
     description: 'The agent-terminal binary for linux x64 (musl)',
     license: 'Apache-2.0',
     repository: { type: 'git', url: 'git+https://github.com/repost-sh/agent-terminal.git' },
+    publishConfig: { access: 'public' },
     os: ['linux'],
     cpu: ['x64'],
     libc: ['musl'],
@@ -40,9 +42,9 @@ test('one package per platform, each holding only its own binary', (t) => {
   assert.equal(fs.readFileSync(binary, 'utf8'), '#!/bin/sh\necho x86_64-unknown-linux-musl\n');
   assert.equal(fs.statSync(binary).mode & 0o777, 0o755);
 
-  const mac = readJson(path.join(out, 'agent-terminal-darwin-arm64', 'package.json'));
+  const mac = readJson(path.join(out, '@repost', 'agent-terminal-darwin-arm64', 'package.json'));
   assert.deepEqual([mac.os, mac.cpu, mac.libc], [['darwin'], ['arm64'], undefined]);
-  const glibc = readJson(path.join(out, 'agent-terminal-linux-arm64', 'package.json'));
+  const glibc = readJson(path.join(out, '@repost', 'agent-terminal-linux-arm64', 'package.json'));
   assert.deepEqual([glibc.os, glibc.cpu, glibc.libc], [['linux'], ['arm64'], ['glibc']]);
 });
 
@@ -53,10 +55,11 @@ test('every platform package publishes the licences of the fonts and OpenH264 bu
   const run = build(dir);
   assert.equal(run.status, 0, run.stderr);
 
-  const platformPackages = fs.readdirSync(path.join(dir, 'npm')).filter((entry) => entry !== 'agent-terminal');
+  const scope = path.join(dir, 'npm', '@repost');
+  const platformPackages = fs.readdirSync(scope).filter((entry) => entry !== 'agent-terminal');
   assert.equal(platformPackages.length, TARGETS.length);
   for (const name of platformPackages) {
-    assert.deepEqual(packedFiles(path.join(dir, 'npm', name)), [
+    assert.deepEqual(packedFiles(path.join(scope, name)), [
       'LICENSE',
       'bin/agent-terminal',
       'licenses/LICENSE-OpenH264.txt',
@@ -67,33 +70,55 @@ test('every platform package publishes the licences of the fonts and OpenH264 bu
       'package.json',
     ]);
   }
-  const openh264 = path.join(dir, 'npm', 'agent-terminal-linux-x64', 'licenses', 'LICENSE-OpenH264.txt');
+  const openh264 = path.join(scope, 'agent-terminal-linux-x64', 'licenses', 'LICENSE-OpenH264.txt');
   assert.match(fs.readFileSync(openh264, 'utf8'), /^Copyright \(c\) 2013, Cisco Systems/);
 });
 
-test('the main package exposes agent-terminal and depends on every platform package at the release version', (t) => {
+test('the main package @repost/agent-terminal exposes agent-terminal and pins every platform package to the release', (t) => {
   const dir = tempDir(t);
   distRelease(dir, TARGETS, printTarget);
 
   const run = build(dir);
   assert.equal(run.status, 0, run.stderr);
 
-  const main = path.join(dir, 'npm', 'agent-terminal');
+  const main = path.join(dir, 'npm', '@repost', 'agent-terminal');
   const manifest = readJson(path.join(main, 'package.json'));
-  assert.equal(manifest.name, 'agent-terminal');
+  assert.equal(manifest.name, '@repost/agent-terminal');
   assert.equal(manifest.version, '0.1.0');
   assert.deepEqual(manifest.bin, { 'agent-terminal': 'bin/agent-terminal.js' });
   assert.deepEqual(manifest.optionalDependencies, {
-    'agent-terminal-darwin-arm64': '0.1.0',
-    'agent-terminal-darwin-x64': '0.1.0',
-    'agent-terminal-linux-arm64': '0.1.0',
-    'agent-terminal-linux-x64': '0.1.0',
-    'agent-terminal-linux-arm64-musl': '0.1.0',
-    'agent-terminal-linux-x64-musl': '0.1.0',
+    '@repost/agent-terminal-darwin-arm64': '0.1.0',
+    '@repost/agent-terminal-darwin-x64': '0.1.0',
+    '@repost/agent-terminal-linux-arm64': '0.1.0',
+    '@repost/agent-terminal-linux-x64': '0.1.0',
+    '@repost/agent-terminal-linux-arm64-musl': '0.1.0',
+    '@repost/agent-terminal-linux-x64-musl': '0.1.0',
   });
   assert.ok(fs.existsSync(path.join(main, 'bin', 'agent-terminal.js')));
   assert.ok(fs.existsSync(path.join(main, 'README.md')));
   assert.ok(fs.existsSync(path.join(main, 'LICENSE')));
+});
+
+test('every package publishes publicly under @repost with the repository npm provenance checks', (t) => {
+  const dir = tempDir(t);
+  distRelease(dir, TARGETS, printTarget);
+
+  const run = build(dir);
+  assert.equal(run.status, 0, run.stderr);
+
+  const scope = path.join(dir, 'npm', '@repost');
+  const packages = fs.readdirSync(scope);
+  assert.equal(packages.length, TARGETS.length + 1);
+  for (const name of packages) {
+    const manifest = readJson(path.join(scope, name, 'package.json'));
+    assert.equal(manifest.name, `@repost/${name}`);
+    assert.deepEqual(manifest.publishConfig, { access: 'public' }, manifest.name);
+    assert.deepEqual(
+      manifest.repository,
+      { type: 'git', url: 'git+https://github.com/repost-sh/agent-terminal.git' },
+      manifest.name,
+    );
+  }
 });
 
 test('a release missing a platform is refused, naming the platform', (t) => {

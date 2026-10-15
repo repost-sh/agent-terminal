@@ -40,8 +40,7 @@ impl Shots {
 }
 
 fn open_screenshots(browser: &Browser) {
-    browser.run(&["find", "role", "tab", "click", "--name", "Screenshots", "--exact"]);
-    browser.wait_until("document.querySelector('[role=tab][aria-selected=true]')?.textContent === 'Screenshots'");
+    browser.select_panel("Screenshots");
 }
 
 fn wait_for_shots(browser: &Browser, count: usize) {

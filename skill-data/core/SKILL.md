@@ -1,7 +1,7 @@
 ---
 name: core
 description: Core agent-terminal usage guide. Read this before running any agent-terminal commands. Covers the open-snapshot-act-wait loop, reading the screen and its @t refs, sending keys, waiting correctly, shells and command history, taking screenshots and clips as evidence, sessions and tabs, human control, and troubleshooting. Use when asked to run, drive, test or screenshot a terminal program.
-allowed-tools: Bash(agent-terminal:*), Bash(npx agent-terminal:*)
+allowed-tools: Bash(agent-terminal:*), Bash(npx @repost/agent-terminal:*)
 ---
 
 # agent-terminal core

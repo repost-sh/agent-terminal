@@ -162,6 +162,7 @@ fn four_up_fills_with_the_current_tab_then_the_ones_after_it_and_single_returns_
     );
     browser.wait_for_screen_in(&cell("qa t2 line-printer"), "line 3");
     assert_eq!(browser.screen_in(&cell("qa t2 line-printer")), ["line 1", "line 2", "line 3"]);
+    browser.wait_for_screen_in(&cell("build t1 line-printer"), "line 1");
     assert_eq!(browser.screen_in(&cell("build t1 line-printer")), ["line 1"]);
 
     browser.click_button("Two terminals side by side");
