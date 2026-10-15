@@ -111,25 +111,28 @@ fn each_entry_keeps_what_the_call_printed() {
     let at = AgentTerminal::new();
     let printer = fixture("line-printer");
     let opened = at.run(&["open", "--size", "40x6", "--wait", "line 3", &printer, "--hold"]).success();
+    at.run(&["wait", "--cursor", "4,1"]).success();
+    let shown = at.run(&["snapshot"]).success();
     at.run(&["type", "hi", "--wait", "hi"]).success();
     let outside = at.run(&["get", "cell", "99", "1"]);
     let timed_out = at.run(&["--timeout", "300", "wait", "never shown"]);
     assert_eq!(timed_out.code(), 3);
 
     let log = at.activity("default");
-    let screen = opened.screen();
-    let (header, rows) = screen.split_once('\n').expect("a header line");
-    assert!(header.starts_with("default t1 · line-printer · 40x6 · cursor "), "{header}");
-    assert_eq!(rows, "1│line 1\n2│line 2\n3│line 3\n…│ (rows 4-6 blank)\n");
+    assert_eq!(
+        shown.screen(),
+        "default t1 · line-printer · 40x6 · cursor 4,1 · frame N\n1│line 1\n2│line 2\n3│line 3\n…│ (rows 4-6 blank)\n"
+    );
     assert_eq!(log[0]["output"], opened.stdout());
-    assert_eq!(log[1]["output"], "typed 2 keys into default t1\n");
-    assert_eq!(log[2]["output"], "error: cell 99,1 is outside the 40x6 screen\n");
-    assert_eq!(log[2]["output"], outside.stderr());
-    assert_eq!(log[3]["output"], timed_out.stderr());
+    assert_eq!(log[2]["output"], shown.stdout());
+    assert_eq!(log[3]["output"], "typed 2 keys into default t1\n");
+    assert_eq!(log[4]["output"], "error: cell 99,1 is outside the 40x6 screen\n");
+    assert_eq!(log[4]["output"], outside.stderr());
+    assert_eq!(log[5]["output"], timed_out.stderr());
     assert!(
-        log[3]["output"].as_str().unwrap().starts_with("error: timed out after 300 ms waiting for \"never shown\""),
+        log[5]["output"].as_str().unwrap().starts_with("error: timed out after 300 ms waiting for \"never shown\""),
         "{}",
-        log[3]
+        log[5]
     );
 }
 
