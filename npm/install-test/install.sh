@@ -69,10 +69,11 @@ case $channel in
     [ $# -eq 1 ] && [ -f "$1" ] || fail "expected one release archive in $artifacts/archive, found: $*"
     archive=$1
     if command -v sha256sum > /dev/null; then
-      sha256sum -c "$archive.sha256"
+      checksum=sha256sum
     else
-      shasum -a 256 -c "$archive.sha256"
+      checksum="shasum -a 256"
     fi
+    grep -v '^$' "$archive.sha256" | $checksum -c -
     mkdir -p "$state/archive"
     tar -xJf "$archive" -C "$state/archive"
     bin=$state/archive/${archive%.tar.xz}
