@@ -265,12 +265,14 @@ pub(crate) fn dashboard(at: &AgentTerminal) -> u16 {
 pub(crate) fn fixture(name: &str) -> String {
     static BUILT: OnceLock<PathBuf> = OnceLock::new();
     let dir = BUILT.get_or_init(|| {
+        let bins = PathBuf::from(env!("CARGO_BIN_EXE_agent-terminal")).parent().unwrap().to_path_buf();
         let status = Command::new(env!("CARGO"))
-            .args(["build", "--quiet", "-p", "at-fixtures", "--bins"])
+            .args(["build", "--quiet", "-p", "at-fixtures", "--bins", "--target-dir"])
+            .arg(bins.parent().unwrap())
             .status()
             .expect("build fixtures");
         assert!(status.success(), "building fixtures failed");
-        PathBuf::from(env!("CARGO_BIN_EXE_agent-terminal")).parent().unwrap().to_path_buf()
+        bins
     });
     dir.join(name).to_string_lossy().into_owned()
 }
