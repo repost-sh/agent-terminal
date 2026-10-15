@@ -1,6 +1,26 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { platformPackageName } = require('../agent-terminal/lib/platform');
+const fs = require('node:fs');
+const path = require('node:path');
+const { PLATFORMS, packageNameFor, platformPackageName } = require('../agent-terminal/lib/platform');
+
+const ROOT = path.resolve(__dirname, '..', '..');
+
+test('the release builds every platform the npm packages cover, and the install test installs each one', () => {
+  const dist = fs.readFileSync(path.join(ROOT, 'dist-workspace.toml'), 'utf8');
+  const targets = dist.match(/^targets = \[([^\]]*)\]/m);
+  assert.ok(targets, 'dist-workspace.toml has no targets list');
+  assert.deepEqual(
+    [...targets[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]).sort(),
+    PLATFORMS.map((platform) => platform.target).sort(),
+  );
+
+  const workflow = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'npm-packages.yml'), 'utf8');
+  assert.deepEqual(
+    [...workflow.matchAll(/^ +package: (\S+)$/gm)].map((match) => match[1]).sort(),
+    PLATFORMS.map((platform) => packageNameFor('agent-terminal', platform)).sort(),
+  );
+});
 
 test('each supported platform maps to its own binary package', () => {
   const cases = [
