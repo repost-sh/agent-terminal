@@ -77,6 +77,37 @@ fn close_stops_the_program_and_leaves_nothing_to_read() {
     assert!(after.stderr().contains("no terminal is open in session default"), "{}", after.stderr());
 }
 
+const IGNORES_HUP: &str = "trap '' HUP; echo ready; exec sleep 600";
+
+fn running(pid: &str) -> bool {
+    Command::new("kill").args(["-0", pid]).stderr(Stdio::null()).status().expect("run kill").success()
+}
+
+#[test]
+fn close_and_close_all_stop_a_program_that_ignores_sighup() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--wait", "ready", "sh", "-c", IGNORES_HUP]).success();
+    let first = at.run(&["get", "pid"]).success().stdout().trim().to_string();
+    at.run(&["--session", "other", "open", "--wait", "ready", "sh", "-c", IGNORES_HUP]).success();
+    let second = at.run(&["--session", "other", "get", "pid"]).success().stdout().trim().to_string();
+    assert!(running(&first) && running(&second));
+
+    at.run(&["close"]).success();
+    assert!(!running(&first), "close left {first} running");
+    at.run(&["close", "--all"]).success();
+    assert!(!running(&second), "close --all left {second} running");
+}
+
+#[test]
+fn restart_stops_a_program_that_ignores_sighup_and_runs_it_again() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--wait", "ready", "sh", "-c", IGNORES_HUP]).success();
+    let before = at.run(&["get", "pid"]).success().stdout().trim().to_string();
+    at.run(&["--timeout", "5000", "restart", "--wait", "ready"]).success();
+    assert!(!running(&before), "restart left {before} running");
+    assert_ne!(at.run(&["get", "pid"]).success().stdout().trim(), before);
+}
+
 #[test]
 fn close_all_closes_every_session() {
     let at = AgentTerminal::new();

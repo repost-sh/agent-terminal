@@ -12,7 +12,7 @@ use crate::native::commands::{Change, Commands, Point, Submitted};
 use crate::native::keyboard;
 use crate::native::mouse::{self, Action};
 use crate::native::output_log::{Offsets, Output, OutputLog};
-use crate::native::pty::{self, Killer, Signaller, Spawned};
+use crate::native::pty::{self, Signaller, Spawned, Stopper};
 use crate::native::recording::Recording;
 use crate::native::refs::{self, Found, Grid};
 use crate::native::screen::{Screen, ShellReport};
@@ -24,6 +24,8 @@ use crate::protocol::{
     SnapshotDiff, SnapshotOptions, TabInfo,
 };
 
+pub const HANG_UP_GRACE: Duration = Duration::from_secs(1);
+
 pub struct Terminal {
     pub program: String,
     pid: Option<u32>,
@@ -34,7 +36,7 @@ pub struct Terminal {
     changed: Condvar,
     input_turn: Mutex<()>,
     writer: Mutex<Box<dyn Write + Send>>,
-    killer: Mutex<Box<dyn Killer>>,
+    stopper: Stopper,
     master: pty::Master,
     signaller: Box<dyn Signaller>,
     command: pty::Command,
@@ -216,7 +218,7 @@ impl Terminal {
             changed: Condvar::new(),
             input_turn: Mutex::new(()),
             writer: Mutex::new(spawned.writer),
-            killer: Mutex::new(spawned.killer),
+            stopper: spawned.stopper,
             master: spawned.master,
             signaller: spawned.signaller,
             command,
@@ -445,7 +447,23 @@ impl Terminal {
     }
 
     pub fn stop(&self, timeout: Duration) -> bool {
-        self.kill();
+        self.hang_up();
+        let deadline = Instant::now() + timeout;
+        self.exited_within(timeout.min(HANG_UP_GRACE)) || {
+            self.kill();
+            self.exited_within(deadline.saturating_duration_since(Instant::now()))
+        }
+    }
+
+    pub fn hang_up(&self) {
+        if self.exit_status().is_none()
+            && let Err(e) = self.stopper.hang_up()
+        {
+            eprintln!("{}: hanging up failed: {e:#}", self.program);
+        }
+    }
+
+    pub fn exited_within(&self, timeout: Duration) -> bool {
         let state = self.state.lock().unwrap();
         let (state, _) = self.changed.wait_timeout_while(state, timeout, |state| state.exit.is_none()).unwrap();
         state.exit.is_some()
@@ -818,11 +836,10 @@ impl Terminal {
     }
 
     pub fn kill(&self) {
-        let still_running = self.state.lock().unwrap().exit.is_none();
-        if let Err(e) = self.killer.lock().unwrap().kill()
-            && still_running
+        if self.exit_status().is_none()
+            && let Err(e) = self.stopper.kill()
         {
-            eprintln!("{}: stopping the program failed: {e}", self.program);
+            eprintln!("{}: killing the program failed: {e:#}", self.program);
         }
     }
 }

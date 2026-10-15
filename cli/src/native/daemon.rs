@@ -16,7 +16,7 @@ use crate::native::pty;
 use crate::native::screenshots;
 use crate::native::shell;
 use crate::native::store::{self, ActivityEntry, Pending, SessionFolder};
-use crate::native::terminal::{Picture, Settled, Terminal};
+use crate::native::terminal::{HANG_UP_GRACE, Picture, Settled, Terminal};
 use crate::native::wait::{Condition, Pattern};
 use crate::output::{self, call_line};
 use crate::protocol::{
@@ -28,6 +28,7 @@ use crate::protocol::{
 };
 
 const CONTROL_HANDED_BACK: &str = "a human to hand back control";
+const KILLED_WITHIN: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
 struct Daemon {
@@ -597,7 +598,7 @@ impl Daemon {
             match sessions.get_mut(session).and_then(|s| s.tabs.get_mut(&tab)) {
                 Some(slot) if Arc::ptr_eq(&slot.terminal, &old) => slot.terminal = Arc::clone(&terminal),
                 _ => {
-                    terminal.kill();
+                    stop_all(&[terminal]);
                     return Err(no_tab(session, tab));
                 }
             }
@@ -917,8 +918,6 @@ impl Daemon {
         let entry = sessions.get_mut(session).ok_or_else(missing)?;
         let id = tab.or(entry.current).ok_or_else(missing)?;
         let closing = entry.tabs.remove(&id).ok_or_else(missing)?;
-        closing.terminal.kill();
-        closing.control.close();
         if entry.current == Some(id) {
             entry.current = entry.tabs.keys().next_back().copied();
         }
@@ -927,6 +926,8 @@ impl Daemon {
         }
         drop(sessions);
         self.changes.notify();
+        closing.control.close();
+        stop_all(&[closing.terminal]);
         Ok(TabRef { session: session.to_string(), tab: id.to_string() })
     }
 
@@ -934,13 +935,15 @@ impl Daemon {
         let sessions = std::mem::take(&mut *self.sessions.lock().unwrap());
         self.changes.notify();
         let mut closed = Vec::new();
+        let mut terminals = Vec::new();
         for (name, session) in sessions {
             for (id, closing) in session.tabs {
-                closing.terminal.kill();
                 closing.control.close();
+                terminals.push(closing.terminal);
                 closed.push(TabRef { session: name.clone(), tab: id.to_string() });
             }
         }
+        stop_all(&terminals);
         closed
     }
 
@@ -1041,6 +1044,26 @@ struct After<'a> {
     wait: Option<&'a Wait>,
     snapshot: bool,
     screenshot: Option<&'a Shot>,
+}
+
+fn stop_all(terminals: &[Arc<Terminal>]) {
+    for terminal in terminals {
+        terminal.hang_up();
+    }
+    let grace = Instant::now() + HANG_UP_GRACE;
+    let holding: Vec<&Arc<Terminal>> = terminals
+        .iter()
+        .filter(|terminal| !terminal.exited_within(grace.saturating_duration_since(Instant::now())))
+        .collect();
+    for terminal in &holding {
+        terminal.kill();
+    }
+    let deadline = Instant::now() + KILLED_WITHIN;
+    for terminal in holding {
+        if !terminal.exited_within(deadline.saturating_duration_since(Instant::now())) {
+            eprintln!("{}: still running {} ms after SIGKILL", terminal.program, KILLED_WITHIN.as_millis());
+        }
+    }
 }
 
 fn first_screen(
