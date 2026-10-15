@@ -8,6 +8,7 @@ mod fonts;
 mod info;
 mod new_session;
 mod output;
+mod screen_rows;
 mod screenshots;
 mod sidebar;
 mod split;
@@ -101,7 +102,7 @@ impl Browser {
     pub fn wait_for_screen_in(&self, scope: &str, text: &str) {
         self.wait_until(&format!(
             "document.querySelector({})?.textContent.includes({})",
-            js_string(&format!("{scope} .xterm-accessibility-tree")),
+            js_string(&format!("{scope} [aria-label=\"Screen\"]")),
             js_string(text)
         ));
     }
@@ -157,13 +158,14 @@ impl Browser {
     }
 
     pub fn screen_in(&self, scope: &str) -> Vec<String> {
-        let mut rows: Vec<String> = Vec::new();
-        for line in self.snapshot(&format!("{scope} .xterm-accessibility-tree")).lines().map(str::trim) {
-            if line.starts_with("- listitem") {
-                rows.push(String::new());
-            } else if let (Some(row), Some(text)) = (rows.last_mut(), line.strip_prefix("- StaticText ")) {
-                *row = serde_json::from_str::<String>(text).expect("a quoted row").trim_end().to_string();
-            }
+        let listed = self.eval(&format!(
+            "JSON.stringify(Array.from(document.querySelectorAll({})).map((row) => row.textContent))",
+            js_string(&format!("{scope} [aria-label=\"Screen\"] > *"))
+        ));
+        let mut rows: Vec<String> =
+            serde_json::from_str(&serde_json::from_str::<String>(&listed).expect("a string")).expect("the rows");
+        for row in &mut rows {
+            row.truncate(row.trim_end().len());
         }
         let shown = rows.iter().rposition(|row| !row.is_empty()).map_or(0, |last| last + 1);
         rows.truncate(shown);
