@@ -38,12 +38,13 @@ pub trait Backend: Send + Sync + 'static {
 
 pub struct Server {
     port: u16,
+    origins: Vec<String>,
     stop: Option<oneshot::Sender<()>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Server {
-    pub fn start(port: u16, backend: Arc<dyn Backend>) -> Result<Self> {
+    pub fn start(port: u16, origins: Vec<String>, backend: Arc<dyn Backend>) -> Result<Self> {
         let v4 = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).map_err(|e| refused(port, e))?;
         let port = v4.local_addr().context("read the dashboard's port")?.port();
         let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, port))
@@ -56,7 +57,7 @@ impl Server {
             .enable_io()
             .build()
             .context("start the dashboard's runtime")?;
-        let app = router(port, backend);
+        let app = router(guard::Pages { port, origins: origins.clone() }, backend);
         let (stop, stopped) = oneshot::channel();
         let thread = std::thread::Builder::new()
             .name("dashboard".into())
@@ -65,11 +66,15 @@ impl Server {
                 runtime.shutdown_background();
             })
             .context("start the dashboard's thread")?;
-        Ok(Self { port, stop: Some(stop), thread: Some(thread) })
+        Ok(Self { port, origins, stop: Some(stop), thread: Some(thread) })
     }
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    pub fn allows(&self, origin: &str) -> bool {
+        self.origins.iter().any(|allowed| allowed == origin)
     }
 
     pub fn info(&self) -> Dashboard {
@@ -129,7 +134,7 @@ async fn serve(app: Router, v4: TcpListener, v6: Option<TcpListener>, stopped: o
     }
 }
 
-fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
+fn router(pages: guard::Pages, backend: Arc<dyn Backend>) -> Router {
     Router::new()
         .route("/api/sessions", get(api::sessions).post(open::open))
         .route("/api/sessions/stream", get(api::sessions_stream))
@@ -152,7 +157,7 @@ fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
         .route("/api/session/{session}/{tab}/commands/{id}", get(commands::output))
         .fallback(assets::serve)
         .with_state(backend)
-        .layer(axum::middleware::from_fn_with_state(port, guard::same_origin))
+        .layer(axum::middleware::from_fn_with_state(Arc::new(pages), guard::same_origin))
 }
 
 fn tab_id(tab: &str) -> Option<TabId> {

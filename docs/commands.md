@@ -108,6 +108,7 @@ Sessions and tabs:
 
 Watch and take over:
   dashboard [start|stop]       The live dashboard on http://localhost:4849 (--port <n>; 0 picks a free port)
+                               --allow-origin <origin>  also answer pages from this origin (the dashboard's dev server)
   attach [--read-only]         Watch or drive a session from your own terminal (detach: Ctrl-p Ctrl-q)
                                without --read-only you take control: the agent's input exits 4 until you detach
 

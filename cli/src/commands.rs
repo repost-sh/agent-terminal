@@ -1077,6 +1077,14 @@ enum DashboardAction {
 struct DashboardArgs {
     #[arg(long, help = "Port to serve on (0 picks a free one)", value_name = "N", default_value_t = 4849)]
     port: u16,
+
+    #[arg(
+        long = "allow-origin",
+        help = "Also answer pages from this origin, such as the dashboard's dev server (repeatable)",
+        value_name = "ORIGIN",
+        value_parser = parse_origin
+    )]
+    allow_origin: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -1162,8 +1170,10 @@ fn request(cli: Cli) -> Result<Request, String> {
     let request = match cli.command {
         Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
         Command::Dashboard { action: Some(DashboardAction::Stop), .. } => Request::DashboardStop,
-        Command::Dashboard { action: Some(DashboardAction::Start(DashboardArgs { port })), .. }
-        | Command::Dashboard { start: DashboardArgs { port }, action: None } => Request::DashboardStart { port },
+        Command::Dashboard { action: Some(DashboardAction::Start(DashboardArgs { port, allow_origin })), .. }
+        | Command::Dashboard { start: DashboardArgs { port, allow_origin }, action: None } => {
+            Request::DashboardStart { port, origins: allow_origin }
+        }
         Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
             open(target.session, args, cli.timeout)?
         }
@@ -1543,6 +1553,16 @@ fn parse_position(value: &str) -> Result<(u16, u16), String> {
         return Err("rows and columns count from 1".into());
     }
     Ok((row, col))
+}
+
+fn parse_origin(value: &str) -> Result<String, String> {
+    let refused = || format!("{value} is not an origin; an origin is http://host:port, like http://localhost:5173");
+    let rest = value.strip_prefix("http://").or_else(|| value.strip_prefix("https://")).ok_or_else(refused)?;
+    let (host, port) = rest.rsplit_once(':').ok_or_else(refused)?;
+    if host.is_empty() || host.contains('/') || port.parse::<u16>().is_err() {
+        return Err(refused());
+    }
+    Ok(value.to_string())
 }
 
 fn parse_env(value: &str) -> Result<(String, String), String> {

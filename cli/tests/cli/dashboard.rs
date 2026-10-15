@@ -151,6 +151,29 @@ fn the_dashboard_refuses_requests_from_other_sites() {
 }
 
 #[test]
+fn an_origin_allowed_at_start_may_call_the_dashboard_as_its_own_pages_do() {
+    let at = AgentTerminal::new();
+    let started = at
+        .run(&["--json", "dashboard", "start", "--port", "0", "--allow-origin", "http://localhost:5173"])
+        .success()
+        .json();
+    let port = started["port"].as_u64().expect("the port") as u16;
+
+    assert_eq!(get(port, "/api/sessions", &[("Origin", "http://localhost:5173")]).status, 200);
+    assert_eq!(get(port, "/api/sessions", &[("Origin", &format!("http://localhost:{port}"))]).status, 200);
+    assert_eq!(get(port, "/api/sessions", &[("Origin", "http://localhost:5174")]).status, 403);
+    assert_eq!(get(port, "/api/sessions", &[("Origin", "http://evil.example")]).status, 403);
+
+    let refused = at.run(&["dashboard", "start", "--port", "0", "--allow-origin", "localhost:5173"]);
+    assert_eq!(refused.code(), 1, "{}", refused.stderr());
+    assert!(
+        refused.stderr().contains("an origin is http://host:port, like http://localhost:5173"),
+        "{}",
+        refused.stderr()
+    );
+}
+
+#[test]
 fn dashboard_stop_closes_the_port_and_says_when_none_runs() {
     let at = AgentTerminal::new();
     let started = at.run(&["dashboard", "start", "--port", "0"]).success().stdout();

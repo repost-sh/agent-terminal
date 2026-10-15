@@ -303,6 +303,8 @@ pub enum Request {
     },
     DashboardStart {
         port: u16,
+        #[serde(default)]
+        origins: Vec<String>,
     },
     DashboardStop,
     Shell {

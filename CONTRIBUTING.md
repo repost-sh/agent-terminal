@@ -61,6 +61,8 @@ npm run build    # type-checks, then writes ../cli/assets/dashboard
 npm run dev      # hot reload on :5173, API proxied to a dashboard on :4849
 ```
 
+The dashboard answers only its own pages, so start the one the dev server talks to with the dev server's origin allowed: `agent-terminal dashboard start --allow-origin http://localhost:5173`.
+
 The browser tests drive the real dashboard with agent-browser against a real daemon. They are opt-in so contributors without a browser can still run the checks above; CI runs them on every push and pull request.
 
 ```sh

@@ -319,7 +319,7 @@ impl Daemon {
                 Ok(Reply::Stopped)
             }
             Request::Batch { steps, bail } => Ok(Reply::Batch(self.batch(steps, bail))),
-            Request::DashboardStart { port } => self.start_dashboard(port).map(Reply::Dashboard),
+            Request::DashboardStart { port, origins } => self.start_dashboard(port, origins).map(Reply::Dashboard),
             Request::DashboardStop => Ok(Reply::DashboardStopped(DashboardStopped { stopped: self.stop_dashboard() })),
         }
     }
@@ -329,10 +329,10 @@ impl Daemon {
         Sessions { sessions: sessions.iter().map(|(name, session)| session.info(name)).collect() }
     }
 
-    fn start_dashboard(&self, port: u16) -> Result<Dashboard, ErrorBody> {
+    fn start_dashboard(&self, port: u16, origins: Vec<String>) -> Result<Dashboard, ErrorBody> {
         let mut running = self.dashboard.lock().unwrap();
         if let Some(server) = running.as_ref() {
-            if port == 0 || port == server.port() {
+            if (port == 0 || port == server.port()) && origins.iter().all(|origin| server.allows(origin)) {
                 return Ok(server.info());
             }
             return Err(failure(format!(
@@ -342,7 +342,7 @@ impl Daemon {
         }
         let backend: Arc<dyn Backend> =
             self.me.upgrade().ok_or_else(|| failure("the daemon is shutting down".into()))?;
-        let server = dashboard::Server::start(port, backend).map_err(error_body)?;
+        let server = dashboard::Server::start(port, origins, backend).map_err(error_body)?;
         let info = server.info();
         *running = Some(server);
         Ok(info)
