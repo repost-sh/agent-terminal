@@ -127,7 +127,9 @@ Everything else:
                                an installed skill stub by the rules of install --skills
                                exit 1 when the registry can't be reached, or when the installer can't be told (it prints
                                each installer's command, and why when a global listing it asked failed or could not run);
-                               --json: installed_with, from, latest, to, stub_refreshed
+                               --json: installed_with, from, latest, to, stub_refreshed; when the new version can't be read,
+                               to is null and version_unknown says why; when an installed stub can't be refreshed,
+                               stub_error says why (both exit 0: the reinstall happened)
   version
 
 Options:
