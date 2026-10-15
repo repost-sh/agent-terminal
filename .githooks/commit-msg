@@ -3,6 +3,18 @@ set -euo pipefail
 
 subject=$(grep -v '^#' "$1" | head -n 1)
 
+attribution=$(grep -v '^#' "$1" | grep -inE '^[[:space:]]*(co-authored-by|claude-session)[[:space:]]*:' || true)
+if [[ -n "$attribution" ]]; then
+  cat >&2 <<MSG
+commit blocked: the message carries an attribution trailer.
+
+  $attribution
+
+Remove every Co-Authored-By and Claude-Session line.
+MSG
+  exit 1
+fi
+
 if [[ "$subject" =~ ^(Merge|Revert\ \"|fixup!|squash!|amend!) ]]; then
   exit 0
 fi
