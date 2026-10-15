@@ -2,13 +2,13 @@ use std::path::{Path, PathBuf};
 
 use crate::support::{AgentTerminal, fixture};
 
-struct Picture {
-    width: u32,
-    height: u32,
-    rgb: Vec<u8>,
+pub struct Picture {
+    pub width: u32,
+    pub height: u32,
+    pub rgb: Vec<u8>,
 }
 
-fn picture(path: &Path) -> Picture {
+pub fn picture(path: &Path) -> Picture {
     let file = std::fs::File::open(path).unwrap_or_else(|e| panic!("open {}: {e}", path.display()));
     let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);

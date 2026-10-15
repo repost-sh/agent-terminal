@@ -2,6 +2,7 @@ mod activity;
 mod batch;
 #[cfg(feature = "browser-tests")]
 mod browser;
+mod clip;
 mod dashboard;
 mod diff;
 mod doctor;

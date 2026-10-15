@@ -10,7 +10,7 @@ Every session keeps plain files in `<home>/sessions/<session>/`, where `<home>` 
     t1.commands.jsonl  the command log of shell tab t1, one JSON object per finished command
     t2.cast
   recordings/          `record start` files when no path is given: <session>-<tab>-<frame>.cast
-  screenshots/         screenshots when no path and no --screenshot-dir is given: <session>-<tab>-<frame>.png
+  screenshots/         screenshots and clips when no path and no --screenshot-dir is given: <session>-<tab>-<frame>.png
 ```
 
 ## Lifetime
@@ -28,6 +28,7 @@ Every session keeps plain files in `<home>/sessions/<session>/`, where `<home>` 
   - `o`: program output as it reached the screen, UTF-8 (a character split across reads is written whole; invalid bytes become U+FFFD).
   - `i`: input agent-terminal wrote to the program (`type`, `press`, `paste`, `send`). Signals are not input.
   - `r`: a resize, `"COLSxROWS"`.
+  - `m`: a mark set with `mark <name>`; the data is the name. `clip --from <name>` starts at the last mark of that name.
 - Times count from `timestamp`, not from the first event, so `timestamp + seconds` is the wall-clock time of the event and lines up with the activity log.
 - Replaying the `o` and `r` events through a fresh terminal of the header's size gives the screen the tab showed.
 - `restart` keeps writing to the same file: it adds an `o` event with a terminal reset (`ESC c`) before the new program's output, because the restarted program starts on a fresh screen.
@@ -49,6 +50,7 @@ One line per CLI call addressed to the session, written before the CLI gets its 
 - `exit`: the CLI's exit code (0 ok, 1 error, 3 timeout, 5 exited, ...); `error`: the message when it is not 0.
 - `frame`: the tab's frame when the call ended, when the tab still exists.
 - `screenshots`: absolute paths of the files the call saved: the screenshot of `screenshot` or of an input command's `--screenshot`, the diff image of `diff screenshot`. Left out when the call saved none. The files live where the call put them, outside the session folder.
+- `clips`: absolute path of the GIF or MP4 a `clip` call saved, in a list like `screenshots`. Left out for every other call. `clip --from @activity:N` counts the lines of this file from 1: it starts when entry N was received, and `--to @activity:N` ends when it was answered (`time` + `duration_ms`, both cut to the millisecond, so the clip runs up to 2 ms past it).
 - `output`: what the call printed without `--json` (its result, or `error: ...` and the screen it last saw when it failed). Only the first 64 KiB are kept; a longer output ends with `… N more bytes not kept`.
 - Not logged: calls that name no session (`session list`, `skills`, `daemon stop`) and calls to a session that is not open.
 

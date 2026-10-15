@@ -81,7 +81,11 @@ Wait and check:
   expect --cell <r,c> --style <inverse|bold|fg=red|...>   Fail if that cell is not styled so
 
 Evidence:
-  clip <path> [--last 10s]     GIF or MP4 of a moment: --last <time>, --from/--to <mark|@activity>, --command <id>
+  clip [path]                  GIF or MP4 of what the tab showed (the path ends in .gif or .mp4)
+                               --last <time>  the last stretch of the recording (default 10s; 2m or raw ms)
+                               --from <mark|@activity:N> [--to <mark|@activity:N>]  between two marks or calls (to: now)
+                               --command <id>  one shell command, from its start to its end
+                               default path: <screenshot dir>/<session>-<tab>-<frame>.gif; at most 10 frames a second
   record start|stop [path]     Save the whole tab as an asciicast (.cast) file
   diff snapshot                What changed on screen since the last snapshot (--baseline <file>: a saved one)
   diff screenshot --baseline <png>   Pixel diff against a baseline image, saved as an image with the changes in red
