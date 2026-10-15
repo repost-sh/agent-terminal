@@ -33,6 +33,7 @@ coverage() {
   step "fix the code the failing test names → GAUNTLET.md#rust-tests" cargo llvm-cov --workspace --all-targets --features browser-tests --no-report
   step "fix the error cargo-llvm-cov printed → GAUNTLET.md#coverage-floor" cargo llvm-cov report --lcov --no-default-ignore-filename-regex --output-path target/lcov.info
   step "test the uncovered behaviour through the crate's real surface → GAUNTLET.md#coverage-floor" cargo run --quiet -p at-gauntlet -- coverage target/lcov.info
+  step "cover every branch of each function it names, or split the function → GAUNTLET.md#crap" cargo run --quiet -p at-gauntlet -- crap target/lcov.info
 }
 
 npm_tests() {

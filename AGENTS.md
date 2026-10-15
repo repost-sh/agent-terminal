@@ -12,7 +12,7 @@ Terminal automation CLI for AI agents, the terminal sibling of agent-browser. Sp
 
 ## Checks
 
-`scripts/gauntlet.sh` is the gauntlet, the one entry point for every check: work is done when it ends `GAUNTLET GREEN`. Its areas are `rust` (`cli/`), `dashboard`, `npm`, `browser` and `coverage` (each crate's line coverage with the browser tests, against a 90% floor); with no argument it runs `rust dashboard npm`. Each failure names its fix.
+`scripts/gauntlet.sh` is the gauntlet, the one entry point for every check: work is done when it ends `GAUNTLET GREEN`. Its areas are `rust` (`cli/`), `dashboard`, `npm`, `browser` and `coverage` (each crate's line coverage with the browser tests, against a 90% floor, and each function's CRAP score, at most 6); with no argument it runs `rust dashboard npm`. Each failure names its fix.
 
 Rule Zero: fix the code a check flags, and leave every rule as it stands; a rule that seems wrong goes to the owner.
 
