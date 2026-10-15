@@ -1,7 +1,8 @@
-use std::error::Error;
 use std::io::{Read, Write};
+use std::process::ExitCode;
 use std::time::Duration;
 
+use at_fixtures::{Failure, until_hang_up};
 use crossterm::terminal;
 
 struct Options {
@@ -27,12 +28,16 @@ impl Options {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<ExitCode, String> {
     let options = Options::parse(std::env::args().skip(1))?;
+    Ok(until_hang_up(move || tick(&options), || Ok(())))
+}
+
+fn tick(options: &Options) -> Result<(), Failure> {
     terminal::enable_raw_mode()?;
     show("ready\r\n\x1b[6n")?;
     seen()?;
-    for tick in 1u64.. {
+    (1u64..).try_for_each(|tick| {
         if options.flash {
             show(&format!("tick {tick}\x1b[6n"))?;
             seen()?;
@@ -42,8 +47,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             show("\x1b[1;1Hready\x1b[2;1H")?;
         }
         std::thread::sleep(options.every);
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 fn show(text: &str) -> std::io::Result<()> {

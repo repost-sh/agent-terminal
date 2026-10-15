@@ -1,6 +1,6 @@
-use std::error::Error;
 use std::process::ExitCode;
 
+use at_fixtures::{Failure, until_hang_up};
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton, MouseEvent,
     MouseEventKind,
@@ -29,8 +29,12 @@ struct App {
     areas: Areas,
 }
 
-fn main() -> Result<ExitCode, Box<dyn Error>> {
+fn main() -> Result<ExitCode, String> {
     let mouse = mouse_wanted(std::env::args().skip(1))?;
+    Ok(until_hang_up(move || browse(mouse), || Ok(ExitCode::SUCCESS)))
+}
+
+fn browse(mouse: bool) -> Result<ExitCode, Failure> {
     let mut terminal = ratatui::init();
     if mouse {
         execute!(std::io::stdout(), EnableMouseCapture)?;

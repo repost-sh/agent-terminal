@@ -1,7 +1,9 @@
-use std::error::Error;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
+use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use at_fixtures::{Failure, until_hang_up};
 
 const WORDS: [&str; 12] = [
     "agent", "terminal", "snapshot", "frame", "screen", "session", "daemon", "cursor", "scroll", "render", "glyph",
@@ -15,7 +17,7 @@ struct Options {
 }
 
 impl Options {
-    fn parse(mut args: impl Iterator<Item = String>) -> Result<Self, Box<dyn Error>> {
+    fn parse(mut args: impl Iterator<Item = String>) -> Result<Self, Failure> {
         let mut options = Options { scrollback: 0, stamps: None };
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -34,8 +36,12 @@ impl Options {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut options = Options::parse(std::env::args().skip(1))?;
+fn main() -> Result<ExitCode, Failure> {
+    let options = Options::parse(std::env::args().skip(1))?;
+    Ok(until_hang_up(move || fill(options), || Ok(())))
+}
+
+fn fill(mut options: Options) -> Result<(), Failure> {
     crossterm::terminal::enable_raw_mode()?;
     let (cols, rows) = crossterm::terminal::size()?;
     let mut out = std::io::stdout().lock();
@@ -49,7 +55,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     echo(&mut out, options.stamps.as_mut())
 }
 
-fn echo(out: &mut impl Write, mut stamps: Option<&mut File>) -> Result<(), Box<dyn Error>> {
+fn echo(out: &mut impl Write, mut stamps: Option<&mut File>) -> Result<(), Failure> {
     let mut seen = 0u64;
     let mut input = [0u8; 64];
     loop {

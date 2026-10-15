@@ -1,12 +1,14 @@
-use std::error::Error;
 use std::fmt;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::iter::{Cycle, Zip};
 use std::ops::Range;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::slice::Iter;
 use std::time::{Duration, Instant};
+
+use at_fixtures::{Failure, until_hang_up};
 
 const LOGO_HEIGHT: u16 = 7;
 const LOGO: [&str; LOGO_HEIGHT as usize] = [
@@ -97,8 +99,12 @@ fn ticks() -> impl Iterator<Item = Tick> {
     )
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<ExitCode, String> {
     let options = Options::parse(std::env::args().skip(1))?;
+    Ok(until_hang_up(move || draw(options), || Ok(())))
+}
+
+fn draw(options: Options) -> Result<(), Failure> {
     crossterm::terminal::enable_raw_mode()?;
     let (cols, rows) = crossterm::terminal::size()?;
     show(b"\x1b[?1049h\x1b[?25l\x1b[2J\x1b[1;1Hready")?;
@@ -108,7 +114,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut stats = Stats { file, frames: 0, bytes: 0, written: Instant::now() };
     let every = Duration::from_secs_f64(1.0 / f64::from(options.hz));
     let mut next = Instant::now();
-    for tick in ticks() {
+    ticks().try_for_each(|tick| {
         let frame = match options.mode {
             Mode::Full => full(tick, cols, rows).to_string(),
             Mode::Partial => partial(&tick, cols, rows).to_string(),
@@ -117,8 +123,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         stats.count(frame.len())?;
         next += every;
         std::thread::sleep(next.saturating_duration_since(Instant::now()));
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 fn show(bytes: &[u8]) -> std::io::Result<()> {

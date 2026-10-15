@@ -221,10 +221,10 @@ fn signal_sends_each_supported_signal_to_the_program() {
     for (signal, shown) in [
         ("INT", "[INT]"),
         ("TERM", "[TERM]"),
-        ("SIGHUP", "[HUP]"),
         ("tstp", "[TSTP]"),
         ("CONT", "[CONT]"),
         ("WINCH", "[WINCH]"),
+        ("SIGHUP", "[HUP]"),
     ] {
         expected.push_str(shown);
         let sent = at.run(&["signal", signal, "--wait", &expected]).success();

@@ -1,9 +1,11 @@
 use std::error::Error;
 use std::fmt::{self, Write as _};
 use std::io::{ErrorKind, Read, Write};
+use std::process::ExitCode;
 
+use at_fixtures::until_hang_up;
 use crossterm::terminal;
-use signal_hook::consts::signal::{SIGCONT, SIGHUP, SIGINT, SIGTERM, SIGTSTP, SIGWINCH};
+use signal_hook::consts::signal::{SIGCONT, SIGINT, SIGTERM, SIGTSTP, SIGWINCH};
 use signal_hook::iterator::Signals;
 
 struct Options {
@@ -57,21 +59,23 @@ fn mouse_encoding(value: Option<&str>) -> Result<&'static str, String> {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<ExitCode, Box<dyn Error>> {
     let options = Options::parse(std::env::args().skip(1))?;
-    let mut signals = Signals::new([SIGINT, SIGTERM, SIGHUP, SIGTSTP, SIGCONT, SIGWINCH])?;
+    let mut signals = Signals::new([SIGINT, SIGTERM, SIGTSTP, SIGCONT, SIGWINCH])?;
     std::thread::spawn(move || signals.forever().try_for_each(|signal| show(&format!("[{}]", name(signal)))));
+    Ok(until_hang_up(move || start(&options), || show("[HUP]")))
+}
+
+fn start(options: &Options) -> std::io::Result<()> {
     terminal::enable_raw_mode()?;
     show(&format!("{}ready\r\n", options.modes))?;
-    echo(options.reads)?;
-    Ok(())
+    echo(options.reads)
 }
 
 fn name(signal: i32) -> &'static str {
     match signal {
         SIGINT => "INT",
         SIGTERM => "TERM",
-        SIGHUP => "HUP",
         SIGTSTP => "TSTP",
         SIGCONT => "CONT",
         SIGWINCH => "WINCH",
