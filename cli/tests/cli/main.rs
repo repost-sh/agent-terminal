@@ -4,6 +4,7 @@ mod batch;
 mod browser;
 mod clip;
 mod control;
+mod daemon_version;
 mod dashboard;
 mod diff;
 mod doctor;

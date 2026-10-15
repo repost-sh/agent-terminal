@@ -1,5 +1,7 @@
 use crate::support::{AgentTerminal, Run};
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 const FONTS: &str = "ok       fonts    JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in\n";
 
 const NO_SCRIPTS_YET: &str = "ok       shell    zsh (your SHELL) has shell integration; `agent-terminal shell` writes its scripts when it first runs\n";
@@ -26,9 +28,54 @@ fn doctor_checks_the_pty_the_fonts_and_the_daemon_without_starting_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}ok       daemon   running, listening on {}\n",
+            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}ok       daemon   running agent-terminal {VERSION}, listening on {}\n",
             socket.display()
         )
+    );
+}
+
+#[test]
+fn doctor_flags_a_daemon_of_another_version_and_says_how_to_replace_it() {
+    let at = AgentTerminal::new();
+    let socket = at.home().join("daemon.sock");
+    at.run(&["open", "--size", "20x2", "cat"]).success();
+    std::fs::write(at.home().join("daemon.version"), "0.0.1").expect("make the daemon report another version");
+
+    let run = doctor(&at, &["doctor"]);
+    assert_eq!(run.code(), 1);
+    assert_eq!(
+        run.stdout().lines().skip(3).collect::<Vec<_>>(),
+        [
+            format!(
+                "problem  daemon   running agent-terminal 0.0.1, not {VERSION} like this command, listening on {}",
+                socket.display()
+            )
+            .as_str(),
+            &format!(
+                "                  fix: agent-terminal daemon stop ends it and its terminals; the next command starts a {VERSION} daemon"
+            ),
+        ]
+    );
+
+    let run = doctor(&at, &["--json", "doctor"]);
+    assert_eq!(run.code(), 1);
+    assert_eq!(run.json()["ok"], false);
+    assert_eq!(
+        run.json()["checks"][3],
+        serde_json::json!({
+            "name": "daemon",
+            "status": "problem",
+            "message": format!(
+                "running agent-terminal 0.0.1, not {VERSION} like this command, listening on {}",
+                socket.display()
+            ),
+            "fix": format!("agent-terminal daemon stop ends it and its terminals; the next command starts a {VERSION} daemon")
+        })
+    );
+    assert_eq!(
+        std::fs::read_to_string(at.home().join("daemon.version")).unwrap(),
+        "0.0.1",
+        "doctor leaves the daemon running"
     );
 }
 
