@@ -166,5 +166,5 @@ jobs:
           name: performance-${{ matrix.os }}
           path: ${{ runner.temp }}/performance-${{ matrix.os }}.json
           if-no-files-found: error
-      - name: Fail on a missed target or a regression against the base
+      - name: Fail on a metric over its limit or a regression against the base
         run: target/release/at-perf check "$RUNNER_TEMP/performance-${{ matrix.os }}.json" --summary "$GITHUB_STEP_SUMMARY"

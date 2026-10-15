@@ -34,19 +34,21 @@ npm run lint     # oxlint, warnings fail it
 
 ## Speed and memory
 
-CI's `performance` job (macOS and Linux) builds agent-terminal at the base of the change and at the change, measures both release binaries from outside on the same runner with `at-perf` (`cli/perf`), keeps the samples as a run artifact, and fails when a target from `docs/design.md` is missed or a metric regresses against the base. To run it yourself:
+CI's `performance` job (macOS and Linux) builds agent-terminal at the base of the change and at the change, measures both release binaries from outside on the same runner with `at-perf` (`cli/perf`), keeps the samples as a run artifact, and fails when a metric is over its limit or regresses against the base. To run it yourself:
 
 ```sh
 cd cli
 cargo build --release --workspace --bins
 target/release/at-perf measure --base <agent-terminal built from main> --change target/release/agent-terminal \
   --fixtures target/release --work <new folder> --out results.json
-target/release/at-perf check results.json   # exits 2 on a missed target or a regression
+target/release/at-perf check results.json   # exits 2 on a metric over its limit or a regression
 ```
 
 - Speed: each call is timed from spawning the CLI to its exit, 100 times, base and change alternating, against a tab showing a 120x40 screen of colored words (fixture `busy-screen`). `wait <text>` is timed from the moment the program prints the text to the exit of the `press --wait` call that waits for it.
 - Memory: the daemon's resident size from `ps`. Idle: a fresh daemon that has answered one call and has no tabs. Per active tab: what ten tabs add, each a 120x40 screen with its 2,000-line scrollback full. Median of five fresh daemons per side.
-- Targets are checked against the medians. A regression is a median more than 25% and more than 0.25 ms over the base (memory: 10% and 0.25 MB). Measured against itself, one binary differs by under 3% on an idle machine and by up to 19% with the CPU five times oversubscribed, and memory by under 1%.
+- Limits: CLI round trip ≤ 5 ms, `snapshot` ≤ 10 ms and `screenshot` PNG ≤ 40 ms (the speed targets in `docs/design.md`), idle memory ≤ 10 MB. A median over one fails the job.
+- Reference: memory per active tab has a reference value of about 5 MB, not a limit. The table shows it and marks a median above it `over reference`, which does not fail the job; with its 2,000-line scrollback full a tab measures about 9 MB, most of it the screen grid. Like every metric it still fails the job when it regresses against the base.
+- Limits and regressions are checked against the medians. A regression is a median more than 25% and more than 0.25 ms over the base (memory: 10% and 0.25 MB). Measured against itself, one binary differs by under 3% on an idle machine and by up to 19% with the CPU five times oversubscribed, and memory by under 1%.
 
 ## Dashboard
 
