@@ -125,7 +125,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - name: Rerun the CLI tests to surface timing flakes
-        run: for run in 1 2 3 4; do cargo test --quiet --test cli || exit 1; done
+        run: for run in 1 2 3 4; do echo "rerun $run of 4"; cargo test --quiet --test cli || exit 1; done
 
   performance:
     name: Speed and memory (${{ matrix.os }})
