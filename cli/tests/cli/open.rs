@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -142,6 +143,22 @@ fn cwd_and_env_reach_the_program() {
     let stdout = run.stdout();
     let lines: Vec<&str> = stdout.lines().skip(1).take(2).map(|l| l.split_once('│').unwrap().1).collect();
     assert_eq!(lines, vec![folder.as_str(), "hello from env"]);
+}
+
+#[test]
+fn term_and_colorterm_describe_the_emulated_terminal_unless_env_sets_them() {
+    let at = AgentTerminal::new();
+    let script = ["sh", "-c", "echo \"[$TERM] [$COLORTERM]\"; read _"];
+    let mut emulated = vec!["open", "--size", "40x3", "--wait", "]"];
+    emulated.extend(script);
+    let from_caller = [("TERM", Path::new("dumb")), ("COLORTERM", Path::new("16"))];
+    let opened = at.run_with_env(&emulated, &from_caller).success();
+    assert_eq!(opened.stdout().lines().nth(1), Some("1│[xterm-256color] [truecolor]"));
+
+    let mut chosen = vec!["tab", "new", "--size", "40x3", "--env", "TERM=vt100", "--env", "COLORTERM=", "--wait", "]"];
+    chosen.extend(script);
+    let opened = at.run_with_env(&chosen, &from_caller).success();
+    assert_eq!(opened.stdout().lines().nth(1), Some("1│[vt100] []"));
 }
 
 #[test]

@@ -10,7 +10,7 @@ use crate::connection::{self, IfNotRunning, Launch};
 use crate::doctor;
 use crate::key::Key;
 use crate::mcp;
-use crate::native::daemon;
+use crate::native::{daemon, pty};
 use crate::output;
 use crate::protocol::{
     Baseline, BatchStep, Call, ClickTarget, ClipFormat, ClipPoint, ClipRange, ClipSpec, DashboardStopped, Direction,
@@ -1405,7 +1405,7 @@ fn input(
 }
 
 fn environment(extra: Vec<(String, String)>) -> Vec<(String, String)> {
-    let mut env: Vec<(String, String)> = std::env::vars().filter(|(k, _)| !extra.iter().any(|(o, _)| o == k)).collect();
+    let mut env = pty::inherited(std::env::vars().filter(|(key, _)| !extra.iter().any(|(set, _)| set == key)));
     env.extend(extra);
     env
 }

@@ -148,11 +148,19 @@ pub fn spawn(command: Command) -> Result<Spawned> {
     })
 }
 
+const EMULATED: [(&str, &str); 2] = [("TERM", "xterm-256color"), ("COLORTERM", "truecolor")];
+
+pub fn inherited(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+    vars.into_iter().filter(|(key, _)| !EMULATED.iter().any(|(name, _)| name == key)).collect()
+}
+
 pub fn environment(command: &Command) -> Vec<(String, String)> {
-    let set = [("TERM", "xterm-256color"), ("COLORTERM", "truecolor")];
-    let mut env: Vec<(String, String)> =
-        command.env.iter().filter(|(key, _)| !set.iter().any(|(name, _)| name == key)).cloned().collect();
-    env.extend(set.iter().map(|(name, value)| (name.to_string(), value.to_string())));
+    let mut env = command.env.clone();
+    for (name, value) in EMULATED {
+        if !env.iter().any(|(key, _)| key == name) {
+            env.push((name.to_string(), value.to_string()));
+        }
+    }
     env
 }
 
