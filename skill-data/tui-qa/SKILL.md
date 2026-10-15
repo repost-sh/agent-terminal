@@ -1,6 +1,6 @@
 ---
 name: tui-qa
-description: Systematically test a full-screen terminal app (TUI) and find bugs, broken layouts, dead keys and confusing flows. Use when asked to QA, dogfood, test, or bug hunt a TUI or interactive terminal program. Produces a report where every finding has repro steps, a screenshot and, for anything that moves, a short clip.
+description: Systematically test a full-screen terminal app (TUI) and find bugs, broken layouts, dead keys and confusing flows. Use when asked to QA, dogfood, test, or bug hunt a TUI or interactive terminal program. Produces a report where every finding has repro steps, the exact keys pressed, the terminal size and a screenshot.
 allowed-tools: Bash(agent-terminal:*), Bash(npx agent-terminal:*)
 ---
 
@@ -22,7 +22,7 @@ Only the **program** is required. Use these defaults unless told otherwise:
 Start right away. Ask only if the app needs credentials you do not have.
 
 ```bash
-mkdir -p ./tui-qa-output/{screenshots,clips}
+mkdir -p ./tui-qa-output/screenshots
 cp "$(agent-terminal skills path tui-qa)/templates/report.md" ./tui-qa-output/report.md
 export AGENT_TERMINAL_SESSION=qa-lazygit
 agent-terminal open --cwd <repo> --size 120x40 lazygit
@@ -47,13 +47,11 @@ Work through these in order. Write a finding down the moment you see it, not at 
 ## Evidence for each finding
 
 ```bash
-agent-terminal mark f3-start
 # … reproduce it …
 agent-terminal screenshot ./tui-qa-output/screenshots/f3.png
-agent-terminal clip ./tui-qa-output/clips/f3.gif --from f3-start
 ```
 
-A screenshot for every finding. A clip for anything that involves movement, timing or flicker. Include the exact keys pressed, in order, and the size the terminal was.
+A screenshot for every finding, with the exact keys pressed, in order, and the size the terminal was.
 
 ## Wrap up
 

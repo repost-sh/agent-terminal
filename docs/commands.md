@@ -46,7 +46,7 @@ Read the screen:
   output [--since <mark|frame>]   What the program printed since a point (--raw keeps escape codes)
   history                      Commands run in the shell tab, with exit codes (history show <id> for output)
                                --last <n>  only the last n; --failed  only those that exited with a code other than 0
-  mark <name>                  Name this point in the output, to read or clip from later
+  mark <name>                  Name this point in the output, to read from later
 
 Send input:
   type <text>                  Type text, key by key (--delay <ms> between keys)
@@ -85,11 +85,6 @@ Wait and check:
   expect --cell <r,c> --style <inverse|bold|fg=red|...>   Fail if that cell is not styled so
 
 Evidence:
-  clip [path]                  GIF or MP4 of what the tab showed (the path ends in .gif or .mp4)
-                               --last <time>  the last stretch of the recording (default 10s; 2m or raw ms)
-                               --from <mark|@activity:N> [--to <mark|@activity:N>]  between two marks or calls (to: now)
-                               --command <id>  one shell command, from its start to its end
-                               default path: <screenshot dir>/<session>-<tab>-<frame>.gif; at most 10 frames a second
   record start|stop [path]     Save the tab as an asciicast (.cast) file from now on, starting from the screen it shows
   diff snapshot                What changed on screen since the last snapshot (--baseline <file>: a saved one)
   diff screenshot --baseline <png>   Pixel diff against a baseline image, saved as an image with the changes in red
@@ -132,7 +127,7 @@ Options:
   --json                       JSON output
   --idle-timeout <time>        Stop an unused daemon after this long (default 1h, 0 = never; 30s, 10m, 1h or raw ms;
                                set by the call that starts the daemon)
-  --screenshot-dir <path>      Where screenshots and clips go (or AGENT_TERMINAL_SCREENSHOT_DIR; default ~/.agent-terminal/screenshots)
+  --screenshot-dir <path>      Where screenshots go (or AGENT_TERMINAL_SCREENSHOT_DIR; default ~/.agent-terminal/screenshots)
 
 Exit codes:
   0  ok

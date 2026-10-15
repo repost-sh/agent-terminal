@@ -10,15 +10,7 @@ use crate::protocol::Size;
 
 #[derive(Deserialize)]
 pub struct Header {
-    pub width: u16,
-    pub height: u16,
     pub timestamp: u64,
-}
-
-impl Header {
-    pub fn size(&self) -> Size {
-        Size { cols: self.width, rows: self.height }
-    }
 }
 
 pub struct Event {
@@ -29,7 +21,7 @@ pub struct Event {
 pub enum Change {
     Output(String),
     Resize(Size),
-    Mark(String),
+    Mark,
     Input,
 }
 
@@ -42,7 +34,7 @@ impl Change {
         match self {
             Change::Output(text) => screen.draw(text.as_bytes()),
             Change::Resize(size) => screen.resize(*size),
-            Change::Mark(_) | Change::Input => {}
+            Change::Mark | Change::Input => {}
         }
     }
 }
@@ -108,7 +100,7 @@ impl Reader {
                 "r" => Change::Resize(size(&data).ok_or_else(|| {
                     anyhow!("the recording {} has a resize to {data:?}, not COLSxROWS", self.path.display())
                 })?),
-                "m" => Change::Mark(data),
+                "m" => Change::Mark,
                 "i" => Change::Input,
                 _ => continue,
             };

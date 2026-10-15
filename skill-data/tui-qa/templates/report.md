@@ -16,7 +16,6 @@
 - Expected: {what should happen}
 - Actual: {what happened}
 - Screenshot: `screenshots/f1.png`
-- Clip: `clips/f1.gif`
 
 ## What worked
 

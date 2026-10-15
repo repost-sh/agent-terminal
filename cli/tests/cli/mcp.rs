@@ -265,3 +265,17 @@ async fn the_attach_tool_says_it_needs_a_terminal_and_what_to_use_instead() {
         } })
     );
 }
+
+#[tokio::test]
+async fn no_tool_cuts_or_mentions_clips() {
+    let at = AgentTerminal::new();
+    let client = connect(&at, &[]).await;
+
+    let tools = client.list_all_tools().await.expect("list the tools");
+    let clips: Vec<&str> = tools
+        .iter()
+        .filter(|tool| json!(tool).to_string().to_lowercase().contains("clip"))
+        .map(|tool| &*tool.name)
+        .collect();
+    assert!(clips.is_empty(), "tools that mention clips: {clips:?}");
+}

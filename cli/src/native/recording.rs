@@ -17,11 +17,6 @@ pub struct Recording {
     writer: Mutex<Writer>,
 }
 
-pub struct Position {
-    pub path: PathBuf,
-    pub seconds: f64,
-}
-
 pub struct Saved {
     pub path: PathBuf,
     pub duration: Duration,
@@ -162,14 +157,6 @@ impl Recording {
         let mut text = String::from_utf8_lossy(&std::mem::take(&mut writer.undecoded)).into_owned();
         text.push_str(RESET);
         writer.event("o", &text);
-    }
-
-    pub fn position(&self) -> Result<Position> {
-        let writer = self.writer.lock().unwrap();
-        if let Some(failure) = writer.tape.failure() {
-            return Err(failure.context(format!("{} has no recording to clip", self.tab)));
-        }
-        Ok(Position { path: writer.tape.path.clone(), seconds: writer.tape.clock.seconds() })
     }
 
     pub fn save_to(&self, path: &Path, size: Size, screen: &str) -> Result<()> {
