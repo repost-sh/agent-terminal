@@ -129,8 +129,7 @@ impl<'ast> Visit<'ast> for Branches {
 
     fn visit_expr_match(&mut self, expr: &'ast ExprMatch) {
         let guards = expr.arms.iter().filter(|arm| arm.guard.is_some()).count();
-        let paths = expr.arms.len().saturating_sub(1) + guards;
-        self.count += u32::try_from(paths).unwrap_or(u32::MAX);
+        self.count += 1 + u32::try_from(guards).unwrap_or(u32::MAX);
         visit::visit_expr_match(self, expr);
     }
 

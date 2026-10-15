@@ -39,7 +39,7 @@ fn less_covered_it_goes_over_the_ceiling() {
 const CONSTRUCTS: &str = "fn ifs(a: bool) { if a {} if a {} }
 fn whiles(a: bool) { while a {} while a {} }
 fn fors() { for _ in 0..1 {} for _ in 0..1 {} }
-fn matches(a: u8) { match a { 0 => {} 1 => {} _ => {} } }
+fn matches(a: u8) { match a { 0 => {} _ => {} } match a { 1 => {} 2 => {} 3 => {} _ => {} } }
 fn guards(a: u8) { match a { b if b > 1 => {} _ => {} } }
 fn logic(a: bool, b: bool) -> bool { a && b || a }
 fn lets(a: Option<u8>) { let Some(_) = a else { return }; let Some(_) = a else { return }; }
