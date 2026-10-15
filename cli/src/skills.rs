@@ -45,7 +45,13 @@ const SKILLS: &[Skill] = &[
             ("templates/report.md", include_str!("../../skill-data/tui-qa/templates/report.md")),
         ],
     },
-    Skill { name: "cli-qa", shipped: &[("SKILL.md", include_str!("../../skill-data/cli-qa/SKILL.md"))] },
+    Skill {
+        name: "cli-qa",
+        shipped: &[
+            ("SKILL.md", include_str!("../../skill-data/cli-qa/SKILL.md")),
+            ("templates/report.md", include_str!("../../skill-data/cli-qa/templates/report.md")),
+        ],
+    },
 ];
 
 impl Skill {

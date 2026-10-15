@@ -25,7 +25,7 @@ Start right away. Ask only if the app needs credentials you do not have.
 mkdir -p ./tui-qa-output/{screenshots,clips}
 cp "$(agent-terminal skills path tui-qa)/templates/report.md" ./tui-qa-output/report.md
 export AGENT_TERMINAL_SESSION=qa-lazygit
-agent-terminal open lazygit --cwd <repo> --size 120x40
+agent-terminal open --cwd <repo> --size 120x40 lazygit
 agent-terminal snapshot -i
 ```
 
@@ -40,7 +40,7 @@ Work through these in order. Write a finding down the moment you see it, not at 
 5. **Leaving.** `q`, `Esc`, `Ctrl+c`, `Ctrl+d`. Does it exit cleanly and give the terminal back in a normal state (`wait --exit`, then check `get modes` shows alt-screen off)?
 6. **Sizes.** `resize 80x24` and `resize 200x60` on the main screens. Look for cut-off text, overlapping panels and lines that wrap into the wrong place.
 7. **Text.** Long names, empty lists, emoji and accented characters, very long lines, a paste of 200 lines.
-8. **No color.** `open … --env NO_COLOR=1`. Is anything only understandable through color?
+8. **No color.** `open --env NO_COLOR=1 …`. Is anything only understandable through color?
 9. **Errors.** Wrong input, missing files, no network. Are errors shown, readable, and recoverable?
 10. **Speed.** Does any key leave the screen unchanged for more than a second? Note which.
 

@@ -11,7 +11,7 @@ agent-terminal runs programs in real terminals and lets you drive them the way a
 ## The core loop
 
 ```bash
-agent-terminal open lazygit --cwd ~/code/app   # 1. start the program; prints its first stable screen
+agent-terminal open --cwd ~/code/app lazygit   # 1. start the program; prints its first stable screen
 agent-terminal snapshot -i                     # 2. read the screen, with @t refs
 agent-terminal press 2 --wait-stable --snapshot # 3. act, wait, and see the result in one call
 agent-terminal expect "Unstaged changes"       # 4. check what must be true
@@ -149,7 +149,7 @@ Every tab is recorded from the start, so you can cut a clip after something went
 Terminal apps break at sizes their authors never tried. The default is 120x40. Try the small and the large:
 
 ```bash
-agent-terminal open myapp --size 80x24
+agent-terminal open --size 80x24 myapp
 agent-terminal resize 200x60 --wait-stable   # prints the screen at the new size
 ```
 
