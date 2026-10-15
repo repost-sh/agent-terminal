@@ -6,7 +6,19 @@ const { PLATFORMS, packageNameFor, platformPackageName } = require('../agent-ter
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
-test('the release builds every platform the npm packages cover, and the install test installs each one', () => {
+function cleanInstallRows() {
+  const workflow = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'npm-packages.yml'), 'utf8');
+  return workflow
+    .split(/^ *- /m)
+    .map((item) => ({
+      name: item.match(/^name: (.+)$/m)?.[1],
+      target: item.match(/^ *target: (\S+)$/m)?.[1],
+      package: item.match(/^ *package: "([^"]+)"$/m)?.[1],
+    }))
+    .filter((row) => row.package);
+}
+
+test('the release builds every platform the npm packages cover, and the clean-install test installs each one', () => {
   const dist = fs.readFileSync(path.join(ROOT, 'dist-workspace.toml'), 'utf8');
   const targets = dist.match(/^targets = \[([^\]]*)\]/m);
   assert.ok(targets, 'dist-workspace.toml has no targets list');
@@ -15,9 +27,14 @@ test('the release builds every platform the npm packages cover, and the install 
     PLATFORMS.map((platform) => platform.target).sort(),
   );
 
-  const workflow = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'npm-packages.yml'), 'utf8');
+  const rows = cleanInstallRows();
+  for (const row of rows) {
+    const platform = PLATFORMS.find((candidate) => candidate.target === row.target);
+    assert.ok(platform, `the clean-install row ${row.name} installs ${row.target}, which is not a release target`);
+    assert.equal(row.package, packageNameFor('@repost/agent-terminal', platform), `the clean-install row ${row.name}`);
+  }
   assert.deepEqual(
-    [...workflow.matchAll(/^ +package: "([^"]+)"$/gm)].map((match) => match[1]).sort(),
+    [...new Set(rows.map((row) => row.package))].sort(),
     PLATFORMS.map((platform) => packageNameFor('@repost/agent-terminal', platform)).sort(),
   );
 });

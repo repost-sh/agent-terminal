@@ -29,7 +29,7 @@ A tag with a prerelease suffix (`v0.2.0-rc.1`, from `version = "0.2.0-rc.1"`) ru
 The preflight (`preflight.yml`, job `custom-preflight`, `local-artifacts-jobs` in `dist-workspace.toml`) runs `node npm/preflight.js --tag <tag>` next to the builds, on prerelease tags too. It fails when the tag isn't `v` + the version in `cli/Cargo.toml`, when `CHANGELOG.md` has no section for that version, or when `npm publish --dry-run` refuses any of the seven packages (built from the template without their binaries, which don't exist yet). Everything after the builds waits for it, so the GitHub Release and both publish jobs never start after a failed preflight.
 
 1. Builds `agent-terminal` archives for macOS (arm64, x64) and Linux (arm64, x64, glibc and musl). The musl archives build in the `ghcr.io/rust-cross/rust-musl-cross` image for their architecture (`github-custom-runners` in `dist-workspace.toml`), because the binary compiles OpenH264, a C++ library, from source and Ubuntu's `musl-tools` has no musl C++ compiler; that image has a musl GCC with C++ and the Rust musl target.
-2. `npm-packages.yml` packs one npm package per platform (`@repost/agent-terminal-<os>-<cpu>[-musl]`, holding only that binary) and the main `@repost/agent-terminal` package (the launcher in `npm/agent-terminal`, with the platform packages as exact-version optional dependencies). Every package is public (`publishConfig.access`) and names this repository (`repository`), which npm provenance needs; the scope is explained in `docs/adr/0003-npm-package-is-repost-scoped.md`. It then runs the clean-machine install test: `npm i -g @repost/agent-terminal` from a local registry in fresh Debian and Alpine containers (x64, arm64) and on macOS runners (arm64, x64), then `open` and `snapshot` on the line-printer fixture (`npm/install-test/run.sh`). Any failure stops the release.
+2. `npm-packages.yml` packs one npm package per platform (`@repost/agent-terminal-<os>-<cpu>[-musl]`, holding only that binary) and the main `@repost/agent-terminal` package (the launcher in `npm/agent-terminal`, with the platform packages as exact-version optional dependencies). Every package is public (`publishConfig.access`) and names this repository (`repository`), which npm provenance needs; the scope is explained in `docs/adr/0003-npm-package-is-repost-scoped.md`. It then builds the Homebrew formula from the same archives and runs the clean-machine install test (below). Any failure stops the release.
 3. Creates the GitHub Release with the archives, a `.sha256` file per archive and `sha256.sum`. Its title and notes are the version's `CHANGELOG.md` section. Each build job attests its archives with GitHub artifact attestations (`github-attestations` in `dist-workspace.toml`), so `gh attestation verify <archive> --repo repost-sh/agent-terminal` traces a download to the run that built it.
 4. Publishes the formula to `repost-sh/homebrew-tap` (`brew install repost-sh/tap/agent-terminal`) and the npm packages (`publish-npm.yml`, through npm trusted publishing with `--provenance` and no token, platform packages first, versions already on npm skipped so a rerun is safe).
 
@@ -43,11 +43,24 @@ npm never lets a version number be used twice, even after unpublishing, so a bad
 4. **Update the tap formula.** The fixed release pushes its own formula to `repost-sh/homebrew-tap`. Reverting `Formula/agent-terminal.rb` there stops new installs of the bad version but doesn't move existing installs, since `brew upgrade` acts only on a higher version: only the fixed, higher version reaches them.
 5. **Never move a tag** of a release that reached `host`: Homebrew and source builds rely on it. To stop the GitHub release showing as the latest, mark it a prerelease (`gh release edit v<bad> --prerelease`).
 
+## Clean-machine install test
+
+The `clean-install` job in `npm-packages.yml` installs the release's own artifacts on fresh runners: Ubuntu x64 and arm64 (glibc), Alpine x64 and arm64 (musl, a `node:24-alpine` container), macOS arm64 (`macos-14`) and macOS x64 (`macos-15-intel`). Each row installs with each channel: npm, pnpm and bun from a local registry holding the packed tarballs (`npm/install-test/registry.js`), the direct release archive after checking it against its `.sha256` (without its trailing blank line, which busybox `sha256sum -c` on Alpine counts as a mismatched entry), and the formula dist generated with its archive URLs pointed at the local archive. Alpine has no Homebrew row, because Homebrew does not run on musl. After installing (`npm/install-test/install.sh`), `npm/install-test/check.sh` asserts, with no TTY, that `--version` and `--json version` print the release's version, that the skill stub `install --skills` writes carries it, and that `open`, `snapshot` and `close` on the line-printer fixture work and `daemon stop` leaves no daemon running; `npm/install-test/offline.sh` then runs the same checks with networking cut (`sandbox-exec` on macOS, a network namespace on Linux).
+
+It runs before any tag: `.github/workflows/clean-install.yml` builds the six archives the way `release.yml` does, from the same `dist plan`, and runs the same test on them. It runs on every pull request, and on demand from the Actions tab or with:
+
+```sh
+gh workflow run clean-install.yml --ref <branch>
+gh run watch "$(gh run list --workflow clean-install.yml --branch <branch> --limit 1 --json databaseId --jq '.[0].databaseId')"
+```
+
+GitHub offers `workflow_dispatch` only for workflows on the default branch, so until `clean-install.yml` is on `main`, open a pull request (a draft is enough) to run it.
+
 ## Change the pipeline
 
 Edit `dist-workspace.toml`, then run `dist generate` with dist 0.33.0 to rewrite `release.yml`. `release.yml` runs `dist plan` on every pull request, and that fails while the generated file is out of date, so a hand edit to `release.yml` cannot land.
 
-A new platform needs a target in `dist-workspace.toml`, a row in `PLATFORMS` in `npm/agent-terminal/lib/platform.js`, and a row in the install-test matrix in `npm-packages.yml`; `npm/test/platform.test.js` fails until the three agree.
+A new platform needs a target in `dist-workspace.toml`, a row in `PLATFORMS` in `npm/agent-terminal/lib/platform.js`, and a row in the `clean-install` matrix in `npm-packages.yml` whose `target` and `package` name that platform; `npm/test/platform.test.js` fails until the three agree.
 
 The two musl images are pinned by digest, so their Rust version stays fixed until the digests change. To move them to a newer Rust, take each tag's current digest (`docker buildx imagetools inspect ghcr.io/rust-cross/rust-musl-cross:aarch64-musl`, then `:x86_64-musl`) and put it in `dist-workspace.toml`.
 
@@ -70,12 +83,12 @@ docker run --rm -v "$PWD:/src" -w /src -e CARGO_TARGET_DIR=/src/target/musl \
     && dist build --artifacts=local --target=aarch64-unknown-linux-musl"
 ```
 
-To run the install test for one Linux target in Docker, build the release archives (`dist build`), turn them into npm tarballs (`node npm/build-packages.js --manifest <plan.json> --artifacts target/distrib --out target/npm`, then `npm pack` each directory in `target/npm/@repost`), build `line-printer` for the musl target, and run:
+To run the install test for one channel on this machine, build the release archives (`dist build`) and the formula (`dist build --artifacts=global`), turn the archives into npm tarballs (`node npm/build-packages.js --manifest <plan.json> --artifacts target/distrib --out target/npm`, then `npm pack` each directory in `target/npm/@repost`), build `line-printer`, and put the tarballs in `<artifacts>/npm`, this machine's archive and its `.sha256` in `<artifacts>/archive` and `agent-terminal.rb` in `<artifacts>/formula`. The homebrew channel installs into your Homebrew, so run it on a runner or a machine you can spare. Then, with a short `<state>` folder (the daemon's socket path lives in it):
 
 ```sh
-docker run --rm -v "$PWD/<tarballs>:/tarballs:ro" -v "<line-printer>:/fixture/line-printer:ro" \
-  -v "$PWD/npm/install-test:/install-test:ro" node:24-alpine \
-  sh /install-test/run.sh /tarballs /fixture/line-printer @repost/agent-terminal-linux-arm64-musl
+sh npm/install-test/install.sh npm <artifacts> <state> @repost/agent-terminal-darwin-arm64
+sh npm/install-test/check.sh <state> <version> <line-printer>
+sh npm/install-test/offline.sh sh npm/install-test/check.sh <state> <version> <line-printer>
 ```
 
 ## One-time setup
