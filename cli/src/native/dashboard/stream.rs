@@ -52,10 +52,6 @@ impl Shown {
             exit: picture.exit,
         }
     }
-
-    pub fn size(&self) -> Size {
-        self.size
-    }
 }
 
 fn modes(picture: &Picture) -> Modes {

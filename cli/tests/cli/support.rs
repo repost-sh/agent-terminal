@@ -170,10 +170,6 @@ impl Cue {
         assert_eq!(&ack, b"\n");
     }
 
-    pub fn restarted(&self) {
-        self.fixture.lock().unwrap().take();
-    }
-
     pub fn open_line_printer(&self, at: &AgentTerminal, options: &[&str]) {
         let printer = fixture("line-printer");
         let path = self.path();
@@ -196,6 +192,20 @@ impl DashboardSocket {
         let url = format!("ws://localhost:{port}{path}");
         let (socket, _) = tungstenite::client(url.as_str(), stream).unwrap_or_else(|e| panic!("open {url}: {e}"));
         Self { socket }
+    }
+
+    pub fn refusal(port: u16, path: &str) -> (u16, String) {
+        let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to the dashboard");
+        stream.set_read_timeout(Some(READ_TIMEOUT)).expect("bound every read");
+        let url = format!("ws://localhost:{port}{path}");
+        match tungstenite::client(url.as_str(), stream) {
+            Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(response))) => {
+                let body = response.body().as_deref().map(String::from_utf8_lossy).unwrap_or_default();
+                (response.status().as_u16(), body.into_owned())
+            }
+            Ok(_) => panic!("the dashboard opened {url}"),
+            Err(e) => panic!("open {url}: {e}"),
+        }
     }
 
     pub fn next(&mut self) -> serde_json::Value {
@@ -238,22 +248,6 @@ pub fn fixture(name: &str) -> String {
         PathBuf::from(env!("CARGO_BIN_EXE_agent-terminal")).parent().unwrap().to_path_buf()
     });
     dir.join(name).to_string_lossy().into_owned()
-}
-
-pub fn snapshot_rows(at: &AgentTerminal, args: &[&str]) -> (Vec<String>, u64) {
-    let mut call = vec!["--json"];
-    call.extend_from_slice(args);
-    call.push("snapshot");
-    let snapshot = at.run(&call).success().json();
-    let mut rows: Vec<String> = snapshot["lines"]
-        .as_array()
-        .expect("snapshot lines")
-        .iter()
-        .map(|row| row.as_str().unwrap().to_string())
-        .collect();
-    let shown = rows.iter().rposition(|row| !row.is_empty()).map_or(0, |last| last + 1);
-    rows.truncate(shown);
-    (rows, snapshot["frame"].as_u64().expect("the frame number"))
 }
 
 pub fn scratch(prefix: &str) -> tempfile::TempDir {

@@ -566,8 +566,6 @@ pub struct Shot {
     pub look: Look,
     pub rows: Option<RowRange>,
     pub annotate: bool,
-    #[serde(default)]
-    pub frame: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

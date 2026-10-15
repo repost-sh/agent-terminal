@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
-use crate::support::{AgentTerminal, Cue, fixture};
+use crate::support::{AgentTerminal, DashboardSocket, fixture};
 
 struct Http {
     status: u16,
@@ -153,6 +153,17 @@ fn the_dashboard_has_no_record_start_or_stop() {
         assert_eq!((answer.status, answer.body.as_str()), (404, "no such dashboard API"), "record/{action}");
     }
     assert!(!at.home().join("recordings").exists());
+}
+
+#[test]
+fn the_dashboard_has_no_timeline() {
+    let at = AgentTerminal::new();
+    at.run(&["--session", "qa", "open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    let port = start(&at);
+
+    let refused = DashboardSocket::refusal(port, "/api/session/qa/t1/timeline");
+
+    assert_eq!(refused, (404, "no such dashboard API".to_string()));
 }
 
 #[test]
@@ -322,32 +333,21 @@ fn a_screenshot_taken_from_the_dashboard_is_saved_listed_without_a_call_and_serv
 }
 
 #[test]
-fn a_dashboard_screenshot_of_an_earlier_frame_draws_the_screen_of_that_frame() {
+fn a_dashboard_screenshot_request_that_names_a_frame_is_refused() {
     let at = AgentTerminal::new();
-    let cue = Cue::new();
-    cue.open_line_printer(&at, &["--size", "20x4"]);
-    let earlier: u64 = at.run(&["get", "frame"]).success().stdout().trim().parse().unwrap();
-    let work = at.work_folder();
-    at.run_in(&work, &["screenshot", "earlier.png"]).success();
-    cue.print("later\n");
+    at.run(&["--session", "qa", "open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"])
+        .success();
     let port = start(&at);
 
-    let taken = post(port, "/api/session/default/t1/screenshot", &format!("{{\"frame\":{earlier}}}"));
+    let refused = post(port, "/api/session/qa/t1/screenshot", "{\"frame\":1}");
 
-    assert_eq!(taken.status, 200, "{}{}", taken.head, taken.body);
-    let reply: serde_json::Value = serde_json::from_str(&taken.body).expect("JSON");
-    let path = at.home().join("screenshots").join(format!("default-t1-{earlier}.png"));
-    assert_eq!((&reply["data"]["path"], &reply["data"]["frame"]), (&path.to_string_lossy().into(), &earlier.into()));
-    assert!(
-        std::fs::read(&path).expect("read the screenshot") == std::fs::read(work.join("earlier.png")).unwrap(),
-        "the screenshot of frame {earlier} is not the screen the tab showed then"
+    assert_eq!(refused.status, 422, "{}{}", refused.head, refused.body);
+    let reply: serde_json::Value = serde_json::from_str(&refused.body).expect("JSON");
+    assert_eq!(
+        reply["error"]["message"],
+        "a dashboard screenshot is always of the current screen; its request has no body"
     );
-    let listed = screenshots_listed(&at, "default");
-    assert_eq!(listed.last().map(|shot| &shot["frame"]), Some(&earlier.into()));
-
-    let unknown = post(port, "/api/session/default/t1/screenshot", "{\"frame\":99}");
-    assert_eq!(unknown.status, 422, "{}{}", unknown.head, unknown.body);
-    assert!(unknown.body.contains("frame 99 is not on the timeline of default t1"), "{}", unknown.body);
+    assert!(!at.home().join("screenshots").exists());
 }
 
 #[test]
