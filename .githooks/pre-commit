@@ -10,6 +10,12 @@ if grep -q '^dashboard/' <<<"$staged"; then
   npm run --silent lint
 fi
 
+workflows="$(grep -E '^\.github/workflows/.+\.ya?ml$' <<<"$staged" | grep -v '^\.github/workflows/release\.yml$' || true)"
+if [ -n "$workflows" ]; then
+  command -v actionlint >/dev/null || { echo "pre-commit: install actionlint (brew install actionlint) to check .github/workflows" >&2; exit 1; }
+  (cd "$root" && actionlint $workflows)
+fi
+
 if grep -q '^cli/' <<<"$staged"; then
   cd "$root/cli"
   cargo fmt --all --check || { echo "pre-commit: run 'cargo fmt --all' in cli/" >&2; exit 1; }

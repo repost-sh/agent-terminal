@@ -1,6 +1,6 @@
 # Issue tracker: Linear
 
-Issues and specs live in Linear, team **46h**, project **agent-terminal**. Use the Linear MCP tools (`mcp__plugin_linear_linear__*`). Code and PRs live on GitHub (repost-sh/agent-terminal); GitHub Issues are not used.
+Issues and specs live in Linear, team **46h**, project **agent-terminal**. Use the Linear MCP tools (`mcp__linear-server__*`). Code and PRs live on GitHub (repost-sh/agent-terminal); GitHub Issues are not used.
 
 ## Conventions
 
@@ -11,7 +11,7 @@ Issues and specs live in Linear, team **46h**, project **agent-terminal**. Use t
 - Blocking: native relations via `blockedBy` / `blocks` on `save_issue`. A ticket is unblocked when every blocker is Done.
 - Comment: `save_comment`.
 - Labels: `addLabels` / `removeLabels` on `save_issue`.
-- Close: set `state` to Done (or Canceled) with a closing comment.
+- Close: set `state` to Done (or Canceled) with a closing comment. Each `save_issue` echoes the whole issue back, so close with one comment and one state change, and leave the spec issue's text alone during a build.
 - Branches: use the issue's `gitBranchName`; PR titles/bodies reference the issue id (e.g. 46H-20) so Linear links them.
 
 ## When a skill says "publish to the issue tracker"

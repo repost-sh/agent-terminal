@@ -1,6 +1,6 @@
 # agent-terminal — design
 
-Status: ratified. The dashboard UI prototype dated 2026-10-14 at `.superpowers/prototypes/2026-10-14-dashboard-ui-prototype/` is normative for UI: labels, copy, states, dialogs and focus behaviour carry into the implementation 1:1, and where this doc and the prototype differ on UI, the prototype wins. Calls made at ratification: on narrow screens the terminal shrinks to fit; split view has no timeline; the command is `mark <name>`, not the prototype's `mark set <name>`.
+Status: ratified. The dashboard UI prototype dated 2026-10-14 at `docs/prototype/dashboard-ui-2026-10-14.html` is normative for UI: labels, copy, states, dialogs and focus behaviour carry into the implementation 1:1, and where this doc and the prototype differ on UI, the prototype wins. Calls made at ratification: on narrow screens the terminal shrinks to fit; split view has no timeline; the command is `mark <name>`, not the prototype's `mark set <name>`.
 
 `agent-terminal` is to terminals what `agent-browser` is to web pages: a fast CLI that lets an agent start a program in a real PTY, read the screen, send keys, wait for the UI to settle, take screenshots, and leave evidence. A human can watch every session live in a dashboard and take control. It ships its own skill, version-matched to the binary.
 

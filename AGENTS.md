@@ -6,7 +6,7 @@ Terminal automation CLI for AI agents, the terminal sibling of agent-browser.
 - Skills shipped with the binary: `skills/` (stub) and `skill-data/` (guides).
 - Packaging and releases (npm launcher in `npm/`, dist config in `dist-workspace.toml`): `docs/releasing.md`.
 - Spec: Linear 46H-19 and its sub-issues. Command contract: `docs/commands.md`. Design: `docs/design.md`. Vocabulary: `GLOSSARY.md`.
-- Dashboard UI reference: the prototype under `.superpowers/prototypes/` (local, gitignored).
+- Dashboard UI reference (normative, ratified in 46H-27): `docs/prototype/dashboard-ui-2026-10-14.html`, open it in a browser.
 - Dashboard: web app in `dashboard/` (Vite, React, Tailwind, xterm.js), built into `cli/assets/dashboard` (committed, embedded in the binary); server in `cli/src/native/dashboard`. See `CONTRIBUTING.md`.
 
 Read `CONTRIBUTING.md` before writing code or a commit: no comments in code, no workaround markers, no hacks, Conventional Commits. Enable the hooks once per clone with `git config core.hooksPath .githooks`.
