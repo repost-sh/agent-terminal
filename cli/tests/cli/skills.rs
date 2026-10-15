@@ -159,6 +159,29 @@ fn simultaneous_skills_path_calls_each_see_complete_files() {
     });
 }
 
+#[test]
+fn skills_path_removes_the_folders_older_versions_left() {
+    let at = AgentTerminal::new();
+    let cache = at.home().join("skills");
+    for left in ["0.0.1", "0.1.0-alpha.1", "999.0.0", "notes"] {
+        std::fs::create_dir_all(cache.join(left).join("tui-qa/templates")).unwrap();
+        std::fs::write(cache.join(left).join("tui-qa/templates/report.md"), "left behind\n").unwrap();
+    }
+    std::thread::scope(|scope| {
+        let calls: Vec<_> = (0..8).map(|_| scope.spawn(|| at.run(&["skills", "path"]).code())).collect();
+        let codes: Vec<i32> = calls.into_iter().map(|call| call.join().unwrap()).collect();
+        assert_eq!(codes, vec![0; 8]);
+    });
+    let left: std::collections::BTreeSet<String> =
+        std::fs::read_dir(&cache).unwrap().map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
+    assert_eq!(left, [VERSION, "999.0.0", "notes"].map(String::from).into());
+    assert_eq!(
+        std::fs::read_to_string(cache.join("999.0.0/tui-qa/templates/report.md")).unwrap(),
+        "left behind\n",
+        "a newer version's folder is not this version's to remove"
+    );
+}
+
 fn stub_in(user: &Path) -> PathBuf {
     user.join(".claude/skills/agent-terminal/SKILL.md")
 }
