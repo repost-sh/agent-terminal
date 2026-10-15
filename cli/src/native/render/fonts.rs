@@ -10,6 +10,12 @@ use super::boxes;
 
 const FONT_PX: f32 = 15.0;
 
+macro_rules! font_file {
+    ($name:literal) => {
+        ($name, include_bytes!(concat!("../../../assets/fonts/", $name)).as_slice())
+    };
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Face {
     Regular,
@@ -32,26 +38,23 @@ impl Face {
         }
     }
 
-    pub fn bytes(self) -> &'static [u8] {
+    fn file(self) -> (&'static str, &'static [u8]) {
         match self {
-            Face::Regular => include_bytes!("../../../assets/fonts/JetBrainsMonoNL-Regular.ttf"),
-            Face::Bold => include_bytes!("../../../assets/fonts/JetBrainsMonoNL-Bold.ttf"),
-            Face::Italic => include_bytes!("../../../assets/fonts/JetBrainsMonoNL-Italic.ttf"),
-            Face::BoldItalic => include_bytes!("../../../assets/fonts/JetBrainsMonoNL-BoldItalic.ttf"),
-            Face::Symbols => include_bytes!("../../../assets/fonts/SymbolsNerdFontMono-Regular.ttf"),
-            Face::Emoji => include_bytes!("../../../assets/fonts/NotoEmoji-VariableFont_wght.ttf"),
+            Face::Regular => font_file!("JetBrainsMonoNL-Regular.ttf"),
+            Face::Bold => font_file!("JetBrainsMonoNL-Bold.ttf"),
+            Face::Italic => font_file!("JetBrainsMonoNL-Italic.ttf"),
+            Face::BoldItalic => font_file!("JetBrainsMonoNL-BoldItalic.ttf"),
+            Face::Symbols => font_file!("SymbolsNerdFontMono-Regular.ttf"),
+            Face::Emoji => font_file!("NotoEmoji-VariableFont_wght.ttf"),
         }
     }
 
+    pub fn bytes(self) -> &'static [u8] {
+        self.file().1
+    }
+
     pub fn file_name(self) -> &'static str {
-        match self {
-            Face::Regular => "JetBrainsMonoNL-Regular.ttf",
-            Face::Bold => "JetBrainsMonoNL-Bold.ttf",
-            Face::Italic => "JetBrainsMonoNL-Italic.ttf",
-            Face::BoldItalic => "JetBrainsMonoNL-BoldItalic.ttf",
-            Face::Symbols => "SymbolsNerdFontMono-Regular.ttf",
-            Face::Emoji => "NotoEmoji-VariableFont_wght.ttf",
-        }
+        self.file().0
     }
 
     pub fn name(self) -> &'static str {
