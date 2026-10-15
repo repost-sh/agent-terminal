@@ -4,9 +4,9 @@ agent-terminal is licensed under Apache-2.0. The binary also carries these works
 
 | Built into | Work | Licence | Text |
 | --- | --- | --- | --- |
-| `screenshot` (the fonts the screen is drawn with) | JetBrains Mono NL 2.304 | SIL Open Font License 1.1 | [`OFL-JetBrainsMono.txt`](OFL-JetBrainsMono.txt) |
-| `screenshot` | Symbols Nerd Font Mono 3.5.1 | MIT; its icon sets below | [`LICENSE-SymbolsNerdFont.txt`](LICENSE-SymbolsNerdFont.txt) |
-| `screenshot` | Noto Emoji 3.000 | SIL Open Font License 1.1 | [`OFL-NotoEmoji.txt`](OFL-NotoEmoji.txt) |
+| `screenshot` and the dashboard (the fonts the screen is drawn with) | JetBrains Mono NL 2.304 | SIL Open Font License 1.1 | [`OFL-JetBrainsMono.txt`](OFL-JetBrainsMono.txt) |
+| `screenshot` and the dashboard | Symbols Nerd Font Mono 3.5.1 | MIT; its icon sets below | [`LICENSE-SymbolsNerdFont.txt`](LICENSE-SymbolsNerdFont.txt) |
+| `screenshot` and the dashboard | Noto Emoji 3.000 | SIL Open Font License 1.1 | [`OFL-NotoEmoji.txt`](OFL-NotoEmoji.txt) |
 
 Symbols Nerd Font Mono collects icons from these projects, each under its own licence (from the Nerd Fonts 3.5.1 release notes):
 

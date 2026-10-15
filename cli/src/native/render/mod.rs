@@ -1,6 +1,6 @@
 mod boxes;
 mod diff;
-mod fonts;
+pub mod fonts;
 mod theme;
 mod vector;
 

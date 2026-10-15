@@ -21,6 +21,8 @@ pub enum Face {
 }
 
 impl Face {
+    pub const ALL: [Face; 6] = [Face::Regular, Face::Bold, Face::Italic, Face::BoldItalic, Face::Symbols, Face::Emoji];
+
     pub fn styled(bold: bool, italic: bool) -> Self {
         match (bold, italic) {
             (false, false) => Face::Regular,
@@ -30,7 +32,7 @@ impl Face {
         }
     }
 
-    fn data(self) -> &'static [u8] {
+    pub fn bytes(self) -> &'static [u8] {
         match self {
             Face::Regular => include_bytes!("../../../assets/fonts/JetBrainsMonoNL-Regular.ttf"),
             Face::Bold => include_bytes!("../../../assets/fonts/JetBrainsMonoNL-Bold.ttf"),
@@ -38,6 +40,17 @@ impl Face {
             Face::BoldItalic => include_bytes!("../../../assets/fonts/JetBrainsMonoNL-BoldItalic.ttf"),
             Face::Symbols => include_bytes!("../../../assets/fonts/SymbolsNerdFontMono-Regular.ttf"),
             Face::Emoji => include_bytes!("../../../assets/fonts/NotoEmoji-VariableFont_wght.ttf"),
+        }
+    }
+
+    pub fn file_name(self) -> &'static str {
+        match self {
+            Face::Regular => "JetBrainsMonoNL-Regular.ttf",
+            Face::Bold => "JetBrainsMonoNL-Bold.ttf",
+            Face::Italic => "JetBrainsMonoNL-Italic.ttf",
+            Face::BoldItalic => "JetBrainsMonoNL-BoldItalic.ttf",
+            Face::Symbols => "SymbolsNerdFontMono-Regular.ttf",
+            Face::Emoji => "NotoEmoji-VariableFont_wght.ttf",
         }
     }
 
@@ -53,15 +66,13 @@ impl Face {
     }
 
     pub fn font(self) -> Option<FontRef<'static>> {
-        FontRef::from_index(self.data(), 0)
+        FontRef::from_index(self.bytes(), 0)
     }
 
     fn is_text(self) -> bool {
         matches!(self, Face::Regular | Face::Bold | Face::Italic | Face::BoldItalic)
     }
 }
-
-pub const ALL: [Face; 6] = [Face::Regular, Face::Bold, Face::Italic, Face::BoldItalic, Face::Symbols, Face::Emoji];
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CellSize {
@@ -136,7 +147,7 @@ fn is_combining(c: char) -> bool {
 
 impl Glyphs {
     fn new() -> Self {
-        let fonts = ALL.iter().filter_map(|face| Some((*face, face.font()?))).collect();
+        let fonts = Face::ALL.iter().filter_map(|face| Some((*face, face.font()?))).collect();
         Self { context: ScaleContext::new(), fonts, masks: HashMap::new() }
     }
 

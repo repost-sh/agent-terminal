@@ -78,6 +78,21 @@ fn the_app_answers_every_page_path_and_only_known_api_paths() {
 }
 
 #[test]
+fn the_dashboard_serves_the_screenshot_fonts() {
+    let at = AgentTerminal::new();
+    let port = start(&at);
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts/SymbolsNerdFontMono-Regular.ttf");
+    let size = std::fs::metadata(&file).expect("the bundled Symbols Nerd Font").len() as usize;
+
+    let font = get(port, "/fonts/SymbolsNerdFontMono-Regular.ttf", &[]);
+    assert_eq!(font.status, 200, "{}", font.head);
+    assert!(font.head.contains("content-type: font/ttf"), "{}", font.head);
+    assert_eq!(font.bytes.len(), size);
+
+    assert_eq!(get(port, "/fonts/missing.ttf", &[]).status, 404);
+}
+
+#[test]
 fn the_api_lists_the_same_sessions_as_session_list() {
     let at = AgentTerminal::new();
     at.run(&[
