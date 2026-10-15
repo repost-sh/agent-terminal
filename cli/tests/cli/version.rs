@@ -3,9 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::skills::{put_stub, shipped, stub_in, stub_of_version};
-use crate::support::{AgentTerminal, Run};
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+use crate::support::{AgentTerminal, Run, VERSION};
 
 #[test]
 fn version_prints_the_version() {

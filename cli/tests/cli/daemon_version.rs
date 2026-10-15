@@ -5,9 +5,7 @@ use std::thread::JoinHandle;
 
 use serde_json::{Value, json};
 
-use crate::support::AgentTerminal;
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+use crate::support::{AgentTerminal, VERSION};
 
 const STOPPED: &str = r#"{"Ok":{"reply":"Stopped"}}"#;
 

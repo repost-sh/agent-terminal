@@ -8,6 +8,7 @@ use crate::connection;
 use crate::native::{pty, render, shell};
 use crate::protocol::Shell;
 use crate::skills::{self, Stub};
+use crate::upgrade;
 
 #[derive(Serialize)]
 struct Check {
@@ -83,7 +84,7 @@ fn fonts() -> Check {
         Err(missing) => Check::problem(
             "fonts",
             format!("the built-in {missing} did not load, so screenshots show □ for what it draws"),
-            "reinstall agent-terminal (npm i -g @repost/agent-terminal, or brew reinstall repost-sh/tap/agent-terminal)",
+            format!("reinstall agent-terminal (npm i -g {}, or brew reinstall {})", upgrade::PACKAGE, upgrade::FORMULA),
         ),
     }
 }
@@ -194,7 +195,7 @@ fn running(socket: &std::path::Path) -> Check {
     Check::problem(
         "daemon",
         format!("running {daemon}, not {VERSION} like this command, listening on {socket}"),
-        connection::stop_ends_it(Some(VERSION)),
+        connection::daemon_stop_advice(Some(VERSION)),
     )
 }
 

@@ -11,8 +11,9 @@ use crate::output;
 use crate::protocol::ErrorBody;
 use crate::skills::{self, Installed, Stub};
 
-const PACKAGE: &str = "@repost/agent-terminal";
-const FORMULA: &str = "repost-sh/tap/agent-terminal";
+pub const PACKAGE: &str = "@repost/agent-terminal";
+pub const FORMULA: &str = "repost-sh/tap/agent-terminal";
+const LATEST: &str = "@repost/agent-terminal@latest";
 const NPM_NESTING: [&str; 4] = ["node_modules", "@repost", "agent-terminal", "node_modules"];
 
 struct Installer {
@@ -35,7 +36,7 @@ const NPM: Installer = Installer {
     refresh: None,
     latest: &["view", PACKAGE, "version"],
     latest_in: printed_version,
-    reinstall: &["install", "-g", "@repost/agent-terminal@latest"],
+    reinstall: &["install", "-g", LATEST],
     listing: Some(&["ls", "-g", "--depth=0"]),
     folder: &["prefix", "-g"],
     entry: "bin/agent-terminal",
@@ -48,7 +49,7 @@ const PNPM: Installer = Installer {
     refresh: None,
     latest: &["view", PACKAGE, "version"],
     latest_in: printed_version,
-    reinstall: &["add", "-g", "@repost/agent-terminal@latest"],
+    reinstall: &["add", "-g", LATEST],
     listing: Some(&["ls", "-g", "--depth=0"]),
     folder: &["bin", "-g"],
     entry: "agent-terminal",
@@ -61,7 +62,7 @@ const YARN: Installer = Installer {
     refresh: None,
     latest: &["info", PACKAGE, "version", "--silent"],
     latest_in: printed_version,
-    reinstall: &["global", "add", "@repost/agent-terminal@latest"],
+    reinstall: &["global", "add", LATEST],
     listing: Some(&["global", "list"]),
     folder: &["global", "bin"],
     entry: "agent-terminal",
@@ -74,7 +75,7 @@ const BUN: Installer = Installer {
     refresh: None,
     latest: &["pm", "view", PACKAGE, "version"],
     latest_in: printed_version,
-    reinstall: &["add", "-g", "@repost/agent-terminal@latest"],
+    reinstall: &["add", "-g", LATEST],
     listing: Some(&["pm", "ls", "-g"]),
     folder: &["pm", "bin", "-g"],
     entry: "agent-terminal",

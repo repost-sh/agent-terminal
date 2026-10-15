@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::support::AgentTerminal;
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+use crate::support::{AgentTerminal, VERSION};
 
 pub fn shipped(relative: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(relative);

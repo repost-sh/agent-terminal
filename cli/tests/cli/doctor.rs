@@ -1,5 +1,5 @@
 use crate::skills::{put_stub, shipped, stub_in, stub_of_version};
-use crate::support::{AgentTerminal, Run};
+use crate::support::{AgentTerminal, Run, VERSION};
 
 const FONTS: &str = "ok       fonts    JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in\n";
 
@@ -291,8 +291,6 @@ fn doctor_json_lists_every_check() {
     );
     assert_eq!(run.json()["ok"], false);
 }
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn skill_lines(run: &Run) -> Vec<String> {
     run.stdout().lines().skip(4).map(str::to_string).collect()
