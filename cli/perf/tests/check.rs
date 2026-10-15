@@ -40,7 +40,7 @@ fn medians_within_the_targets_and_close_to_the_base_pass() {
          | `screenshot` PNG at 120x40 | ≤ 40 ms | 5.20 ms | 5.10 ms | ok |\n\
          | `wait <text>` after the text appears | none | 0.60 ms | 0.60 ms | ok |\n\
          | idle daemon memory | ≤ 10 MB | 5.40 MB | 5.40 MB | ok |\n\
-         | memory per active tab | ≤ 5 MB | 3.70 MB | 3.80 MB | ok |\n"
+         | memory per active tab | about 5 MB (reference) | 3.70 MB | 3.80 MB | ok |\n"
     );
     assert_eq!(checked.code, 0, "stderr: {}", checked.stderr);
 }
@@ -67,7 +67,7 @@ fn a_median_over_its_target_fails_even_when_the_base_misses_it_too() {
          | `screenshot` PNG at 120x40 | ≤ 40 ms | 5.00 ms | 5.00 ms | ok |\n\
          | `wait <text>` after the text appears | none | 0.60 ms | 0.60 ms | ok |\n\
          | idle daemon memory | ≤ 10 MB | 5.40 MB | 5.40 MB | ok |\n\
-         | memory per active tab | ≤ 5 MB | 5.00 MB | 5.00 MB | ok |\n\
+         | memory per active tab | about 5 MB (reference) | 5.00 MB | 5.00 MB | ok |\n\
          \n\
          - `snapshot` is 12.00 ms, over its 10 ms target\n"
     );
@@ -96,12 +96,97 @@ fn a_median_more_than_the_tolerance_over_the_base_is_a_regression() {
          | `screenshot` PNG at 120x40 | ≤ 40 ms | 30.00 ms | 45.00 ms | over target, regressed |\n\
          | `wait <text>` after the text appears | none | 0.20 ms | 0.40 ms | ok |\n\
          | idle daemon memory | ≤ 10 MB | 4.85 MB | 5.05 MB | ok |\n\
-         | memory per active tab | ≤ 5 MB | 3.00 MB | 3.40 MB | regressed |\n\
+         | memory per active tab | about 5 MB (reference) | 3.00 MB | 3.40 MB | regressed |\n\
          \n\
          - CLI round trip (`get frame`) regressed: 2.60 ms against 2.00 ms on the base (+30%; the limit is +25% and +0.25 ms)\n\
          - `screenshot` PNG at 120x40 is 45.00 ms, over its 40 ms target\n\
          - `screenshot` PNG at 120x40 regressed: 45.00 ms against 30.00 ms on the base (+50%; the limit is +25% and +0.25 ms)\n\
          - memory per active tab regressed: 3.40 MB against 3.00 MB on the base (+13%; the limit is +10% and +0.25 MB)\n"
+    );
+    assert_eq!(checked.code, 2, "stderr: {}", checked.stderr);
+}
+
+#[test]
+fn memory_per_tab_over_its_reference_passes_when_it_has_not_regressed() {
+    let checked = check(
+        r#"{"metrics": [
+            {"metric": "round-trip", "base": [2.2], "change": [2.2]},
+            {"metric": "snapshot", "base": [2.1], "change": [2.1]},
+            {"metric": "png", "base": [6.3], "change": [6.3]},
+            {"metric": "wait-text", "base": [0.35], "change": [0.35]},
+            {"metric": "idle-memory", "base": [4.9], "change": [4.9]},
+            {"metric": "tab-memory", "base": [9.0, 8.9, 9.1], "change": [9.0, 9.2, 8.8]}
+        ]}"#,
+    );
+
+    assert_eq!(
+        checked.stdout,
+        "| metric | target | base | this change | verdict |\n\
+         |---|---|---|---|---|\n\
+         | CLI round trip (`get frame`) | ≤ 5 ms | 2.20 ms | 2.20 ms | ok |\n\
+         | `snapshot` | ≤ 10 ms | 2.10 ms | 2.10 ms | ok |\n\
+         | `screenshot` PNG at 120x40 | ≤ 40 ms | 6.30 ms | 6.30 ms | ok |\n\
+         | `wait <text>` after the text appears | none | 0.35 ms | 0.35 ms | ok |\n\
+         | idle daemon memory | ≤ 10 MB | 4.90 MB | 4.90 MB | ok |\n\
+         | memory per active tab | about 5 MB (reference) | 9.00 MB | 9.00 MB | over reference |\n"
+    );
+    assert_eq!(checked.code, 0, "stderr: {}", checked.stderr);
+}
+
+#[test]
+fn memory_per_tab_over_its_reference_fails_when_it_regressed() {
+    let checked = check(
+        r#"{"metrics": [
+            {"metric": "round-trip", "base": [2.2], "change": [2.2]},
+            {"metric": "snapshot", "base": [2.1], "change": [2.1]},
+            {"metric": "png", "base": [6.3], "change": [6.3]},
+            {"metric": "wait-text", "base": [0.35], "change": [0.35]},
+            {"metric": "idle-memory", "base": [4.9], "change": [4.9]},
+            {"metric": "tab-memory", "base": [9.0], "change": [10.8]}
+        ]}"#,
+    );
+
+    assert_eq!(
+        checked.stdout,
+        "| metric | target | base | this change | verdict |\n\
+         |---|---|---|---|---|\n\
+         | CLI round trip (`get frame`) | ≤ 5 ms | 2.20 ms | 2.20 ms | ok |\n\
+         | `snapshot` | ≤ 10 ms | 2.10 ms | 2.10 ms | ok |\n\
+         | `screenshot` PNG at 120x40 | ≤ 40 ms | 6.30 ms | 6.30 ms | ok |\n\
+         | `wait <text>` after the text appears | none | 0.35 ms | 0.35 ms | ok |\n\
+         | idle daemon memory | ≤ 10 MB | 4.90 MB | 4.90 MB | ok |\n\
+         | memory per active tab | about 5 MB (reference) | 9.00 MB | 10.80 MB | over reference, regressed |\n\
+         \n\
+         - memory per active tab regressed: 10.80 MB against 9.00 MB on the base (+20%; the limit is +10% and +0.25 MB)\n"
+    );
+    assert_eq!(checked.code, 2, "stderr: {}", checked.stderr);
+}
+
+#[test]
+fn a_median_over_its_limit_fails_while_memory_per_tab_is_only_over_its_reference() {
+    let checked = check(
+        r#"{"metrics": [
+            {"metric": "round-trip", "base": [2.2], "change": [2.2]},
+            {"metric": "snapshot", "base": [14.5], "change": [15.0]},
+            {"metric": "png", "base": [6.3], "change": [6.3]},
+            {"metric": "wait-text", "base": [0.35], "change": [0.35]},
+            {"metric": "idle-memory", "base": [4.9], "change": [4.9]},
+            {"metric": "tab-memory", "base": [9.0], "change": [9.0]}
+        ]}"#,
+    );
+
+    assert_eq!(
+        checked.stdout,
+        "| metric | target | base | this change | verdict |\n\
+         |---|---|---|---|---|\n\
+         | CLI round trip (`get frame`) | ≤ 5 ms | 2.20 ms | 2.20 ms | ok |\n\
+         | `snapshot` | ≤ 10 ms | 14.50 ms | 15.00 ms | over target |\n\
+         | `screenshot` PNG at 120x40 | ≤ 40 ms | 6.30 ms | 6.30 ms | ok |\n\
+         | `wait <text>` after the text appears | none | 0.35 ms | 0.35 ms | ok |\n\
+         | idle daemon memory | ≤ 10 MB | 4.90 MB | 4.90 MB | ok |\n\
+         | memory per active tab | about 5 MB (reference) | 9.00 MB | 9.00 MB | over reference |\n\
+         \n\
+         - `snapshot` is 15.00 ms, over its 10 ms target\n"
     );
     assert_eq!(checked.code, 2, "stderr: {}", checked.stderr);
 }
@@ -140,12 +225,10 @@ fn summary_gets_the_report_appended() {
                   | `screenshot` PNG at 120x40 | ≤ 40 ms | 6.00 ms | 6.00 ms | ok |\n\
                   | `wait <text>` after the text appears | none | 0.40 ms | 0.40 ms | ok |\n\
                   | idle daemon memory | ≤ 10 MB | 4.85 MB | 4.85 MB | ok |\n\
-                  | memory per active tab | ≤ 5 MB | 6.00 MB | 6.00 MB | over target |\n\
-                  \n\
-                  - memory per active tab is 6.00 MB, over its 5 MB target\n";
+                  | memory per active tab | about 5 MB (reference) | 6.00 MB | 6.00 MB | over reference |\n";
     assert_eq!(String::from_utf8_lossy(&output.stdout), report);
     assert_eq!(std::fs::read_to_string(&summary).expect("read the summary"), format!("# Earlier step\n{report}"));
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(0));
 }
 
 #[test]

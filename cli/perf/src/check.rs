@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::metrics::{Metric, Results};
+use crate::metrics::{Metric, Results, Target};
 
 pub struct Report {
     pub text: String,
@@ -14,8 +14,8 @@ struct Row {
 }
 
 impl Row {
-    fn over_target(&self) -> bool {
-        self.metric.target().is_some_and(|target| self.change > target)
+    fn over_target(&self) -> Option<Target> {
+        self.metric.target().filter(|target| self.change > target.value())
     }
 
     fn increase(&self) -> f64 {
@@ -29,19 +29,21 @@ impl Row {
 
     fn verdict(&self) -> &'static str {
         match (self.over_target(), self.regressed()) {
-            (false, false) => "ok",
-            (true, false) => "over target",
-            (false, true) => "regressed",
-            (true, true) => "over target, regressed",
+            (None, false) => "ok",
+            (Some(Target::Limit(_)), false) => "over target",
+            (Some(Target::Reference(_)), false) => "over reference",
+            (None, true) => "regressed",
+            (Some(Target::Limit(_)), true) => "over target, regressed",
+            (Some(Target::Reference(_)), true) => "over reference, regressed",
         }
     }
 
     fn failures(&self) -> Vec<String> {
         let unit = self.metric.unit();
         let mut failures = Vec::new();
-        if let Some(target) = self.metric.target().filter(|_| self.over_target()) {
+        if let Some(Target::Limit(limit)) = self.over_target() {
             failures.push(format!(
-                "{} is {}, over its {target} {} target",
+                "{} is {}, over its {limit} {} target",
                 self.metric.label(),
                 self.amount(self.change),
                 unit.symbol()
@@ -68,8 +70,10 @@ impl Row {
     }
 
     fn target(&self) -> String {
+        let unit = self.metric.unit().symbol();
         match self.metric.target() {
-            Some(target) => format!("≤ {target} {}", self.metric.unit().symbol()),
+            Some(Target::Limit(limit)) => format!("≤ {limit} {unit}"),
+            Some(Target::Reference(reference)) => format!("about {reference} {unit} (reference)"),
             None => "none".to_string(),
         }
     }

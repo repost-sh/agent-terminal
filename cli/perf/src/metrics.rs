@@ -61,14 +61,28 @@ impl Metric {
         }
     }
 
-    pub fn target(self) -> Option<f64> {
+    pub fn target(self) -> Option<Target> {
         match self {
-            Metric::RoundTrip => Some(5.0),
-            Metric::Snapshot => Some(10.0),
-            Metric::Png => Some(40.0),
+            Metric::RoundTrip => Some(Target::Limit(5.0)),
+            Metric::Snapshot => Some(Target::Limit(10.0)),
+            Metric::Png => Some(Target::Limit(40.0)),
             Metric::WaitText => None,
-            Metric::IdleMemory => Some(10.0),
-            Metric::TabMemory => Some(5.0),
+            Metric::IdleMemory => Some(Target::Limit(10.0)),
+            Metric::TabMemory => Some(Target::Reference(5.0)),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum Target {
+    Limit(f64),
+    Reference(f64),
+}
+
+impl Target {
+    pub fn value(self) -> f64 {
+        match self {
+            Target::Limit(value) | Target::Reference(value) => value,
         }
     }
 }
