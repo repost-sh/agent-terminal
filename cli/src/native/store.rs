@@ -11,8 +11,6 @@ use tokio::sync::watch;
 use zip::write::SimpleFileOptions;
 
 use crate::native::changes::Changes;
-use crate::native::pty;
-use crate::native::recording::Recording;
 use crate::native::render::Cells;
 use crate::output::call_line;
 use crate::protocol::{CommandRecord, HumanInput, TabId};
@@ -218,10 +216,6 @@ impl SessionFolder {
         screenshots_in(&self.path)
     }
 
-    pub fn record(&self, tab: &str, command: &pty::Command) -> Arc<Recording> {
-        let path = self.path.join(format!("{tab}.cast"));
-        Recording::start(path, command.size, command.line())
-    }
     pub fn command_log(&self, tab: &str) -> CommandLog {
         CommandLog { path: self.path.join(format!("{tab}.commands.jsonl")) }
     }
@@ -393,7 +387,7 @@ fn saved_screenshots(folder: &Path) -> Result<Vec<PathBuf>> {
 }
 
 fn is_appended_to(file: &Path) -> bool {
-    file.extension().is_some_and(|extension| extension == "cast" || extension == "jsonl")
+    file.extension().is_some_and(|extension| extension == "jsonl")
 }
 
 fn files_in(folder: &Path, files: &mut Vec<PathBuf>) -> Result<()> {

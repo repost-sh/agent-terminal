@@ -15,7 +15,6 @@ mod mcp;
 mod mouse;
 mod open;
 mod output;
-mod recording;
 mod refs;
 mod resize;
 mod restart;

@@ -590,7 +590,7 @@ enum DiffCommand {
 
 #[derive(Subcommand)]
 enum TraceAction {
-    #[command(about = "Zip the session folder (activity log, recordings, command logs) with its screenshots")]
+    #[command(about = "Zip the session folder (activity log, screenshot list, command logs) with its screenshots")]
     Export {
         #[arg(help = "Where to write the zip file", value_name = "PATH")]
         path: PathBuf,

@@ -1,6 +1,6 @@
 # agent-terminal — design
 
-Status: ratified. The dashboard UI prototype dated 2026-10-14 at `docs/prototype/dashboard-ui-2026-10-14.html` is normative for UI: labels, copy, states, dialogs and focus behaviour carry into the implementation 1:1, and where this doc and the prototype differ on UI, the prototype wins. Calls made at ratification: on narrow screens the terminal shrinks to fit; split view has no timeline; the command is `mark <name>`, not the prototype's `mark set <name>`.
+Status: ratified. The dashboard UI prototype dated 2026-10-14 at `docs/prototype/dashboard-ui-2026-10-14.html` is normative for UI: labels, copy, states, dialogs and focus behaviour carry into the implementation 1:1, and where this doc and the prototype differ on UI, the prototype wins. Calls made at ratification: on narrow screens the terminal shrinks to fit; the command is `mark <name>`, not the prototype's `mark set <name>`. [ADR 0003](adr/0003-nothing-grows-while-a-program-runs.md) supersedes the prototype's timeline and record button.
 
 `agent-terminal` is to terminals what `agent-browser` is to web pages: a fast CLI that lets an agent start a program in a real PTY, read the screen, send keys, wait for the UI to settle, take screenshots, and leave evidence. A human can watch every session live in a dashboard and take control. It ships its own skill, version-matched to the binary.
 
@@ -13,14 +13,14 @@ Main job: **QA of TUIs and CLIs by agents** (lazygit-style apps, chat TUIs, inst
 3. **Act and wait in one call.** Every input command accepts `--wait …`, so the usual loop is one round trip: `press Enter --wait-stable`.
 4. **Event driven, not polling.** A resident daemon owns the PTYs and a headless VT emulator per terminal. Waits wake on the next frame that matches.
 5. **Honest about TUIs.** Refs are heuristics over cells (inverse spans, `[ OK ]` buttons, box titles, OSC 8 links). `click` refuses when the app never turned mouse reporting on, and tells the agent which keys to use instead.
-6. **Humans can see everything.** Every CLI call, every shell command (exit code, duration, cwd) and every screenshot is in the dashboard.
+6. **Humans can see everything.** Every CLI call, every shell command and every screenshot is in the dashboard, and the dashboard shows the live screen of any terminal and every screenshot the agent took.
 
 ## Architecture (short)
 
 - `agent-terminal` is a single Rust binary: the CLI, the daemon and the dashboard server.
-- The daemon owns, per terminal: a PTY, a VT parser and grid with scrollback (`alacritty_terminal` or `libghostty-vt`), a frame counter, an output ring buffer, and an asciicast event log.
+- The daemon owns, per terminal: a PTY, a VT parser and grid with scrollback (`alacritty_terminal` or `libghostty-vt`), a frame counter and an output ring buffer.
 - The CLI talks to the daemon over a unix socket. The dashboard talks over HTTP + WebSocket on `127.0.0.1:4849`.
-- Each session keeps its tab recordings and the activity log of every call in a plain folder; the format is in [`session-folder.md`](session-folder.md).
+- Each session keeps the activity log of every call, the screenshot list and the command logs of its shell tabs in a plain folder, and nothing that grows while a program runs ([ADR 0003](adr/0003-nothing-grows-while-a-program-runs.md)); the format is in [`session-folder.md`](session-folder.md).
 - `agent-terminal mcp` is an MCP stdio server (`rmcp`) whose tools are generated from the CLI's own command definitions: one tool per command, named by its words joined with `_` (`get text` is `get_text`), taking the command's arguments and options as properties. A tool call runs that command with `--json` as a child process and returns what it prints, so a new command is a new tool with no MCP code ([ADR 0001](adr/0001-mcp-tools-run-the-cli.md)).
 - PNG rendering happens on the server from the grid, with a bundled monospace font (JetBrains Mono + Symbols Nerd Font fallback, then Noto Emoji for emoji), so it needs no window server. The fonts are in `cli/assets/fonts/`, and the daemon also serves them to the dashboard; their licences are in `licenses/`, which ships in every release archive and npm platform package.
 - Shell integration (OSC 133 prompt marks, OSC 7 cwd, OSC 2 title) is injected into `bash`, `zsh` and `fish` when a session opens a shell. That is what produces command history.

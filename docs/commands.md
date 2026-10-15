@@ -139,7 +139,7 @@ Exit codes:
 
 ## What changed from the first draft
 
-- Added `clip`. Every tab is recorded all the time (it costs a few KB), so the agent can cut a GIF or MP4 after something goes wrong, without starting a recording first.
+- Evidence is what the agent captures, which is screenshots: no file grows while a program runs ([ADR 0003](adr/0003-nothing-grows-while-a-program-runs.md)).
 - Added `session id --scope worktree`, copied from agent-browser, so parallel agents never share a session by accident.
 - `mark set <name>` became `mark <name>`.
 - Dropped: perf commands, a chat tab, `get` fields nobody asked for.

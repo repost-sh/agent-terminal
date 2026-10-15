@@ -7,7 +7,6 @@ pub mod keyboard;
 pub mod mouse;
 pub mod output_log;
 pub mod pty;
-pub mod recording;
 pub mod refs;
 pub mod render;
 pub mod screen;

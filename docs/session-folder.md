@@ -7,9 +7,7 @@ Every session keeps plain files in `<home>/sessions/<session>/`, where `<home>` 
   sessions/qa/
     activity.jsonl     every CLI call to the session, one JSON object per line
     screenshots.jsonl  every PNG screenshot of the session, one JSON object per line
-    t1.cast            the recording of tab t1 (asciicast v2), from open to close
     t1.commands.jsonl  the command log of shell tab t1, one JSON object per finished command
-    t2.cast
   screenshots/         screenshots when no path and no --screenshot-dir is given: <session>-<tab>-<frame>.png
 ```
 
@@ -18,20 +16,6 @@ Every session keeps plain files in `<home>/sessions/<session>/`, where `<home>` 
 - The folder starts when the session's first tab opens. A session that starts again under the same name (after its last tab closed, or in a new daemon) starts from an empty folder: the previous run's files are removed.
 - The folder stays after the session ends, so `trace export` still works after `close`, until the name is used again.
 - The folder name is the session name with every byte outside `A-Z a-z 0-9 - _ .` written as `%XX`, and a leading `.` too (`../x` becomes `%2E.%2Fx`); the empty name is `%`.
-
-## Recordings: `<tab>.cast`
-
-[asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/), so `asciinema play t1.cast` replays it.
-
-- Header: `{"version":2,"width":120,"height":40,"timestamp":1791999575,"command":"lazygit --debug"}`. Width and height are the size the tab opened at; `timestamp` is whole Unix seconds.
-- Events: `[seconds, "o"|"i"|"r", data]`, appended as they happen, one per line.
-  - `o`: program output as it reached the screen, UTF-8 (a character split across reads is written whole; invalid bytes become U+FFFD).
-  - `i`: input agent-terminal wrote to the program (`type`, `press`, `paste`, `send`). Signals are not input.
-  - `r`: a resize, `"COLSxROWS"`.
-  - `m`: a mark set with `mark <name>`; the data is the name.
-- Times count from `timestamp`, not from the first event, so `timestamp + seconds` is the wall-clock time of the event and lines up with the activity log.
-- Replaying the `o` and `r` events through a fresh terminal of the header's size gives the screen the tab showed.
-- `restart` keeps writing to the same file: it adds an `o` event with a terminal reset (`ESC c`) before the new program's output, because the restarted program starts on a fresh screen.
 
 ## Activity log: `activity.jsonl`
 
@@ -86,7 +70,7 @@ Only tabs opened with `shell`, which have shell integration. One line per comman
 
 - Each line is what `history show <id> --json` prints for the command, without `session` and `tab`.
 - `id`: the command's number in `history`, unique in the tab: `restart` starts `history` with the commands of the new run, numbered on from the last command before it, and keeps appending to the same file.
-- `started_at_ms`, `ended_at_ms`: wall-clock Unix time in milliseconds, so `started_at_ms / 1000 - timestamp` is where the command starts in the tab's recording. `duration_ms`: from start to finish.
+- `started_at_ms`, `ended_at_ms`: wall-clock Unix time in milliseconds. `duration_ms`: from start to finish.
 - `exit_code`: what the shell reported; `null` when it started a new prompt without reporting one.
 - `first_frame`, `last_frame`: the tab's frame when the command started and after its last output.
 - `output`: what the command printed, as text without escape codes, exactly as `history show` prints it. A tab keeps the last 4 MiB of its output, so the output of a command that printed more starts with a line saying how many bytes are no longer kept.
@@ -94,6 +78,6 @@ Only tabs opened with `shell`, which have shell integration. One line per comman
 
 ## `trace export <path>`
 
-A zip of the folder with every entry under `<session folder name>/`. Recordings, the activity log, the screenshot list and the command logs are copied up to their last complete line, so an export taken while a program prints never holds half an event. The `trace export` call itself is logged after the zip is written, so it is not in the zip.
+A zip of the folder with every entry under `<session folder name>/`. The activity log, the screenshot list and the command logs are copied up to their last complete line, so an export taken while the session is in use never holds half a line. The `trace export` call itself is logged after the zip is written, so it is not in the zip.
 
 The files the session saved outside its folder come along: every path in the `screenshots` of the activity log and in the screenshot list goes under `screenshots/`, each by its file name (a second file of the same name gets a `2-` before it). A file that is no longer there is left out, and `trace export` names it (`missing` in `--json`).

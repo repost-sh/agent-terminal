@@ -5,7 +5,6 @@ use super::stream::send;
 use super::{Backend, tab_id};
 use crate::native::output_log::{Marked, Output, Slice};
 use crate::native::pty;
-use crate::native::recording;
 use crate::native::store::PendingCall;
 use crate::native::terminal::Terminal;
 use crate::output::call_line;
@@ -148,19 +147,48 @@ impl Stream {
         for &(at, name) in marks {
             let Some(until) = at.checked_sub(slice.start) else { continue };
             let until = (until as usize).min(slice.bytes.len());
-            let text = recording::decode(&mut self.undecoded, &slice.bytes[taken..until]);
+            let text = self.decode(&slice.bytes[taken..until]);
             if !text.is_empty() {
                 segments.push(Segment::Text(text));
             }
             segments.push(Segment::Mark(name.to_string()));
             taken = until;
         }
-        let text = recording::decode(&mut self.undecoded, &slice.bytes[taken..]);
+        let text = self.decode(&slice.bytes[taken..]);
         if !text.is_empty() {
             segments.push(Segment::Text(text));
         }
         self.offset = slice.start + slice.bytes.len() as u64;
         segments
+    }
+
+    fn decode(&mut self, bytes: &[u8]) -> String {
+        let mut pending = std::mem::take(&mut self.undecoded);
+        pending.extend_from_slice(bytes);
+        let mut text = String::new();
+        let mut start = 0;
+        loop {
+            match std::str::from_utf8(&pending[start..]) {
+                Ok(valid) => {
+                    text.push_str(valid);
+                    return text;
+                }
+                Err(e) => {
+                    let valid_end = start + e.valid_up_to();
+                    text.push_str(&String::from_utf8_lossy(&pending[start..valid_end]));
+                    match e.error_len() {
+                        Some(len) => {
+                            text.push(char::REPLACEMENT_CHARACTER);
+                            start = valid_end + len;
+                        }
+                        None => {
+                            self.undecoded = pending.split_off(valid_end);
+                            return text;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

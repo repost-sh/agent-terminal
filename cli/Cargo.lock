@@ -182,7 +182,6 @@ version = "0.0.0"
 dependencies = [
  "crossterm",
  "ratatui",
- "serde_json",
  "signal-hook 0.3.18",
  "unicode-width",
 ]
