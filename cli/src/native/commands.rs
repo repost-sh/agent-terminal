@@ -11,6 +11,23 @@ pub struct Commands {
     prompts: u64,
     start_cwd: String,
     first_id: u32,
+    clock: Clock,
+}
+
+struct Clock {
+    wall: SystemTime,
+    origin: Instant,
+}
+
+impl Clock {
+    fn start() -> Self {
+        Self { wall: SystemTime::now(), origin: Instant::now() }
+    }
+
+    fn now(&self) -> (SystemTime, Instant) {
+        let now = Instant::now();
+        (self.wall + (now - self.origin), now)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -58,7 +75,15 @@ pub struct Submitted {
 
 impl Commands {
     pub fn new(start_cwd: String, first_id: u32) -> Self {
-        Self { records: Vec::new(), phase: Phase::Starting, entered: false, prompts: 0, start_cwd, first_id }
+        Self {
+            records: Vec::new(),
+            phase: Phase::Starting,
+            entered: false,
+            prompts: 0,
+            start_cwd,
+            first_id,
+            clock: Clock::start(),
+        }
     }
 
     pub fn next_id(&self) -> u32 {
@@ -81,11 +106,12 @@ impl Commands {
             ShellReport::Ready => None,
             ShellReport::Started { .. } if self.phase == Phase::Running => None,
             ShellReport::Started { command, cwd } => {
+                let (started_at, started) = self.clock.now();
                 self.records.push(Record {
                     command,
                     cwd: cwd.unwrap_or_else(|| self.start_cwd.clone()),
-                    started_at: SystemTime::now(),
-                    started: Instant::now(),
+                    started_at,
+                    started,
                     ended: None,
                     exit_code: None,
                     output_from: at.output,
@@ -103,8 +129,9 @@ impl Commands {
     }
 
     fn finish(&mut self, exit_code: Option<i32>, at: &Point) -> Change {
+        let ended = self.clock.now();
         if let Some(record) = self.records.last_mut() {
-            record.ended = Some((SystemTime::now(), Instant::now()));
+            record.ended = Some(ended);
             record.exit_code = exit_code;
             record.output_to = Some(at.output);
             record.last_frame = Some(at.frame);
