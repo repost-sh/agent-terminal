@@ -163,6 +163,11 @@ impl Stream {
     }
 
     fn decode(&mut self, bytes: &[u8]) -> String {
+        if self.undecoded.is_empty()
+            && let Ok(whole) = std::str::from_utf8(bytes)
+        {
+            return whole.to_string();
+        }
         let mut pending = std::mem::take(&mut self.undecoded);
         pending.extend_from_slice(bytes);
         let mut text = String::new();
