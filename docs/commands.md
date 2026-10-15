@@ -23,6 +23,7 @@ Start and stop:
                                --check  exit with the command's own exit code
   restart                      Run the same program again with the same options (cwd, env, current size)
   signal <INT|TERM|KILL|...>   Send a signal to the program in the foreground (INT TERM KILL HUP TSTP CONT WINCH)
+                               works like an input command: exit 4 under human control, and the options listed under Send input
   resize <cols>x<rows>         Resize the terminal, e.g. resize 80x24 (the app gets SIGWINCH)
                                restart and resize print the screen and take --wait <text> / --wait-stable [ms] like open
   close [--all]                Close the current tab (--all closes every session)
@@ -60,7 +61,7 @@ Send input:
                                down and up take --right or --middle
   send <bytes>                 Raw bytes with escapes (\e \xHH \n \r \t \0 \\), last resort
 
-  Any input command also takes:
+  Any input command, and signal, also takes:
     --wait <text>              then wait until the text is on screen
     --wait-gone <text>         then wait until it is gone
     --wait-stable [ms]         then wait until the screen has not changed for ms since the input (default 300)
@@ -101,7 +102,7 @@ Sessions and tabs:
   session                      Current session name
   session list                 Sessions, their tabs, programs and status
   session id --scope worktree --prefix <p>   A name unique to this checkout, for AGENT_TERMINAL_SESSION
-  tab                          List tabs in this session
+  tab [list]                   List tabs in this session
   tab new <program...>         Another terminal in the same session (e.g. a server next to the app)
   tab <id>                     Switch to a tab
   tab close [id]               Close a tab
@@ -138,7 +139,7 @@ Exit codes:
   1  error
   2  expect or wait --assert failed, or diff screenshot found more changes than --threshold
   3  timed out
-  4  a human has control of this tab (input commands and exec; resume with wait --control)
+  4  a human has control of this tab (input commands, signal and exec; resume with wait --control)
   5  the program has exited
 ```
 
