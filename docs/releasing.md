@@ -1,10 +1,10 @@
 # Releasing
 
-The version lives in one place: `version` in `cli/Cargo.toml`. The npm packages and the Homebrew formula take it from the release.
+The version lives in `version` in `cli/Cargo.toml`. The npm packages and the Homebrew formula take it from the release. The skill stub `skills/agent-terminal/SKILL.md` repeats it in `metadata.version`, because `npx skills add` and the Claude Code plugin marketplace copy that file as it is in the repository; `cargo test` fails while the two differ.
 
 ## Cut a release
 
-1. Bump `version` in `cli/Cargo.toml`, run `cargo build` in `cli/` so `Cargo.lock` follows, and merge to `main`.
+1. Bump `version` in `cli/Cargo.toml` and `metadata.version` in `skills/agent-terminal/SKILL.md`, run `cargo build` in `cli/` so `Cargo.lock` follows, and merge to `main`.
 2. Tag that commit `v<version>` and push the tag.
 
 A tag with a prerelease suffix (`v0.2.0-rc.1`) runs the whole pipeline and creates a GitHub prerelease, but publishes nothing to npm or Homebrew. Use one to rehearse.
