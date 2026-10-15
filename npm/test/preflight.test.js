@@ -145,7 +145,7 @@ test('a release candidate rehearses the release it leads to, so its section or t
   assert.equal(refused.status, 1);
   assert.equal(
     refused.stderr,
-    'CHANGELOG.md has no section for 0.2.0-rc.1: add "## 0.2.0-rc.1 (<date>)" as docs/releasing.md describes, ' +
+    'CHANGELOG.md has no section for 0.2.0-rc.1: add "## 0.2.0-rc.1 (<date>)", ' +
       'or the "## 0.2.0 (<date>)" section it rehearses\n',
   );
 });

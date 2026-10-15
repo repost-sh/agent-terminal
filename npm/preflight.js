@@ -62,7 +62,7 @@ function checkChangelog(version) {
     return [];
   }
   const alternative = release === version ? '' : `, or the "## ${release} (<date>)" section it rehearses`;
-  return [`${CHANGELOG} has no section for ${version}: add "## ${version} (<date>)" as docs/releasing.md describes${alternative}`];
+  return [`${CHANGELOG} has no section for ${version}: add "## ${version} (<date>)"${alternative}`];
 }
 
 function npmErrors(stderr) {

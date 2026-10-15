@@ -49,7 +49,7 @@ agent-terminal snapshot
 agent-terminal close
 ```
 
-Agents start with `agent-terminal skills get core`. Every command is listed in [`docs/commands.md`](https://github.com/repost-sh/agent-terminal/blob/main/docs/commands.md).
+Agents start with `agent-terminal skills get core`. `agent-terminal --help` lists every command.
 
 ## Skills
 
@@ -94,7 +94,6 @@ agent-terminal doctor
 
 - [Releases](https://github.com/repost-sh/agent-terminal/releases): the archive for each platform with its `.sha256`, and the notes for each version.
 - [Changelog](https://github.com/repost-sh/agent-terminal/blob/main/CHANGELOG.md)
-- [Commands](https://github.com/repost-sh/agent-terminal/blob/main/docs/commands.md)
 
 ## License
 

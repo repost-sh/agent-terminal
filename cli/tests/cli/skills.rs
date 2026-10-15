@@ -507,7 +507,7 @@ fn the_help_of_every_command_calls_a_terminal_a_terminal_or_a_tab() {
         let subcommands = commands.help(&path).map(|help| help.subcommands.clone()).unwrap_or_default();
         paths.extend(subcommands.into_iter().map(|name| [path.clone(), vec![name]].concat()));
     }
-    assert!(banned.is_empty(), "GLOSSARY.md says terminal or tab, never pane or window:\n{}", banned.join("\n"));
+    assert!(banned.is_empty(), "the help says terminal or tab, never pane or window:\n{}", banned.join("\n"));
 }
 
 #[test]
