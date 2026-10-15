@@ -127,18 +127,24 @@ fn trace_export_of_a_session_that_never_ran_explains_what_to_do() {
 }
 
 #[test]
-fn trace_export_while_the_program_prints_keeps_only_whole_events() {
+fn trace_export_leaves_out_an_event_still_being_written() {
     let at = AgentTerminal::new();
     let work = work_folder(&at);
-    at.run(&["open", "--wait", "y", "sh", "-c", "yes | head -c 5000000"]).success();
-    for attempt in 0..5 {
-        let zip = work.join(format!("busy-{attempt}.zip"));
-        at.run(&["trace", "export", &zip.to_string_lossy()]).success();
-        for (name, contents) in unzip(&zip) {
-            assert!(contents.is_empty() || contents.ends_with('\n'), "{name} ends in the middle of a line");
-            for line in contents.lines() {
-                assert!(serde_json::from_str::<serde_json::Value>(line).is_ok(), "{name} has a broken line: {line}");
-            }
-        }
+    open_printer(&at, "default", &["open"]);
+    let folder = at.home().join("sessions/default");
+    let written = |name: &str| read(&folder.join(name));
+    let (activity, cast) = (written("activity.jsonl"), written("t1.cast"));
+    let half_written = [
+        ("activity.jsonl", r#"{"time":"2026-10-14T14:01:22.051Z","tab":"t1","comm"#),
+        ("t1.cast", r#"[1.5, "o", "li"#),
+    ];
+    for (name, half) in half_written {
+        let mut file = std::fs::OpenOptions::new().append(true).open(folder.join(name)).expect("open a session file");
+        std::io::Write::write_all(&mut file, half.as_bytes()).expect("start an event without finishing it");
     }
+
+    at.run_in(&work, &["trace", "export", "writing.zip"]).success();
+    let files = unzip(&work.join("writing.zip"));
+    assert_eq!(files["default/activity.jsonl"], activity);
+    assert_eq!(files["default/t1.cast"], cast);
 }
