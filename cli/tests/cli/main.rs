@@ -31,3 +31,4 @@ mod timeline;
 mod trace;
 mod version;
 mod wait;
+mod widths;

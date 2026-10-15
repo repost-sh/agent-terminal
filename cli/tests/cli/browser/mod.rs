@@ -14,6 +14,7 @@ mod sidebar;
 mod split;
 mod terminal;
 mod toolbar;
+mod widths;
 
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
