@@ -115,6 +115,11 @@ jobs:
           sudo apt-get install --yes zsh fish
           zsh --version
           fish --version
+      - name: Make zsh's completion folders writable by root alone, as compinit requires
+        if: runner.os == 'Linux'
+        run: |
+          sudo chmod go-w /usr/share/zsh /usr/share/zsh/vendor-completions
+          zsh -c 'autoload -U compaudit && compaudit'
       - name: Install fish for the shell tests
         if: runner.os == 'macOS'
         run: |
