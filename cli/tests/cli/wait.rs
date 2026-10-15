@@ -72,7 +72,10 @@ fn wait_assert_exits_2_when_the_condition_is_not_met_in_time() {
     let stderr = asserted.stderr();
     assert!(stderr.starts_with("error: \"never shown\" did not appear within 300 ms in default t1\n"), "{stderr}");
     assert!(stderr.contains("1│line 1\n2│line 2\n"), "{stderr}");
+    wait_gone_assert_fails_in_json_and_a_met_condition_passes(&at);
+}
 
+fn wait_gone_assert_fails_in_json_and_a_met_condition_passes(at: &AgentTerminal) {
     let stable = at.run(&["--timeout", "300", "--json", "wait", "--gone", "line 1", "--assert"]);
     assert_eq!(stable.code(), 2, "{}", stable.stdout());
     assert_eq!(stable.json()["error"]["code"], 2);

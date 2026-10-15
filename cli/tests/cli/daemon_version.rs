@@ -92,6 +92,14 @@ fn a_daemon_of_another_version_with_open_terminals_is_left_running_and_the_comma
         "the daemon is agent-terminal 0.0.1, not {VERSION} like this command, and it has 2 open terminals, so it was left running; `agent-terminal daemon stop` ends it and its terminals, and the next command starts a {VERSION} daemon"
     );
 
+    the_command_exits_6_naming_both_versions(&at, &message);
+    at.run(&["daemon", "stop"]).success();
+    at.run(&["open", "--size", "20x2", "cat"]).success();
+    assert_eq!(recorded_version(&at), VERSION);
+    assert_eq!(at.run(&["close", "--all"]).success().stdout(), "closed default t1\n");
+}
+
+fn the_command_exits_6_naming_both_versions(at: &AgentTerminal, message: &str) {
     let run = at.run(&["snapshot"]);
     assert_eq!((run.code(), run.stdout().as_str()), (6, ""));
     assert_eq!(run.stderr(), format!("error: {message}\n"));
@@ -108,11 +116,6 @@ fn a_daemon_of_another_version_with_open_terminals_is_left_running_and_the_comma
             }
         })
     );
-
-    at.run(&["daemon", "stop"]).success();
-    at.run(&["open", "--size", "20x2", "cat"]).success();
-    assert_eq!(recorded_version(&at), VERSION);
-    assert_eq!(at.run(&["close", "--all"]).success().stdout(), "closed default t1\n");
 }
 
 #[test]
@@ -127,7 +130,10 @@ fn a_daemon_that_records_no_version_and_cannot_stop_on_request_is_left_running()
     assert_eq!((run.code(), run.stdout().as_str()), (6, ""));
     assert_eq!(run.stderr(), format!("error: {message}\n"));
     assert_eq!(other.join().unwrap(), [stop_if_no_terminals()]);
+    the_json_error_says_neither_version_nor_terminals_are_known(&at, &message);
+}
 
+fn the_json_error_says_neither_version_nor_terminals_are_known(at: &AgentTerminal, message: &str) {
     std::fs::remove_file(at.home().join("daemon.sock")).expect("let the next stand-in listen");
     let other = stand_in(at.home(), None, None);
     let run = at.run(&["--json", "snapshot"]);

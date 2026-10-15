@@ -49,7 +49,24 @@ fn cell(name: &str) -> String {
 #[test]
 fn two_up_from_a_tab_shows_it_beside_the_tab_after_it_both_live() {
     let at = AgentTerminal::new();
-    hold(&at, &["--session", "qa", "open"], "30x4", "1");
+    let cue = open_qa_with_two_tabs_and_web(&at);
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/s/qa/t1"));
+    browser.wait_for_status("Live");
+
+    two_up_shows_t1_beside_t2_with_t1_focused(&browser);
+    both_cells_show_their_screens(&at, &browser);
+    cue.print("streamed\n");
+    browser.wait_for_screen_in(&cell("qa t2 line-printer"), "streamed");
+    assert_eq!(browser.screen_in(&cell("qa t2 line-printer")), ["line 1", "line 2", "streamed"]);
+
+    let (_, frame) = snapshot_rows(&at, &["--session", "qa", "--tab", "t1"]);
+    browser.wait_for_status(&format!("frame {frame}"));
+    assert_eq!(browser.status(), ["Live", &dashboard.stream("qa/t1"), "30 × 4", &format!("frame {frame}")]);
+}
+
+fn open_qa_with_two_tabs_and_web(at: &AgentTerminal) -> Cue {
+    hold(at, &["--session", "qa", "open"], "30x4", "1");
     let cue = Cue::new();
     at.run(&[
         "--session",
@@ -68,16 +85,16 @@ fn two_up_from_a_tab_shows_it_beside_the_tab_after_it_both_live() {
     ])
     .success();
     cue.print("");
-    hold(&at, &["--session", "web", "open"], "30x4", "3");
-    let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/qa/t1"));
-    browser.wait_for_status("Live");
+    hold(at, &["--session", "web", "open"], "30x4", "3");
+    cue
+}
 
+fn two_up_shows_t1_beside_t2_with_t1_focused(browser: &Browser) {
     browser.click_button("Two terminals side by side");
     browser.wait_until("location.pathname === '/split/qa:t1,qa:t2'");
     assert_eq!(browser.run(&["get", "title"]).trim(), "Split · 2 terminals · agent-terminal");
     assert_eq!(
-        grid(&browser),
+        grid(browser),
         [
             "region \"qa t1 line-printer\"",
             "button \"qa t1 line-printer , running\"",
@@ -89,27 +106,22 @@ fn two_up_from_a_tab_shows_it_beside_the_tab_after_it_both_live() {
             "button \"Remove qa t2 from the grid\"",
         ]
     );
-    assert_eq!(layout(&browser), "\"Two terminals side by side\"");
-    assert_eq!(keyboard_focus(&browser), "\"Two terminals side by side\"");
-    assert_eq!(focused(&browser), "\"qa t1 line-printer\"");
+    assert_eq!(layout(browser), "\"Two terminals side by side\"");
+    assert_eq!(keyboard_focus(browser), "\"Two terminals side by side\"");
+    assert_eq!(focused(browser), "\"qa t1 line-printer\"");
+}
+
+fn both_cells_show_their_screens(at: &AgentTerminal, browser: &Browser) {
     browser.wait_for_screen_in(&cell("qa t1 line-printer"), "line 1");
     browser.wait_for_screen_in(&cell("qa t2 line-printer"), "line 2");
     assert_eq!(
         browser.screen_in(&cell("qa t1 line-printer")),
-        snapshot_rows(&at, &["--session", "qa", "--tab", "t1"]).0
+        snapshot_rows(at, &["--session", "qa", "--tab", "t1"]).0
     );
     assert_eq!(
         browser.screen_in(&cell("qa t2 line-printer")),
-        snapshot_rows(&at, &["--session", "qa", "--tab", "t2"]).0
+        snapshot_rows(at, &["--session", "qa", "--tab", "t2"]).0
     );
-
-    cue.print("streamed\n");
-    browser.wait_for_screen_in(&cell("qa t2 line-printer"), "streamed");
-    assert_eq!(browser.screen_in(&cell("qa t2 line-printer")), ["line 1", "line 2", "streamed"]);
-
-    let (_, frame) = snapshot_rows(&at, &["--session", "qa", "--tab", "t1"]);
-    browser.wait_for_status(&format!("frame {frame}"));
-    assert_eq!(browser.status(), ["Live", &dashboard.stream("qa/t1"), "30 × 4", &format!("frame {frame}")]);
 }
 
 #[test]
@@ -124,14 +136,23 @@ fn four_up_fills_with_the_current_tab_then_the_ones_after_it_and_single_returns_
     let browser = Browser::open(&dashboard.url("/s/chat/t1"));
     browser.wait_for_status("Live");
 
+    four_up_fills_from_the_current_tab(&browser);
+    the_cells_show_their_screens_and_the_exit(&browser);
+    browser.click_button("Two terminals side by side");
+    browser.wait_until("location.pathname === '/split/chat:t1,qa:t1'");
+    assert_eq!(focused(&browser), "\"chat t1 line-printer\"");
+    single_returns_to_the_focused_tab(&browser);
+}
+
+fn four_up_fills_from_the_current_tab(browser: &Browser) {
     browser.click_button("Four terminals");
     browser.wait_until("location.pathname === '/split/chat:t1,qa:t1,qa:t2,build:t1'");
     assert_eq!(browser.run(&["get", "title"]).trim(), "Split · 4 terminals · agent-terminal");
-    assert_eq!(layout(&browser), "\"Four terminals\"");
-    assert_eq!(focused(&browser), "\"chat t1 line-printer\"");
+    assert_eq!(layout(browser), "\"Four terminals\"");
+    assert_eq!(focused(browser), "\"chat t1 line-printer\"");
     browser.wait_for_text("exited with code");
     assert_eq!(
-        grid(&browser),
+        grid(browser),
         [
             "region \"chat t1 line-printer\"",
             "button \"chat t1 line-printer , running\"",
@@ -151,6 +172,9 @@ fn four_up_fills_with_the_current_tab_then_the_ones_after_it_and_single_returns_
             "button \"Remove build t1 from the grid\"",
         ]
     );
+}
+
+fn the_cells_show_their_screens_and_the_exit(browser: &Browser) {
     assert_eq!(
         browser.text(&format!("{} [role=status]", cell("build t1 line-printer"))).trim(),
         "line-printer exited with code 3"
@@ -159,32 +183,43 @@ fn four_up_fills_with_the_current_tab_then_the_ones_after_it_and_single_returns_
     assert_eq!(browser.screen_in(&cell("qa t2 line-printer")), ["line 1", "line 2", "line 3"]);
     browser.wait_for_screen_in(&cell("build t1 line-printer"), "line 1");
     assert_eq!(browser.screen_in(&cell("build t1 line-printer")), ["line 1"]);
+}
 
-    browser.click_button("Two terminals side by side");
-    browser.wait_until("location.pathname === '/split/chat:t1,qa:t1'");
-    assert_eq!(focused(&browser), "\"chat t1 line-printer\"");
-
+fn single_returns_to_the_focused_tab(browser: &Browser) {
     browser.click_button("Single terminal");
     browser.wait_until("location.pathname === '/s/chat/t1'");
     browser.wait_for_status("Live");
-    assert_eq!(layout(&browser), "\"Single terminal\"");
-    assert_eq!(keyboard_focus(&browser), "\"Single terminal\"");
+    assert_eq!(layout(browser), "\"Single terminal\"");
+    assert_eq!(keyboard_focus(browser), "\"Single terminal\"");
+}
+
+fn open_qa_with_two_tabs_and_web_of_three_sizes(at: &AgentTerminal) {
+    hold(at, &["--session", "qa", "open"], "30x4", "1");
+    hold(at, &["--session", "qa", "tab", "new"], "32x5", "2");
+    hold(at, &["--session", "web", "open"], "34x6", "3");
 }
 
 #[test]
 fn removing_a_cell_offers_the_picker_and_picking_a_tab_fills_and_focuses_that_cell() {
     let at = AgentTerminal::new();
-    hold(&at, &["--session", "qa", "open"], "30x4", "1");
-    hold(&at, &["--session", "qa", "tab", "new"], "32x5", "2");
-    hold(&at, &["--session", "web", "open"], "34x6", "3");
+    open_qa_with_two_tabs_and_web_of_three_sizes(&at);
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/split/qa:t1,qa:t2"));
     browser.wait_for_status("Live");
 
+    removing_a_cell_offers_the_picker(&browser);
+    picking_a_tab_fills_and_focuses_the_cell(&at, &browser, &dashboard);
+    browser.click_button("Remove web t1 from the grid");
+    browser.wait_until("location.pathname === '/split/qa:t1,_'");
+    assert_eq!(focused(&browser), "\"qa t1 line-printer\"");
+    browser.wait_for_status("30 × 4");
+}
+
+fn removing_a_cell_offers_the_picker(browser: &Browser) {
     browser.click_button("Remove qa t2 from the grid");
     browser.wait_until("location.pathname === '/split/qa:t1,_'");
     assert_eq!(
-        grid(&browser),
+        grid(browser),
         [
             "region \"qa t1 line-printer\"",
             "button \"qa t1 line-printer , running\"",
@@ -203,54 +238,60 @@ fn removing_a_cell_offers_the_picker_and_picking_a_tab_fills_and_focuses_that_ce
         ),
         "\"true,false,false\""
     );
-    assert_eq!(focused(&browser), "\"qa t1 line-printer\"");
+    assert_eq!(focused(browser), "\"qa t1 line-printer\"");
     assert_eq!(browser.eval("document.activeElement.id"), "\"main-content\"");
+}
 
+fn picking_a_tab_fills_and_focuses_the_cell(at: &AgentTerminal, browser: &Browser, dashboard: &Dashboard) {
     browser.click_button("t1 line-printer , web t1");
     browser.wait_until("location.pathname === '/split/qa:t1,web:t1'");
-    assert_eq!(focused(&browser), "\"web t1 line-printer\"");
+    assert_eq!(focused(browser), "\"web t1 line-printer\"");
     assert_eq!(
         browser.eval("document.activeElement.closest('section')?.ariaLabel ?? 'none'"),
         "\"web t1 line-printer\""
     );
-    let (_, frame) = snapshot_rows(&at, &["--session", "web"]);
+    let (_, frame) = snapshot_rows(at, &["--session", "web"]);
     browser.wait_for_status(&format!("frame {frame}"));
     browser.wait_for_screen_in(&cell("web t1 line-printer"), "line 3");
     assert_eq!(browser.status(), ["Live", &dashboard.stream("web/t1"), "34 × 6", &format!("frame {frame}")]);
-
-    browser.click_button("Remove web t1 from the grid");
-    browser.wait_until("location.pathname === '/split/qa:t1,_'");
-    assert_eq!(focused(&browser), "\"qa t1 line-printer\"");
-    browser.wait_for_status("30 × 4");
 }
 
 #[test]
 fn clicking_a_cell_focuses_it_and_a_tab_picked_in_the_sidebar_replaces_the_focused_cell() {
     let at = AgentTerminal::new();
-    hold(&at, &["--session", "qa", "open"], "30x4", "1");
-    hold(&at, &["--session", "qa", "tab", "new"], "32x5", "2");
-    hold(&at, &["--session", "web", "open"], "34x6", "3");
+    open_qa_with_two_tabs_and_web_of_three_sizes(&at);
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/split/qa:t1,qa:t2"));
     browser.wait_for_status("30 × 4");
     assert_eq!(selected_in_sidebar(&browser), "\"line-printer, qa t1, running\"");
 
+    clicking_a_cell_focuses_it_and_selects_it_in_the_sidebar(&at, &browser, &dashboard);
+    a_tab_picked_in_the_sidebar_replaces_the_focused_cell(&at, &browser);
+}
+
+fn clicking_a_cell_focuses_it_and_selects_it_in_the_sidebar(
+    at: &AgentTerminal,
+    browser: &Browser,
+    dashboard: &Dashboard,
+) {
     browser.wait_for_screen_in(&cell("qa t2 line-printer"), "line 2");
     browser.run(&["click", &format!("{} [role=group]", cell("qa t2 line-printer"))]);
-    let (_, frame) = snapshot_rows(&at, &["--session", "qa", "--tab", "t2"]);
+    let (_, frame) = snapshot_rows(at, &["--session", "qa", "--tab", "t2"]);
     browser.wait_for_status("32 × 5");
     browser.wait_for_status(&format!("frame {frame}"));
-    assert_eq!(focused(&browser), "\"qa t2 line-printer\"");
+    assert_eq!(focused(browser), "\"qa t2 line-printer\"");
     assert_eq!(browser.status(), ["Live", &dashboard.stream("qa/t2"), "32 × 5", &format!("frame {frame}")]);
-    assert_eq!(selected_in_sidebar(&browser), "\"line-printer, qa t2, running\"");
+    assert_eq!(selected_in_sidebar(browser), "\"line-printer, qa t2, running\"");
     assert_eq!(browser.eval("location.pathname"), "\"/split/qa:t1,qa:t2\"");
+}
 
+fn a_tab_picked_in_the_sidebar_replaces_the_focused_cell(at: &AgentTerminal, browser: &Browser) {
     browser.run(&["find", "role", "link", "click", "--name", "line-printer , web t1, running", "--exact"]);
     browser.wait_until("location.pathname === '/split/qa:t1,web:t1'");
-    assert_eq!(focused(&browser), "\"web t1 line-printer\"");
+    assert_eq!(focused(browser), "\"web t1 line-printer\"");
     browser.wait_for_status("34 × 6");
     browser.wait_for_screen_in(&cell("web t1 line-printer"), "line 3");
-    assert_eq!(browser.screen_in(&cell("web t1 line-printer")), snapshot_rows(&at, &["--session", "web"]).0);
+    assert_eq!(browser.screen_in(&cell("web t1 line-printer")), snapshot_rows(at, &["--session", "web"]).0);
 }
 
 #[test]

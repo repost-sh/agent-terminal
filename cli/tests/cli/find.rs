@@ -32,14 +32,18 @@ fn find_regex_matches_a_pattern() {
 fn find_all_includes_scrollback_above_the_screen() {
     let at = AgentTerminal::new();
     open_eight_lines_in_five_rows(&at);
-    let missing = at.run(&["find", "line 2"]);
-    assert_eq!(missing.code(), 1);
-    assert_eq!(missing.stderr(), "error: \"line 2\" is not on the screen\n");
+    find_without_all_looks_only_at_the_screen(&at);
     assert_eq!(at.run(&["find", "--all", "line 2"]).success().stdout(), "-3,1 line 2\n");
     assert_eq!(at.run(&["find", "--all", "--regex", "line [48]"]).success().stdout(), "-1,1 line 4\n4,1 line 8\n");
     let nowhere = at.run(&["find", "--all", "line 9"]);
     assert_eq!(nowhere.code(), 1);
     assert_eq!(nowhere.stderr(), "error: \"line 9\" is not on the screen or in its scrollback\n");
+}
+
+fn find_without_all_looks_only_at_the_screen(at: &AgentTerminal) {
+    let missing = at.run(&["find", "line 2"]);
+    assert_eq!(missing.code(), 1);
+    assert_eq!(missing.stderr(), "error: \"line 2\" is not on the screen\n");
 }
 
 #[test]

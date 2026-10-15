@@ -136,19 +136,27 @@ fn json_output_for_open_snapshot_and_close() {
         ])
         .success()
         .json();
-    assert_eq!(opened["session"], "default");
-    assert_eq!(opened["tab"], "t1");
-    assert_eq!(opened["program"], "line-printer");
-    assert_eq!((opened["cols"].as_u64(), opened["rows"].as_u64()), (Some(30), Some(5)));
-    assert_eq!(opened["alt_screen"], false);
-    assert_eq!(opened["cursor"], serde_json::json!([3, 1]));
-    assert_eq!(opened["lines"], serde_json::json!(["line 1", "line 2", "", "", ""]));
+    the_opened_tab_is_described(&opened);
+    the_opened_screen_is_described(&opened);
 
     let snapshot = at.run(&["--json", "snapshot"]).success().json();
     assert_eq!(snapshot["lines"], opened["lines"]);
 
     let closed = at.run(&["--json", "close"]).success().json();
     assert_eq!(closed, serde_json::json!({ "closed": [{ "session": "default", "tab": "t1" }] }));
+}
+
+fn the_opened_tab_is_described(opened: &serde_json::Value) {
+    assert_eq!(opened["session"], "default");
+    assert_eq!(opened["tab"], "t1");
+    assert_eq!(opened["program"], "line-printer");
+    assert_eq!((opened["cols"].as_u64(), opened["rows"].as_u64()), (Some(30), Some(5)));
+}
+
+fn the_opened_screen_is_described(opened: &serde_json::Value) {
+    assert_eq!(opened["alt_screen"], false);
+    assert_eq!(opened["cursor"], serde_json::json!([3, 1]));
+    assert_eq!(opened["lines"], serde_json::json!(["line 1", "line 2", "", "", ""]));
 }
 
 #[test]
@@ -264,7 +272,7 @@ fn a_program_that_prints_nothing_opens_with_a_blank_screen() {
     let at = AgentTerminal::new();
     let started = std::time::Instant::now();
     let run = at.run(&["open", "--size", "20x2", "cat"]).success();
-    assert!(started.elapsed() < std::time::Duration::from_secs(5), "took {:?}", started.elapsed());
+    assert!(started.elapsed() < Duration::from_secs(5), "took {:?}", started.elapsed());
     insta::assert_snapshot!(run.screen(), @r"
     default t1 · cat · 20x2 · cursor 1,1 · frame N
     …│ (rows 1-2 blank)

@@ -179,6 +179,13 @@ fn batch_without_commands_says_how_to_pass_them() {
 #[test]
 fn a_command_that_is_not_valid_stops_the_batch_before_anything_runs() {
     let at = AgentTerminal::new();
+    an_unknown_command_stops_the_batch(&at);
+    a_command_that_runs_on_its_own_stops_the_batch(&at);
+    an_unclosed_quote_stops_the_batch(&at);
+    assert_eq!(at.run(&["snapshot"]).code(), 1, "no command of a batch that is not valid may run");
+}
+
+fn an_unknown_command_stops_the_batch(at: &AgentTerminal) {
     let run = at.run(&["batch", "open --size 20x2 cat", "nonsense --flag"]);
     assert_eq!((run.code(), run.stdout().as_str()), (1, ""));
     insta::assert_snapshot!(run.stderr(), @r"
@@ -189,22 +196,24 @@ fn a_command_that_is_not_valid_stops_the_batch_before_anything_runs() {
 
     For more information, try '--help'.
     ");
+}
 
+fn a_command_that_runs_on_its_own_stops_the_batch(at: &AgentTerminal) {
     let run = at.run(&["batch", "open --size 20x2 cat", "version"]);
     assert_eq!((run.code(), run.stdout().as_str()), (1, ""));
     assert_eq!(
         run.stderr(),
         "error: batch command 2 is not valid, so nothing ran: version\nthis command runs on its own, not inside batch\n"
     );
+}
 
+fn an_unclosed_quote_stops_the_batch(at: &AgentTerminal) {
     let run = at.run(&["batch", "open --size 20x2 cat", "open sh -c 'echo"]);
     assert_eq!((run.code(), run.stdout().as_str()), (1, ""));
     assert_eq!(
         run.stderr(),
         "error: batch command 2 is not valid, so nothing ran: open sh -c 'echo\na quote or escape is not closed\n"
     );
-
-    assert_eq!(at.run(&["snapshot"]).code(), 1, "no command of a batch that is not valid may run");
 }
 
 #[test]
@@ -214,13 +223,7 @@ fn json_output_lists_each_command_with_its_exit_code_and_result() {
     assert_eq!(run.code(), 1);
     let entries = run.json();
     assert_eq!(entries.as_array().map(Vec::len), Some(3), "{entries}");
-    assert_eq!(entries[0]["args"], serde_json::json!(["open", "--size", "20x2", "cat"]));
-    assert_eq!(entries[0]["exit_code"], 0);
-    assert_eq!(
-        (entries[0]["result"]["session"].as_str(), entries[0]["result"]["tab"].as_str()),
-        (Some("default"), Some("t1"))
-    );
-    assert_eq!(entries[0]["result"]["lines"], serde_json::json!(["", ""]));
+    the_first_entry_carries_its_args_exit_code_and_result(&entries[0]);
     assert_eq!(
         entries[1],
         serde_json::json!({
@@ -233,6 +236,13 @@ fn json_output_lists_each_command_with_its_exit_code_and_result() {
         })
     );
     assert_eq!(entries[2], serde_json::json!({ "args": ["close"], "exit_code": null }));
+}
+
+fn the_first_entry_carries_its_args_exit_code_and_result(entry: &serde_json::Value) {
+    assert_eq!(entry["args"], serde_json::json!(["open", "--size", "20x2", "cat"]));
+    assert_eq!(entry["exit_code"], 0);
+    assert_eq!((entry["result"]["session"].as_str(), entry["result"]["tab"].as_str()), (Some("default"), Some("t1")));
+    assert_eq!(entry["result"]["lines"], serde_json::json!(["", ""]));
 }
 
 #[test]

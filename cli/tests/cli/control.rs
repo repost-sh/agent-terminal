@@ -14,12 +14,26 @@ fn attach(at: &AgentTerminal, from: &str, extra: &[&str], ready: &str) -> Run {
     at.run(&args)
 }
 
+const REFUSED: &str = "A human has control of app t1. Run `agent-terminal wait --control`.";
+
 #[test]
 fn while_a_human_is_attached_input_exits_4_and_wait_control_resumes_once_they_detach() {
     let at = AgentTerminal::new();
     open_app(&at);
     attach(&at, "human", &[], "ctrl-p ctrl-q detaches").success();
 
+    input_is_refused_with_exit_4(&at);
+    wait_control_runs_out_of_time_while_the_human_holds_it(&at);
+    detaching_ends_the_agents_wait(&at);
+    at.run(&["--session", "human", "wait", "--exit"]).success();
+    let detached = at.run(&["--session", "human", "get", "text"]).success().stdout();
+    assert!(detached.contains("detached from app t1"), "{detached}");
+    at.run(&["--session", "app", "press", "j", "--wait", "j"]).success();
+    assert_eq!(at.received("app"), "j");
+    each_refusal_is_logged_with_its_tab_and_error(&at);
+}
+
+fn input_is_refused_with_exit_4(at: &AgentTerminal) {
     let refused = at.run(&["--session", "app", "press", "j"]);
     assert_eq!(refused.code(), 4, "{}", refused.stderr());
     assert_eq!(refused.stderr(), "error: A human has control of app t1. Run `agent-terminal wait --control`.\n");
@@ -33,7 +47,9 @@ fn while_a_human_is_attached_input_exits_4_and_wait_control_resumes_once_they_de
         } })
     );
     assert_eq!(at.run(&["--session", "app", "signal", "INT"]).code(), 4);
+}
 
+fn wait_control_runs_out_of_time_while_the_human_holds_it(at: &AgentTerminal) {
     let held = at.run(&["--session", "app", "--timeout", "300", "wait", "--control"]);
     assert_eq!(held.code(), 3);
     assert_eq!(
@@ -43,7 +59,9 @@ fn while_a_human_is_attached_input_exits_4_and_wait_control_resumes_once_they_de
     let asserted = at.run(&["--session", "app", "--timeout", "300", "wait", "--control", "--assert"]);
     assert_eq!(asserted.code(), 2);
     assert_eq!(asserted.stderr(), "error: a human did not hand back control of app t1 within 300 ms\n");
+}
 
+fn detaching_ends_the_agents_wait(at: &AgentTerminal) {
     std::thread::scope(|scope| {
         let waiting = scope.spawn(|| at.run(&["--session", "app", "--json", "wait", "--control"]));
         at.run(&["--session", "human", "press", "Ctrl+p", "Ctrl+q"]).success();
@@ -51,20 +69,20 @@ fn while_a_human_is_attached_input_exits_4_and_wait_control_resumes_once_they_de
         assert_eq!(waited["until"], "a human to hand back control");
         assert_eq!((&waited["session"], &waited["tab"]), (&serde_json::json!("app"), &serde_json::json!("t1")));
     });
+}
 
-    at.run(&["--session", "human", "wait", "--exit"]).success();
-    let detached = at.run(&["--session", "human", "get", "text"]).success().stdout();
-    assert!(detached.contains("detached from app t1"), "{detached}");
-    at.run(&["--session", "app", "press", "j", "--wait", "j"]).success();
-    assert_eq!(at.received("app"), "j");
-
+fn each_refusal_is_logged_with_its_tab_and_error(at: &AgentTerminal) {
     let refusals: Vec<serde_json::Value> = at.activity("app").into_iter().filter(|entry| entry["exit"] == 4).collect();
     let commands: Vec<&serde_json::Value> = refusals.iter().map(|entry| &entry["command"]).collect();
     assert_eq!(commands, ["--session app press j", "--session app --json type x", "--session app signal INT"]);
     for refusal in &refusals {
-        assert_eq!(refusal["tab"], "t1");
-        assert_eq!(refusal["error"], "A human has control of app t1. Run `agent-terminal wait --control`.");
+        the_refusal_names_the_tab_and_the_human(refusal);
     }
+}
+
+fn the_refusal_names_the_tab_and_the_human(refusal: &serde_json::Value) {
+    assert_eq!(refusal["tab"], "t1");
+    assert_eq!(refusal["error"], REFUSED);
 }
 
 #[test]
@@ -122,25 +140,40 @@ fn an_attached_human_types_with_keys_encoded_for_the_program_and_each_key_is_log
     assert_eq!(at.received("app"), r"h\xc3\xa9\eOA\r\x03\e[Z\ex\e[15~\x10\eOB");
 
     let entries = human_entries(&at);
-    let mut typed = String::new();
-    let mut pressed = Vec::new();
+    let mut input = HumanInput::default();
     for entry in &entries {
+        input.take(entry, &entries);
+    }
+    assert_eq!(input.typed, "hé");
+    assert_eq!(input.pressed, keys);
+}
+
+#[derive(Default)]
+struct HumanInput {
+    typed: String,
+    pressed: Vec<String>,
+}
+
+impl HumanInput {
+    fn take(&mut self, entry: &serde_json::Value, entries: &[serde_json::Value]) {
         assert_eq!((&entry["tab"], &entry["exit"]), (&serde_json::json!("t1"), &serde_json::json!(0)), "{entry}");
         match (&entry["human"]["typed"], &entry["human"]["pressed"]) {
-            (serde_json::Value::String(text), _) => {
-                assert!(entry["command"].as_str().unwrap().starts_with("type "), "{entry}");
-                assert!(pressed.is_empty(), "typing came after a key: {entries:?}");
-                typed.push_str(text);
-            }
-            (_, serde_json::Value::String(key)) => {
-                assert_eq!(entry["command"], format!("press {key}"), "{entry}");
-                pressed.push(key.clone());
-            }
+            (serde_json::Value::String(text), _) => self.typed_text(entry, entries, text),
+            (_, serde_json::Value::String(key)) => self.pressed_key(entry, key),
             _ => panic!("a human entry types or presses: {entry}"),
         }
     }
-    assert_eq!(typed, "hé");
-    assert_eq!(pressed, keys);
+
+    fn typed_text(&mut self, entry: &serde_json::Value, entries: &[serde_json::Value], text: &str) {
+        assert!(entry["command"].as_str().unwrap().starts_with("type "), "{entry}");
+        assert!(self.pressed.is_empty(), "typing came after a key: {entries:?}");
+        self.typed.push_str(text);
+    }
+
+    fn pressed_key(&mut self, entry: &serde_json::Value, key: &str) {
+        assert_eq!(entry["command"], format!("press {key}"), "{entry}");
+        self.pressed.push(key.to_string());
+    }
 }
 
 #[test]

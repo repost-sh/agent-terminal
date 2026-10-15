@@ -2,7 +2,7 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::{Value, json};
 
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, Run, fixture};
 
 fn field(log: &[Value], name: &str) -> Value {
     log.iter().map(|entry| entry[name].clone()).collect()
@@ -14,12 +14,26 @@ fn time_of(entry: &Value) -> SystemTime {
     humantime::parse_rfc3339(time).unwrap_or_else(|e| panic!("{time}: {e}"))
 }
 
+struct Window {
+    began: SystemTime,
+    ended: SystemTime,
+}
+
 #[test]
 fn every_call_is_logged_with_its_command_duration_and_result() {
     let at = AgentTerminal::new();
     let printer = fixture("line-printer");
+    let (window, frame) = make_one_call_of_each_outcome(&at, &printer);
+
+    let log = at.activity("default");
+    the_log_names_each_command_its_exit_and_tab(&log, &printer);
+    the_log_keeps_the_frame_and_the_errors(&log, frame);
+    the_log_times_each_call_in_order(&log, &window);
+}
+
+fn make_one_call_of_each_outcome(at: &AgentTerminal, printer: &str) -> (Window, u64) {
     let began = SystemTime::now() - Duration::from_secs(1);
-    at.run(&["open", "--wait", "line 3", &printer, "--hold"]).success();
+    at.run(&["open", "--wait", "line 3", printer, "--hold"]).success();
     at.run(&["mark", "before-typing"]).success();
     at.run(&["type", "hello world", "--wait", "hello world"]).success();
     let frame: u64 = at.run(&["get", "frame"]).success().stdout().trim().parse().unwrap();
@@ -27,10 +41,12 @@ fn every_call_is_logged_with_its_command_duration_and_result() {
     assert_eq!(at.run(&["--timeout", "300", "press", "x", "--wait", "never shown"]).code(), 3);
     at.run(&["close"]).success();
     let ended = SystemTime::now() + Duration::from_secs(1);
+    (Window { began, ended }, frame)
+}
 
-    let log = at.activity("default");
+fn the_log_names_each_command_its_exit_and_tab(log: &[Value], printer: &str) {
     assert_eq!(
-        field(&log, "command"),
+        field(log, "command"),
         json!([
             format!("open --wait 'line 3' {printer} --hold"),
             "mark before-typing",
@@ -41,16 +57,22 @@ fn every_call_is_logged_with_its_command_duration_and_result() {
             "close",
         ])
     );
-    assert_eq!(field(&log, "exit"), json!([0, 0, 0, 0, 1, 3, 0]));
-    assert_eq!(field(&log, "tab"), json!(["t1", "t1", "t1", "t1", "t1", "t1", "t1"]));
+    assert_eq!(field(log, "exit"), json!([0, 0, 0, 0, 1, 3, 0]));
+    assert_eq!(field(log, "tab"), json!(["t1", "t1", "t1", "t1", "t1", "t1", "t1"]));
+}
+
+fn the_log_keeps_the_frame_and_the_errors(log: &[Value], frame: u64) {
     assert_eq!(log[3]["frame"], frame);
     assert_eq!(log[4]["error"], "cell 99,1 is outside the 120x40 screen");
     assert!(log[5]["error"].as_str().unwrap().starts_with("timed out after 300 ms waiting for \"never shown\""));
+}
+
+fn the_log_times_each_call_in_order(log: &[Value], window: &Window) {
     assert!(log[5]["duration_ms"].as_u64().unwrap() >= 300, "{}", log[5]);
     assert!(log.iter().all(|entry| entry["duration_ms"].is_u64()), "{log:?}");
     let times: Vec<SystemTime> = log.iter().map(time_of).collect();
     assert!(times.windows(2).all(|pair| pair[0] <= pair[1]), "{log:?}");
-    assert!(began <= times[0] && times[6] <= ended, "{log:?}");
+    assert!(window.began <= times[0] && times[6] <= window.ended, "{log:?}");
 }
 
 #[test]
@@ -106,9 +128,24 @@ fn a_batch_logs_each_command_it_ran() {
     assert_eq!(field(&log, "exit"), json!([0, 0, 1]));
 }
 
+struct Printed {
+    opened: Run,
+    shown: Run,
+    outside: Run,
+    timed_out: Run,
+}
+
 #[test]
 fn each_entry_keeps_what_the_call_printed() {
     let at = AgentTerminal::new();
+    let printed = make_calls_that_print(&at);
+
+    let log = at.activity("default");
+    the_entries_keep_what_the_successful_calls_printed(&log, &printed);
+    the_entries_keep_what_the_failed_calls_printed(&log, &printed);
+}
+
+fn make_calls_that_print(at: &AgentTerminal) -> Printed {
     let printer = fixture("line-printer");
     let opened = at.run(&["open", "--size", "40x6", "--wait", "line 3", &printer, "--hold"]).success();
     at.run(&["wait", "--cursor", "4,1"]).success();
@@ -117,18 +154,23 @@ fn each_entry_keeps_what_the_call_printed() {
     let outside = at.run(&["get", "cell", "99", "1"]);
     let timed_out = at.run(&["--timeout", "300", "wait", "never shown"]);
     assert_eq!(timed_out.code(), 3);
+    Printed { opened, shown, outside, timed_out }
+}
 
-    let log = at.activity("default");
+fn the_entries_keep_what_the_successful_calls_printed(log: &[Value], printed: &Printed) {
     assert_eq!(
-        shown.screen(),
+        printed.shown.screen(),
         "default t1 · line-printer · 40x6 · cursor 4,1 · frame N\n1│line 1\n2│line 2\n3│line 3\n…│ (rows 4-6 blank)\n"
     );
-    assert_eq!(log[0]["output"], opened.stdout());
-    assert_eq!(log[2]["output"], shown.stdout());
+    assert_eq!(log[0]["output"], printed.opened.stdout());
+    assert_eq!(log[2]["output"], printed.shown.stdout());
     assert_eq!(log[3]["output"], "typed 2 keys into default t1\n");
+}
+
+fn the_entries_keep_what_the_failed_calls_printed(log: &[Value], printed: &Printed) {
     assert_eq!(log[4]["output"], "error: cell 99,1 is outside the 40x6 screen\n");
-    assert_eq!(log[4]["output"], outside.stderr());
-    assert_eq!(log[5]["output"], timed_out.stderr());
+    assert_eq!(log[4]["output"], printed.outside.stderr());
+    assert_eq!(log[5]["output"], printed.timed_out.stderr());
     assert!(
         log[5]["output"].as_str().unwrap().starts_with("error: timed out after 300 ms waiting for \"never shown\""),
         "{}",

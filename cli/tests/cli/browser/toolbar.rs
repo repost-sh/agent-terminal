@@ -130,6 +130,10 @@ fn dialog(browser: &Browser) -> Vec<String> {
         .collect()
 }
 
+fn qa_pid(at: &AgentTerminal) -> String {
+    at.run(&["--session", "qa", "get", "pid"]).success().stdout()
+}
+
 #[test]
 fn restart_asks_first_while_the_program_runs_and_restarts_at_once_once_it_exited() {
     let at = AgentTerminal::new();
@@ -149,16 +153,21 @@ fn restart_asks_first_while_the_program_runs_and_restarts_at_once_once_it_exited
         "4",
     ])
     .success();
-    let pid = || at.run(&["--session", "qa", "get", "pid"]).success().stdout();
-    let first = pid();
+    let first = qa_pid(&at);
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/s/qa/t1"));
     browser.wait_for_status("Live");
 
+    cancelling_the_question_keeps_the_program(&at, &browser, &first);
+    let second = confirming_restarts_the_running_program(&at, &browser, &first);
+    an_exited_program_restarts_without_asking(&at, &browser, &second);
+}
+
+fn cancelling_the_question_keeps_the_program(at: &AgentTerminal, browser: &Browser, first: &str) {
     browser.click_button("Restart line-printer");
     browser.wait_until("document.querySelector('[role=alertdialog]') !== null");
     assert_eq!(
-        dialog(&browser),
+        dialog(browser),
         [
             "Restart line-printer?",
             "qa t1 is killed and started again with the same command, size and working directory.",
@@ -170,21 +179,26 @@ fn restart_asks_first_while_the_program_runs_and_restarts_at_once_once_it_exited
     browser.click_button("Cancel");
     browser.wait_until("document.querySelector('[role=alertdialog]') === null");
     assert_eq!(browser.eval("document.activeElement.textContent"), "\"Restart line-printer\"");
-    assert_eq!(pid(), first);
+    assert_eq!(qa_pid(at), first);
+}
 
+fn confirming_restarts_the_running_program(at: &AgentTerminal, browser: &Browser, first: &str) -> String {
     browser.click_button("Restart line-printer");
     browser.wait_until("document.querySelector('[role=alertdialog]') !== null");
     browser.click_button("Restart");
     browser.wait_until("document.querySelector('[role=alertdialog]') === null");
     at.run(&["--session", "qa", "wait", "line 2"]).success();
-    let second = pid();
+    let second = qa_pid(at);
     assert_ne!(second, first);
+    second
+}
 
+fn an_exited_program_restarts_without_asking(at: &AgentTerminal, browser: &Browser, second: &str) {
     at.run(&["--session", "qa", "press", "Enter"]).success();
     browser.wait_for_status("Exited");
     browser.click_button("Restart line-printer");
     browser.wait_for_status("Live");
     assert_eq!(browser.eval("document.querySelector('[role=alertdialog]')"), "null");
     assert_eq!(at.run(&["--session", "qa", "get", "exit-code"]).success().stdout(), "running\n");
-    assert_ne!(pid(), second);
+    assert_ne!(qa_pid(at), second);
 }

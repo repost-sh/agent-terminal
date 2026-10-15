@@ -19,7 +19,10 @@ fn get_reports_cursor_size_program_and_frame() {
     assert_eq!(at.run(&["get", "program"]).success().stdout(), "line-printer\n");
     let frame = at.run(&["--json", "snapshot"]).success().json()["frame"].as_u64().unwrap();
     assert_eq!(at.run(&["get", "frame"]).success().stdout(), format!("{frame}\n"));
+    get_json_reports_cursor_size_and_frame(&at, frame);
+}
 
+fn get_json_reports_cursor_size_and_frame(at: &AgentTerminal, frame: u64) {
     assert_eq!(
         at.run(&["--json", "get", "cursor"]).success().json(),
         serde_json::json!({ "cursor": { "row": 4, "col": 1, "visible": true } })
@@ -124,6 +127,10 @@ fn get_cell_reports_colors_bold_and_underline() {
     assert_eq!(at.run(&["get", "cell", "1", "3"]).success().stdout(), "\"X\" fg=208 bg=default\n");
     assert_eq!(at.run(&["get", "cell", "1", "4"]).success().stdout(), "\"Y\" fg=#ff8800 bg=default\n");
     assert_eq!(at.run(&["get", "cell", "1", "5"]).success().stdout(), "\"Z\" fg=bright-green bg=default\n");
+    get_json_cell_names_each_style(&at);
+}
+
+fn get_json_cell_names_each_style(at: &AgentTerminal) {
     assert_eq!(
         at.run(&["--json", "get", "cell", "1", "1"]).success().json(),
         serde_json::json!({ "cell": {

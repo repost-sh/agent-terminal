@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{Browser, Dashboard};
 use crate::support::{AgentTerminal, Run};
@@ -44,19 +44,15 @@ fn rows(browser: &Browser) -> Vec<Vec<String>> {
     );
     let time = regex::Regex::new(r" · (\d+ ms|\d+\.\d s|running) · \d{2}:\d{2}:\d{2}$").unwrap();
     let rows: Vec<Vec<String>> = serde_json::from_str(&eval_string(browser, &script)).expect("rows as JSON");
-    rows.into_iter()
-        .map(|row| {
-            row.into_iter()
-                .map(|part| {
-                    time.replace(&part, |found: &regex::Captures| {
-                        let took = if &found[1] == "running" { "running" } else { "<duration>" };
-                        format!(" · {took} · <time>")
-                    })
-                    .into_owned()
-                })
-                .collect()
-        })
-        .collect()
+    rows.into_iter().map(|row| row.iter().map(|part| without_times(part, &time)).collect()).collect()
+}
+
+fn without_times(part: &str, time: &regex::Regex) -> String {
+    time.replace(part, |found: &regex::Captures<'_>| {
+        let took = if &found[1] == "running" { "running" } else { "<duration>" };
+        format!(" · {took} · <time>")
+    })
+    .into_owned()
 }
 
 fn expanded_output(browser: &Browser, row: usize) -> String {
@@ -102,24 +98,30 @@ fn the_commands_tab_lists_each_command_with_its_exit_status_and_expands_to_its_o
         ]
     );
     assert_eq!(browser.text("#ppanel-commands [data-slot=badge]").trim(), "2");
+    expanding_the_first_command_shows_its_output_in_its_colours(&browser);
+    expanding_the_second_command_shows_its_output_too(&browser);
+}
 
+fn expanding_the_first_command_shows_its_output_in_its_colours(browser: &Browser) {
     browser.run(&["click", &format!("{COMMANDS} > li:nth-child(1) button")]);
     browser.wait_until(&format!(
         "document.querySelector(\"{COMMANDS} > li:nth-child(1) > div > button + div\")?.innerText.trim() === 'green passing'"
     ));
-    assert_eq!(expanded_output(&browser, 1).trim(), "green passing");
-    assert_eq!(color_of(&browser, 1, "green"), "rgb(74, 222, 128)");
-    assert_ne!(output_color(&browser, 1), "rgb(74, 222, 128)");
-    assert_eq!(rows(&browser)[0].last().map(String::as_str), Some("-"));
+    assert_eq!(expanded_output(browser, 1).trim(), "green passing");
+    assert_eq!(color_of(browser, 1, "green"), "rgb(74, 222, 128)");
+    assert_ne!(output_color(browser, 1), "rgb(74, 222, 128)");
+    assert_eq!(rows(browser)[0].last().map(String::as_str), Some("-"));
+}
 
+fn expanding_the_second_command_shows_its_output_too(browser: &Browser) {
     browser.run(&["click", &format!("{COMMANDS} > li:nth-child(2) button")]);
     browser.wait_until(&format!(
         "document.querySelector(\"{COMMANDS} > li:nth-child(2) > div > button + div\")?.innerText.trim() === 'failing'"
     ));
-    assert_eq!(expanded_output(&browser, 2).trim(), "failing");
+    assert_eq!(expanded_output(browser, 2).trim(), "failing");
     assert_eq!(
         eval_string(
-            &browser,
+            browser,
             &format!(
                 "[...document.querySelectorAll(\"{COMMANDS} > li > div > button\")].map((row) => row.getAttribute('aria-expanded')).join(' ')"
             )
@@ -137,24 +139,35 @@ fn new_commands_appear_as_they_finish_and_a_running_one_shows_as_running() {
     browser.wait_for_text("No commands yet");
     assert_eq!(browser.text("#ppanel-commands [data-slot=badge]").trim(), "0");
 
+    let hold = a_running_command_shows_as_running(&tab, &browser);
+    the_command_shows_its_exit_once_it_finishes(&tab, &browser, &hold);
+    a_later_command_is_listed_below_it(&tab, &browser);
+}
+
+fn a_running_command_shows_as_running(tab: &ShellTab, browser: &Browser) -> PathBuf {
     let hold = tab.work.join("hold");
     let status = std::process::Command::new("mkfifo").arg(&hold).status().expect("run mkfifo");
     assert!(status.success(), "mkfifo failed");
     assert_eq!(tab.run(&["exec", "cat hold", "--timeout", "300"]).code(), 3);
-    wait_for_listed(&browser, "cat hold");
-    assert_eq!(rows(&browser), [vec!["running", "cat hold", "~/p/demo-app · running · <time>", "+"]]);
+    wait_for_listed(browser, "cat hold");
+    assert_eq!(rows(browser), [vec!["running", "cat hold", "~/p/demo-app · running · <time>", "+"]]);
+    hold
+}
 
-    std::fs::write(&hold, "released\n").expect("release the command");
+fn the_command_shows_its_exit_once_it_finishes(tab: &ShellTab, browser: &Browser, hold: &Path) {
+    std::fs::write(hold, "released\n").expect("release the command");
     tab.run(&["wait", "--command"]).success();
     browser.wait_until(&format!(
         "document.querySelector(\"{COMMANDS} > li:nth-child(1) button\")?.innerText.includes('✓')"
     ));
-    assert_eq!(rows(&browser), [vec!["✓", "exit 0", "cat hold", "~/p/demo-app · <duration> · <time>", "+"]]);
+    assert_eq!(rows(browser), [vec!["✓", "exit 0", "cat hold", "~/p/demo-app · <duration> · <time>", "+"]]);
+}
 
+fn a_later_command_is_listed_below_it(tab: &ShellTab, browser: &Browser) {
     tab.run(&["exec", "echo later"]).success();
-    wait_for_listed(&browser, "echo later");
+    wait_for_listed(browser, "echo later");
     assert_eq!(
-        rows(&browser),
+        rows(browser),
         [
             vec!["✓", "exit 0", "cat hold", "~/p/demo-app · <duration> · <time>", "+"],
             vec!["✓", "exit 0", "echo later", "~/p/demo-app · <duration> · <time>", "+"],

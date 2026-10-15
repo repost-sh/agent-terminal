@@ -1,3 +1,4 @@
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -6,14 +7,18 @@ use crate::support::{AgentTerminal, DashboardSocket, dashboard, frame_number, op
 const STREAM: &str = "/api/session/default/t1/stream";
 const COUNTED: Duration = Duration::from_secs(5);
 
-fn watch_and_acknowledge(mut socket: DashboardSocket) -> (u32, u64) {
+fn watch_and_acknowledge(mut socket: DashboardSocket, window_closed: &mpsc::Sender<()>) -> (u32, u64) {
     let started = Instant::now();
     let mut counted = 0;
     let mut last_frame = 0;
+    let mut told = false;
     while let Some(message) = socket.try_next(Duration::from_secs(1)) {
         last_frame = socket.acknowledge(&message);
-        if started.elapsed() <= COUNTED {
-            counted += 1;
+        let in_window = started.elapsed() <= COUNTED;
+        counted += u32::from(in_window);
+        if !in_window && !told {
+            told = true;
+            window_closed.send(()).expect("the test waits for the counted window to close");
         }
     }
     (counted, last_frame)
@@ -24,12 +29,16 @@ fn a_fast_tab_is_delivered_at_most_thirty_times_a_second_to_each_viewer_and_ends
     let at = AgentTerminal::new();
     open_redraw(&at, "default", "120", "--partial");
     let port = dashboard(&at);
+    let (window_closed, closed) = mpsc::channel();
     let viewers: Vec<_> = (0..2)
-        .map(|_| DashboardSocket::open(port, STREAM))
-        .map(|socket| thread::spawn(move || watch_and_acknowledge(socket)))
+        .map(|_| (DashboardSocket::open(port, STREAM), window_closed.clone()))
+        .map(|(socket, window_closed)| thread::spawn(move || watch_and_acknowledge(socket, &window_closed)))
         .collect();
+    drop(window_closed);
 
-    thread::sleep(COUNTED);
+    for _ in &viewers {
+        closed.recv().expect("each viewer receives frames past the counted window");
+    }
     at.run(&["signal", "KILL"]).success();
     let delivered: Vec<(u32, u64)> = viewers.into_iter().map(|viewer| viewer.join().expect("a viewer")).collect();
     let latest = at.frame("default");
