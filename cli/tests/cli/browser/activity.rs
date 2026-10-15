@@ -215,8 +215,7 @@ fn clicking_an_activity_row_or_its_thumbnail_leaves_the_terminal_on_the_live_scr
     browser.wait_for_status(&format!("frame {frame}"));
     browser.wait_for_screen("third");
     wait_for_calls(&browser, 3);
-    let stream = format!("ws://localhost:{}/api/session/default/t1/stream", dashboard.port);
-    let live = [String::from("Live"), stream, "40 × 6".to_string(), format!("frame {frame}")];
+    let live = [String::from("Live"), dashboard.stream("default/t1"), "40 × 6".to_string(), format!("frame {frame}")];
 
     for nth in 1..=3 {
         browser.run(&["click", &format!("{CALLS}:nth-child({nth}) > div > button")]);
@@ -227,7 +226,7 @@ fn clicking_an_activity_row_or_its_thumbnail_leaves_the_terminal_on_the_live_scr
     browser.wait_until(
         "[...document.querySelectorAll(\"[aria-label='Calls to default t1'] button\")].some((thumbnail) => thumbnail.innerText.trim() === 'Open screenshot second.png')",
     );
-    browser.run(&["find", "role", "button", "click", "--name", "Open screenshot second.png", "--exact"]);
+    browser.click_button("Open screenshot second.png");
     browser.wait_until("document.querySelector('[role=dialog] h2')?.innerText === 'second.png'");
     browser.run(&["press", "Escape"]);
     browser.wait_until("document.querySelector('[role=dialog]') === null");

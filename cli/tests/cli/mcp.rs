@@ -294,10 +294,8 @@ async fn no_tool_cuts_or_mentions_clips() {
     let client = connect(&at, &[]).await;
 
     let tools = client.list_all_tools().await.expect("list the tools");
-    let clips: Vec<&str> = tools
-        .iter()
-        .filter(|tool| json!(tool).to_string().to_lowercase().contains("clip"))
-        .map(|tool| &*tool.name)
-        .collect();
+    let clip = regex::Regex::new(r"(?i)\bclips?\b").unwrap();
+    let clips: Vec<&str> =
+        tools.iter().filter(|tool| clip.is_match(&json!(tool).to_string())).map(|tool| &*tool.name).collect();
     assert!(clips.is_empty(), "tools that mention clips: {clips:?}");
 }

@@ -31,7 +31,7 @@ const fitFont = (terminal: Terminal, box: RefObject<HTMLDivElement | null>) => {
 
 type ExitActions = { onRestart: () => void; onClose: () => void };
 
-type Paint = (terminal: Terminal, drawn: () => void) => () => void;
+type Paint = (terminal: Terminal) => () => void;
 
 export type HeldTerminal = {
   name: string;
@@ -75,9 +75,9 @@ export const Viewport = (props: ViewportProps) => {
   const box = useRef<HTMLDivElement>(null);
   const host = useCallback(
     (node: HTMLDivElement) =>
-      openTerminal(node, (terminal, drawn) => {
+      openTerminal(node, (terminal) => {
         const stopFitting = fitFont(terminal, box);
-        const stopPainting = paint(terminal, drawn);
+        const stopPainting = paint(terminal);
         return () => {
           stopPainting();
           stopFitting();

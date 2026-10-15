@@ -1,17 +1,17 @@
-use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, ensure};
-use serde::Serialize;
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use tungstenite::Message;
 
-const SIZE: &str = "120x40";
+use crate::daemon::{Agent, Daemon};
+use crate::measure::{SIZE, utf8};
+
 const SETTLE: Duration = Duration::from_secs(2);
 
 pub struct Plan {
@@ -33,19 +33,24 @@ pub enum Repaint {
 }
 
 impl Repaint {
-    pub fn parse(text: &str) -> Result<Self> {
-        match text {
-            "partial" => Ok(Self::Partial),
-            "full" => Ok(Self::Full),
-            other => anyhow::bail!("{other} is not a repaint; use partial or full"),
+    const ALL: [Self; 2] = [Self::Partial, Self::Full];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Partial => "partial",
+            Self::Full => "full",
         }
     }
 
-    fn flag(self) -> &'static str {
-        match self {
-            Self::Partial => "--partial",
-            Self::Full => "--full",
-        }
+    pub fn parse(text: &str) -> Result<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|repaint| repaint.name() == text)
+            .with_context(|| format!("{text} is not a repaint; use {}", Self::ALL.map(Self::name).join(" or ")))
+    }
+
+    fn flag(self) -> String {
+        format!("--{}", self.name())
     }
 }
 
@@ -53,18 +58,24 @@ impl Repaint {
 #[serde(rename_all = "kebab-case")]
 pub enum Viewer {
     None,
-    Live,
     Dashboard,
 }
 
 impl Viewer {
-    pub fn parse(text: &str) -> Result<Self> {
-        match text {
-            "none" => Ok(Self::None),
-            "live" => Ok(Self::Live),
-            "dashboard" => Ok(Self::Dashboard),
-            other => anyhow::bail!("{other} is not a viewer; use none, live or dashboard"),
+    pub const ALL: [Self; 2] = [Self::None, Self::Dashboard];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Dashboard => "dashboard",
         }
+    }
+
+    pub fn parse(text: &str) -> Result<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|viewer| viewer.name() == text)
+            .with_context(|| format!("{text} is not a viewer; use {}", Self::ALL.map(Self::name).join(" or ")))
     }
 }
 
@@ -86,6 +97,8 @@ pub struct Row {
 }
 
 pub fn run(plan: &Plan) -> Result<Vec<Row>> {
+    std::fs::create_dir_all(&plan.work).with_context(|| format!("create {}", plan.work.display()))?;
+    let work = std::fs::canonicalize(&plan.work).with_context(|| format!("find {}", plan.work.display()))?;
     let mut rows = Vec::new();
     let mut run = 0;
     for &repaint in &plan.repaints {
@@ -93,9 +106,15 @@ pub fn run(plan: &Plan) -> Result<Vec<Row>> {
             for &tabs in &plan.tabs {
                 for &viewer in &plan.viewers {
                     run += 1;
-                    let home = plan.work.join(format!("run-{run}"));
-                    let row = measure(plan, &home, hz, repaint, tabs, viewer)
-                        .with_context(|| format!("{hz} Hz {} x{tabs} viewer {}", repaint.flag(), name(viewer)))?;
+                    let agent = Agent {
+                        side: "measured binary",
+                        binary: plan.agent.clone(),
+                        work: work.clone(),
+                        home: format!("run-{run}"),
+                    };
+                    let home = agent.home();
+                    let row = measure(plan, agent, hz, repaint, tabs, viewer)
+                        .with_context(|| format!("{hz} Hz {} x{tabs} viewer {}", repaint.name(), viewer.name()))?;
                     eprintln!("{}", line(&row));
                     rows.push(row);
                     std::fs::remove_dir_all(&home).with_context(|| format!("remove {}", home.display()))?;
@@ -106,24 +125,13 @@ pub fn run(plan: &Plan) -> Result<Vec<Row>> {
     Ok(rows)
 }
 
-fn name(viewer: Viewer) -> &'static str {
-    match viewer {
-        Viewer::None => "none",
-        Viewer::Live => "live",
-        Viewer::Dashboard => "dashboard",
-    }
-}
-
 pub fn line(row: &Row) -> String {
     format!(
         "| {} Hz | {} | {} | {} | {:.0} | {:.1} | {:.1} | {:.1} | {:.1} | {} | {:.1} | {:.1} |",
         row.hz,
-        match row.repaint {
-            Repaint::Partial => "partial",
-            Repaint::Full => "full",
-        },
+        row.repaint.name(),
         row.tabs,
-        name(row.viewer),
+        row.viewer.name(),
         row.program_bytes_per_sec / 1024.0,
         row.program_frames_per_sec,
         row.daemon_frames_per_sec,
@@ -137,13 +145,15 @@ pub fn line(row: &Row) -> String {
 
 pub const HEADER: &str = "| rate | repaint | tabs | viewer | program KiB/s | program frames/s | daemon frames/s | daemon CPU % | daemon RSS MB | daemon fds | stream msgs/s | stream KiB/s |\n|---|---|---|---|---|---|---|---|---|---|---|---|";
 
-fn measure(plan: &Plan, home: &Path, hz: u32, repaint: Repaint, tabs: usize, viewer: Viewer) -> Result<Row> {
-    let daemon = Daemon::start(&plan.agent, home)?;
+fn measure(plan: &Plan, agent: Agent, hz: u32, repaint: Repaint, tabs: usize, viewer: Viewer) -> Result<Row> {
+    let home = agent.home();
+    let daemon = Daemon::start(agent)?;
     let redraw = plan.fixtures.join("redraw");
     let hz_text = hz.to_string();
+    let flag = repaint.flag();
     for tab in 0..tabs {
         let stats = home.join(format!("s{tab}.stats"));
-        daemon.run(&[
+        daemon.agent.run(&[
             "--session",
             &format!("s{tab}"),
             "open",
@@ -154,25 +164,25 @@ fn measure(plan: &Plan, home: &Path, hz: u32, repaint: Repaint, tabs: usize, vie
             utf8(&redraw)?,
             "--hz",
             &hz_text,
-            repaint.flag(),
+            &flag,
             "--stats",
             utf8(&stats)?,
         ])?;
     }
     let readers = match viewer {
         Viewer::None => Vec::new(),
-        Viewer::Live | Viewer::Dashboard => {
+        Viewer::Dashboard => {
             let port = daemon.dashboard()?;
             (0..tabs).map(|tab| Reader::follow(port, &format!("s{tab}"))).collect::<Result<_>>()?
         }
     };
     std::thread::sleep(SETTLE);
 
-    let before = Sample::take(&daemon, home, tabs)?;
+    let before = Sample::take(&daemon, &home, tabs)?;
     let counted: Vec<(u64, u64)> = readers.iter().map(Reader::counts).collect();
     let started = Instant::now();
     std::thread::sleep(Duration::from_secs(plan.seconds));
-    let after = Sample::take(&daemon, home, tabs)?;
+    let after = Sample::take(&daemon, &home, tabs)?;
     let seconds = started.elapsed().as_secs_f64();
     let mut streamed = (0u64, 0u64);
     for (reader, (messages, bytes)) in readers.iter().zip(&counted) {
@@ -180,7 +190,7 @@ fn measure(plan: &Plan, home: &Path, hz: u32, repaint: Repaint, tabs: usize, vie
         streamed.0 += now_messages - messages;
         streamed.1 += now_bytes - bytes;
     }
-    let rss = daemon.rss_mb()?;
+    let rss = daemon.memory()?;
     let fds = daemon.fds()?;
     for reader in readers {
         reader.stop();
@@ -217,7 +227,7 @@ impl Sample {
         let mut sample = Self { cpu_seconds: daemon.cpu_seconds()?, frames: 0, program_frames: 0, program_bytes: 0 };
         for tab in 0..tabs {
             let session = format!("s{tab}");
-            let frame = daemon.run(&["--session", &session, "get", "frame"])?;
+            let frame = daemon.agent.run(&["--session", &session, "get", "frame"])?;
             sample.frames += String::from_utf8_lossy(&frame.stdout).trim().parse::<u64>().context("read the frame")?;
             let stats = std::fs::read_to_string(home.join(format!("{session}.stats"))).unwrap_or_default();
             let mut counts = stats.split_whitespace().map(|value| value.parse::<u64>().unwrap_or(0));
@@ -226,103 +236,6 @@ impl Sample {
         }
         Ok(sample)
     }
-}
-
-struct Daemon {
-    agent: PathBuf,
-    home: PathBuf,
-    process: Child,
-    _ready: BufReader<ChildStdout>,
-}
-
-impl Daemon {
-    fn start(agent: &Path, home: &Path) -> Result<Self> {
-        std::fs::create_dir_all(home).with_context(|| format!("create {}", home.display()))?;
-        let log = std::fs::File::create(home.join("daemon.log")).context("create the daemon log")?;
-        let mut process = command(agent, home)
-            .args(["daemon", "run"])
-            .stdout(Stdio::piped())
-            .stderr(log)
-            .spawn()
-            .context("start the daemon")?;
-        let mut ready = BufReader::new(process.stdout.take().context("daemon stdout")?);
-        let mut line = String::new();
-        ready.read_line(&mut line).context("wait for the daemon")?;
-        ensure!(line.trim() == "ready", "the daemon did not start: {line:?}");
-        Ok(Self { agent: agent.to_path_buf(), home: home.to_path_buf(), process, _ready: ready })
-    }
-
-    fn run(&self, args: &[&str]) -> Result<std::process::Output> {
-        let output = command(&self.agent, &self.home).args(args).output().context("run agent-terminal")?;
-        ensure!(
-            output.status.success(),
-            "`agent-terminal {}` failed: {}{}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr),
-            String::from_utf8_lossy(&output.stdout)
-        );
-        Ok(output)
-    }
-
-    fn dashboard(&self) -> Result<u16> {
-        let output = self.run(&["--json", "dashboard", "start", "--port", "0"])?;
-        let started: serde_json::Value = serde_json::from_slice(&output.stdout).context("read the dashboard")?;
-        let port = started["port"].as_u64().context("the dashboard's port")?;
-        Ok(u16::try_from(port)?)
-    }
-
-    fn ps(&self, field: &str) -> Result<String> {
-        let output =
-            Command::new("ps").args(["-o", field, "-p", &self.process.id().to_string()]).output().context("run ps")?;
-        ensure!(output.status.success(), "ps found no daemon");
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    }
-
-    fn cpu_seconds(&self) -> Result<f64> {
-        let time = self.ps("time=")?;
-        let mut seconds = 0.0;
-        for part in time.split(':') {
-            seconds = seconds * 60.0 + part.parse::<f64>().with_context(|| format!("read the CPU time {time:?}"))?;
-        }
-        Ok(seconds)
-    }
-
-    fn rss_mb(&self) -> Result<f64> {
-        let kibibytes: f64 = self.ps("rss=")?.parse().context("read the resident size")?;
-        Ok(kibibytes * 1024.0 / 1_000_000.0)
-    }
-
-    fn fds(&self) -> Result<usize> {
-        let output = Command::new("lsof")
-            .args(["-n", "-P", "-p", &self.process.id().to_string()])
-            .output()
-            .context("run lsof")?;
-        Ok(String::from_utf8_lossy(&output.stdout).lines().count().saturating_sub(1))
-    }
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        if let Err(e) = self.run(&["daemon", "stop"]) {
-            eprintln!("stopping the daemon failed: {e:#}");
-            if let Err(e) = self.process.kill() {
-                eprintln!("killing the daemon failed: {e}");
-            }
-        }
-        if let Err(e) = self.process.wait() {
-            eprintln!("waiting for the daemon failed: {e}");
-        }
-    }
-}
-
-fn command(agent: &Path, home: &Path) -> Command {
-    let mut command = Command::new(agent);
-    command
-        .env("AGENT_TERMINAL_HOME", home)
-        .env_remove("AGENT_TERMINAL_SESSION")
-        .env_remove("AGENT_TERMINAL_SCREENSHOT_DIR")
-        .stdin(Stdio::null());
-    command
 }
 
 struct Reader {
@@ -376,11 +289,15 @@ impl Reader {
     }
 }
 
-fn acknowledgement(text: &str) -> Option<String> {
-    let message: serde_json::Value = serde_json::from_str(text).ok()?;
-    (message["type"] == "frame").then(|| serde_json::json!({ "type": "shown", "frame": message["frame"] }).to_string())
+#[derive(Deserialize)]
+struct Update<'a> {
+    #[serde(rename = "type")]
+    kind: &'a str,
+    frame: Option<u64>,
 }
 
-fn utf8(path: &Path) -> Result<&str> {
-    path.to_str().with_context(|| format!("{} is not UTF-8", path.display()))
+fn acknowledgement(text: &str) -> Option<String> {
+    let update: Update = serde_json::from_str(text).ok()?;
+    let frame = update.frame.filter(|_| update.kind == "frame")?;
+    Some(format!(r#"{{"type":"shown","frame":{frame}}}"#))
 }

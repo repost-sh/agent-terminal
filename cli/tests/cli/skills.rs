@@ -86,8 +86,9 @@ fn no_guide_and_no_help_mentions_clips() {
             at.run(&["skills", "get", skill, "--full"]).success().stdout(),
         ));
     }
+    let clip = regex::Regex::new(r"(?i)\bclips?\b").unwrap();
     for (command, text) in read {
-        let clips: Vec<&str> = text.lines().filter(|line| line.to_lowercase().contains("clip")).collect();
+        let clips: Vec<&str> = text.lines().filter(|line| clip.is_match(line)).collect();
         assert!(clips.is_empty(), "`agent-terminal {command}` mentions clips:\n{}", clips.join("\n"));
     }
 }

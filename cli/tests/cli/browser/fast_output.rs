@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use super::{Browser, Dashboard};
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, open_redraw};
 
 const STREAMING: Duration = Duration::from_secs(20);
 const MIN_PAINTS_PER_SEC: f64 = 30.0;
@@ -19,7 +19,7 @@ const MEASURE_FIVE_SECONDS: &str = r#"new Promise((done) => {
     observer.disconnect();
     const seconds = (performance.now() - started) / 1000;
     const chip = document.getElementById("status-region")?.innerText.match(/frame (\d+)/);
-    done(JSON.stringify({ paints: paints / seconds, blocked: blocked / seconds, frame: chip ? Number(chip[1]) : 0 }));
+    done({ paints: paints / seconds, blocked: blocked / seconds, frame: chip ? Number(chip[1]) : 0 });
   };
   requestAnimationFrame(paint);
 })"#;
@@ -27,16 +27,14 @@ const MEASURE_FIVE_SECONDS: &str = r#"new Promise((done) => {
 #[test]
 fn a_tab_that_redraws_sixty_times_a_second_leaves_the_dashboard_responsive_and_on_the_latest_frame() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "120x40", "--wait", "ready", &fixture("redraw"), "--hz", "60", "--partial"]).success();
+    open_redraw(&at, "default", "60", "--partial");
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/s/default/t1"));
     browser.wait_for_screen("forwarding");
 
     std::thread::sleep(STREAMING);
-    let measured: serde_json::Value =
-        serde_json::from_str(&serde_json::from_str::<String>(&browser.eval(MEASURE_FIVE_SECONDS)).expect("a string"))
-            .expect("the measurement");
-    let latest: u64 = at.run(&["get", "frame"]).success().stdout().trim().parse().expect("the frame");
+    let measured: serde_json::Value = browser.eval_json(MEASURE_FIVE_SECONDS);
+    let latest = at.frame("default");
 
     let paints = measured["paints"].as_f64().expect("paints");
     let blocked = measured["blocked"].as_f64().expect("blocked");

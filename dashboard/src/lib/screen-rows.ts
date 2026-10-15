@@ -1,8 +1,6 @@
 import type { Terminal } from "@xterm/xterm";
 
-export type ScreenRows = { update: () => void; dispose: () => void };
-
-export const mirrorRows = (terminal: Terminal, host: HTMLElement): ScreenRows => {
+export const mirrorRows = (terminal: Terminal, host: HTMLElement) => {
   const list = document.createElement("div");
   list.setAttribute("role", "list");
   list.setAttribute("aria-label", "Screen");
@@ -28,5 +26,11 @@ export const mirrorRows = (terminal: Terminal, host: HTMLElement): ScreenRows =>
     }
     shown.length = rows;
   };
-  return { update, dispose: () => list.remove() };
+  const parsed = terminal.onWriteParsed(update);
+  const resized = terminal.onResize(update);
+  return () => {
+    parsed.dispose();
+    resized.dispose();
+    list.remove();
+  };
 };

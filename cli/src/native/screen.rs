@@ -578,18 +578,30 @@ impl Screen {
     }
 
     pub fn view(&self) -> ScreenView {
-        let grid = self.term.grid();
-        let lines = self.rows(0..self.size.rows as i32, false);
-        let point = grid.cursor.point;
-        let mode = *self.term.mode();
-        let mouse = mouse_encoding(mode);
         ScreenView {
             size: self.size,
-            lines,
-            cursor: (point.line.0.max(0) as u16, point.column.0 as u16),
-            cursor_visible: mode.contains(TermMode::SHOW_CURSOR),
-            alt_screen: mode.contains(TermMode::ALT_SCREEN),
-            mouse,
+            lines: self.rows(0..self.size.rows as i32, false),
+            cursor: self.cursor(),
+            cursor_visible: self.cursor_visible(),
+            alt_screen: self.alt_screen(),
+            mouse: self.mouse(),
         }
+    }
+
+    pub fn cursor(&self) -> (u16, u16) {
+        let point = self.term.grid().cursor.point;
+        (point.line.0.max(0) as u16, point.column.0 as u16)
+    }
+
+    pub fn cursor_visible(&self) -> bool {
+        self.term.mode().contains(TermMode::SHOW_CURSOR)
+    }
+
+    pub fn alt_screen(&self) -> bool {
+        self.term.mode().contains(TermMode::ALT_SCREEN)
+    }
+
+    pub fn mouse(&self) -> Option<MouseMode> {
+        mouse_encoding(*self.term.mode())
     }
 }

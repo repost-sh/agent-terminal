@@ -39,11 +39,9 @@ fn the_toolbar_shows_the_command_line_with_its_working_directory_dimmed() {
 }
 
 fn toolbar_buttons(browser: &Browser) -> Vec<String> {
-    let names = browser.eval(
-        "JSON.stringify([...document.querySelector('[role=group][aria-label=\"Command line\"]').nextElementSibling.querySelectorAll('button')].map((button) => button.textContent))",
-    );
-    let names: String = serde_json::from_str(&names).expect("a JSON string");
-    serde_json::from_str(&names).expect("the toolbar buttons")
+    browser.eval_json(
+        "[...document.querySelector('[role=group][aria-label=\"Command line\"]').nextElementSibling.querySelectorAll('button')].map((button) => button.textContent)",
+    )
 }
 
 #[test]

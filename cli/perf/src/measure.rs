@@ -1,16 +1,15 @@
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdout, Command, Output, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, ensure};
 
+use crate::daemon::{Agent, Daemon};
 use crate::metrics::{Metric, Results, Samples};
 
 const RUNS: usize = 100;
 const MEMORY_RUNS: usize = 5;
 const TABS: u32 = 10;
-const SIZE: &str = "120x40";
+pub const SIZE: &str = "120x40";
 const SCROLLBACK: &str = "2000";
 
 pub struct Setup {
@@ -156,106 +155,12 @@ fn canonical(path: &Path) -> Result<PathBuf> {
     std::fs::canonicalize(path).with_context(|| format!("find {}", path.display()))
 }
 
-fn utf8(path: &Path) -> Result<&str> {
+pub fn utf8(path: &Path) -> Result<&str> {
     path.to_str().with_context(|| format!("{} is not UTF-8", path.display()))
 }
 
 fn milliseconds(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
-}
-
-struct Agent {
-    side: &'static str,
-    binary: PathBuf,
-    work: PathBuf,
-    home: String,
-}
-
-impl Agent {
-    fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(&self.binary);
-        command
-            .args(args)
-            .current_dir(&self.work)
-            .env("AGENT_TERMINAL_HOME", &self.home)
-            .env_remove("AGENT_TERMINAL_SESSION")
-            .env_remove("AGENT_TERMINAL_SCREENSHOT_DIR")
-            .stdin(Stdio::null());
-        command
-    }
-
-    fn run(&self, args: &[&str]) -> Result<Output> {
-        let output = self.command(args).output().with_context(|| format!("run {}", self.binary.display()))?;
-        ensure!(
-            output.status.success(),
-            "`agent-terminal {}` failed for the {} ({}): {}{}",
-            args.join(" "),
-            self.side,
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim_start(),
-            String::from_utf8_lossy(&output.stdout)
-        );
-        Ok(output)
-    }
-}
-
-struct Daemon {
-    agent: Agent,
-    process: Child,
-    _ready: BufReader<ChildStdout>,
-}
-
-impl Daemon {
-    fn start(agent: Agent) -> Result<Daemon> {
-        let home = agent.work.join(&agent.home);
-        std::fs::create_dir(&home)
-            .with_context(|| format!("create {}; measure into an empty folder", home.display()))?;
-        let log = std::fs::File::create(home.join("daemon.log")).context("create the daemon log")?;
-        let mut process = agent
-            .command(&["daemon", "run"])
-            .stdout(Stdio::piped())
-            .stderr(log)
-            .spawn()
-            .with_context(|| format!("start the {} daemon", agent.side))?;
-        let mut ready = BufReader::new(process.stdout.take().context("daemon stdout")?);
-        let mut line = String::new();
-        ready.read_line(&mut line).with_context(|| format!("wait for the {} daemon", agent.side))?;
-        let daemon = Daemon { agent, process, _ready: ready };
-        ensure!(line.trim() == "ready", "the {} daemon did not start: {line:?}", daemon.agent.side);
-        Ok(daemon)
-    }
-
-    fn memory(&self) -> Result<f64> {
-        let output =
-            Command::new("ps").args(["-o", "rss=", "-p", &self.process.id().to_string()]).output().context("run ps")?;
-        ensure!(output.status.success(), "ps found no {} daemon: {}", self.agent.side, output.status);
-        let kibibytes: f64 = String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .parse()
-            .with_context(|| format!("read the resident size ps printed: {:?}", output.stdout))?;
-        Ok(kibibytes * 1024.0 / 1_000_000.0)
-    }
-
-    fn stop(&mut self) -> Result<()> {
-        if self.process.try_wait().context("check the daemon")?.is_some() {
-            return Ok(());
-        }
-        self.agent.run(&["daemon", "stop"])?;
-        let status = self.process.wait().with_context(|| format!("wait for the {} daemon to stop", self.agent.side))?;
-        ensure!(status.success(), "the {} daemon exited with {status}", self.agent.side);
-        Ok(())
-    }
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        if let Err(e) = self.stop() {
-            eprintln!("stopping the {} daemon failed: {e:#}", self.agent.side);
-            if let Err(e) = self.process.kill() {
-                eprintln!("killing the {} daemon failed: {e}", self.agent.side);
-            }
-        }
-    }
 }
 
 struct Screen {

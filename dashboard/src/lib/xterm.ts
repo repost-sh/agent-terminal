@@ -3,12 +3,16 @@ import "@xterm/xterm/css/xterm.css";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type ITheme } from "@xterm/xterm";
 
-import { mirrorRows, type ScreenRows } from "./screen-rows";
+import { mirrorRows } from "./screen-rows";
 import { daemonWidths } from "./unicode";
 
 export const LARGEST_FONT_PX = 13;
 
-const FONT = '"JetBrains Mono NL", "Symbols Nerd Font Mono", "Noto Emoji", monospace';
+const TEXT_FAMILY = "JetBrains Mono NL";
+
+const FALLBACK_FAMILIES = ["Symbols Nerd Font Mono", "Noto Emoji"];
+
+const FONT = [TEXT_FAMILY, ...FALLBACK_FAMILIES].map((family) => `"${family}"`).concat("monospace").join(", ");
 
 const PALETTE: ITheme = {
   background: "#111113",
@@ -35,18 +39,16 @@ const PALETTE: ITheme = {
 };
 
 const FACES = [
-  `${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
-  `bold ${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
-  `italic ${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
-  `bold italic ${LARGEST_FONT_PX}px "JetBrains Mono NL"`,
-  `${LARGEST_FONT_PX}px "Symbols Nerd Font Mono"`,
-  `${LARGEST_FONT_PX}px "Noto Emoji"`,
+  ...["", "bold ", "italic ", "bold italic "].map((style) => `${style}${LARGEST_FONT_PX}px "${TEXT_FAMILY}"`),
+  ...FALLBACK_FAMILIES.map((family) => `${LARGEST_FONT_PX}px "${family}"`),
 ];
 
+let fontsLoaded: Promise<unknown> | null = null;
+
 const fontsReady = () =>
-  Promise.all(FACES.map((face) => document.fonts.load(face))).catch((error: unknown) =>
+  (fontsLoaded ??= Promise.all(FACES.map((face) => document.fonts.load(face))).catch((error: unknown) =>
     console.warn("agent-terminal: the terminal font did not load; using a fallback", error),
-  );
+  ));
 
 const drawWithWebgl = (terminal: Terminal) => {
   try {
@@ -58,9 +60,9 @@ const drawWithWebgl = (terminal: Terminal) => {
   }
 };
 
-export const openTerminal = (host: HTMLElement, use: (terminal: Terminal, drawn: () => void) => () => void) => {
+export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () => void) => {
   let terminal: Terminal | null = null;
-  let rows: ScreenRows | null = null;
+  let unmirror = () => {};
   let release = () => {};
   let disposed = false;
   fontsReady().then(() => {
@@ -78,14 +80,14 @@ export const openTerminal = (host: HTMLElement, use: (terminal: Terminal, drawn:
     terminal.unicode.register(daemonWidths);
     terminal.unicode.activeVersion = daemonWidths.version;
     terminal.open(host);
-    rows = mirrorRows(terminal, host);
+    unmirror = mirrorRows(terminal, host);
     drawWithWebgl(terminal);
-    release = use(terminal, rows.update);
+    release = use(terminal);
   });
   return () => {
     disposed = true;
     release();
-    rows?.dispose();
+    unmirror();
     terminal?.dispose();
   };
 };

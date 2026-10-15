@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::extract::ws::{Message, WebSocket};
+use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -12,11 +12,15 @@ use crate::protocol::TabId;
 type Lookup<T> = Box<dyn Fn() -> Option<Arc<T>> + Send + Sync>;
 
 pub enum Event {
-    Changed,
-    Received(String),
-    Ignored,
-    Deadline,
+    Woke,
+    Received(Utf8Bytes),
     HungUp,
+}
+
+pub enum Wake {
+    OnChange,
+    At(Instant),
+    OnMessage,
 }
 
 pub struct Follow<T> {
@@ -66,37 +70,34 @@ impl<T> Follow<T> {
     }
 
     pub async fn changed(&mut self, socket: &mut WebSocket) -> bool {
-        let Self { lifecycle, extra, watched, .. } = self;
-        let signal = changed_or_never(watched.as_mut().and_then(|(_, signal)| signal.as_mut()));
-        let extra = changed_or_never(extra.as_mut());
-        tokio::select! {
-            changed = lifecycle.changed() => changed.is_ok(),
-            changed = signal => changed.is_ok(),
-            changed = extra => changed.is_ok(),
-            received = socket.recv() => !hung_up(received),
-        }
+        !matches!(self.event(socket, Wake::OnChange).await, Event::HungUp)
     }
 
-    pub async fn event(&mut self, socket: &mut WebSocket, deadline: Option<Instant>) -> Event {
+    pub async fn event(&mut self, socket: &mut WebSocket, wake: Wake) -> Event {
         let Self { lifecycle, extra, watched, .. } = self;
-        let signal = changed_or_never(watched.as_mut().and_then(|(_, signal)| signal.as_mut()));
-        let extra = changed_or_never(extra.as_mut());
+        let listening = matches!(wake, Wake::OnChange);
+        let signal = changed_or_never(watched.as_mut().and_then(|(_, signal)| signal.as_mut()).filter(|_| listening));
+        let extra = changed_or_never(extra.as_mut().filter(|_| listening));
+        let deadline = match wake {
+            Wake::At(deadline) => Some(deadline),
+            Wake::OnChange | Wake::OnMessage => None,
+        };
         tokio::select! {
-            changed = lifecycle.changed() => change(changed),
-            changed = signal => change(changed),
-            changed = extra => change(changed),
+            changed = lifecycle.changed() => woke(changed),
+            changed = signal => woke(changed),
+            changed = extra => woke(changed),
             received = socket.recv() => match received {
-                Some(Ok(Message::Text(text))) => Event::Received(text.to_string()),
-                received => if hung_up(received) { Event::HungUp } else { Event::Ignored },
+                Some(Ok(Message::Text(text))) => Event::Received(text),
+                received => if hung_up(received) { Event::HungUp } else { Event::Woke },
             },
-            () = sleep_until_or_never(deadline) => Event::Deadline,
+            () = sleep_until_or_never(deadline) => Event::Woke,
         }
     }
 }
 
-fn change(changed: Result<(), watch::error::RecvError>) -> Event {
+fn woke(changed: Result<(), watch::error::RecvError>) -> Event {
     match changed {
-        Ok(()) => Event::Changed,
+        Ok(()) => Event::Woke,
         Err(_) => Event::HungUp,
     }
 }

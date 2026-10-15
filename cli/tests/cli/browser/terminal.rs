@@ -1,10 +1,6 @@
 use super::{Browser, Dashboard, snapshot_rows, timeline_controls};
 use crate::support::{AgentTerminal, Cue, fixture};
 
-fn stream(dashboard: &Dashboard) -> String {
-    format!("ws://localhost:{}/api/session/default/t1/stream", dashboard.port)
-}
-
 #[test]
 fn the_live_terminal_shows_the_screen_on_connect_then_streams_matching_snapshot() {
     let at = AgentTerminal::new();
@@ -30,7 +26,7 @@ fn the_live_terminal_shows_the_screen_on_connect_then_streams_matching_snapshot(
     browser.wait_for_status(&format!("frame {frame}"));
     browser.wait_for_screen("line 2");
     assert_eq!(browser.screen(), rows);
-    assert_eq!(browser.status(), ["Live", &stream(&dashboard), "40 × 6", &format!("frame {frame}")]);
+    assert_eq!(browser.status(), ["Live", &dashboard.stream("default/t1"), "40 × 6", &format!("frame {frame}")]);
     assert_eq!(browser.run(&["get", "title"]).trim(), "default t1 · line-printer · agent-terminal");
 
     cue.print("streamed\n");
@@ -45,7 +41,7 @@ fn the_live_terminal_shows_the_screen_on_connect_then_streams_matching_snapshot(
     browser.wait_for_status("bracketed paste");
     assert_eq!(
         browser.status(),
-        ["Live", &stream(&dashboard), "40 × 6", "mouse sgr", "bracketed paste", &format!("frame {frame}")]
+        ["Live", &dashboard.stream("default/t1"), "40 × 6", "mouse sgr", "bracketed paste", &format!("frame {frame}")]
     );
 }
 
@@ -60,7 +56,7 @@ fn a_tab_shows_only_the_live_screen_with_no_timeline_control() {
     browser.wait_for_status(&format!("frame {frame}"));
     browser.wait_for_screen("line 3");
     assert_eq!(browser.screen(), rows);
-    assert_eq!(browser.status(), ["Live", &stream(&dashboard), "40 × 6", &format!("frame {frame}")]);
+    assert_eq!(browser.status(), ["Live", &dashboard.stream("default/t1"), "40 × 6", &format!("frame {frame}")]);
     assert_eq!(timeline_controls(&browser), Vec::<String>::new());
 }
 
@@ -74,7 +70,7 @@ fn a_tab_that_has_not_drawn_yet_shows_connected_until_its_first_frame() {
 
     browser.wait_for_text("Waiting for first frame...");
     browser.wait_for_status("Connected");
-    assert_eq!(browser.status(), ["Connected", &stream(&dashboard), "40 × 6"]);
+    assert_eq!(browser.status(), ["Connected", &dashboard.stream("default/t1"), "40 × 6"]);
 
     cue.print("first\n");
     browser.wait_for_status("Live");
@@ -110,7 +106,7 @@ fn an_exited_tab_keeps_its_last_screen_with_the_exit_bar_to_restart_or_close_it(
     let (rows, frame) = snapshot_rows(&at, &[]);
     assert_eq!(&rows[..2], ["line 1", "line 2"]);
     assert_eq!(browser.screen(), rows);
-    assert_eq!(browser.status(), ["Exited", &stream(&dashboard), "40 × 6", &format!("frame {frame}")]);
+    assert_eq!(browser.status(), ["Exited", &dashboard.stream("default/t1"), "40 × 6", &format!("frame {frame}")]);
     assert_eq!(
         browser.text("main [role=status]").lines().collect::<Vec<_>>(),
         ["line-printer exited with code 4", "Restart", "Close tab"]
