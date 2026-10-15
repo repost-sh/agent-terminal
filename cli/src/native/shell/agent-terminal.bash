@@ -33,12 +33,63 @@ __agent_terminal_precmd() {
   return $__agent_terminal_code
 }
 
+__agent_terminal_entry='^ *([0-9]+)[* ] (.*)$'
+
+__agent_terminal_record_every_line() {
+  [ -n "$__agent_terminal_recording" ] && __agent_terminal_keep_users_history
+  __agent_terminal_histcontrol=${HISTCONTROL-}
+  __agent_terminal_histcontrol_set=${HISTCONTROL+set}
+  __agent_terminal_histignore=${HISTIGNORE-}
+  __agent_terminal_histignore_set=${HISTIGNORE+set}
+  local IFS=: value kept=
+  local -a values
+  read -ra values <<<"$__agent_terminal_histcontrol"
+  for value in "${values[@]}"; do
+    case $value in
+      ignorespace) ;;
+      ignoreboth) kept+=${kept:+:}ignoredups ;;
+      *) kept+=${kept:+:}$value ;;
+    esac
+  done
+  HISTCONTROL=$kept
+  HISTIGNORE=
+  __agent_terminal_last_entry=
+  [[ $(HISTTIMEFORMAT= builtin history 1) =~ $__agent_terminal_entry ]] && __agent_terminal_last_entry=${BASH_REMATCH[1]}
+  __agent_terminal_recording=1
+}
+
+__agent_terminal_keep_users_history() {
+  if [ -n "$__agent_terminal_histcontrol_set" ]; then HISTCONTROL=$__agent_terminal_histcontrol; else unset HISTCONTROL; fi
+  if [ -n "$__agent_terminal_histignore_set" ]; then HISTIGNORE=$__agent_terminal_histignore; else unset HISTIGNORE; fi
+  __agent_terminal_recording=
+}
+
+__agent_terminal_left_out() {
+  local line=$1 pattern previous
+  case :$__agent_terminal_histcontrol: in
+    *:ignorespace:* | *:ignoreboth:*) [[ $line == ' '* ]] && return 0 ;;
+  esac
+  local IFS=:
+  local -a patterns
+  read -ra patterns <<<"$__agent_terminal_histignore"
+  for pattern in "${patterns[@]}"; do
+    if [ "$pattern" = '&' ]; then
+      previous=$(HISTTIMEFORMAT= builtin history 2)
+      [[ ${previous%%$'\n'*} =~ $__agent_terminal_entry ]] && [ "$line" = "${BASH_REMATCH[2]}" ] && return 0
+    elif [[ $line == $pattern ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 __agent_terminal_ready() {
   __agent_terminal_armed=1
   case $PS1 in
     *$'\e]133;B\a'*) ;;
     *) PS1=$PS1$'\[\e]133;B\a\]' ;;
   esac
+  __agent_terminal_record_every_line
   return $__agent_terminal_code
 }
 
@@ -47,11 +98,14 @@ __agent_terminal_preexec() {
   __agent_terminal_armed=
   [ "$BASH_COMMAND" = __agent_terminal_precmd ] && return 0
   [ -n "${COMP_LINE-}" ] && return 0
+  __agent_terminal_keep_users_history
   __agent_terminal_running=1
-  local line pattern='^ *[0-9]+[* ] (.*)$'
-  line=$(HISTTIMEFORMAT= builtin history 1)
-  if [[ $line =~ $pattern ]]; then
-    line=${BASH_REMATCH[1]}
+  local line
+  if [[ :$SHELLOPTS: == *:history:* && $(HISTTIMEFORMAT= builtin history 1) =~ $__agent_terminal_entry ]]; then
+    line=${BASH_REMATCH[2]}
+    if [ "${BASH_REMATCH[1]}" != "$__agent_terminal_last_entry" ] && __agent_terminal_left_out "$line"; then
+      builtin history -d "${BASH_REMATCH[1]}"
+    fi
   else
     line=$BASH_COMMAND
   fi

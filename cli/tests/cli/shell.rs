@@ -89,6 +89,7 @@ in_every_shell!(
     wait_command_waits_for_a_long_running_command,
     a_cancelled_command_line_leaves_the_shell_ready,
     exec_of_a_line_the_shell_waits_to_finish_says_no_command_started,
+    a_command_the_users_history_leaves_out_is_recorded_as_typed,
     exec_after_a_line_the_shell_refused_starts_on_an_empty_command_line,
     the_users_startup_files_load_and_stay_untouched,
     the_command_log_keeps_every_finished_command_with_its_output,
@@ -199,6 +200,38 @@ fn wait_command_waits_for_a_long_running_command(shell: &'static str) {
         timeless(&tab.run(&["history", "show", "2"]).success().stdout()),
         format!("typed\n2 · exit 0 · <time> · {cwd} · cat hold\n")
     );
+}
+
+fn a_command_the_users_history_leaves_out_is_recorded_as_typed(shell: &'static str) {
+    let tab = ShellTab::new(shell);
+    let (file, leave_out) = match shell {
+        "zsh" => (".zshrc", "setopt HIST_IGNORE_SPACE\n"),
+        "bash" => (".bashrc", "HISTCONTROL=ignoreboth\nHISTIGNORE='echo secret*'\n"),
+        _ => (".config/fish/config.fish", ""),
+    };
+    let file = tab.home.path().join(file);
+    std::fs::create_dir_all(file.parent().unwrap()).expect("create the config folder");
+    std::fs::write(&file, leave_out).expect("write a startup file");
+    tab.open().success();
+    let cwd = tab.cwd();
+    for line in ["echo first", " echo spaced", "echo secret word", "echo first"] {
+        tab.run(&["exec", line]).success();
+    }
+    assert_eq!(
+        timeless(&tab.run(&["history"]).success().stdout()),
+        format!(
+            "1 · exit 0 · <time> · {cwd} · echo first\n\
+             2 · exit 0 · <time> · {cwd} ·  echo spaced\n\
+             3 · exit 0 · <time> · {cwd} · echo secret word\n\
+             4 · exit 0 · <time> · {cwd} · echo first\n"
+        )
+    );
+    if shell == "bash" {
+        let settings = tab.run(&["exec", "echo \"[$HISTCONTROL] [$HISTIGNORE]\""]).success().stdout();
+        assert_eq!(settings.lines().next(), Some("[ignoreboth] [echo secret*]"));
+        let kept = tab.run(&["exec", "history"]).success().stdout();
+        assert!(kept.contains("echo first") && !kept.contains("spaced") && !kept.contains("echo secret"), "{kept}");
+    }
 }
 
 fn exec_of_a_line_the_shell_waits_to_finish_says_no_command_started(shell: &'static str) {
