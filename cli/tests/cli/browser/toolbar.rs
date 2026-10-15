@@ -127,6 +127,7 @@ fn record_saves_the_tab_to_a_cast_file_until_stopped_and_follows_record_from_the
     wait_for_toast(&browser, "Recording");
     assert_eq!(newest_toast(&browser), ["Recording", saved.as_str()]);
     assert_eq!(record_button(&browser), ("Stop recording".into(), "true".into(), format!("Recording to {saved}")));
+    browser.click_button("Close notification");
 
     browser.click_button("Stop recording");
     wait_for_button(&browser, "Start recording");

@@ -9,7 +9,9 @@ use tokio::sync::watch;
 
 use super::stream::send;
 use super::{Backend, tab_id};
+use crate::commands::without_global_options;
 use crate::native::store::SessionFolder;
+use crate::output::call_line;
 use crate::protocol::{HumanInput, TabId};
 
 #[derive(Serialize)]
@@ -78,7 +80,8 @@ impl Refusals {
         entries
             .into_iter()
             .filter(|entry| entry["tab"] == self.tab && entry["exit"] == crate::exit::HUMAN_CONTROL)
-            .filter_map(|entry| entry["command"].as_str().map(str::to_string))
+            .filter_map(|entry| entry["command"].as_str().and_then(shlex::split))
+            .map(|typed| call_line(&without_global_options(&typed)))
             .collect()
     }
 }

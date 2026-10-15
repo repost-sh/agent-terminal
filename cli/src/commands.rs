@@ -1294,6 +1294,34 @@ enum Takes {
     Number,
 }
 
+pub fn without_global_options(typed: &[String]) -> Vec<String> {
+    let mut cli = Cli::command();
+    cli.build();
+    let global = |word: &str| {
+        let name = word.strip_prefix("--")?.split('=').next()?;
+        let arg = cli.get_arguments().find(|arg| arg.is_global_set() && arg.get_long() == Some(name))?;
+        let takes_value = matches!(arg.get_action(), clap::ArgAction::Set | clap::ArgAction::Append);
+        Some(takes_value && !word.contains('='))
+    };
+    let mut words = Vec::new();
+    let mut rest = typed.iter();
+    while let Some(word) = rest.next() {
+        if word == "--" {
+            words.push(word.clone());
+            words.extend(rest.cloned());
+            break;
+        }
+        match global(word) {
+            Some(true) => {
+                rest.next();
+            }
+            Some(false) => {}
+            None => words.push(word.clone()),
+        }
+    }
+    words
+}
+
 fn open_options_first(parser: &clap::Command, argv: Vec<OsString>) -> Vec<OsString> {
     let Ok(matches) = parser.clone().try_get_matches_from(&argv) else { return argv };
     let (path, opened) = match matches.subcommand() {
