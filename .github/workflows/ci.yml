@@ -72,9 +72,8 @@ jobs:
         working-directory: cli
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      - name: Install the Rust toolchain rust-toolchain.toml pins
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: cli
@@ -101,9 +100,8 @@ jobs:
         working-directory: cli
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install the Rust toolchain rust-toolchain.toml pins
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: cli
@@ -146,7 +144,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install the Rust toolchain rust-toolchain.toml pins
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: cli
