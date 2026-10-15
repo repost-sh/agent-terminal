@@ -4,6 +4,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type ITheme } from "@xterm/xterm";
 
 import { mirrorRows, type ScreenRows } from "./screen-rows";
+import { daemonWidths } from "./unicode";
 
 export const LARGEST_FONT_PX = 13;
 
@@ -72,7 +73,10 @@ export const openTerminal = (host: HTMLElement, use: (terminal: Terminal, drawn:
       cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches,
       cursorInactiveStyle: "block",
       theme: PALETTE,
+      allowProposedApi: true,
     });
+    terminal.unicode.register(daemonWidths);
+    terminal.unicode.activeVersion = daemonWidths.version;
     terminal.open(host);
     rows = mirrorRows(terminal, host);
     drawWithWebgl(terminal);

@@ -2,7 +2,6 @@ mod activity;
 mod batch;
 #[cfg(feature = "browser-tests")]
 mod browser;
-mod clip;
 mod control;
 mod dashboard;
 mod diff;
@@ -32,3 +31,4 @@ mod tabs;
 mod trace;
 mod version;
 mod wait;
+mod widths;

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::json;
 
@@ -13,13 +13,7 @@ use crate::protocol::Size;
 const RESET: &str = "\x1bc";
 
 pub struct Recording {
-    tab: String,
     writer: Mutex<Writer>,
-}
-
-pub struct Position {
-    pub path: PathBuf,
-    pub seconds: f64,
 }
 
 struct Writer {
@@ -88,21 +82,16 @@ impl Tape {
             self.file = Err(e.to_string());
         }
     }
-
-    fn failure(&self) -> Option<anyhow::Error> {
-        let reason = self.file.as_ref().err()?;
-        Some(anyhow!("writing {} failed: {reason}", self.path.display()))
-    }
 }
 
 impl Recording {
-    pub fn start(tab: String, path: PathBuf, size: Size, command: String) -> Arc<Self> {
+    pub fn start(path: PathBuf, size: Size, command: String) -> Arc<Self> {
         let tape = Tape::create(&path, size, &command, Clock::on_the_second()).unwrap_or_else(|e| {
             eprintln!("starting the recording {} failed: {e:#}", path.display());
             Tape { path, file: Err(format!("{e:#}")), clock: Clock::on_the_second() }
         });
         let writer = Writer { tape, undecoded: Vec::new() };
-        Arc::new(Self { tab, writer: Mutex::new(writer) })
+        Arc::new(Self { writer: Mutex::new(writer) })
     }
 
     pub fn output(&self, bytes: &[u8]) {
@@ -130,14 +119,6 @@ impl Recording {
         let mut text = String::from_utf8_lossy(&std::mem::take(&mut writer.undecoded)).into_owned();
         text.push_str(RESET);
         writer.tape.event("o", &text);
-    }
-
-    pub fn position(&self) -> Result<Position> {
-        let writer = self.writer.lock().unwrap();
-        if let Some(failure) = writer.tape.failure() {
-            return Err(failure.context(format!("{} has no recording to clip", self.tab)));
-        }
-        Ok(Position { path: writer.tape.path.clone(), seconds: writer.tape.clock.seconds() })
     }
 }
 

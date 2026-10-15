@@ -18,7 +18,6 @@ use crate::output::call_line;
 use crate::protocol::{CommandRecord, HumanInput, TabId};
 
 pub struct SessionFolder {
-    session: String,
     path: PathBuf,
     last_tab: Mutex<Option<TabId>>,
     activity: Mutex<Calls>,
@@ -79,8 +78,6 @@ pub struct ActivityEntry {
     pub frame: Option<u64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub screenshots: Vec<PathBuf>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub clips: Vec<PathBuf>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub raw: bool,
     pub output: String,
@@ -114,7 +111,6 @@ impl ActivityEntry {
             error: None,
             frame: None,
             screenshots: Vec::new(),
-            clips: Vec::new(),
             raw: false,
             output: String::new(),
             human: None,
@@ -142,7 +138,6 @@ impl SessionFolder {
         }
         std::fs::create_dir_all(&path).with_context(|| format!("create the session folder {}", path.display()))?;
         Ok(Self {
-            session: session.to_string(),
             path,
             last_tab: Mutex::new(None),
             activity: Mutex::new(Calls::default()),
@@ -225,7 +220,7 @@ impl SessionFolder {
 
     pub fn record(&self, tab: &str, command: &pty::Command) -> Arc<Recording> {
         let path = self.path.join(format!("{tab}.cast"));
-        Recording::start(format!("{} {tab}", self.session), path, command.size, command.line())
+        Recording::start(path, command.size, command.line())
     }
     pub fn command_log(&self, tab: &str) -> CommandLog {
         CommandLog { path: self.path.join(format!("{tab}.commands.jsonl")) }
@@ -348,7 +343,7 @@ pub fn export(home: &Path, session: &str, to: &Path) -> Result<Exported> {
     let mut named: Vec<String> = Vec::new();
     let mut missing = Vec::new();
     let mut added = 0;
-    for (kind, path) in saved_files(&folder)? {
+    for path in saved_screenshots(&folder)? {
         let contents = match std::fs::read(&path) {
             Ok(contents) => contents,
             Err(e) if e.kind() == ErrorKind::NotFound => {
@@ -358,12 +353,12 @@ pub fn export(home: &Path, session: &str, to: &Path) -> Result<Exported> {
             Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
         };
         let name = path.file_name().map_or_else(|| "file".into(), |name| name.to_string_lossy().into_owned());
-        let mut entry = format!("{root}/{kind}/{name}");
+        let mut entry = format!("{root}/screenshots/{name}");
         for copy in 2.. {
             if !named.contains(&entry) {
                 break;
             }
-            entry = format!("{root}/{kind}/{copy}-{name}");
+            entry = format!("{root}/screenshots/{copy}-{name}");
         }
         zip.start_file(entry.as_str(), options)?;
         zip.write_all(&contents)?;
@@ -378,23 +373,21 @@ pub fn export(home: &Path, session: &str, to: &Path) -> Result<Exported> {
     Ok(Exported { files: files.len() + added, bytes: zipped.len() as u64, missing })
 }
 
-fn saved_files(folder: &Path) -> Result<Vec<(&'static str, PathBuf)>> {
-    let mut saved: Vec<(&'static str, PathBuf)> = Vec::new();
-    let mut keep = |kind: &'static str, path: PathBuf| {
-        if !saved.iter().any(|(_, known)| *known == path) {
-            saved.push((kind, path));
+fn saved_screenshots(folder: &Path) -> Result<Vec<PathBuf>> {
+    let mut saved: Vec<PathBuf> = Vec::new();
+    let mut keep = |path: PathBuf| {
+        if !saved.contains(&path) {
+            saved.push(path);
         }
     };
     let (calls, _) = activity_in(folder, 0)?;
     for call in &calls {
-        for (kind, field) in [("screenshots", "screenshots"), ("clips", "clips")] {
-            for path in call[field].as_array().into_iter().flatten().filter_map(serde_json::Value::as_str) {
-                keep(kind, PathBuf::from(path));
-            }
+        for path in call["screenshots"].as_array().into_iter().flatten().filter_map(serde_json::Value::as_str) {
+            keep(PathBuf::from(path));
         }
     }
     for shot in screenshots_in(folder)? {
-        keep("screenshots", shot.path);
+        keep(shot.path);
     }
     Ok(saved)
 }

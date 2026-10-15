@@ -46,7 +46,7 @@ test('one package per platform, each holding only its own binary', (t) => {
   assert.deepEqual([glibc.os, glibc.cpu, glibc.libc], [['linux'], ['arm64'], ['glibc']]);
 });
 
-test('every platform package publishes the licences of the fonts and OpenH264 built into its binary', (t) => {
+test('every platform package publishes the licences of the fonts built into its binary', (t) => {
   const dir = tempDir(t);
   distRelease(dir, TARGETS, printTarget);
 
@@ -59,7 +59,6 @@ test('every platform package publishes the licences of the fonts and OpenH264 bu
     assert.deepEqual(packedFiles(path.join(dir, 'npm', name)), [
       'LICENSE',
       'bin/agent-terminal',
-      'licenses/LICENSE-OpenH264.txt',
       'licenses/LICENSE-SymbolsNerdFont.txt',
       'licenses/OFL-JetBrainsMono.txt',
       'licenses/OFL-NotoEmoji.txt',
@@ -67,8 +66,8 @@ test('every platform package publishes the licences of the fonts and OpenH264 bu
       'package.json',
     ]);
   }
-  const openh264 = path.join(dir, 'npm', 'agent-terminal-linux-x64', 'licenses', 'LICENSE-OpenH264.txt');
-  assert.match(fs.readFileSync(openh264, 'utf8'), /^Copyright \(c\) 2013, Cisco Systems/);
+  const font = path.join(dir, 'npm', 'agent-terminal-linux-x64', 'licenses', 'OFL-JetBrainsMono.txt');
+  assert.match(fs.readFileSync(font, 'utf8'), /^Copyright 2020 The JetBrains Mono Project Authors/);
 });
 
 test('the main package exposes agent-terminal and depends on every platform package at the release version', (t) => {

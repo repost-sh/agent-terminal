@@ -67,7 +67,7 @@ fn unzip_bytes(path: &Path) -> BTreeMap<String, Vec<u8>> {
 }
 
 #[test]
-fn trace_export_adds_the_screenshots_and_clips_the_session_saved() {
+fn trace_export_adds_the_screenshots_the_session_saved() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
     open_printer(&at, "default", &["open"]);
@@ -75,7 +75,6 @@ fn trace_export_adds_the_screenshots_and_clips_the_session_saved() {
     at.run_in(&work, &["--screenshot-dir", "shots", "screenshot"]).success();
     at.run_in(&work, &["screenshot", "named.png"]).success();
     at.run_in(&work, &["diff", "screenshot", "--baseline", "named.png", "--output", "changes.png"]).success();
-    at.run_in(&work, &["clip", "last.gif", "--last", "1s"]).success();
     at.run_in(&work, &["screenshot", "gone.png"]).success();
     std::fs::remove_file(work.join("gone.png")).expect("remove a screenshot");
 
@@ -86,7 +85,6 @@ fn trace_export_adds_the_screenshots_and_clips_the_session_saved() {
         (format!("default/screenshots/{default_shot}"), work.join("shots").join(&default_shot)),
         ("default/screenshots/named.png".to_string(), work.join("named.png")),
         ("default/screenshots/changes.png".to_string(), work.join("changes.png")),
-        ("default/clips/last.gif".to_string(), work.join("last.gif")),
     ];
     for (name, path) in &saved {
         let kept = std::fs::read(path).expect("read a saved file");

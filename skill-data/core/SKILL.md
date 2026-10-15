@@ -1,12 +1,12 @@
 ---
 name: core
-description: Core agent-terminal usage guide. Read this before running any agent-terminal commands. Covers the open-snapshot-act-wait loop, reading the screen and its @t refs, sending keys, waiting correctly, shells and command history, taking screenshots and clips as evidence, sessions and tabs, human control, and troubleshooting. Use when asked to run, drive, test or screenshot a terminal program.
+description: Core agent-terminal usage guide. Read this before running any agent-terminal commands. Covers the open-snapshot-act-wait loop, reading the screen and its @t refs, sending keys, waiting correctly, shells and command history, taking screenshots as evidence (`screenshot`, or `--screenshot` once a `--wait` is over), sessions and tabs, human control, and troubleshooting. Use when asked to run, drive, test or screenshot a terminal program.
 allowed-tools: Bash(agent-terminal:*), Bash(npx agent-terminal:*)
 ---
 
 # agent-terminal core
 
-agent-terminal runs programs in real terminals and lets you drive them the way a person would. You read the screen as text, press keys, wait for the screen to change, and keep screenshots and clips as proof. A human may be watching in the dashboard.
+agent-terminal runs programs in real terminals and lets you drive them the way a person would. You read the screen as text, press keys, wait for the screen to change, and keep screenshots as proof, taken with `screenshot` or by the input command whose `--wait` reached that screen (`--screenshot`). A human may be watching in the dashboard.
 
 ## The core loop
 
@@ -131,16 +131,15 @@ agent-terminal expect --cell 2,33 --style inverse   # this row is the selected o
 
 ```bash
 agent-terminal screenshot ./evidence/step-3.png
+agent-terminal press Enter --wait "Saved" --screenshot ./evidence/saved.png  # once the wait is over
 agent-terminal screenshot --annotate ./evidence/refs.png  # refs drawn on the image
 agent-terminal diff screenshot --baseline ./evidence/step-3.png  # exits 2 if any pixel changed (--threshold 0.01 allows 1%)
 agent-terminal mark before-commit
-agent-terminal clip ./evidence/commit.gif --from before-commit
-agent-terminal clip ./evidence/crash.gif --last 10s
-agent-terminal clip ./evidence/build.mp4 --command 3      # one shell command from `history`, as MP4
+agent-terminal output --since before-commit               # what the program printed since the mark
 agent-terminal trace export ./evidence/session.zip        # everything, for a bug report
 ```
 
-Every tab is recorded from the start, so you can cut a clip after something went wrong. Name a `mark` before a step you may want to show.
+Screenshots are the evidence: take one at every step you may need to show. Name a `mark` before a step whose output you may want to read later with `output --since`.
 
 ## Sizes
 
