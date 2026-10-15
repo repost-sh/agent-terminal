@@ -1,6 +1,6 @@
 # Releasing
 
-The version lives in one place: `version` in `cli/Cargo.toml`. The npm packages and the Homebrew formula take it from the release.
+The version lives in `version` in `cli/Cargo.toml`. The npm packages and the Homebrew formula take it from the release. The skill stub `skills/agent-terminal/SKILL.md` repeats it in `metadata.version`, because `npx skills add` and the Claude Code plugin marketplace copy that file as it is in the repository; `cargo test` fails while the two differ.
 
 ## Cut a release
 
@@ -8,8 +8,8 @@ An agent cuts a release end to end with these steps. Keep npm and Homebrew state
 
 1. **Collect the commits since the last tag.** `git fetch --tags origin`, then `git log --no-merges --format='%h %s%n%b' "$(git describe --tags --abbrev=0 origin/main)..origin/main"`. Before the first release there is no tag: take every commit on `origin/main`.
 2. **Write the changelog section.** In `CHANGELOG.md`, turn the commits and any entries under `## Unreleased` into a new `## <version> (<YYYY-MM-DD>)` section, placed below an empty `## Unreleased`. Group the entries under `### Features` (`feat`), `### Fixes` (`fix`), `### Performance` (`perf`) and `### Other changes` (any other commit a user would notice, such as a new platform or install channel). Leave out `chore`, `ci`, `test` and `style` commits and anything a user can't see, and drop empty groups. Write one line per change, in the user's words, with commands and flags in backticks; a breaking change (`!` or `BREAKING CHANGE:`) comes first in its group and starts with `**Breaking:**`.
-3. **Bump the version.** Set `version` in `cli/Cargo.toml` and run `cargo build` in `cli/` so `Cargo.lock` follows. Then run the release's preflight from the repository root, `node npm/preflight.js --tag v<version>`, and go on only when it ends with `v<version> can be released`.
-4. **Commit.** `git commit -m "chore: release v<version>" -- CHANGELOG.md cli/Cargo.toml cli/Cargo.lock` on a branch, push it and open a pull request to `main`.
+3. **Bump the version.** Set `version` in `cli/Cargo.toml` and `metadata.version` in `skills/agent-terminal/SKILL.md` to the new version, and run `cargo build` in `cli/` so `Cargo.lock` follows. Then run the release's preflight from the repository root, `node npm/preflight.js --tag v<version>`, and go on only when it ends with `v<version> can be released`.
+4. **Commit.** `git commit -m "chore: release v<version>" -- CHANGELOG.md cli/Cargo.toml cli/Cargo.lock skills/agent-terminal/SKILL.md` on a branch, push it and open a pull request to `main`.
 5. **Wait for CI.** `gh pr checks <pr> --watch` until every check passes, `dist plan` included, then merge the pull request.
 6. **Tag and push.** `git fetch origin main`, check that `git log -1 origin/main` is the release commit, then `git tag v<version> origin/main` and `git push origin v<version>`.
 7. **Watch the run.** `gh run list --workflow release.yml --branch v<version>` names the run and `gh run watch <run> --exit-status` follows it.

@@ -117,7 +117,8 @@ Everything else:
   batch [--bail] ["cmd" ...]   Several commands in one call (args or stdin)
   skills [list|get <name>|path]   Guides that ship with this version (core, tui-qa, cli-qa)
   mcp                          MCP stdio server with the same commands as tools
-  doctor [--fix]               Check PTY, fonts, shell integration, daemon (--fix: stale socket, old integration scripts)
+  doctor [--fix]               Check PTY, fonts, shell integration, the daemon and its version, and that the installed skill stub is this version
+                               (--fix: stale socket, old integration scripts, an older skill stub; a newer stub is kept)
   install [--skills]           Install the agent skill stub into ~/.claude/skills
   upgrade                      Upgrade to the latest version
   version
@@ -141,7 +142,24 @@ Exit codes:
   3  timed out
   4  a human has control of this tab (input commands, signal and exec; resume with wait --control)
   5  the program has exited
+  6  the daemon is another version of agent-terminal and has open terminals, or did not understand the request (daemon stop ends it)
 ```
+
+## Daemon version
+
+The daemon writes its version to `daemon.version` next to its socket before it reports ready, and removes the file when it stops. Every command reads that file before it sends its request, so checking costs a file read and no extra round trip to the daemon.
+
+- **Same version:** the command goes ahead.
+- **Another version, no open terminals:** the command stops that daemon, starts one from its own binary and carries on; it prints nothing beyond its normal output. A daemon that records no version counts as another version. Commands started together stop it once and all use the new daemon.
+- **Another version, open terminals:** the daemon keeps running and the command exits 6. The error names both versions and the number of open terminals, and `--json` prints it as `{"error": {"code": 6, "message": "..."}}`:
+
+  ```
+  error: the daemon is agent-terminal 0.1.0, not 0.2.0 like this command, and it has 2 open terminals, so it was left running; `agent-terminal daemon stop` ends it and its terminals, and the next command starts a 0.2.0 daemon
+  ```
+
+- **A request the daemon cannot parse:** the daemon replies with an error (exit 6) that names its own version and its open terminals, instead of closing the connection.
+- `daemon stop` works whatever version the daemon is.
+- `doctor` shows the running daemon's version and reports a daemon of another version as a problem, with `agent-terminal daemon stop` as the fix.
 
 ## What changed from the first draft
 
