@@ -44,11 +44,12 @@ target/release/at-perf measure --base <agent-terminal built from main> --change 
 target/release/at-perf check results.json   # exits 2 on a metric over its limit or a regression
 ```
 
-- Speed: each call is timed from spawning the CLI to its exit, 100 times, base and change alternating, against a tab showing a 120x40 screen of colored words (fixture `busy-screen`). `wait <text>` is timed from the moment the program prints the text to the exit of the `press --wait` call that waits for it.
+- Speed: each call is timed from spawning the CLI to its exit, 100 times, base and change alternating, against a tab showing a 120x40 screen of colored words (fixture `busy-screen`). `press --wait <text>` is timed from the moment the program prints the text to the exit of the `press` call that waits for it.
 - Memory: the daemon's resident size from `ps`. Idle: a fresh daemon that has answered one call and has no tabs. Per active tab: what ten tabs add, each a 120x40 screen with its 2,000-line scrollback full. Median of five fresh daemons per side.
 - Limits: CLI round trip ≤ 5 ms, `snapshot` ≤ 10 ms and `screenshot` PNG ≤ 40 ms (the speed targets in `docs/design.md`), idle memory ≤ 10 MB. A median over one fails the job.
 - Reference: memory per active tab has a reference value of about 5 MB, not a limit. The table shows it and marks a median above it `over reference`, which does not fail the job; with its 2,000-line scrollback full a tab measures about 9 MB, most of it the screen grid. Like every metric it still fails the job when it regresses against the base.
 - Limits and regressions are checked against the medians. A regression is a median more than 25% and more than 0.25 ms over the base (memory: 10% and 0.25 MB). Measured against itself, one binary differs by under 3% on an idle machine and by up to 19% with the CPU five times oversubscribed, and memory by under 1%.
+- A base that cannot run a metric (a base older than the command it times, such as `main` before `screenshot` existed) gets `no base` for it: the table says why, the change is still held to the metric's limit, and there is no regression check for it.
 
 ## Dashboard
 

@@ -7,9 +7,14 @@ pub struct Report {
     pub passed: bool,
 }
 
+enum Base {
+    Measured(f64),
+    Missing(String),
+}
+
 struct Row {
     metric: Metric,
-    base: f64,
+    base: Base,
     change: f64,
 }
 
@@ -18,17 +23,18 @@ impl Row {
         self.metric.target().filter(|target| self.change > target.value())
     }
 
-    fn increase(&self) -> f64 {
-        (self.change - self.base) / self.base * 100.0
+    fn increase(&self, base: f64) -> f64 {
+        (self.change - base) / base * 100.0
     }
 
-    fn regressed(&self) -> bool {
+    fn regressed_from(&self) -> Option<f64> {
+        let Base::Measured(base) = self.base else { return None };
         let tolerance = self.metric.unit().tolerance();
-        self.change - self.base > tolerance.amount && self.increase() > tolerance.percent
+        (self.change - base > tolerance.amount && self.increase(base) > tolerance.percent).then_some(base)
     }
 
     fn verdict(&self) -> &'static str {
-        match (self.over_target(), self.regressed()) {
+        match (self.over_target(), self.regressed_from().is_some()) {
             (None, false) => "ok",
             (Some(Target::Limit(_)), false) => "over target",
             (Some(Target::Reference(_)), false) => "over reference",
@@ -49,14 +55,14 @@ impl Row {
                 unit.symbol()
             ));
         }
-        if self.regressed() {
+        if let Some(base) = self.regressed_from() {
             let tolerance = unit.tolerance();
             failures.push(format!(
                 "{} regressed: {} against {} on the base (+{:.0}%; the limit is +{}% and +{} {})",
                 self.metric.label(),
                 self.amount(self.change),
-                self.amount(self.base),
-                self.increase(),
+                self.amount(base),
+                self.increase(base),
                 tolerance.percent,
                 tolerance.amount,
                 unit.symbol()
@@ -67,6 +73,13 @@ impl Row {
 
     fn amount(&self, value: f64) -> String {
         format!("{value:.2} {}", self.metric.unit().symbol())
+    }
+
+    fn base(&self) -> String {
+        match self.base {
+            Base::Measured(base) => self.amount(base),
+            Base::Missing(_) => "no base".to_string(),
+        }
     }
 
     fn target(&self) -> String {
@@ -87,7 +100,7 @@ pub fn check(results: &Results) -> Result<Report> {
             "| {} | {} | {} | {} | {} |\n",
             row.metric.label(),
             row.target(),
-            row.amount(row.base),
+            row.base(),
             row.amount(row.change),
             row.verdict()
         ));
@@ -99,6 +112,17 @@ pub fn check(results: &Results) -> Result<Report> {
     for failure in &failures {
         text.push_str(&format!("- {failure}\n"));
     }
+    let missing: Vec<String> = rows
+        .iter()
+        .filter_map(|row| match &row.base {
+            Base::Missing(reason) => Some(format!("- {}: {reason}\n", row.metric.label())),
+            Base::Measured(_) => None,
+        })
+        .collect();
+    if !missing.is_empty() {
+        text.push_str("\nNo base to compare with, so no regression check:\n");
+        text.push_str(&missing.concat());
+    }
     Ok(Report { text, passed: failures.is_empty() })
 }
 
@@ -108,9 +132,15 @@ fn row(results: &Results, metric: Metric) -> Result<Row> {
         .iter()
         .find(|samples| samples.metric == metric)
         .with_context(|| format!("the results have no samples of {}", metric.label()))?;
+    let base = match &samples.no_base {
+        Some(reason) => Base::Missing(reason.clone()),
+        None => Base::Measured(
+            median(&samples.base).with_context(|| format!("{} has no samples of the base", metric.label()))?,
+        ),
+    };
     Ok(Row {
         metric,
-        base: median(&samples.base).with_context(|| format!("{} has no samples of the base", metric.label()))?,
+        base,
         change: median(&samples.change).with_context(|| format!("{} has no samples of the change", metric.label()))?,
     })
 }

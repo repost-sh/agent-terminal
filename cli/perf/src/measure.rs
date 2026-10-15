@@ -20,6 +20,8 @@ pub struct Setup {
     pub work: PathBuf,
 }
 
+const BASE: usize = 0;
+
 pub fn measure(setup: &Setup) -> Result<Results> {
     std::fs::create_dir_all(&setup.work).with_context(|| format!("create {}", setup.work.display()))?;
     let work = canonical(&setup.work)?;
@@ -32,75 +34,122 @@ pub fn measure(setup: &Setup) -> Result<Results> {
         home,
     };
 
-    let mut idle = [Vec::new(), Vec::new()];
-    let mut tab = [Vec::new(), Vec::new()];
+    let mut idle = Sampled::default();
+    let mut tab = Sampled::default();
     for run in 0..MEMORY_RUNS {
         for side in order(run) {
-            let mut daemon = Daemon::start(agent(side, format!("{}-memory-{run}", binaries[side].0)))?;
-            daemon.agent.run(&["session", "list"])?;
-            let without_tabs = daemon.memory()?;
-            for _ in 0..TABS {
-                daemon.agent.run(&[
-                    "tab",
-                    "new",
-                    "--size",
-                    SIZE,
-                    "--wait",
-                    "ready",
-                    utf8(&busy_screen)?,
-                    "--scrollback",
-                    SCROLLBACK,
-                ])?;
+            match memory(agent(side, format!("{}-memory-{run}", binaries[side].0)), &busy_screen) {
+                Ok((without_tabs, per_tab)) => {
+                    idle.record(side, Ok(without_tabs))?;
+                    tab.record(side, per_tab)?;
+                }
+                Err(e) => {
+                    idle.record(side, Err(anyhow::anyhow!("{e:#}")))?;
+                    tab.record(side, Err(e))?;
+                }
             }
-            let with_tabs = daemon.memory()?;
-            daemon.stop()?;
-            idle[side].push(without_tabs);
-            tab[side].push((with_tabs - without_tabs) / f64::from(TABS));
         }
     }
 
-    let mut base = Screen::open(agent(0, binaries[0].0.to_string()), &busy_screen)?;
+    let mut base = Screen::open(agent(0, binaries[0].0.to_string()), &busy_screen);
     let mut change = Screen::open(agent(1, binaries[1].0.to_string()), &busy_screen)?;
-    let mut screens = [&mut base, &mut change];
-    let round_trip = interleave(&mut screens, |screen| screen.time(&["get", "frame"]))?;
-    let snapshot = interleave(&mut screens, |screen| screen.time(&["snapshot"]))?;
-    let png = interleave(&mut screens, |screen| screen.time(&["screenshot", &screen.screenshot]))?;
-    let wait = interleave(&mut screens, |screen| screen.wait_after_text())?;
-    for screen in screens {
+    let round_trip = interleave(&mut base, &mut change, |screen| screen.time(&["get", "frame"]))?;
+    let snapshot = interleave(&mut base, &mut change, |screen| screen.time(&["snapshot"]))?;
+    let png = interleave(&mut base, &mut change, |screen| screen.time(&["screenshot", &screen.screenshot]))?;
+    let wait = interleave(&mut base, &mut change, |screen| screen.press_wait_after_text())?;
+    if let Ok(screen) = &mut base {
         screen.daemon.stop()?;
     }
+    change.daemon.stop()?;
 
     Ok(Results {
         metrics: vec![
-            samples(Metric::RoundTrip, round_trip),
-            samples(Metric::Snapshot, snapshot),
-            samples(Metric::Png, png),
-            samples(Metric::WaitText, wait),
-            samples(Metric::IdleMemory, idle),
-            samples(Metric::TabMemory, tab),
+            round_trip.samples(Metric::RoundTrip),
+            snapshot.samples(Metric::Snapshot),
+            png.samples(Metric::Png),
+            wait.samples(Metric::PressWaitText),
+            idle.samples(Metric::IdleMemory),
+            tab.samples(Metric::TabMemory),
         ],
     })
+}
+
+fn memory(agent: Agent, busy_screen: &Path) -> Result<(f64, Result<f64>)> {
+    let mut daemon = Daemon::start(agent)?;
+    daemon.agent.run(&["session", "list"])?;
+    let without_tabs = daemon.memory()?;
+    let per_tab = (|| {
+        for _ in 0..TABS {
+            daemon.agent.run(&[
+                "tab",
+                "new",
+                "--size",
+                SIZE,
+                "--wait",
+                "ready",
+                utf8(busy_screen)?,
+                "--scrollback",
+                SCROLLBACK,
+            ])?;
+        }
+        Ok((daemon.memory()? - without_tabs) / f64::from(TABS))
+    })();
+    daemon.stop()?;
+    Ok((without_tabs, per_tab))
 }
 
 fn order(run: usize) -> [usize; 2] {
     if run.is_multiple_of(2) { [0, 1] } else { [1, 0] }
 }
 
-fn samples(metric: Metric, [base, change]: [Vec<f64>; 2]) -> Samples {
-    Samples { metric, base, change }
+#[derive(Default)]
+struct Sampled {
+    base: Vec<f64>,
+    no_base: Option<String>,
+    change: Vec<f64>,
+}
+
+impl Sampled {
+    fn record(&mut self, side: usize, sample: Result<f64>) -> Result<()> {
+        match (side, sample) {
+            (BASE, _) if self.no_base.is_some() => {}
+            (BASE, Ok(value)) => self.base.push(value),
+            (BASE, Err(e)) => {
+                self.base.clear();
+                self.no_base = Some(first_line(&format!("{e:#}")));
+            }
+            (_, Ok(value)) => self.change.push(value),
+            (_, Err(e)) => return Err(e),
+        }
+        Ok(())
+    }
+
+    fn samples(self, metric: Metric) -> Samples {
+        Samples { metric, base: self.base, no_base: self.no_base, change: self.change }
+    }
+}
+
+fn first_line(text: &str) -> String {
+    text.lines().next().unwrap_or(text).to_string()
 }
 
 fn interleave(
-    screens: &mut [&mut Screen; 2],
+    base: &mut Result<Screen>,
+    change: &mut Screen,
     mut sample: impl FnMut(&mut Screen) -> Result<f64>,
-) -> Result<[Vec<f64>; 2]> {
-    let mut samples = [Vec::with_capacity(RUNS), Vec::with_capacity(RUNS)];
+) -> Result<Sampled> {
+    let mut sampled = Sampled::default();
     for run in 0..RUNS {
         for side in order(run) {
-            samples[side].push(sample(screens[side])?);
+            let taken = match (side, &mut *base) {
+                (BASE, Ok(screen)) => sample(screen),
+                (BASE, Err(e)) => Err(anyhow::anyhow!("{e:#}")),
+                _ => sample(change),
+            };
+            sampled.record(side, taken)?;
         }
     }
-    Ok(samples)
+    Ok(sampled)
 }
 
 fn canonical(path: &Path) -> Result<PathBuf> {
@@ -139,12 +188,12 @@ impl Agent {
         let output = self.command(args).output().with_context(|| format!("run {}", self.binary.display()))?;
         ensure!(
             output.status.success(),
-            "`agent-terminal {}` failed for the {} ({}):\n{}{}",
+            "`agent-terminal {}` failed for the {} ({}): {}{}",
             args.join(" "),
             self.side,
             output.status,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
+            String::from_utf8_lossy(&output.stderr).trim_start(),
+            String::from_utf8_lossy(&output.stdout)
         );
         Ok(output)
     }
@@ -240,7 +289,7 @@ impl Screen {
         Ok(milliseconds(started.elapsed()))
     }
 
-    fn wait_after_text(&mut self) -> Result<f64> {
+    fn press_wait_after_text(&mut self) -> Result<f64> {
         self.pressed += 1;
         self.daemon.agent.run(&["press", "x", "--wait", &format!("seen {}.", self.pressed)])?;
         let returned = SystemTime::now();
