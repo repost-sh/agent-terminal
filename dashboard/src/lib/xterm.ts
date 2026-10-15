@@ -3,6 +3,8 @@ import "@xterm/xterm/css/xterm.css";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type ITheme } from "@xterm/xterm";
 
+import { daemonWidths } from "./unicode";
+
 export const LARGEST_FONT_PX = 13;
 
 const FONT = '"JetBrains Mono", ui-monospace, monospace';
@@ -69,7 +71,10 @@ export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () 
       cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches,
       cursorInactiveStyle: "block",
       theme: PALETTE,
+      allowProposedApi: true,
     });
+    terminal.unicode.register(daemonWidths);
+    terminal.unicode.activeVersion = daemonWidths.version;
     terminal.open(host);
     dropAnnouncementsOnceDrawn(terminal);
     drawWithWebgl(terminal);

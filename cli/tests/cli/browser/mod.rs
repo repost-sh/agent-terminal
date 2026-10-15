@@ -13,6 +13,7 @@ mod split;
 mod terminal;
 mod timeline;
 mod toolbar;
+mod widths;
 
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
