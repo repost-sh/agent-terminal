@@ -207,7 +207,9 @@ fn clicking_a_command_shows_the_terminal_where_it_started_and_split_view_has_no_
     browser.wait_until("document.querySelectorAll('main [data-tick=command]').length === 2");
 
     browser.run(&["find", "role", "tab", "click", "--name", "Commands", "--exact"]);
-    browser.run(&["click", "ol[aria-label='Commands in default t1'] > li:nth-child(1) button"]);
+    let first_command = "ol[aria-label='Commands in default t1'] > li:nth-child(1) button";
+    browser.wait_until(&format!("!!document.querySelector({})", js_string(first_command)));
+    browser.run(&["click", first_command]);
     browser.wait_until(&format!(
         "document.querySelector({})?.ariaLabel.endsWith(', viewing frame {started}') ?? false",
         js_string(PAST)
