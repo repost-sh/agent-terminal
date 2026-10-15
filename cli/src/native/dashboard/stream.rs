@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
+use super::follow::Follow;
+use super::{Backend, tab_id};
+use crate::native::terminal::Picture;
+use crate::protocol::{Size, TabId};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
-use tokio::sync::watch;
-
-use super::{Backend, tab_id};
-use crate::native::terminal::{Picture, Terminal};
-use crate::protocol::{Size, TabId};
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -26,11 +25,6 @@ enum Update {
         exit_code: Option<i32>,
     },
     Closed,
-}
-
-struct Watched {
-    terminal: Arc<Terminal>,
-    frames: watch::Receiver<u64>,
 }
 
 type Modes = (bool, Option<&'static str>, bool);
@@ -75,32 +69,25 @@ pub async fn tab(
 }
 
 async fn follow_tab(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
-    let mut lifecycle = backend.changes();
-    let mut watched: Option<Watched> = None;
+    let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.frames()));
     let mut shown: Option<Shown> = None;
     loop {
-        lifecycle.borrow_and_update();
-        let Some(terminal) = backend.terminal(&session, id) else {
+        let Some((terminal, replaced)) = follow.next() else {
             send(&mut socket, &Update::Closed).await;
             return;
         };
-        if watched.as_ref().is_some_and(|watching| !Arc::ptr_eq(&watching.terminal, &terminal)) {
-            watched = None;
+        if replaced {
             shown = None;
         }
-        let watching = watched.get_or_insert_with(|| Watched { frames: terminal.frames(), terminal });
-        watching.frames.borrow_and_update();
-        let picture = watching.terminal.picture();
+        let picture = terminal.picture();
         if let Some(update) = update(&picture, shown.as_ref()) {
             if !send(&mut socket, &update).await {
                 return;
             }
             shown = Some(Shown::of(picture));
         }
-        tokio::select! {
-            changed = lifecycle.changed() => if changed.is_err() { return },
-            changed = watching.frames.changed() => if changed.is_err() { return },
-            received = socket.recv() => if hung_up(received) { return },
+        if !follow.changed(&mut socket).await {
+            return;
         }
     }
 }

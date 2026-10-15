@@ -1,5 +1,10 @@
 use std::sync::Arc;
 
+use super::Backend;
+use super::follow::Follow;
+use super::stream::send;
+use crate::native::render::{self, CellBox};
+use crate::native::store::{ScreenshotEntry, SessionFolder};
 use anyhow::Context;
 use axum::Json;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -7,23 +12,12 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
-
-use super::Backend;
-use super::stream::{hung_up, send};
-use crate::native::render::{self, CellBox};
-use crate::native::store::{ScreenshotEntry, SessionFolder};
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 enum Update {
     Screenshots { screenshots: Vec<ScreenshotEntry> },
     Closed,
-}
-
-struct Watched {
-    folder: Arc<SessionFolder>,
-    listed: watch::Receiver<u64>,
 }
 
 pub async fn stream(
@@ -35,21 +29,16 @@ pub async fn stream(
 }
 
 async fn follow_screenshots(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String) {
-    let mut lifecycle = backend.changes();
-    let mut watched: Option<Watched> = None;
+    let looking = Arc::clone(&backend);
+    let named = session.clone();
+    let lookup = Box::new(move || looking.folder(&named));
+    let mut follow = Follow::new(&backend, lookup, |folder: &SessionFolder| Some(folder.screenshots_listed()));
     let mut sent = String::new();
     loop {
-        lifecycle.borrow_and_update();
-        let Some(folder) = backend.folder(&session) else {
+        let Some((folder, _)) = follow.next() else {
             send(&mut socket, &Update::Closed).await;
             return;
         };
-        if watched.as_ref().is_some_and(|watching| !Arc::ptr_eq(&watching.folder, &folder)) {
-            watched = None;
-        }
-        let watching = watched.get_or_insert_with(|| Watched { listed: folder.screenshots_listed(), folder });
-        watching.listed.borrow_and_update();
-        let folder = Arc::clone(&watching.folder);
         let screenshots = match tokio::task::spawn_blocking(move || folder.screenshots()).await {
             Ok(Ok(screenshots)) => screenshots,
             Ok(Err(e)) => {
@@ -74,10 +63,8 @@ async fn follow_screenshots(mut socket: WebSocket, backend: Arc<dyn Backend>, se
             }
             sent = update;
         }
-        tokio::select! {
-            changed = lifecycle.changed() => if changed.is_err() { return },
-            changed = watching.listed.changed() => if changed.is_err() { return },
-            received = socket.recv() => if hung_up(received) { return },
+        if !follow.changed(&mut socket).await {
+            return;
         }
     }
 }

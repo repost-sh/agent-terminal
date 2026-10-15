@@ -3,6 +3,7 @@ mod assets;
 mod commands;
 mod control;
 mod details;
+mod follow;
 mod guard;
 mod open;
 mod screenshots;
