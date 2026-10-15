@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -67,12 +66,8 @@ pub async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
 pub async fn screenshot(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
-    body: Bytes,
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    if !body.is_empty() {
-        return refused("a dashboard screenshot is always of the current screen; its request has no body".to_string());
-    }
     call(backend, Request::Screenshot { target: Target::tab(&session, id), shot: Shot::default() }).await
 }
 

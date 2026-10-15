@@ -211,11 +211,3 @@ impl Drop for Browser {
 pub fn js_string(text: &str) -> String {
     serde_json::to_string(text).expect("a JSON string")
 }
-
-pub fn timeline_controls(browser: &Browser) -> Vec<String> {
-    browser.eval_json(
-        "[...document.querySelectorAll('main input[type=range], main [role=slider]')].map((control) => `slider ${control.ariaLabel}`)\
-         .concat([...document.querySelectorAll('main button')].filter((button) => button.textContent.trim() === 'Live').map(() => 'Live button'))\
-         .concat(document.querySelector('main').innerText.includes('Viewing frame') ? ['Viewing frame label'] : [])",
-    )
-}

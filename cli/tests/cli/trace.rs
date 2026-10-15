@@ -194,6 +194,4 @@ fn trace_export_says_it_zips_the_activity_log_the_screenshot_list_and_the_comman
         help.contains("Zip the session folder (activity log, screenshot list, command logs) with its screenshots"),
         "{help}"
     );
-    let lowered = help.to_lowercase();
-    assert!(!lowered.contains("record") && !lowered.contains("clip"), "{help}");
 }

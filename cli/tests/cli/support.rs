@@ -190,28 +190,12 @@ pub struct DashboardSocket {
 }
 
 impl DashboardSocket {
-    fn connect(port: u16, path: &str) -> (TcpStream, String) {
+    pub fn open(port: u16, path: &str) -> Self {
         let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to the dashboard");
         stream.set_read_timeout(Some(READ_TIMEOUT)).expect("bound every read");
-        (stream, format!("ws://localhost:{port}{path}"))
-    }
-
-    pub fn open(port: u16, path: &str) -> Self {
-        let (stream, url) = Self::connect(port, path);
+        let url = format!("ws://localhost:{port}{path}");
         let (socket, _) = tungstenite::client(url.as_str(), stream).unwrap_or_else(|e| panic!("open {url}: {e}"));
         Self { socket }
-    }
-
-    pub fn refusal(port: u16, path: &str) -> (u16, String) {
-        let (stream, url) = Self::connect(port, path);
-        match tungstenite::client(url.as_str(), stream) {
-            Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(response))) => {
-                let body = response.body().as_deref().map(String::from_utf8_lossy).unwrap_or_default();
-                (response.status().as_u16(), body.into_owned())
-            }
-            Ok(_) => panic!("the dashboard opened {url}"),
-            Err(e) => panic!("open {url}: {e}"),
-        }
     }
 
     pub fn next(&mut self) -> serde_json::Value {
@@ -239,7 +223,7 @@ impl DashboardSocket {
 
     pub fn acknowledge(&mut self, message: &serde_json::Value) -> u64 {
         let frame = frame_number(message);
-        self.send(&serde_json::json!({ "type": "shown", "frame": frame }));
+        self.send(&serde_json::json!({ "type": "shown" }));
         frame
     }
 

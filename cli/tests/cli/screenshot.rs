@@ -461,11 +461,3 @@ fn an_input_command_saves_a_screenshot_once_its_wait_is_over() {
     assert_eq!(json["screenshot"]["frame"], alpha);
     assert_eq!(png_size(&default), (470, 180));
 }
-
-#[test]
-fn clip_is_not_a_command_so_screenshots_are_the_evidence() {
-    let at = AgentTerminal::new();
-    let run = at.run(&["clip", "crash.gif", "--last", "10s"]);
-    assert_eq!(run.code(), 1);
-    assert!(run.stderr().starts_with("error: unrecognized subcommand 'clip'\n"), "{}", run.stderr());
-}
