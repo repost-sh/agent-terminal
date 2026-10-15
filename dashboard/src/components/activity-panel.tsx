@@ -6,7 +6,7 @@ import { screenshotUrl } from "../lib/api";
 import { clockMs, formatDuration } from "../lib/format";
 import type { PendingCall } from "../lib/protocol";
 import { fileName, useScreenshots } from "../lib/screenshots";
-import { tabName } from "../lib/tabs";
+import { tabKey, tabName } from "../lib/tabs";
 import { endOf, goLive, showMoment, useViewingPast } from "../lib/timeline";
 import type { PanelProps } from "../panels";
 import { announce } from "./announcer";
@@ -139,7 +139,7 @@ const PendingRow = ({ call }: { call: PendingCall }) => (
 );
 
 export const ActivityPanel = ({ session, tab }: PanelProps) => {
-  const key = `${session}/${tab.tab}`;
+  const key = tabKey(session, tab.tab);
   const name = tabName(session, tab.tab);
   const { entries, pending } = useActivity(session, tab.tab);
   const [clearedAt, setClearedAt] = useState(() => cleared.get(key) ?? null);

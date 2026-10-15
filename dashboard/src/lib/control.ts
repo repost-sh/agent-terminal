@@ -6,7 +6,7 @@ import { toast } from "../components/toaster";
 import { controlUrl } from "./api";
 import { focusNext } from "./focus";
 import type { ControlUpdate, HumanInput } from "./protocol";
-import { tabName } from "./tabs";
+import { tabKey, tabName } from "./tabs";
 
 export type ControlState = "off" | "taking" | "held";
 
@@ -14,8 +14,6 @@ type Held = { socket: WebSocket; state: ControlState };
 
 const holds = new Map<string, Held>();
 const listeners = new Set<() => void>();
-
-const keyOf = (session: string, tab: string) => `${session}/${tab}`;
 
 const publish = () => listeners.forEach((listener) => listener());
 
@@ -26,13 +24,13 @@ const subscribe = (listener: () => void) => {
 
 export const controlButtonId = (session: string, tab: string) => `take-control-${encodeURIComponent(session)}-${tab}`;
 
-export const controlTerminal = (session: string, tab: string) => `control-terminal:${keyOf(session, tab)}`;
+export const controlTerminal = (session: string, tab: string) => `control-terminal:${tabKey(session, tab)}`;
 
 export const useControl = (session: string, tab: string): ControlState =>
-  useSyncExternalStore(subscribe, () => holds.get(keyOf(session, tab))?.state ?? "off");
+  useSyncExternalStore(subscribe, () => holds.get(tabKey(session, tab))?.state ?? "off");
 
 const handedBack = (session: string, tab: string, socket: WebSocket) => {
-  const key = keyOf(session, tab);
+  const key = tabKey(session, tab);
   if (holds.get(key)?.socket !== socket) return false;
   holds.delete(key);
   publish();
@@ -40,7 +38,7 @@ const handedBack = (session: string, tab: string, socket: WebSocket) => {
 };
 
 export const takeControl = (session: string, tab: string, program: string) => {
-  const key = keyOf(session, tab);
+  const key = tabKey(session, tab);
   if (holds.has(key)) return;
   const name = tabName(session, tab);
   const socket = new WebSocket(controlUrl(session, tab));
@@ -69,7 +67,7 @@ export const takeControl = (session: string, tab: string, program: string) => {
 };
 
 export const releaseControl = (session: string, tab: string) => {
-  const held = holds.get(keyOf(session, tab));
+  const held = holds.get(tabKey(session, tab));
   if (!held) return;
   handedBack(session, tab, held.socket);
   held.socket.close();
@@ -77,7 +75,7 @@ export const releaseControl = (session: string, tab: string) => {
 };
 
 const send = (session: string, tab: string, input: HumanInput) => {
-  const held = holds.get(keyOf(session, tab));
+  const held = holds.get(tabKey(session, tab));
   if (held?.state === "held" && held.socket.readyState === WebSocket.OPEN) held.socket.send(JSON.stringify(input));
 };
 
