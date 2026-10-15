@@ -1,0 +1,20 @@
+{
+  "name": "agent-terminal",
+  "description": "Terminal automation for AI agents",
+  "owner": {
+    "name": "repost-sh",
+    "url": "https://github.com/repost-sh"
+  },
+  "plugins": [
+    {
+      "name": "agent-terminal",
+      "description": "Runs and drives programs in real terminals: TUIs, REPLs, interactive prompts and CLIs, with screen snapshots, screenshots and clips",
+      "source": "./",
+      "skills": ["./skills/agent-terminal"],
+      "homepage": "https://github.com/repost-sh/agent-terminal",
+      "repository": "https://github.com/repost-sh/agent-terminal",
+      "license": "Apache-2.0",
+      "category": "development"
+    }
+  ]
+}

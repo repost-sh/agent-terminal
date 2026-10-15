@@ -65,7 +65,8 @@ impl Skill {
 
     fn guide(&self) -> String {
         let (front, body) = self.sections();
-        format!("---\n{front}\nmetadata:\n  version: \"{VERSION}\"\n---\n{body}")
+        let fields = front.split_once("\nmetadata:\n").map_or(front, |(fields, _)| fields);
+        format!("---\n{fields}\nmetadata:\n  version: \"{VERSION}\"\n---\n{body}")
     }
 
     fn files(&self) -> Vec<(&'static str, String)> {
@@ -87,8 +88,8 @@ impl Skill {
         description.find(". ").map_or(description, |end| &description[..=end])
     }
 
-    fn hidden(&self) -> bool {
-        self.frontmatter("hidden") == Some("true")
+    fn is_stub(&self) -> bool {
+        self.name == "agent-terminal"
     }
 }
 
@@ -240,7 +241,7 @@ fn find(name: &str) -> Result<&'static Skill> {
 }
 
 fn list(json: bool) {
-    let listed: Vec<&Skill> = SKILLS.iter().filter(|skill| !skill.hidden()).collect();
+    let listed: Vec<&Skill> = SKILLS.iter().filter(|skill| !skill.is_stub()).collect();
     if json {
         let skills: Vec<_> = listed
             .iter()
