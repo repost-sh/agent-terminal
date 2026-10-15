@@ -107,17 +107,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: cli
-      - name: Install fish for the shell tests
+      - name: Install zsh and fish for the shell tests
         if: runner.os == 'Linux'
         run: |
           sudo add-apt-repository --yes ppa:fish-shell/release-4
           sudo apt-get update
-          sudo apt-get install --yes fish
+          sudo apt-get install --yes zsh fish
+          zsh --version
           fish --version
       - name: Install fish for the shell tests
         if: runner.os == 'macOS'
         run: |
           brew install fish
+          zsh --version
           fish --version
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings

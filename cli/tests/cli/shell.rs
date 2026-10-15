@@ -10,19 +10,16 @@ struct ShellTab {
 }
 
 impl ShellTab {
-    fn new(shell: &'static str) -> Option<Self> {
-        if !installed(shell) {
-            eprintln!("skipping the {shell} case: {shell} is not installed (no {shell} on PATH)");
-            return None;
-        }
+    fn new(shell: &'static str) -> Self {
+        assert!(installed(shell), "the shell tests run in zsh, bash and fish, and {shell} is not on PATH; install it");
         let temp = |prefix: &str| tempfile::Builder::new().prefix(prefix).tempdir_in("/tmp").expect("temp folder");
-        Some(Self { at: AgentTerminal::new(), shell, home: temp("home-"), work: temp("work-") })
+        Self { at: AgentTerminal::new(), shell, home: temp("home-"), work: temp("work-") }
     }
 
-    fn opened(shell: &'static str) -> Option<Self> {
-        let tab = Self::new(shell)?;
+    fn opened(shell: &'static str) -> Self {
+        let tab = Self::new(shell);
         tab.open().success();
-        Some(tab)
+        tab
     }
 
     fn open(&self) -> Run {
@@ -97,14 +94,14 @@ in_every_shell!(
 );
 
 fn exec_prints_the_output_and_the_exit_code(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     let run = tab.run(&["exec", "echo hello"]).success();
     assert_eq!(timeless(&run.stdout()), format!("hello\n1 · exit 0 · <time> · {cwd} · echo hello\n"));
 }
 
 fn history_keeps_every_command_with_its_exit_code_cwd_and_output(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     let sub = format!("{cwd}/sub");
     assert_eq!(tab.run(&["history"]).success().stdout(), "no commands have run in default t1\n");
@@ -150,7 +147,7 @@ fn history_keeps_every_command_with_its_exit_code_cwd_and_output(shell: &'static
 }
 
 fn wait_command_waits_for_a_long_running_command(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     let hold = tab.work.path().join("hold");
     let status = std::process::Command::new("mkfifo").arg(&hold).status().expect("run mkfifo");
@@ -204,7 +201,7 @@ fn wait_command_waits_for_a_long_running_command(shell: &'static str) {
 }
 
 fn a_cancelled_command_line_leaves_the_shell_ready(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     for cancel in [&["press", "Ctrl+c"][..], &["signal", "INT"]] {
         tab.run(&["type", "echo 'unfinished\n"]).success();
@@ -219,7 +216,7 @@ fn a_cancelled_command_line_leaves_the_shell_ready(shell: &'static str) {
 }
 
 fn exec_after_a_line_the_shell_refused_starts_on_an_empty_command_line(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     let refused = tab.run(&["exec", ")"]);
     assert_eq!(refused.code(), 1);
@@ -260,7 +257,7 @@ fn finished(id: u32, command: &str, cwd: &str, exit_code: i32, output: &str) -> 
 }
 
 fn the_command_log_keeps_every_finished_command_with_its_output(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     tab.run(&["exec", "echo passing"]).success();
     tab.run(&["exec", "echo failing; false"]).success();
@@ -294,7 +291,7 @@ fn the_command_log_keeps_every_finished_command_with_its_output(shell: &'static 
 }
 
 fn the_users_startup_files_load_and_stay_untouched(shell: &'static str) {
-    let Some(tab) = ShellTab::new(shell) else { return };
+    let tab = ShellTab::new(shell);
     let home = tab.home.path();
     let files: Vec<(PathBuf, &str)> = match shell {
         "zsh" => vec![
@@ -352,7 +349,7 @@ fn a_tab_without_shell_integration_says_so() {
 
 #[test]
 fn exec_says_when_the_shell_exits() {
-    let Some(tab) = ShellTab::opened("zsh") else { return };
+    let tab = ShellTab::opened("zsh");
     let run = tab.run(&["exec", "exit 4"]);
     assert_eq!(run.code(), 5);
     assert_eq!(
@@ -365,7 +362,7 @@ fn exec_says_when_the_shell_exits() {
 
 #[test]
 fn exec_refuses_what_is_not_one_command_line() {
-    let Some(tab) = ShellTab::opened("zsh") else { return };
+    let tab = ShellTab::opened("zsh");
     let empty = tab.run(&["exec", " "]);
     assert_eq!(empty.code(), 1);
     assert_eq!(empty.stderr(), "error: exec needs a command line, e.g. exec \"cargo test\"\n");
@@ -385,7 +382,7 @@ fn exec_refuses_what_is_not_one_command_line() {
 
 #[test]
 fn exec_and_history_print_json() {
-    let Some(tab) = ShellTab::opened("bash") else { return };
+    let tab = ShellTab::opened("bash");
     let cwd = tab.cwd();
     let mut ran = tab.run(&["--json", "exec", "echo hi"]).success().json();
     let started = ran["started_at_ms"].as_u64().expect("started_at_ms");
@@ -424,7 +421,7 @@ fn exec_and_history_print_json() {
 
 #[test]
 fn the_activity_log_keeps_the_exit_code_exec_check_exits_with() {
-    let Some(tab) = ShellTab::opened("zsh") else { return };
+    let tab = ShellTab::opened("zsh");
     assert_eq!(tab.run(&["exec", "--check", "sh -c 'exit 7'"]).code(), 7);
     tab.run(&["exec", "false"]).success();
     let log = std::fs::read_to_string(tab.at.home().join("sessions/default/activity.jsonl")).expect("activity log");
@@ -439,7 +436,7 @@ fn the_activity_log_keeps_the_exit_code_exec_check_exits_with() {
 
 #[test]
 fn restart_opens_the_shell_again_with_integration() {
-    let Some(tab) = ShellTab::opened("zsh") else { return };
+    let tab = ShellTab::opened("zsh");
     tab.run(&["exec", "echo before"]).success();
     tab.run(&["restart"]).success();
     let cwd = tab.cwd();
@@ -451,7 +448,7 @@ fn restart_opens_the_shell_again_with_integration() {
 
 #[test]
 fn shell_says_when_the_first_prompt_never_comes() {
-    let Some(tab) = ShellTab::new("bash") else { return };
+    let tab = ShellTab::new("bash");
     std::fs::write(tab.home.path().join(".bashrc"), "echo starting\nread -r answer\n").expect("write .bashrc");
     let run = tab.run(&["shell", "--shell", "bash", "--size", "40x5", "--timeout", "500"]);
     assert_eq!(run.code(), 3);
@@ -466,7 +463,7 @@ fn shell_says_when_the_first_prompt_never_comes() {
 
 #[test]
 fn execs_sent_together_run_one_after_the_other() {
-    let Some(tab) = ShellTab::opened("zsh") else { return };
+    let tab = ShellTab::opened("zsh");
     let words = ["alpha", "bravo", "charlie", "delta"];
     let outputs: Vec<String> = std::thread::scope(|scope| {
         let calls: Vec<_> = words
@@ -493,7 +490,7 @@ fn execs_sent_together_run_one_after_the_other() {
 
 #[test]
 fn shell_opens_the_shell_your_shell_variable_names() {
-    let Some(tab) = ShellTab::new("bash") else { return };
+    let tab = ShellTab::new("bash");
     let work = tab.work.path().to_string_lossy().into_owned();
     let shell_args = ["shell", "--size", "40x5", "--cwd", work.as_str()];
     let bash = which("bash");
