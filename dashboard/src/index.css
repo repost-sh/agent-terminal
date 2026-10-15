@@ -2,6 +2,8 @@
 @source not "./**/*.test.{ts,tsx}";
 @source not "./fake-daemon";
 @source not "./test-setup.ts";
+@source not "../eslint";
+@source not "../gauntlet";
 @import "@fontsource-variable/geist/wght.css";
 @import "@fontsource-variable/geist-mono/wght.css";
 @font-face { font-family: "JetBrains Mono NL"; font-weight: 400; font-style: normal; font-display: block; src: url("/fonts/JetBrainsMonoNL-Regular.ttf") format("truetype"); }

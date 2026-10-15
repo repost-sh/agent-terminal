@@ -66,6 +66,7 @@ const STRICT_FLAGS = [
 const LINTED = () => [
   ...globSync("src/**/*.{ts,tsx}", { cwd: ROOT }),
   ...globSync("eslint/*.ts", { cwd: ROOT }).filter((file) => !file.endsWith(".d.ts")),
+  ...globSync("gauntlet/*.ts", { cwd: ROOT }),
   "vite.config.ts",
   "vitest.config.ts",
   "eslint.config.js",
@@ -185,6 +186,14 @@ void test("both TypeScript projects keep every strict flag and silence no deprec
     assert.deepEqual(lowered, [], `${path} lowers ${lowered.join(", ")}: set them back to true and fix the code → GAUNTLET.md#sealed-eslint-config`);
     assert.equal("ignoreDeprecations" in options, false, `${path} silences deprecations: change the deprecated option instead → GAUNTLET.md#sealed-eslint-config`);
   }
+});
+
+void test("the CRAP tool's TypeScript project only extends the tooling project", () => {
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(ROOT, "gauntlet", "tsconfig.json"), "utf8")),
+    { extends: "../eslint/tsconfig.json", include: ["*.ts"] },
+    `gauntlet/tsconfig.json may only extend eslint/tsconfig.json: put options there → GAUNTLET.md#sealed-eslint-config`,
+  );
 });
 
 void test("the scripts lint with no warnings allowed and type-check without emitting", () => {

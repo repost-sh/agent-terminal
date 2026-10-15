@@ -62,7 +62,7 @@ const restrictedSyntax = [
   },
 ];
 
-const LINTED = ["src/**/*.{ts,tsx}", "vite.config.ts", "vitest.config.ts", "eslint.config.js", "eslint/**/*.ts"];
+const LINTED = ["src/**/*.{ts,tsx}", "vite.config.ts", "vitest.config.ts", "eslint.config.js", "eslint/**/*.ts", "gauntlet/**/*.ts"];
 
 export default defineConfig(
   {

@@ -46,8 +46,11 @@ dashboard() {
   step "fix the code each finding names; never disable a rule → GAUNTLET.md#dashboard-lint" npm run --silent lint
   step "fix the type errors → GAUNTLET.md#dashboard-types" npm run --silent check
   step "fix the type errors in the lint tooling → GAUNTLET.md#dashboard-types" node_modules/.bin/tsc --noEmit -p eslint
+  step "fix the type errors in the CRAP tool → GAUNTLET.md#dashboard-types" node_modules/.bin/tsc --noEmit -p gauntlet
   step "fix the rule or the sealed config the failing test names → GAUNTLET.md#sealed-eslint-config" node --test 'eslint/*.test.ts'
+  step "fix the CRAP tool the failing test names → GAUNTLET.md#crap" node --test 'gauntlet/*.test.ts'
   step "fix the code the failing test names, or test the lines it reports uncovered → GAUNTLET.md#dashboard-tests" npm run --silent test
+  step "cover every branch of each function it names, or split the function → GAUNTLET.md#crap" node gauntlet/crap.ts
   step "fix the build error → GAUNTLET.md#dashboard-build" npm run --silent build
   cd "$root"
   git diff --quiet -- cli/assets/dashboard || fail "the built dashboard differs from cli/assets/dashboard: commit the rebuilt cli/assets/dashboard with its sources → GAUNTLET.md#dashboard-build"
