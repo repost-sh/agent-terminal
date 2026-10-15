@@ -39,6 +39,9 @@ fn while_a_human_is_attached_input_exits_4_and_wait_control_resumes_once_they_de
         held.stderr(),
         "error: timed out after 300 ms waiting for a human to hand back control of app t1; wait longer with --timeout <ms>\n"
     );
+    let asserted = at.run(&["--session", "app", "--timeout", "300", "wait", "--control", "--assert"]);
+    assert_eq!(asserted.code(), 2);
+    assert_eq!(asserted.stderr(), "error: a human did not hand back control of app t1 within 300 ms\n");
 
     std::thread::scope(|scope| {
         let waiting = scope.spawn(|| at.run(&["--session", "app", "--json", "wait", "--control"]));
