@@ -31,7 +31,7 @@ type Timeline = {
   subscribe: (listener: () => void) => () => void;
   read: () => TimelineState;
   frame: (frame: number) => TimelineFrame | null;
-  paint: (terminal: Terminal) => () => void;
+  paint: (terminal: Terminal, drawn: () => void) => () => void;
 };
 
 const timelines = new Map<string, Timeline>();
@@ -76,7 +76,7 @@ const createTimeline = (session: string, tab: string): Timeline => {
     };
   };
 
-  const paint = (terminal: Terminal) => {
+  const paint = (terminal: Terminal, drawn: () => void) => {
     let painted: TimelineFrame | null = null;
     const repaint = () => {
       const shown = viewed.get(key);
@@ -91,6 +91,7 @@ const createTimeline = (session: string, tab: string): Timeline => {
           .slice(from, target.frame)
           .map((frame) => frame.paint)
           .join(""),
+        drawn,
       );
       painted = target;
     };

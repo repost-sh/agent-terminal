@@ -34,7 +34,7 @@ fn wait_for_timeline(browser: &Browser, last: u64) {
 
 fn wait_for_past(browser: &Browser, frame: u64, rows: &[String]) {
     browser.wait_until(&format!(
-        "(() => {{ const shown = document.querySelector({}); if (!shown || !shown.ariaLabel.endsWith(', viewing frame {frame}')) return false; const tree = shown.querySelector('.xterm-accessibility-tree'); if (!tree) return false; const rows = [...tree.children].map((row) => row.textContent.trimEnd()); while (rows.length && !rows[rows.length - 1]) rows.pop(); return JSON.stringify(rows) === {}; }})()",
+        "(() => {{ const shown = document.querySelector({}); if (!shown || !shown.ariaLabel.endsWith(', viewing frame {frame}')) return false; const list = shown.querySelector('[aria-label=\"Screen\"]'); if (!list) return false; const rows = [...list.children].map((row) => row.textContent.trimEnd()); while (rows.length && !rows[rows.length - 1]) rows.pop(); return JSON.stringify(rows) === {}; }})()",
         js_string(PAST),
         js_string(&serde_json::to_string(rows).expect("rows as JSON"))
     ));
@@ -218,14 +218,14 @@ fn clicking_a_command_shows_the_terminal_where_it_started_and_split_view_has_no_
     ));
     assert!(browser.status()[0].starts_with(&format!("Viewing frame {started} · ")), "{:?}", browser.status());
     browser.wait_until(&format!(
-        "document.querySelector({})?.querySelector('.xterm-accessibility-tree')?.textContent.includes('$') ?? false",
+        "document.querySelector({})?.querySelector('[aria-label=\"Screen\"]')?.textContent.includes('$') ?? false",
         js_string(PAST)
     ));
     assert!(!browser.screen_in(PAST).iter().any(|row| row == "42"), "{:?}", browser.screen_in(PAST));
 
     browser.click_button("Two terminals side by side");
     browser.wait_until("location.pathname.startsWith('/split/')");
-    browser.wait_until("!!document.querySelector('.split-grid .xterm-accessibility-tree')");
+    browser.wait_until("!!document.querySelector('.split-grid [aria-label=\"Screen\"]')");
     assert_eq!(browser.eval("document.querySelectorAll('main input[type=range]').length"), "0");
     assert_eq!(browser.eval(&format!("document.querySelector({}) === null", js_string(PAST))), "true");
 }
