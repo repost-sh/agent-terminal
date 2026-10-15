@@ -1,4 +1,4 @@
-use std::io::{ErrorKind, Read, Write};
+use std::io::{Read, Write};
 use std::sync::{Arc, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -31,22 +31,20 @@ pub(super) fn follow(terminal: &Arc<Terminal>, reader: Box<dyn Read + Send>, wai
 impl Terminal {
     fn pump(&self, mut reader: Box<dyn Read + Send>) {
         let mut buffer = vec![0u8; 64 * 1024];
-        loop {
-            let read = match reader.read(&mut buffer) {
-                Ok(0) => return,
-                Ok(read) => read,
-                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
-                Err(e) if e.raw_os_error() == Some(libc::EIO) => return,
-                Err(e) => {
-                    log::note(format_args!("{}: reading program output failed: {e}", self.program));
-                    return;
-                }
-            };
-            let Some(bytes) = buffer.get(..read) else {
-                log::note(format_args!("{}: its output reported more bytes than were read", self.program));
-                return;
-            };
-            self.output(bytes);
+        while let Some(read) = self.read_output(&mut reader, &mut buffer) {
+            self.output(buffer.get(..read).unwrap_or_default());
+        }
+    }
+
+    fn read_output(&self, reader: &mut Box<dyn Read + Send>, buffer: &mut [u8]) -> Option<usize> {
+        match reader.read(buffer) {
+            Ok(0) => None,
+            Ok(read) => Some(read),
+            Err(e) if e.raw_os_error() == Some(libc::EIO) => None,
+            Err(e) => {
+                log::note(format_args!("{}: reading program output failed: {e}", self.program));
+                None
+            }
         }
     }
 

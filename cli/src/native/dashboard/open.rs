@@ -75,9 +75,13 @@ fn working_directory(typed: &str) -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or_else(|| format!("HOME is not set, so {typed:?} has no home to start from; give an absolute path"))?;
-    let relative = match typed.strip_prefix('~') {
+    let relative = under_home(typed);
+    Ok(if relative.is_empty() { home } else { home.join(relative) })
+}
+
+fn under_home(typed: &str) -> &str {
+    match typed.strip_prefix('~') {
         Some(rest) if rest.is_empty() || rest.starts_with('/') => rest.trim_start_matches('/'),
         _ => typed,
-    };
-    Ok(if relative.is_empty() { home } else { home.join(relative) })
+    }
 }

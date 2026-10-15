@@ -292,19 +292,24 @@ fn remove_older_versions(cache: &Path) -> Result<()> {
     let ours = crate::this_version()?;
     for entry in std::fs::read_dir(cache).with_context(|| format!("read {}", cache.display()))? {
         let entry = entry.with_context(|| format!("read {}", cache.display()))?;
-        let folder = entry.path();
-        let older =
-            entry.file_name().to_str().and_then(|name| Version::parse(name).ok()).is_some_and(|theirs| theirs < ours);
-        if !older || !entry.file_type().with_context(|| format!("inspect {}", folder.display()))?.is_dir() {
-            continue;
-        }
-        if let Err(e) = std::fs::remove_dir_all(&folder)
-            && e.kind() != ErrorKind::NotFound
-        {
-            return Err(e).with_context(|| format!("remove {}", folder.display()));
+        if is_an_older_version(&entry, &ours)? {
+            remove_version(&entry.path())?;
         }
     }
     Ok(())
+}
+
+fn is_an_older_version(entry: &std::fs::DirEntry, ours: &Version) -> Result<bool> {
+    let older =
+        entry.file_name().to_str().and_then(|name| Version::parse(name).ok()).is_some_and(|theirs| theirs < *ours);
+    Ok(older && entry.file_type().with_context(|| format!("inspect {}", entry.path().display()))?.is_dir())
+}
+
+fn remove_version(folder: &Path) -> Result<()> {
+    match std::fs::remove_dir_all(folder) {
+        Err(e) if e.kind() != ErrorKind::NotFound => Err(e).with_context(|| format!("remove {}", folder.display())),
+        _ => Ok(()),
+    }
 }
 
 fn write_atomically(path: &Path, contents: &str) -> Result<()> {

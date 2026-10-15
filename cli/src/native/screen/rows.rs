@@ -30,24 +30,24 @@ pub(super) fn located_row(row: &Row<GridCell>, cols: u16) -> (String, Vec<u16>) 
     (text, columns)
 }
 
+fn shows(cell: &GridCell) -> bool {
+    cell.c != ' '
+        || cell.bg != Color::Named(NamedColor::Background)
+        || cell.flags.intersects(Flags::INVERSE | Flags::ALL_UNDERLINES | Flags::STRIKEOUT)
+}
+
+fn switch_to(style: &str) -> String {
+    if style.is_empty() { "\x1b[0m".to_string() } else { format!("\x1b[0;{style}m") }
+}
+
 pub(super) fn styled_row(row: &Row<GridCell>, cols: u16) -> String {
-    let shows = |cell: &GridCell| {
-        cell.c != ' '
-            || cell.bg != Color::Named(NamedColor::Background)
-            || cell.flags.intersects(Flags::INVERSE | Flags::ALL_UNDERLINES | Flags::STRIKEOUT)
-    };
     let end = (0..usize::from(cols)).rposition(|col| shows(&row[Column(col)])).map_or(0, |i| i + 1);
     let mut text = String::new();
     let mut current = String::new();
     for cell in (0..end).map(|col| &row[Column(col)]).filter(|cell| !is_spacer(cell)) {
         let style = sgr(cell);
         if style != current {
-            text.push_str("\x1b[0");
-            if !style.is_empty() {
-                text.push(';');
-                text.push_str(&style);
-            }
-            text.push('m');
+            text.push_str(&switch_to(&style));
             current = style;
         }
         push_cell(&mut text, cell);

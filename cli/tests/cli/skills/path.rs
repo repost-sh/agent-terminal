@@ -83,3 +83,19 @@ fn skills_path_removes_the_folders_older_versions_left() {
         "a newer version's folder is not this version's to remove"
     );
 }
+
+#[test]
+fn skills_path_says_which_older_folder_it_could_not_remove() {
+    use std::os::unix::fs::PermissionsExt;
+    let at = AgentTerminal::new();
+    let older = at.home().join("skills").join("0.0.1");
+    std::fs::create_dir_all(older.join("tui-qa")).unwrap();
+    let mut locked = std::fs::metadata(&older).unwrap().permissions();
+    locked.set_mode(0o500);
+    std::fs::set_permissions(&older, locked.clone()).unwrap();
+    let refused = at.run(&["skills", "path"]);
+    locked.set_mode(0o700);
+    std::fs::set_permissions(&older, locked).unwrap();
+    assert_eq!(refused.code(), 1, "{}", refused.stderr());
+    assert!(refused.stderr().starts_with(&format!("error: remove {}: ", older.display())), "{}", refused.stderr());
+}

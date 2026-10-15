@@ -8,9 +8,15 @@ mod browser;
 #[cfg(test)]
 mod control;
 #[cfg(test)]
+mod daemon_socket;
+#[cfg(test)]
 mod daemon_version;
 #[cfg(test)]
 mod dashboard;
+#[cfg(test)]
+mod dashboard_control;
+#[cfg(test)]
+mod dashboard_feeds;
 #[cfg(test)]
 mod diff;
 #[cfg(test)]

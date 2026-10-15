@@ -106,3 +106,16 @@ fn the_powerline_arrow_and_the_nerd_folder_are_drawn(shot: &Picture) {
     assert!(!arrow.inked(7..9, 0..2, BACKGROUND), "the powerline arrow  narrows to a point");
     assert!(shot.cell(6, 27).inked(0..9, 0..20, BACKGROUND), "the nerd font folder  is drawn");
 }
+
+#[test]
+fn strikeout_draws_a_line_across_the_whole_cell() {
+    let at = AgentTerminal::new();
+    let screen = Screen::open(&at, "12x2", "\x1b[?25l\x1b[9mstrike\x1b[0m end", "end");
+    let path = screen.file("strike.png");
+    at.run(&["screenshot", &path.to_string_lossy()]).success();
+    let shot = picture(&path);
+    let full_rows =
+        |col| (0..20).filter(|&y| (0..9).all(|x| shot.cell(1, col).inked(x..x + 1, y..y + 1, BACKGROUND))).count();
+    assert_eq!((1..=6).map(full_rows).collect::<Vec<_>>(), [1; 6], "each struck letter has one full-width row");
+    assert_eq!((8..=10).map(full_rows).collect::<Vec<_>>(), [0; 3], "the plain letters have none");
+}

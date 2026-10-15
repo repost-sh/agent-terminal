@@ -264,6 +264,68 @@ fn the_dashboard_serves_no_file_the_session_does_not_list_as_a_screenshot() {
 }
 
 #[test]
+fn a_listed_screenshot_deleted_from_disk_says_it_cannot_be_read() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    let shot = at.home().join("gone.png");
+    at.run(&["screenshot", &shot.to_string_lossy()]).success();
+    std::fs::remove_file(&shot).expect("delete the screenshot");
+    let port = start(&at);
+
+    let path = shot.to_string_lossy();
+    let missing = get(port, &format!("/api/session/default/screenshots/{}", path_segment(&path)), &[]);
+    assert_eq!(missing.status, 404, "{}", missing.head);
+    assert!(missing.body.starts_with(&format!("cannot read the screenshot {path}: ")), "{}", missing.body);
+}
+
+#[test]
+fn opening_from_the_dashboard_without_home_needs_an_absolute_working_directory() {
+    let at = AgentTerminal::new();
+    let started =
+        at.command(&["--json", "dashboard", "start", "--port", "0"]).env_remove("HOME").output().expect("start");
+    assert!(started.status.success(), "{}", String::from_utf8_lossy(&started.stderr));
+    let started: serde_json::Value = serde_json::from_slice(&started.stdout).expect("JSON");
+    let port = u16::try_from(started["port"].as_u64().expect("a port")).expect("a port number");
+    let opening = |cwd: &str| {
+        format!(
+            r#"{{"session":"s","new_session":true,"command":"cat","cwd":"{cwd}","cols":20,"rows":5,"shell_integration":false}}"#
+        )
+    };
+
+    let refused = post(port, "/api/sessions", &opening("~/work"));
+    assert_eq!(refused.status, 422, "{}", refused.body);
+    assert!(
+        refused.body.contains(r#"HOME is not set, so \"~/work\" has no home to start from; give an absolute path"#),
+        "{}",
+        refused.body
+    );
+    assert_eq!(post(port, "/api/sessions", &opening("/")).status, 200);
+}
+
+#[test]
+fn a_working_directory_typed_in_the_dashboard_is_absolute_or_under_home() {
+    let at = AgentTerminal::new();
+    let home = crate::support::scratch("home-");
+    std::fs::create_dir_all(home.path().join("work/app")).expect("make folders under home");
+    let started =
+        at.command(&["--json", "dashboard", "start", "--port", "0"]).env("HOME", home.path()).output().expect("start");
+    assert!(started.status.success(), "{}", String::from_utf8_lossy(&started.stderr));
+    let started: serde_json::Value = serde_json::from_slice(&started.stdout).expect("JSON");
+    let port = u16::try_from(started["port"].as_u64().expect("a port")).expect("a port number");
+
+    let mut cwds = Vec::new();
+    for (session, typed) in [("a", "work/app"), ("b", " ~/work "), ("c", "~"), ("d", "/")] {
+        let opening = format!(
+            r#"{{"session":"{session}","new_session":true,"command":"cat","cwd":"{typed}","cols":20,"rows":5,"shell_integration":false}}"#
+        );
+        assert_eq!(post(port, "/api/sessions", &opening).status, 200, "{typed}");
+        cwds.push(at.run(&["--session", session, "get", "cwd"]).success().stdout());
+    }
+    let home = home.path().display().to_string();
+    assert_eq!(cwds, [format!("{home}/work/app\n"), format!("{home}/work\n"), format!("{home}\n"), "/\n".to_string()]);
+}
+
+#[test]
 fn starting_on_a_port_another_program_holds_fails() {
     let at = AgentTerminal::new();
     let taken = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("hold a port");

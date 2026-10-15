@@ -171,6 +171,37 @@ fn press_refuses_an_unknown_key_with_exit_code_1() {
 }
 
 #[test]
+fn press_names_the_plus_key_and_refuses_an_unknown_modifier() {
+    let at = AgentTerminal::new();
+    open_input_echo(&at, &[]);
+    at.run(&["press", "Ctrl+Backspace", "--wait", r"\x08"]).success();
+    let plus = at.run(&["press", "Ctrl++"]);
+    assert_eq!(
+        (plus.code(), plus.stderr()),
+        (
+            1,
+            "error: default t1: Ctrl++ has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on\n".to_string()
+        )
+    );
+    let unknown = at.run(&["press", "Hyper+a"]);
+    assert_eq!(unknown.code(), 1, "{}", unknown.stderr());
+    assert!(
+        unknown.stderr().contains(r#"unknown modifier "Hyper" in "Hyper+a"; use Ctrl+, Alt+ or Shift+"#),
+        "{}",
+        unknown.stderr()
+    );
+    assert_eq!(at.received("default"), r"\x08");
+}
+
+#[test]
+fn ctrl_plus_reaches_an_app_that_turned_on_the_kitty_protocol() {
+    let at = AgentTerminal::new();
+    open_input_echo(&at, &["--kitty", "1"]);
+    at.run(&["press", "Ctrl++", "--wait", r"\e[43;5u"]).success();
+    assert_eq!(at.received("default"), r"\e[43;5u");
+}
+
+#[test]
 fn a_chord_the_app_cannot_receive_is_refused_before_any_key_is_sent() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &[]);

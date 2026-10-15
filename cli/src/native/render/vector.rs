@@ -3,7 +3,7 @@ use std::fmt::{self, Write as _};
 use anyhow::Result;
 
 use super::theme::{self, Palette, Rgb};
-use super::{Entry, Layout, Placed, cell_colors, legend_lines};
+use super::{Entry, Layout, Placed, cell_colors, legend_lines, span_of};
 use crate::native::refs::{Decoration, Glyph, Grid};
 use crate::protocol::{Look, Ref, RowRange};
 
@@ -45,26 +45,31 @@ struct Run {
     style: Style,
 }
 
-fn runs(grid: &Grid, row: u16, palette: &Palette, cursor: bool) -> Vec<Run> {
-    let Some(cells) = grid.rows.get(usize::from(row)) else {
-        return Vec::new();
-    };
+fn runs(cells: &[Glyph], palette: &Palette, cursor_at: Option<usize>) -> Vec<Run> {
     let mut runs: Vec<Run> = Vec::new();
     let mut col: u16 = 0;
     while let Some(glyph) = cells.get(usize::from(col)) {
-        let span = if glyph.wide && usize::from(col) + 1 < cells.len() { 2 } else { 1 };
-        let style = style(glyph, palette, cursor && grid.cursor == Some((usize::from(row), usize::from(col))));
+        let span = span_of(glyph, col, cells.len());
+        let style = style(glyph, palette, cursor_at == Some(usize::from(col)));
         let text = if glyph.text.is_empty() { " " } else { glyph.text.as_str() };
-        match runs.last_mut() {
-            Some(run) if run.style == style => {
-                run.text.push_str(text);
-                run.cells += span;
-            }
-            _ => runs.push(Run { col, cells: span, text: text.to_string(), style }),
-        }
+        extend(&mut runs, Run { col, cells: span, text: text.to_string(), style });
         col += span;
     }
     runs
+}
+
+fn extend(runs: &mut Vec<Run>, next: Run) {
+    match runs.last_mut() {
+        Some(run) if run.style == next.style => {
+            run.text.push_str(&next.text);
+            run.cells += next.cells;
+        }
+        _ => runs.push(next),
+    }
+}
+
+fn cursor_at(grid: &Grid, row: u16, cursor: bool) -> Option<usize> {
+    grid.cursor.filter(|&(at, _)| cursor && at == usize::from(row)).map(|(_, col)| col)
 }
 
 fn style(glyph: &Glyph, palette: &Palette, cursor: bool) -> Style {
@@ -97,8 +102,8 @@ pub(crate) fn svg(grid: &Grid, rows: RowRange, look: Look, refs: &[Ref]) -> Resu
         shown.iter().map(|(index, r)| Ok((*index, *r, Placed::new(&layout, r)?))).collect::<Result<Vec<_>>>()?;
     let text = fmt::from_fn(|f| {
         write_header(f, (width, height), &layout, palette)?;
-        for row in layout.rows() {
-            write_row(f, (grid, look.cursor), &layout, palette, row)?;
+        for (row, cells) in layout.rows_of(grid) {
+            write_row(f, (cells, cursor_at(grid, row, look.cursor)), (&layout, palette), row)?;
         }
         for (index, r, placed) in &placed {
             write_ref(f, palette, *index, r, placed)?;
@@ -126,14 +131,13 @@ fn write_header(
 
 fn write_row(
     f: &mut fmt::Formatter<'_>,
-    (grid, cursor): (&Grid, bool),
-    layout: &Layout,
-    palette: &Palette,
+    (cells, cursor): (&[Glyph], Option<usize>),
+    (layout, palette): (&Layout, &Palette),
     row: u16,
 ) -> fmt::Result {
     let cell = &layout.cell;
     let y = layout.y(row);
-    for run in runs(grid, row, palette, cursor) {
+    for run in runs(cells, palette, cursor) {
         let x = layout.x(run.col);
         let run_width = layout.cells_wide(run.cells);
         if run.style.bg != palette.background {
@@ -221,8 +225,12 @@ fn write_legend(f: &mut fmt::Formatter<'_>, layout: &Layout, palette: &Palette, 
 pub(crate) fn html(grid: &Grid, rows: RowRange, look: Look) -> Result<String> {
     let palette = theme::palette(look.theme);
     let layout = Layout::new(grid, rows, look.scale)?;
-    let body = fmt::from_fn(|f| layout.rows().try_for_each(|row| write_html_row(f, (grid, look.cursor), palette, row)))
-        .to_string();
+    let body = fmt::from_fn(|f| {
+        layout
+            .rows_of(grid)
+            .try_for_each(|(row, cells)| write_html_row(f, (cells, cursor_at(grid, row, look.cursor)), palette))
+    })
+    .to_string();
     Ok(format!(
         "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>agent-terminal screenshot</title>\n<style>\nbody {{ margin: 0; background: {bg}; }}\npre {{ margin: 0; padding: {pad}px; color: {fg}; background: {bg}; font: {px}px/{line}px {FONT_FAMILY}; }}\n</style>\n</head>\n<body>\n<pre>{body}</pre>\n</body>\n</html>\n",
         bg = palette.background.css(),
@@ -235,18 +243,11 @@ pub(crate) fn html(grid: &Grid, rows: RowRange, look: Look) -> Result<String> {
 
 fn write_html_row(
     f: &mut fmt::Formatter<'_>,
-    (grid, cursor): (&Grid, bool),
+    (cells, cursor): (&[Glyph], Option<usize>),
     palette: &Palette,
-    row: u16,
 ) -> fmt::Result {
-    let mut runs = runs(grid, row, palette, cursor);
-    if let Some(last) = runs.last_mut()
-        && last.style.bg == palette.background
-        && !last.style.lines.underline
-        && !last.style.lines.strikeout
-    {
-        last.text.truncate(last.text.trim_end().len());
-    }
+    let mut runs = runs(cells, palette, cursor);
+    trim_blank_end(&mut runs, palette);
     for run in runs.iter().filter(|run| !run.text.is_empty()) {
         let style = html_style(&run.style, palette);
         if style.is_empty() {
@@ -256,6 +257,16 @@ fn write_html_row(
         }
     }
     f.write_char('\n')
+}
+
+fn trim_blank_end(runs: &mut [Run], palette: &Palette) {
+    if let Some(last) = runs.last_mut()
+        && last.style.bg == palette.background
+        && !last.style.lines.underline
+        && !last.style.lines.strikeout
+    {
+        last.text.truncate(last.text.trim_end().len());
+    }
 }
 
 fn html_style(style: &Style, palette: &Palette) -> Vec<String> {

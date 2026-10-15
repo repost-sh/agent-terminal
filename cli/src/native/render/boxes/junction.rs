@@ -64,22 +64,28 @@ impl Junction {
         }
     }
 
+    fn past_double(&self, end: End, both: bool) -> u16 {
+        let t = self.thin;
+        match (end, both) {
+            (End::Start, true) => 2 * t,
+            (End::Start, false) => 0,
+            (End::Finish, true) => t,
+            (End::Finish, false) => 3 * t,
+        }
+    }
+
     pub(super) fn meet(&self, axis: Axis, opposite: u8, [one, other]: [u8; 2], end: End) -> u16 {
         if opposite != NONE && opposite != DOUBLE {
             return self.center(axis);
         }
         if one == DOUBLE || other == DOUBLE {
-            let both = one != NONE && other != NONE;
-            let t = self.thin;
-            return self.double(axis)
-                + match (end, both) {
-                    (End::Start, true) => 2 * t,
-                    (End::Start, false) => 0,
-                    (End::Finish, true) => t,
-                    (End::Finish, false) => 3 * t,
-                };
+            return self.double(axis) + self.past_double(end, one != NONE && other != NONE);
         }
-        let present = [one, other].into_iter().filter(|&weight| weight != NONE);
+        self.meet_singles(axis, [one, other], end)
+    }
+
+    fn meet_singles(&self, axis: Axis, weights: [u8; 2], end: End) -> u16 {
+        let present = weights.into_iter().filter(|&weight| weight != NONE);
         let met = match end {
             End::Start => present.map(|weight| self.single(axis, weight)).min(),
             End::Finish => present.map(|weight| self.single(axis, weight) + self.thick(weight)).max(),

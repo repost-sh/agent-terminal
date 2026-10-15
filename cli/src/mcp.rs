@@ -307,23 +307,28 @@ fn is_integer(arg: &Arg) -> bool {
 
 fn description(arg: &Arg, form: &Form) -> String {
     let help = arg.get_help().map_or_else(String::new, ToString::to_string);
+    let bare = if let Form::Value { bare: true, .. } = form { " [or true: the option without a value]" } else { "" };
+    format!("{help}{}{bare}{}", value_hint(arg, form), default_hint(arg, form))
+}
+
+fn value_hint(arg: &Arg, form: &Form) -> String {
     let takes_text = matches!(form, Form::Value { .. } | Form::Positional { .. }) && !is_integer(arg);
-    let value = arg
-        .get_value_names()
+    arg.get_value_names()
         .filter(|_| takes_text && choices(arg).is_empty())
         .map(|names| {
             let names: Vec<String> = names.iter().map(ToString::to_string).collect();
             format!(" [value: {}]", names.join(" "))
         })
-        .unwrap_or_default();
-    let bare = if let Form::Value { bare: true, .. } = form { " [or true: the option without a value]" } else { "" };
+        .unwrap_or_default()
+}
+
+fn default_hint(arg: &Arg, form: &Form) -> String {
     let switch = matches!(form, Form::Switch { .. });
-    let default = if !switch && !arg.get_default_values().is_empty() && arg.get_env().is_none() {
+    if !switch && !arg.get_default_values().is_empty() && arg.get_env().is_none() {
         format!(" [default: {}]", listed(arg.get_default_values()))
     } else {
         String::new()
-    };
-    format!("{help}{value}{bare}{default}")
+    }
 }
 
 fn listed(values: &[clap::builder::OsStr]) -> String {

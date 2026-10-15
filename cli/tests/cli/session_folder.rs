@@ -189,3 +189,23 @@ fn every_png_screenshot_is_listed_in_the_session_folder_with_the_call_that_took_
         ]
     );
 }
+
+#[test]
+fn a_session_whose_folder_cannot_be_made_opens_nothing_and_the_daemon_keeps_serving() {
+    let at = AgentTerminal::new();
+    let sessions = at.home().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(sessions.join("blocked"), "a file where the session's folder goes").unwrap();
+
+    let refused = at.run(&["--session", "blocked", "open", "--size", "20x2", "cat"]);
+    assert_eq!(refused.code(), 1, "{}", refused.stderr());
+    assert!(
+        refused
+            .stderr()
+            .starts_with(&format!("error: clear the previous session folder {}: ", sessions.join("blocked").display())),
+        "{}",
+        refused.stderr()
+    );
+    assert_eq!(at.run(&["session", "list"]).success().stdout(), "no sessions are open\n");
+    at.run(&["--session", "open", "open", "--size", "20x2", "cat"]).success();
+}

@@ -86,22 +86,8 @@ impl FromStr for Key {
     type Err = String;
 
     fn from_str(text: &str) -> Result<Self, String> {
-        let (modifiers, name) = match text.strip_suffix("++") {
-            Some(modifiers) => (Some(modifiers), "+"),
-            None => match text.rsplit_once('+') {
-                Some((modifiers, name)) if !name.is_empty() => (Some(modifiers), name),
-                _ => (None, text),
-            },
-        };
-        let mut mods = Mods::default();
-        for modifier in modifiers.map(|m| m.split('+').collect::<Vec<_>>()).unwrap_or_default() {
-            match modifier.to_ascii_lowercase().as_str() {
-                "ctrl" | "control" => mods.ctrl = true,
-                "alt" => mods.alt = true,
-                "shift" => mods.shift = true,
-                _ => return Err(format!("unknown modifier \"{modifier}\" in \"{text}\"; use Ctrl+, Alt+ or Shift+")),
-            }
-        }
+        let (modifiers, name) = split_modifiers(text);
+        let mods = modifiers.map_or(Ok(Mods::default()), |modifiers| mods_of(modifiers, text))?;
         let mut code = named(name).ok_or_else(|| {
             format!("unknown key \"{name}\"; keys are {KEY_NAMES}, or a single character, with Ctrl+, Alt+ or Shift+")
         })?;
@@ -112,6 +98,29 @@ impl FromStr for Key {
         }
         Ok(Key { code, mods })
     }
+}
+
+fn split_modifiers(text: &str) -> (Option<&str>, &str) {
+    match text.strip_suffix("++") {
+        Some(modifiers) => (Some(modifiers), "+"),
+        None => match text.rsplit_once('+') {
+            Some((modifiers, name)) if !name.is_empty() => (Some(modifiers), name),
+            _ => (None, text),
+        },
+    }
+}
+
+fn mods_of(modifiers: &str, text: &str) -> Result<Mods, String> {
+    let mut mods = Mods::default();
+    for modifier in modifiers.split('+') {
+        match modifier.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => mods.ctrl = true,
+            "alt" => mods.alt = true,
+            "shift" => mods.shift = true,
+            _ => return Err(format!("unknown modifier \"{modifier}\" in \"{text}\"; use Ctrl+, Alt+ or Shift+")),
+        }
+    }
+    Ok(mods)
 }
 
 fn named(name: &str) -> Option<KeyCode> {

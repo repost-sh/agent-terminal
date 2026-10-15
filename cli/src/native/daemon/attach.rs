@@ -38,40 +38,43 @@ struct Mirroring<'a> {
 impl Daemon {
     pub(super) fn attach(&self, mut stream: UnixStream, target: &Target, read_only: bool) {
         let session = target.session.as_str();
-        let taken = self.tab(target).map(|(id, tab)| {
-            let hold = (!read_only).then(|| tab.control.take());
-            (id, tab, hold)
-        });
-        let (id, attached, hold) = match taken {
-            Ok(taken) => taken,
+        match self.tab(target) {
+            Ok((id, attached)) => {
+                let hold = (!read_only).then(|| attached.control.take());
+                let reply = Reply::Attached(Attached {
+                    session: session.to_string(),
+                    tab: id.to_string(),
+                    program: attached.terminal.program().to_string(),
+                    read_only,
+                });
+                let mirroring =
+                    Mirroring { daemon: self, session, id, control: &attached.control, hold: hold.as_ref() };
+                mirroring.serve(stream, reply);
+            }
             Err(error) => {
                 if let Err(e) = protocol::write(&mut stream, &Response::Err(error)) {
                     log::note(format_args!("attach: refusing the attach to {session} failed: {e:#}"));
                 }
-                return;
             }
-        };
-        let reply = Reply::Attached(Attached {
-            session: session.to_string(),
-            tab: id.to_string(),
-            program: attached.terminal.program().to_string(),
-            read_only,
-        });
+        }
+    }
+}
+
+impl Mirroring<'_> {
+    fn serve(&self, mut stream: UnixStream, reply: Reply) {
+        let (session, id) = (self.session, self.id);
         if let Err(e) = protocol::write(&mut stream, &Response::Ok(reply)) {
             log::note(format_args!("attach: answering the attach to {session} {id} failed: {e:#}"));
             return;
         }
-        let mirroring = Mirroring { daemon: self, session, id, control: &attached.control, hold: hold.as_ref() };
-        if let Err(e) = mirroring.run(&stream) {
+        if let Err(e) = self.run(&stream) {
             log::note(format_args!("attach: mirroring {session} {id} ended: {e:#}"));
         }
         if let Err(e) = stream.shutdown(Shutdown::Both) {
             log::note(format_args!("attach: closing the connection to {session} {id} failed: {e}"));
         }
     }
-}
 
-impl Mirroring<'_> {
     fn run(&self, stream: &UnixStream) -> Result<()> {
         let mut writer = stream.try_clone().context("share the attach connection")?;
         let reader = stream.try_clone().context("share the attach connection")?;

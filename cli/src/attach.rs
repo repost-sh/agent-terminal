@@ -1,4 +1,4 @@
-use std::io::{self, ErrorKind, IsTerminal, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Sender};
@@ -12,7 +12,7 @@ use crate::key::{Key, KeyCode, Mods};
 use crate::output;
 use crate::protocol::request;
 use crate::protocol::{
-    self, AttachEvent, AttachInput, Attached, Call, HumanInput, Mirror, Reply, Request, Response, Target,
+    self, AttachEvent, AttachInput, Attached, Call, ErrorBody, HumanInput, Mirror, Reply, Request, Response, Target,
 };
 
 const DETACH_FIRST: u8 = 0x10;
@@ -27,30 +27,42 @@ enum End {
     Closed,
 }
 
+enum Unopened {
+    Refused(ErrorBody),
+    Failed(anyhow::Error),
+}
+
 pub(crate) fn run(target: Target, read_only: bool, json: bool, launch: &Launch) -> io::Result<i32> {
-    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+    if !on_a_terminal() {
         return output::refuse(
             "attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead",
             json,
         );
     }
-    let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
-    let call = Call { typed: Some(typed), request: Request::Attach(request::Attach { target, read_only }) };
-    let (response, stream) = match connection::keep_open(&call, launch) {
-        Ok(Ok(opened)) => opened,
-        Ok(Err(refusal)) => return output::error(&refusal, json),
-        Err(e) => return output::refuse(&format!("{e:#}"), json),
-    };
-    let attached = match response {
-        Response::Ok(Reply::Attached(attached)) => attached,
-        Response::Ok(other) => {
-            return output::refuse(&format!("the daemon answered attach with {other:?}"), json);
-        }
-        Response::Err(error) => return output::error(&error, json),
+    let (attached, stream) = match open(target, read_only, launch) {
+        Ok(opened) => opened,
+        Err(Unopened::Refused(refusal)) => return output::error(&refusal, json),
+        Err(Unopened::Failed(e)) => return output::refuse(&format!("{e:#}"), json),
     };
     match watch(&attached, stream) {
         Ok(end) => report(&attached, &end, json).map(|()| 0),
         Err(e) => output::refuse(&format!("{e:#}"), json),
+    }
+}
+
+fn on_a_terminal() -> bool {
+    io::stdin().is_terminal() && io::stdout().is_terminal()
+}
+
+fn open(target: Target, read_only: bool, launch: &Launch) -> Result<(Attached, UnixStream), Unopened> {
+    let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
+    let call = Call { typed: Some(typed), request: Request::Attach(request::Attach { target, read_only }) };
+    let (response, stream) =
+        connection::keep_open(&call, launch).map_err(Unopened::Failed)?.map_err(Unopened::Refused)?;
+    match response {
+        Response::Ok(Reply::Attached(attached)) => Ok((attached, stream)),
+        Response::Ok(other) => Err(Unopened::Failed(anyhow!("the daemon answered attach with {other:?}"))),
+        Response::Err(error) => Err(Unopened::Refused(error)),
     }
 }
 
@@ -119,21 +131,27 @@ fn forward_keys(daemon: &mut UnixStream, read_only: bool) -> Result<()> {
         let read = match stdin.read(&mut buffer) {
             Ok(0) => return send(daemon, &AttachInput::Detach),
             Ok(read) => read,
-            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             Err(e) => {
                 send(daemon, &AttachInput::Detach)?;
                 return Err(anyhow::Error::new(e).context("read your keys"));
             }
         };
         let filled = buffer.get(..read).context("stdin reported more bytes than it was given room for")?;
-        for pressed in keys.feed(filled) {
-            match pressed {
-                Pressed::Detach => return send(daemon, &AttachInput::Detach),
-                Pressed::Human(_) if read_only => {}
-                Pressed::Human(input) => send(daemon, &AttachInput::Human(input))?,
-            }
+        if forward(daemon, keys.feed(filled), read_only)? == Taken::Detach {
+            return Ok(());
         }
     }
+}
+
+fn forward(daemon: &mut UnixStream, pressed: Vec<Pressed>, read_only: bool) -> Result<Taken> {
+    for pressed in pressed {
+        match pressed {
+            Pressed::Detach => return send(daemon, &AttachInput::Detach).map(|()| Taken::Detach),
+            Pressed::Human(_) if read_only => {}
+            Pressed::Human(input) => send(daemon, &AttachInput::Human(input))?,
+        }
+    }
+    Ok(Taken::Key)
 }
 
 fn send(daemon: &mut UnixStream, input: &AttachInput) -> Result<()> {
@@ -183,32 +201,43 @@ impl Painter {
 
     fn paint(&mut self, screen: &Mirror) -> Result<()> {
         let window = termios::tcgetwinsize(io::stdout()).context("read your terminal's size")?;
-        let fit = (window.ws_col, window.ws_row, screen.cols, screen.rows);
-        let mut paint = String::new();
-        if self.fitted != Some(fit) {
-            paint.push_str("\x1b[0m\x1b[2J");
-            self.shown.clear();
-            self.hint.clear();
-            self.fitted = Some(fit);
+        let mut paint = self.refit((window.ws_col, window.ws_row, screen.cols, screen.rows));
+        self.paint_rows(&mut paint, screen, window.ws_row);
+        if window.ws_row > screen.rows {
+            self.paint_hint(&mut paint, screen, window.ws_col);
         }
-        let visible = usize::from(screen.rows.min(window.ws_row));
+        let [row, col] = screen.cursor;
+        let on_screen = row <= window.ws_row && col <= window.ws_col;
+        paint.push_str(&crate::paint::cursor(row, col, screen.cursor_visible && !screen.exited && on_screen));
+        show(&paint)
+    }
+
+    fn refit(&mut self, fit: (u16, u16, u16, u16)) -> String {
+        if self.fitted == Some(fit) {
+            return String::new();
+        }
+        self.shown.clear();
+        self.hint.clear();
+        self.fitted = Some(fit);
+        "\x1b[0m\x1b[2J".to_string()
+    }
+
+    fn paint_rows(&mut self, paint: &mut String, screen: &Mirror, rows: u16) {
+        let visible = usize::from(screen.rows.min(rows));
         for (index, line) in screen.lines.iter().take(visible).enumerate() {
             if self.shown.get(index) != Some(line) {
                 paint.push_str(&crate::paint::row(index, line));
             }
         }
         self.shown = screen.lines.iter().take(visible).cloned().collect();
-        if window.ws_row > screen.rows {
-            let hint: String = self.hint_for(screen).chars().take(usize::from(window.ws_col)).collect();
-            if hint != self.hint {
-                paint.push_str(&crate::paint::row(usize::from(screen.rows), &format!("\x1b[2m{hint}\x1b[0m")));
-                self.hint = hint;
-            }
+    }
+
+    fn paint_hint(&mut self, paint: &mut String, screen: &Mirror, cols: u16) {
+        let hint: String = self.hint_for(screen).chars().take(usize::from(cols)).collect();
+        if hint != self.hint {
+            paint.push_str(&crate::paint::row(usize::from(screen.rows), &format!("\x1b[2m{hint}\x1b[0m")));
+            self.hint = hint;
         }
-        let [row, col] = screen.cursor;
-        let on_screen = row <= window.ws_row && col <= window.ws_col;
-        paint.push_str(&crate::paint::cursor(row, col, screen.cursor_visible && !screen.exited && on_screen));
-        show(&paint)
     }
 
     fn hint_for(&self, screen: &Mirror) -> String {

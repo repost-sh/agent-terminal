@@ -219,6 +219,14 @@ impl DashboardSocket {
         }
     }
 
+    pub(crate) fn closed(&mut self) -> bool {
+        match self.socket.read() {
+            Ok(Message::Close(_)) | Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::Protocol(_)) => true,
+            Ok(Message::Text(_)) => false,
+            other => panic!("expected the dashboard to close the socket, got {other:?}"),
+        }
+    }
+
     pub(crate) fn send(&mut self, message: &serde_json::Value) {
         self.socket.send(Message::text(message.to_string())).expect("send a dashboard message");
     }

@@ -88,3 +88,19 @@ fn the_svg_file_draws_the_coloured_text(screen: &Screen, svg: &serde_json::Value
         ("svg".into(), 200.into(), 80.into())
     );
 }
+
+#[test]
+fn html_keeps_each_style_and_trims_only_trailing_space_on_the_plain_background() {
+    let at = AgentTerminal::new();
+    let bytes = "\x1b[?25l\x1b[41mbg\x1b[0m \x1b[1mbold\x1b[0m \x1b[3mital\x1b[0m \x1b[4;9mlines\x1b[0m\n\x1b[44mblue  \x1b[0m\nplain";
+    let screen = Screen::open(&at, "30x3", bytes, "plain");
+    at.run(&["screenshot", &file(&screen, "styles.html")]).success();
+    let html = read(&screen, "styles.html");
+    let page = html.split("<pre>").nth(1).unwrap_or_default();
+    assert_eq!(
+        page,
+        "<span style=\"background:#f87171\">bg</span> <span style=\"font-weight:bold\">bold</span> <span style=\"font-style:italic\">ital</span> \
+         <span style=\"text-decoration:underline line-through\">lines</span>\n<span style=\"background:#60a5fa\">blue  </span>\nplain\n\
+         </pre>\n</body>\n</html>\n"
+    );
+}

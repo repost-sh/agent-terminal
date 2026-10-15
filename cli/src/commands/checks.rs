@@ -93,25 +93,20 @@ impl UntilArgs {
     }
 
     fn until(self) -> Result<Wait, String> {
-        if let Some(quiet_ms) = self.stable {
-            return Ok(Wait::Stable { quiet_ms });
+        match self.chosen() {
+            Some(wait) => Ok(wait),
+            None => self.text.until(),
         }
-        if let Some(quiet_ms) = self.idle {
-            return Ok(Wait::Idle { quiet_ms });
-        }
-        if self.exit.exit {
-            return Ok(Wait::Exit { code: self.exit.code });
-        }
-        if let Some((row, col)) = self.cursor {
-            return Ok(Wait::Cursor { row, col });
-        }
-        if let Some(frame) = self.frame {
-            return Ok(Wait::Frame { frame });
-        }
-        if self.command {
-            return Ok(Wait::Command);
-        }
-        self.text.until()
+    }
+
+    fn chosen(&self) -> Option<Wait> {
+        self.stable
+            .map(|quiet_ms| Wait::Stable { quiet_ms })
+            .or(self.idle.map(|quiet_ms| Wait::Idle { quiet_ms }))
+            .or(self.exit.exit.then_some(Wait::Exit { code: self.exit.code }))
+            .or(self.cursor.map(|(row, col)| Wait::Cursor { row, col }))
+            .or(self.frame.map(|frame| Wait::Frame { frame }))
+            .or(self.command.then_some(Wait::Command))
     }
 }
 

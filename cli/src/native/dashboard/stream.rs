@@ -73,15 +73,15 @@ impl Pace {
         self.last_sent.map(|sent| sent + INTERVAL).filter(|due| *due > Instant::now()).map(Wake::At)
     }
 
-    async fn show(&mut self, socket: &mut WebSocket, terminal: &Terminal) -> bool {
+    async fn show(&mut self, socket: &mut WebSocket, terminal: &Terminal) -> Event {
         let picture = terminal.picture();
         if !send(socket, &update(&picture, self.shown.as_ref())).await {
-            return false;
+            return Event::HungUp;
         }
         self.shown = Some(Shown::of(picture));
         self.in_flight += 1;
         self.last_sent = Some(Instant::now());
-        true
+        Event::Woke
     }
 
     fn received(&mut self, text: &str) {
@@ -102,13 +102,11 @@ async fn follow_tab(mut socket: WebSocket, backend: Arc<dyn Backend>, session: S
         if replaced {
             pace.shown = None;
         }
-        let Some(wake) = pace.wake(&terminal) else {
-            if !pace.show(&mut socket, &terminal).await {
-                return;
-            }
-            continue;
+        let event = match pace.wake(&terminal) {
+            Some(wake) => follow.event(&mut socket, wake).await,
+            None => pace.show(&mut socket, &terminal).await,
         };
-        match follow.event(&mut socket, wake).await {
+        match event {
             Event::Woke => {}
             Event::Received(text) => pace.received(&text),
             Event::HungUp => return,

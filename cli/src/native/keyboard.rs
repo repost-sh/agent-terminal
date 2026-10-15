@@ -53,6 +53,10 @@ fn reports_release(key: Key, flags: u8) -> bool {
     flags & ALL_KEYS_AS_ESCAPES != 0 || !matches!(key.code, KeyCode::Enter | KeyCode::Tab | KeyCode::Backspace)
 }
 
+fn reports_text(flags: u8, event: Event) -> bool {
+    event == Event::Press && flags & ASSOCIATED_TEXT != 0 && flags & ALL_KEYS_AS_ESCAPES != 0
+}
+
 fn produces_text(key: Key) -> bool {
     matches!(key.code, KeyCode::Char(_)) && !key.mods.ctrl && !key.mods.alt
 }
@@ -96,8 +100,7 @@ fn kitty_char(key: Key, c: char, flags: u8, event: Event) -> Kitty {
     let shift = key.mods.shift || base != c;
     let shifted = if shift { single(base.to_uppercase()).unwrap_or(base) } else { base };
     let alternate = (flags & ALTERNATE_KEYS != 0 && shifted != base).then_some(u32::from(shifted));
-    let reports_text = event == Event::Press && flags & ASSOCIATED_TEXT != 0 && flags & ALL_KEYS_AS_ESCAPES != 0;
-    let text = (reports_text && produces_text(key)).then_some(u32::from(shifted));
+    let text = (reports_text(flags, event) && produces_text(key)).then_some(u32::from(shifted));
     Kitty { number: u32::from(base), final_byte: b'u', shift, alternate, text }
 }
 
@@ -152,18 +155,17 @@ fn single(mut chars: impl Iterator<Item = char>) -> Option<char> {
 fn legacy(key: Key, app_cursor: bool) -> Result<Vec<u8>, String> {
     let Mods { shift, alt, ctrl } = key.mods;
     let modifier = 1 + u8::from(shift) + 2 * u8::from(alt) + 4 * u8::from(ctrl);
-    let with_alt = |bytes: &[u8]| [if alt { &b"\x1b"[..] } else { &[] }, bytes].concat();
     Ok(match key.code {
-        KeyCode::Char(c) if ctrl => with_alt(&[control_byte(c).ok_or_else(|| {
+        KeyCode::Char(c) if ctrl => with_alt(alt, &[control_byte(c).ok_or_else(|| {
             format!("{key} has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on")
         })?]),
-        KeyCode::Char(c) => with_alt(if shift { c.to_ascii_uppercase() } else { c }.encode_utf8(&mut [0u8; 4]).as_bytes()),
-        KeyCode::Enter => with_alt(b"\r"),
-        KeyCode::Tab if shift => with_alt(b"\x1b[Z"),
-        KeyCode::Tab => with_alt(b"\t"),
-        KeyCode::Esc => with_alt(b"\x1b"),
-        KeyCode::Backspace if ctrl => with_alt(b"\x08"),
-        KeyCode::Backspace => with_alt(b"\x7f"),
+        KeyCode::Char(c) => with_alt(alt, if shift { c.to_ascii_uppercase() } else { c }.encode_utf8(&mut [0u8; 4]).as_bytes()),
+        KeyCode::Enter => with_alt(alt, b"\r"),
+        KeyCode::Tab if shift => with_alt(alt, b"\x1b[Z"),
+        KeyCode::Tab => with_alt(alt, b"\t"),
+        KeyCode::Esc => with_alt(alt, b"\x1b"),
+        KeyCode::Backspace if ctrl => with_alt(alt, b"\x08"),
+        KeyCode::Backspace => with_alt(alt, b"\x7f"),
         KeyCode::Up => letter(b'A', modifier, app_cursor),
         KeyCode::Down => letter(b'B', modifier, app_cursor),
         KeyCode::Right => letter(b'C', modifier, app_cursor),
@@ -195,6 +197,10 @@ fn tilde(number: u32, modifier: u8) -> Vec<u8> {
         1 => format!("\x1b[{number}~").into_bytes(),
         _ => format!("\x1b[{number};{modifier}~").into_bytes(),
     }
+}
+
+fn with_alt(alt: bool, bytes: &[u8]) -> Vec<u8> {
+    [if alt { &b"\x1b"[..] } else { &[] }, bytes].concat()
 }
 
 fn function_key_number(n: u8) -> Result<u32, String> {

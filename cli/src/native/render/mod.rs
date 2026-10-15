@@ -11,7 +11,7 @@ use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
-use crate::native::refs::{Glyph, Grid};
+use crate::native::refs::{Decoration, Glyph, Grid};
 use crate::protocol::{Look, Ref, RowRange};
 pub(crate) use diff::{CellBox, changed_cells, compare};
 use fonts::{CellSize, Face, GLYPHS, Glyphs, Mask};
@@ -98,8 +98,12 @@ impl Layout {
         Ok(Self { cell: CellSize::at(scale)?, pad: PAD * u32::from(scale.max(1)), cols, first, last })
     }
 
-    fn rows(&self) -> std::ops::Range<u16> {
-        self.first..self.last
+    fn rows_of<'g>(&self, grid: &'g Grid) -> impl Iterator<Item = (u16, &'g [Glyph])> {
+        (0u16..)
+            .zip(&grid.rows)
+            .skip(usize::from(self.first))
+            .take(usize::from(self.last.saturating_sub(self.first)))
+            .map(|(row, cells)| (row, cells.as_slice()))
     }
 
     fn x(&self, col: u16) -> u32 {
@@ -161,8 +165,8 @@ pub(crate) fn image(grid: &Grid, rows: RowRange, look: Look, refs: &[Ref]) -> Re
     let mut canvas = Canvas::new(width, height, palette.background)?;
     let mut glyphs = GLYPHS.lock().unwrap_or_else(PoisonError::into_inner);
     let painting = Painting { layout: &layout, palette, grid, cursor: look.cursor };
-    for row in layout.rows() {
-        canvas.row(&mut glyphs, &painting, row);
+    for (row, cells) in layout.rows_of(grid) {
+        canvas.row(&mut glyphs, &painting, row, cells);
     }
     for (index, r) in &shown {
         canvas.ref_box(&mut glyphs, &painting, *index, r)?;
@@ -225,6 +229,10 @@ fn cell_colors(glyph: &Glyph, palette: &Palette, cursor: bool) -> (Rgb, Rgb) {
     (fg, bg)
 }
 
+fn span_of(glyph: &Glyph, col: u16, cells: usize) -> u16 {
+    if glyph.wide && usize::from(col) + 1 < cells { 2 } else { 1 }
+}
+
 struct Painting<'a> {
     layout: &'a Layout,
     palette: &'a Palette,
@@ -243,13 +251,10 @@ impl Canvas {
         Ok(Self { pixmap })
     }
 
-    fn row(&mut self, glyphs: &mut Glyphs, painting: &Painting<'_>, row: u16) {
-        let Some(cells) = painting.grid.rows.get(usize::from(row)) else {
-            return;
-        };
+    fn row(&mut self, glyphs: &mut Glyphs, painting: &Painting<'_>, row: u16, cells: &[Glyph]) {
         let mut col = 0;
         while let Some(glyph) = cells.get(usize::from(col)) {
-            let span = if glyph.wide && usize::from(col) + 1 < cells.len() { 2 } else { 1 };
+            let span = span_of(glyph, col, cells.len());
             let cursor = painting.cursor && painting.grid.cursor == Some((usize::from(row), usize::from(col)));
             let place = Place { x: painting.layout.x(col), y: painting.layout.y(row), span };
             self.cell(glyphs, painting, glyph, &place, cursor);
@@ -272,11 +277,16 @@ impl Canvas {
                 None => self.missing(x, y, width, cell, fg),
             }
         }
-        if glyph.decoration.underline {
-            self.fill(x, y + u32::from(cell.underline), width, u32::from(cell.stroke), fg);
+        self.decorate(glyph.decoration, &Place { x, y, span: place.span }, cell, fg);
+    }
+
+    fn decorate(&mut self, decoration: Decoration, place: &Place, cell: &CellSize, color: Rgb) {
+        let width = u32::from(place.span) * u32::from(cell.width);
+        if decoration.underline {
+            self.fill(place.x, place.y + u32::from(cell.underline), width, u32::from(cell.stroke), color);
         }
-        if glyph.decoration.strikeout {
-            self.fill(x, y + u32::from(cell.strikeout), width, u32::from(cell.stroke), fg);
+        if decoration.strikeout {
+            self.fill(place.x, place.y + u32::from(cell.strikeout), width, u32::from(cell.stroke), color);
         }
     }
 

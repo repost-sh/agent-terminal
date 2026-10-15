@@ -111,10 +111,13 @@ fn listed(names: &[&str]) -> String {
 
 fn shell(fix: bool) -> Check {
     let audited = if fix { shell::repair() } else { shell::audit() };
-    let audit = match audited {
-        Ok(audit) => audit,
-        Err(e) => return Check::problem("shell", format!("{e:#}"), "set AGENT_TERMINAL_HOME to a folder you own"),
-    };
+    match audited {
+        Ok(audit) => audited_shell(&audit, fix),
+        Err(e) => Check::problem("shell", format!("{e:#}"), "set AGENT_TERMINAL_HOME to a folder you own"),
+    }
+}
+
+fn audited_shell(audit: &shell::Audit, fix: bool) -> Check {
     let (changed, left_over) = (audit.outdated.len(), audit.leftovers.len());
     if changed + left_over > 0 && !fix {
         return Check::problem(
@@ -127,7 +130,7 @@ fn shell(fix: bool) -> Check {
         );
     }
     match your_shell() {
-        Ok(yours) => scripts_check(&audit, yours.name()),
+        Ok(yours) => scripts_check(audit, yours.name()),
         Err(message) => {
             Check::problem("shell", message, "open a shell with agent-terminal shell --shell zsh (or bash, fish)")
         }
@@ -165,20 +168,29 @@ fn your_shell() -> Result<Shell, String> {
 }
 
 fn daemon(fix: bool) -> Check {
-    let socket = match connection::socket_path() {
-        Ok(socket) => socket,
-        Err(e) => return Check::problem("daemon", format!("{e:#}"), "set HOME, or AGENT_TERMINAL_HOME"),
-    };
-    match UnixStream::connect(&socket) {
-        Ok(_) => running(&socket),
-        Err(e) if e.kind() == ErrorKind::NotFound => Check::ok("daemon", "not running; the next command starts it"),
-        Err(e) if e.kind() == ErrorKind::ConnectionRefused && fix => remove_stale(&socket),
-        Err(e) if e.kind() == ErrorKind::ConnectionRefused => Check::problem(
+    match connection::socket_path() {
+        Ok(socket) => reach(&socket, fix),
+        Err(e) => Check::problem("daemon", format!("{e:#}"), "set HOME, or AGENT_TERMINAL_HOME"),
+    }
+}
+
+fn reach(socket: &Path, fix: bool) -> Check {
+    match UnixStream::connect(socket) {
+        Ok(_) => running(socket),
+        Err(e) => unreachable(socket, &e, fix),
+    }
+}
+
+fn unreachable(socket: &Path, e: &io::Error, fix: bool) -> Check {
+    match e.kind() {
+        ErrorKind::NotFound => Check::ok("daemon", "not running; the next command starts it"),
+        ErrorKind::ConnectionRefused if fix => remove_stale(socket),
+        ErrorKind::ConnectionRefused => Check::problem(
             "daemon",
             format!("stale socket {}: no daemon is listening on it", socket.display()),
             "agent-terminal doctor --fix removes it",
         ),
-        Err(e) => Check::problem(
+        _ => Check::problem(
             "daemon",
             format!("cannot reach the daemon socket {}: {e}", socket.display()),
             "set AGENT_TERMINAL_HOME to a short folder you own",

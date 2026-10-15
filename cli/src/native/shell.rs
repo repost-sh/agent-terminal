@@ -66,20 +66,29 @@ pub(crate) fn audit() -> Result<Audit> {
     let folder = folder()?;
     let mut audit = Audit { folder: folder.clone(), current: 0, outdated: Vec::new(), leftovers: Vec::new() };
     for entry in entries(&folder)? {
-        let name = entry.file_name().and_then(|name| name.to_str());
-        if !Shell::ALL.iter().any(|shell| name == Some(shell.name())) || !entry.is_dir() {
+        if is_shell_folder(&entry) {
+            audit_scripts(&mut audit, &entry)?;
+        } else {
             audit.leftovers.push(entry);
-            continue;
-        }
-        for file in entries(&entry)? {
-            match SCRIPTS.iter().find(|script| folder.join(script.path) == file) {
-                Some(script) if read(&file)?.as_deref() == Some(script.text) => audit.current += 1,
-                Some(_) => audit.outdated.push(file),
-                None => audit.leftovers.push(file),
-            }
         }
     }
     Ok(audit)
+}
+
+fn is_shell_folder(entry: &Path) -> bool {
+    let name = entry.file_name().and_then(|name| name.to_str());
+    Shell::ALL.iter().any(|shell| name == Some(shell.name())) && entry.is_dir()
+}
+
+fn audit_scripts(audit: &mut Audit, shell_folder: &Path) -> Result<()> {
+    for file in entries(shell_folder)? {
+        match SCRIPTS.iter().find(|script| audit.folder.join(script.path) == file) {
+            Some(script) if read(&file)?.as_deref() == Some(script.text) => audit.current += 1,
+            Some(_) => audit.outdated.push(file),
+            None => audit.leftovers.push(file),
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn repair() -> Result<Audit> {

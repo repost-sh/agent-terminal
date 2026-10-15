@@ -16,6 +16,10 @@ pub(super) async fn serve(uri: Uri) -> Response {
         let cache = if path.starts_with("assets/") { IMMUTABLE } else { "no-cache" };
         return send(file, cache);
     }
+    app_route(path)
+}
+
+fn app_route(path: &str) -> Response {
     let names_a_file = path.rsplit('/').next().is_some_and(|last| last.contains('.'));
     match WEB_APP.get_file("index.html") {
         Some(page) if !names_a_file => send(page, "no-cache"),

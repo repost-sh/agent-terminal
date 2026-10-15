@@ -13,13 +13,52 @@ use crate::protocol::{
 
 const CONTROL_HANDED_BACK: &str = "a human to hand back control";
 
+fn longest(wait: &Wait, timeout_ms: u64) -> u64 {
+    match wait {
+        Wait::Elapsed { ms } => timeout_ms.max(*ms),
+        _ => timeout_ms,
+    }
+}
+
+struct Missed<'a> {
+    assert: bool,
+    wait: &'a Wait,
+    timeout_ms: u64,
+    session: &'a str,
+    tab: &'a str,
+}
+
+fn failed(error: ErrorBody, missed: &Missed<'_>) -> ErrorBody {
+    match error {
+        ErrorBody { code: crate::exit::TIMEOUT, snapshot, .. } if missed.assert => ErrorBody {
+            snapshot,
+            ..ErrorBody::new(
+                crate::exit::ASSERTION,
+                format!(
+                    "{} within {} ms in {} {}",
+                    not_met(missed.wait),
+                    missed.timeout_ms,
+                    missed.session,
+                    missed.tab
+                ),
+            )
+        },
+        error => error,
+    }
+}
+
+fn exit_code_after(wait: &Wait, terminal: &Terminal) -> Option<i32> {
+    match wait {
+        Wait::Exit { .. } => terminal.status().code(),
+        Wait::Command => terminal.last_exit_code(),
+        _ => None,
+    }
+}
+
 impl Daemon {
     pub(super) fn wait(&self, waiting: request::WaitFor) -> Result<Reply, ErrorBody> {
         let request::WaitFor { target, wait, timeout_ms, assert } = waiting;
-        let timeout_ms = match wait {
-            Wait::Elapsed { ms } => timeout_ms.max(ms),
-            _ => timeout_ms,
-        };
+        let timeout_ms = longest(&wait, timeout_ms);
         let (id, terminal) = self.target(&target)?;
         let (session, tab) = (target.session, id.to_string());
         if matches!(wait, Wait::Command) && terminal.shell().is_none() {
@@ -27,22 +66,11 @@ impl Daemon {
         }
         let condition = condition(&wait)?;
         let started = Instant::now();
-        let frame = wait_for(&terminal, &session, &tab, &wait, condition, timeout_ms).map_err(|error| match error {
-            ErrorBody { code: crate::exit::TIMEOUT, snapshot, .. } if assert => ErrorBody {
-                snapshot,
-                ..ErrorBody::new(
-                    crate::exit::ASSERTION,
-                    format!("{} within {timeout_ms} ms in {session} {tab}", not_met(&wait)),
-                )
-            },
-            error => error,
-        })?;
+        let missed = Missed { assert, wait: &wait, timeout_ms, session: &session, tab: &tab };
+        let frame = wait_for(&terminal, &session, &tab, &wait, condition, timeout_ms)
+            .map_err(|error| failed(error, &missed))?;
         let waited_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let exit_code = match wait {
-            Wait::Exit { .. } => terminal.status().code(),
-            Wait::Command => terminal.last_exit_code(),
-            _ => None,
-        };
+        let exit_code = exit_code_after(&wait, &terminal);
         Ok(Reply::Waited(WaitOutcome { session, tab, until: describe(&wait), waited_ms, frame, exit_code }))
     }
 

@@ -16,6 +16,12 @@ fn attach(at: &AgentTerminal, from: &str, extra: &[&str], ready: &str) -> Run {
 
 const REFUSED: &str = "A human has control of app t1. Run `agent-terminal wait --control`.";
 
+fn detach(at: &AgentTerminal, from: &str) -> String {
+    at.run(&["--session", from, "press", "Ctrl+p", "Ctrl+q"]).success();
+    at.run(&["--session", from, "wait", "--exit"]).success();
+    at.run(&["--session", from, "get", "text"]).success().stdout()
+}
+
 #[test]
 fn while_a_human_is_attached_input_exits_4_and_wait_control_resumes_once_they_detach() {
     let at = AgentTerminal::new();
@@ -146,6 +152,85 @@ fn an_attached_human_types_with_keys_encoded_for_the_program_and_each_key_is_log
     }
     assert_eq!(input.typed, "hé");
     assert_eq!(input.pressed, keys);
+    assert!(detach(&at, "human").contains("detached from app t1"));
+}
+
+const SENT: [&str; 24] = [
+    r"\e[1;5A",
+    r"\eOP",
+    r"\e[3~",
+    r"\e[24;2~",
+    r"\e[99~",
+    r"\e[Z",
+    r"\ex",
+    r"\0",
+    r"\x1c",
+    r"\x7f",
+    r"\xff",
+    r"\xc3\xa9",
+    r"\e[1;3D",
+    r"\eOH",
+    r"\e[7~",
+    r"\e[4~",
+    r"\e[",
+    "B",
+    r"\eO",
+    "Q",
+    r"\e",
+    r"\e[200~pasted text\e[201~",
+    r"\e[200~two ",
+    r"parts\e[201~",
+];
+
+#[test]
+fn attach_turns_the_sequences_a_terminal_sends_into_keys_for_the_tab() {
+    let at = AgentTerminal::new();
+    at.run(&["--session", "app", "open", "--size", "160x4", "--wait", "ready", &fixture("input-echo")]).success();
+    attach(&at, "human", &[], "ctrl-p ctrl-q detaches").success();
+    for raw in SENT {
+        at.run(&["--session", "human", "send", raw]).success();
+    }
+    let expected =
+        r"\e[1;5A\eOP\e[3~\e[24;2~\e[Z\ex\x00\x1c\x7f\xc3\xa9\e[1;3D\e[H\e[H\e[F\e[B\eOQ\epasted texttwo parts";
+    at.run(&["--session", "app", "wait", expected]).success();
+    assert_eq!(at.received("app"), expected);
+    assert!(detach(&at, "human").contains("detached from app t1"));
+}
+
+#[test]
+fn attach_in_a_window_no_taller_than_the_tab_has_no_room_for_the_hint() {
+    let at = AgentTerminal::new();
+    open_app(&at);
+    at.run(&[
+        "--session",
+        "human",
+        "open",
+        "--size",
+        "40x6",
+        "--wait",
+        "ready",
+        BINARY,
+        "--",
+        "--session",
+        "app",
+        "attach",
+    ])
+    .success();
+    let shown = at.run(&["--session", "human", "get", "text"]).success().stdout();
+    assert!(shown.starts_with("ready") && !shown.contains("detaches"), "{shown}");
+    assert!(detach(&at, "human").contains("detached from app t1"));
+}
+
+#[test]
+fn attaching_to_a_session_that_does_not_exist_says_so() {
+    let at = AgentTerminal::new();
+    at.run(&["--session", "human", "open", "--size", "70x6", BINARY, "--", "--session", "nowhere", "attach"]).success();
+    at.run(&["--session", "human", "wait", "--exit"]).success();
+    let shown = at.run(&["--session", "human", "get", "text"]).success().stdout();
+    assert_eq!(
+        shown,
+        "error: no terminal is open in session nowhere; start one with `agent-t\nerminal open <program>`\n"
+    );
 }
 
 #[derive(Default)]
@@ -191,6 +276,7 @@ fn attach_mirrors_the_tab_with_a_line_saying_how_to_detach() {
 
     at.run(&["--session", "app", "press", "j", "--wait", "Selected: beta.txt"]).success();
     at.run(&["--session", "watcher", "wait", "Selected: beta.txt"]).success();
+    assert!(detach(&at, "watcher").contains("detached from app t1"));
 }
 
 #[test]
@@ -228,6 +314,7 @@ fn exec_is_refused_while_a_human_has_control_of_the_shell() {
     assert_eq!(refused.stderr(), "error: A human has control of app t1. Run `agent-terminal wait --control`.\n");
     let history = at.run(&["--session", "app", "--json", "history"]).success().json();
     assert_eq!(history["total"], 0);
+    assert!(detach(&at, "human").contains("detached from app t1"));
 }
 
 #[test]

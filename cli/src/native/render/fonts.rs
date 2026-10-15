@@ -4,7 +4,6 @@ use std::sync::{Arc, LazyLock, Mutex};
 use anyhow::{Context, Result};
 use num_traits::ToPrimitive;
 use swash::FontRef;
-use swash::scale::image::Content;
 use swash::scale::{Render, ScaleContext, Source};
 use swash::zeno::{Format, Vector};
 
@@ -238,7 +237,7 @@ impl Glyphs {
         let id = font.charmap().map(c);
         let room = f32::from(cell.width * span);
         let natural = font.glyph_metrics(&[]).scale(cell.px).advance_width(id);
-        let px = if !face.is_text() && natural > room && natural > 0.0 { cell.px * room / natural } else { cell.px };
+        let px = fitted_px(face, natural, room, cell.px);
         let advance = if face.is_text() && span == 1 { room } else { natural * px / cell.px };
         let shift = ((room - advance) / 2.0).max(0.0);
         let mut scaler = self.context.builder(font).size(px).hint(false).build();
@@ -246,9 +245,6 @@ impl Glyphs {
             .format(Format::Alpha)
             .offset(Vector::new(shift.fract(), 0.0))
             .render(&mut scaler, id)?;
-        if image.content != Content::Mask {
-            return None;
-        }
         Some(Mask {
             left: shift.trunc().to_i32()? + image.placement.left,
             top: i32::from(cell.baseline) - image.placement.top,
@@ -285,4 +281,8 @@ fn paint(alpha: &mut [u8], stride: usize, (across, down): (usize, usize), part: 
         target.iter_mut().zip(row).for_each(|(slot, value)| *slot = (*slot).max(*value));
     }
     Some(())
+}
+
+fn fitted_px(face: Face, natural: f32, room: f32, px: f32) -> f32 {
+    if !face.is_text() && natural > room && natural > 0.0 { px * room / natural } else { px }
 }

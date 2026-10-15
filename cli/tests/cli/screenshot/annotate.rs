@@ -55,3 +55,41 @@ fn each_legend_line_starts_with_the_colour_of_its_first_ref(shot: &Picture) {
         );
     }
 }
+
+#[test]
+fn an_annotated_svg_draws_the_legend_as_text() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    let path = at.work_folder().join("annotated.svg");
+    at.run(&["screenshot", "--annotate", path.to_str().unwrap()]).success();
+    let drawing = std::fs::read_to_string(&path).unwrap();
+    let legend: Vec<&str> =
+        drawing.lines().filter(|line| line.starts_with("<rect x=") && line.contains("xml:space")).collect();
+    assert_eq!(
+        legend.first().copied(),
+        Some(
+            "<rect x=\"10\" y=\"180\" width=\"27\" height=\"20\" fill=\"#fb923c\"/><text x=\"10\" y=\"195\" fill=\"#111113\">@t1</text>\
+             <text x=\"46\" y=\"195\" fill=\"#d4d4d8\" xml:space=\"preserve\">panel &quot;Files&quot;</text>"
+        )
+    );
+    let entries: Vec<(&str, &str)> = legend
+        .iter()
+        .map(|line| {
+            let tag = line.split(">@").nth(1).and_then(|rest| rest.split('<').next()).unwrap_or_default();
+            let rest =
+                line.rsplit("preserve\">").next().and_then(|rest| rest.strip_suffix("</text>")).unwrap_or_default();
+            (tag, rest)
+        })
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            ("t1", "panel &quot;Files&quot;"),
+            ("t2", "panel &quot;Details&quot;"),
+            ("t3", "selected &quot;alpha.txt&quot;"),
+            ("t4", "hint &quot;Move: j/k&quot;"),
+            ("t5", "hint &quot;Quit: q&quot;"),
+            ("t6", "hint &quot;Crash: x&quot;")
+        ]
+    );
+}

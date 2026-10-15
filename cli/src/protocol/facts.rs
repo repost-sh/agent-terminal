@@ -60,7 +60,7 @@ impl fmt::Display for Cell {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub(crate) struct Modes {
     pub alt_screen: Switch,
     pub mouse: Option<Mouse>,
@@ -98,7 +98,7 @@ impl fmt::Display for Switch {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub(crate) struct Mouse {
     pub tracking: String,
     pub encoding: String,

@@ -10,7 +10,7 @@ use crate::native::store::{PendingCall, SessionFolder};
 use crate::native::terminal::Terminal;
 use crate::output::call_line;
 use crate::protocol::{Modes, Shell, TabId};
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::http::header::{CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
@@ -43,12 +43,12 @@ enum Segment {
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-enum InfoUpdate {
-    Info(Box<Info>),
+enum InfoUpdate<'a> {
+    Info(&'a Info),
     Closed,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, PartialEq)]
 struct Info {
     program: String,
     args: String,
@@ -65,7 +65,7 @@ struct Info {
     env: Vec<EnvVar>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, PartialEq)]
 struct EnvVar {
     name: String,
     value: Option<String>,
@@ -88,26 +88,37 @@ async fn follow_activity(mut socket: WebSocket, backend: Arc<dyn Backend>, sessi
     let logged = folder.as_ref().map(|folder| folder.logged());
     let folder = folder.as_ref().map_or_else(Weak::new, Arc::downgrade);
     let mut follow = Follow::tab(&backend, session.clone(), id, |_| None).and(logged);
-    let mut offset = 0;
-    let mut sent: Option<Vec<PendingCall>> = None;
+    let mut reported = Reported::default();
     loop {
         let (Some(_), Some(folder)) = (follow.next(), folder.upgrade()) else {
             send(&mut socket, &ActivityUpdate::Closed).await;
             return;
         };
-        let Some(Read { entries, end, pending }) = read_activity(folder, offset, &session, &tab).await else {
+        let Some(read) = read_activity(folder, reported.offset, &session, &tab).await else {
             return;
         };
-        offset = end;
-        if sent.as_ref() != Some(&pending) || !entries.is_empty() {
-            if !send(&mut socket, &ActivityUpdate::Entries { entries, pending: pending.clone() }).await {
-                return;
-            }
-            sent = Some(pending);
-        }
-        if !follow.changed(&mut socket).await {
+        if !(reported.report(&mut socket, read).await && follow.changed(&mut socket).await) {
             return;
         }
+    }
+}
+
+#[derive(Default)]
+struct Reported {
+    offset: u64,
+    sent: Option<Vec<PendingCall>>,
+}
+
+impl Reported {
+    async fn report(&mut self, socket: &mut WebSocket, read: Read) -> bool {
+        self.offset = read.end;
+        if self.sent.as_ref() == Some(&read.pending) && read.entries.is_empty() {
+            return true;
+        }
+        let delivered =
+            send(socket, &ActivityUpdate::Entries { entries: read.entries, pending: read.pending.clone() }).await;
+        self.sent = Some(read.pending);
+        delivered
     }
 }
 
@@ -240,29 +251,26 @@ impl Streamed {
 async fn follow_output(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
     let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.frames()));
     let mut streamed: Option<Streamed> = None;
-    loop {
-        let Some((terminal, replaced)) = follow.next() else {
-            send(&mut socket, &OutputUpdate::Closed).await;
-            return;
-        };
-        if replaced {
-            streamed = None;
-        }
-        if let Some(update) = output_update(&terminal, &mut streamed)
-            && !send(&mut socket, &update).await
-        {
-            return;
-        }
-        if !follow.changed(&mut socket).await {
+    while let Some((terminal, replaced)) = follow.next() {
+        let update = output_update(&terminal, &mut streamed, replaced);
+        if !(send_any(&mut socket, update.as_ref()).await && follow.changed(&mut socket).await) {
             return;
         }
     }
+    send(&mut socket, &OutputUpdate::Closed).await;
 }
 
-fn output_update(terminal: &Terminal, streamed: &mut Option<Streamed>) -> Option<OutputUpdate> {
+async fn send_any(socket: &mut WebSocket, update: Option<&OutputUpdate>) -> bool {
+    match update {
+        Some(update) => send(socket, update).await,
+        None => true,
+    }
+}
+
+fn output_update(terminal: &Terminal, streamed: &mut Option<Streamed>, replaced: bool) -> Option<OutputUpdate> {
     let (raw, styled) = streamed.as_ref().map_or((0, 0), |streamed| (streamed.raw.offset, streamed.styled.offset));
     let mut output = terminal.output_since(raw, styled);
-    let continues = streamed.take().filter(|streamed| streamed.continues(&output));
+    let continues = streamed.take().filter(|streamed| !replaced && streamed.continues(&output));
     let reset = continues.is_none();
     let mut streamed_now = if let Some(continues) = continues {
         continues
@@ -292,30 +300,23 @@ pub(super) async fn info(
 }
 
 async fn follow_info(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
-    let mut follow = Follow::tab(&backend, session.clone(), id, |terminal| Some(terminal.frames()));
-    let mut sent = String::new();
-    loop {
-        let Some((terminal, _)) = follow.next() else {
-            send(&mut socket, &InfoUpdate::Closed).await;
-            return;
-        };
-        let info = match serde_json::to_string(&InfoUpdate::Info(Box::new(info_of(&terminal)))) {
-            Ok(info) => info,
-            Err(e) => {
-                log::note(format_args!("dashboard: encoding the info of {session} {id} failed: {e}"));
-                return;
-            }
-        };
-        if info != sent {
-            if socket.send(Message::text(info.clone())).await.is_err() {
-                return;
-            }
-            sent = info;
-        }
-        if !follow.changed(&mut socket).await {
+    let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.frames()));
+    let mut sent: Option<Info> = None;
+    while let Some((terminal, _)) = follow.next() {
+        if !(send_new(&mut socket, &mut sent, info_of(&terminal)).await && follow.changed(&mut socket).await) {
             return;
         }
     }
+    send(&mut socket, &InfoUpdate::Closed).await;
+}
+
+async fn send_new(socket: &mut WebSocket, sent: &mut Option<Info>, info: Info) -> bool {
+    if sent.as_ref() == Some(&info) {
+        return true;
+    }
+    let delivered = send(socket, &InfoUpdate::Info(&info)).await;
+    *sent = Some(info);
+    delivered
 }
 
 fn info_of(terminal: &Terminal) -> Info {
@@ -363,18 +364,7 @@ pub(super) async fn screenshot(
         return not_listed.into_response();
     };
     let wanted = path.clone();
-    let read = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<Vec<u8>>> {
-        let (entries, _) = folder.activity_since(0)?;
-        let logged = entries.iter().any(|entry| {
-            entry["screenshots"].as_array().is_some_and(|shots| shots.iter().any(|shot| shot == wanted.as_str()))
-        });
-        let listed = logged || folder.screenshots()?.iter().any(|shot| shot.path.as_os_str() == wanted.as_str());
-        if !listed || !wanted.to_ascii_lowercase().ends_with(".png") {
-            return Ok(None);
-        }
-        Ok(Some(std::fs::read(&wanted)?))
-    })
-    .await;
+    let read = tokio::task::spawn_blocking(move || listed_png(&folder, &wanted)).await;
     match read {
         Ok(Ok(Some(png))) => ([(CONTENT_TYPE, "image/png"), (X_CONTENT_TYPE_OPTIONS, "nosniff")], png).into_response(),
         Ok(Ok(None)) => not_listed.into_response(),
@@ -383,6 +373,18 @@ pub(super) async fn screenshot(
             (StatusCode::INTERNAL_SERVER_ERROR, format!("reading the screenshot {path} failed: {e}")).into_response()
         }
     }
+}
+
+fn listed_png(folder: &SessionFolder, wanted: &str) -> anyhow::Result<Option<Vec<u8>>> {
+    let (entries, _) = folder.activity_since(0)?;
+    let logged = entries
+        .iter()
+        .any(|entry| entry["screenshots"].as_array().is_some_and(|shots| shots.iter().any(|shot| shot == wanted)));
+    let listed = logged || folder.screenshots()?.iter().any(|shot| shot.path.as_os_str() == wanted);
+    if !listed || !wanted.to_ascii_lowercase().ends_with(".png") {
+        return Ok(None);
+    }
+    Ok(Some(std::fs::read(wanted)?))
 }
 
 fn not_a_tab(tab: &str) -> Response {
