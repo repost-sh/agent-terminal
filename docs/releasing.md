@@ -28,8 +28,8 @@ A tag with a prerelease suffix (`v0.2.0-rc.1`, from `version = "0.2.0-rc.1"`) ru
 
 The preflight (`preflight.yml`, job `custom-preflight`, `local-artifacts-jobs` in `dist-workspace.toml`) runs `node npm/preflight.js --tag <tag>` next to the builds, on prerelease tags too. It fails when the tag isn't `v` + the version in `cli/Cargo.toml`, when `CHANGELOG.md` has no section for that version, or when `npm publish --dry-run` refuses any of the seven packages (built from the template without their binaries, which don't exist yet). Everything after the builds waits for it, so the GitHub Release and both publish jobs never start after a failed preflight.
 
-1. Builds `agent-terminal` archives for macOS (arm64, x64) and Linux (arm64, x64, glibc and musl). The musl archives build in the `ghcr.io/rust-cross/rust-musl-cross` image for their architecture (`github-custom-runners` in `dist-workspace.toml`), because the binary compiles OpenH264, a C++ library, from source and Ubuntu's `musl-tools` has no musl C++ compiler; that image has a musl GCC with C++ and the Rust musl target.
-2. `npm-packages.yml` packs one npm package per platform (`@repost/agent-terminal-<os>-<cpu>[-musl]`, holding only that binary) and the main `@repost/agent-terminal` package (the launcher in `npm/agent-terminal`, with the platform packages as exact-version optional dependencies). Every package is public (`publishConfig.access`) and names this repository (`repository`), which npm provenance needs; the scope is explained in `docs/adr/0003-npm-package-is-repost-scoped.md`. It then builds the Homebrew formula from the same archives and runs the clean-machine install test (below). Any failure stops the release.
+1. Builds `agent-terminal` archives for macOS (arm64, x64) and Linux (arm64, x64, glibc and musl) with the Rust toolchain `rust-toolchain.toml` pins. Each Linux archive builds in a container image for its target and architecture (`github-custom-runners` in `dist-workspace.toml`, see "glibc floor, build images and toolchain pins" below): the glibc (gnu) archives in a `manylinux_2_28` image, so they run on glibc 2.28, and the musl archives in a `rust-musl-cross` image. Both images have a C++ compiler, because the binary compiles OpenH264, a C++ library, from source.
+2. `npm-packages.yml` checks that each gnu binary needs at most glibc 2.28 (`scripts/glibc-floor.sh`), then packs one npm package per platform (`@repost/agent-terminal-<os>-<cpu>[-musl]`, holding only that binary) and the main `@repost/agent-terminal` package (the launcher in `npm/agent-terminal`, with the platform packages as exact-version optional dependencies). Every package is public (`publishConfig.access`) and names this repository (`repository`), which npm provenance needs; the scope is explained in `docs/adr/0003-npm-package-is-repost-scoped.md`. It then builds the Homebrew formula from the same archives and runs the clean-machine install test (below). Any failure stops the release.
 3. Creates the GitHub Release with the archives, a `.sha256` file per archive and `sha256.sum`. Its title and notes are the version's `CHANGELOG.md` section. Each build job attests its archives with GitHub artifact attestations (`github-attestations` in `dist-workspace.toml`), so `gh attestation verify <archive> --repo repost-sh/agent-terminal` traces a download to the run that built it.
 4. Publishes the formula to `repost-sh/homebrew-tap` (`brew install repost-sh/tap/agent-terminal`) and the npm packages (`publish-npm.yml`, through npm trusted publishing with `--provenance` and no token, platform packages first, versions already on npm skipped so a rerun is safe).
 
@@ -47,6 +47,8 @@ npm never lets a version number be used twice, even after unpublishing, so a bad
 
 The `clean-install` job in `npm-packages.yml` installs the release's own artifacts on fresh runners: Ubuntu x64 and arm64 (glibc), Alpine x64 and arm64 (musl, a `node:24-alpine` container), macOS arm64 (`macos-14`) and macOS x64 (`macos-15-intel`). Each row installs with each channel: npm, pnpm and bun from a local registry holding the packed tarballs (`npm/install-test/registry.js`), the direct release archive after checking it against its `.sha256` (without its trailing blank line, which busybox `sha256sum -c` on Alpine counts as a mismatched entry), and the formula dist generated with its archive URLs pointed at the local archive. Alpine has no Homebrew row, because Homebrew does not run on musl. After installing (`npm/install-test/install.sh`), `npm/install-test/check.sh` asserts, with no TTY, that `--version` and `--json version` print the release's version, that the skill stub `install --skills` writes carries it, and that `open`, `snapshot` and `close` on the line-printer fixture work and `daemon stop` leaves no daemon running; `npm/install-test/offline.sh` then runs the same checks with networking cut (`sandbox-exec` on macOS, a network namespace on Linux).
 
+The `glibc` job runs the gnu binaries on older distributions: Debian 11 (`debian:11`, glibc 2.31), Ubuntu 20.04 (`ubuntu:20.04`, glibc 2.31) and Rocky Linux 8 (`rockylinux/rockylinux:8`, glibc 2.28), each on x64 and arm64. It unpacks the release archive on the runner after checking its `.sha256` (`install.sh archive`), then runs `check.sh` inside a fresh container of that distribution: `--version`, `--json version`, the skill stub, the `open` → `snapshot` → `close` round trip and `daemon stop`, with no TTY. These images have no Node, so the npm channels and the run with networking cut stay on the Ubuntu rows.
+
 It runs before any tag: `.github/workflows/clean-install.yml` builds the six archives the way `release.yml` does, from the same `dist plan`, and runs the same test on them. It runs on every pull request, and on demand from the Actions tab or with:
 
 ```sh
@@ -62,9 +64,23 @@ Edit `dist-workspace.toml`, then run `dist generate` with dist 0.33.0 to rewrite
 
 A new platform needs a target in `dist-workspace.toml`, a row in `PLATFORMS` in `npm/agent-terminal/lib/platform.js`, and a row in the `clean-install` matrix in `npm-packages.yml` whose `target` and `package` name that platform; `npm/test/platform.test.js` fails until the three agree.
 
-The two musl images are pinned by digest, so their Rust version stays fixed until the digests change. To move them to a newer Rust, take each tag's current digest (`docker buildx imagetools inspect ghcr.io/rust-cross/rust-musl-cross:aarch64-musl`, then `:x86_64-musl`) and put it in `dist-workspace.toml`.
-
 Every release archive (dist's `include`) and every npm platform package (`build-packages.js`) ships `licenses/` next to the binary. A new third-party work built into the binary (a font, a C library) needs its licence text in `licenses/` and a row in `licenses/README.md`.
+
+## glibc floor, build images and toolchain pins
+
+Everything that builds a release is pinned, so an upstream release cannot change or break a release run.
+
+- **glibc floor: 2.28.** The gnu archives run on Linux with glibc 2.28 or later; the `glibc` job above runs them on Debian 11, Ubuntu 20.04 and Rocky Linux 8. The floor comes from the build image: a binary can only require the glibc versions of the glibc it was linked against. `scripts/glibc-floor.sh` checks the result: it reads each binary's version references (`objdump -p`), prints the newest `GLIBC_` version each one requires, and fails when one is above `FLOOR`. The `glibc-floor` job in `npm-packages.yml` runs it on both gnu archives of every release and every clean-install run, before anything is published.
+- **Build images**, pinned by digest in `github-custom-runners` in `dist-workspace.toml`. The gnu targets build in `quay.io/pypa/manylinux_2_28_x86_64` and `quay.io/pypa/manylinux_2_28_aarch64`: AlmaLinux 8 with glibc 2.28 and GCC 14 (`gcc-toolset-14`) for OpenH264's C++. They carry no Rust: the build job installs rustup, which installs the pinned toolchain. The musl targets build in `ghcr.io/rust-cross/rust-musl-cross` (`:x86_64-musl`, `:aarch64-musl`), which have a musl GCC with C++ (Ubuntu's `musl-tools` has no musl C++ compiler); their own Rust is replaced by the pinned toolchain too.
+- **Rust: 1.98.1**, in `rust-toolchain.toml` at the repository root. rustup reads it wherever cargo runs in this repository, so release builds, the clean-install workflow, CI and local builds all use the same Rust. The pin follows the previous stable release at its latest patch, not the newest stable: when it was set, 1.99.0 was two weeks old and 1.98.1 was the patched 1.98. A brand-new release is where regressions surface (agent-browser's release broke four days after Rust 1.98.0 came out), so move the pin to a release once its first weeks are behind it.
+- **dist: 0.33.0**, `cargo-dist-version` in `dist-workspace.toml`. Every workflow installs it from its GitHub release (`cargo-dist-installer.sh`), because crates.io stops at 0.32.0.
+
+To move a pin, change it on a branch and open a pull request: the clean-install workflow builds all six archives with the new pin and runs every install row, the `glibc-floor` job and the `glibc` job on them.
+
+- Rust: set `channel` in `rust-toolchain.toml` and run the checks in `CONTRIBUTING.md` (rustup installs the new toolchain on first use); fix what new lints report in the same pull request.
+- dist: set `cargo-dist-version`, install that dist from its GitHub release, run `dist generate` and `dist plan`, and commit the regenerated `release.yml`.
+- An image: take the tag's current digest and put tag and digest in `dist-workspace.toml`. For manylinux take the newest dated tag (`YYYY.MM.DD-N`) listed at `https://quay.io/repository/pypa/manylinux_2_28_x86_64?tab=tags` and `.../manylinux_2_28_aarch64?tab=tags`; for rust-musl-cross the `x86_64-musl` and `aarch64-musl` tags. `docker buildx imagetools inspect <image>:<tag>` prints the digest.
+- The floor: build the gnu targets in images with the new glibc (`manylinux_2_<minor>`), set `FLOOR` in `scripts/glibc-floor.sh`, and change the `glibc` job's distributions in `npm-packages.yml` to the oldest ones the new floor supports.
 
 ## Check locally
 
@@ -72,6 +88,12 @@ Every release archive (dist's `include`) and every npm platform package (`build-
 node --test 'npm/test/*.test.js'
 dist plan
 node npm/preflight.js --tag v<version>
+```
+
+To check gnu binaries against the glibc floor (it needs `objdump`, from binutils on Linux and from the Xcode command line tools on macOS), for example the ones in a clean-install run's `artifacts-build-local-*-linux-gnu` artifacts:
+
+```sh
+sh scripts/glibc-floor.sh agent-terminal-x86_64-unknown-linux-gnu/agent-terminal agent-terminal-aarch64-unknown-linux-gnu/agent-terminal
 ```
 
 To build a musl archive the way the release does, run dist in that target's image from `dist-workspace.toml` (arm64 shown; the archive lands in `target/distrib`, the Linux build in `target/musl`):
