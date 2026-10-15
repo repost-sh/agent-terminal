@@ -3,6 +3,7 @@ import "@xterm/xterm/css/xterm.css";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type ITheme } from "@xterm/xterm";
 
+import { mirrorRows, type ScreenRows } from "./screen-rows";
 import { daemonWidths } from "./unicode";
 
 export const LARGEST_FONT_PX = 13;
@@ -57,16 +58,9 @@ const drawWithWebgl = (terminal: Terminal) => {
   }
 };
 
-const dropAnnouncementsOnceDrawn = (terminal: Terminal) => {
-  const liveRegion = terminal.element?.querySelector(".live-region");
-  if (!liveRegion) return;
-  terminal.onRender(() => {
-    if (liveRegion.textContent) liveRegion.textContent = "";
-  });
-};
-
-export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () => void) => {
+export const openTerminal = (host: HTMLElement, use: (terminal: Terminal, drawn: () => void) => () => void) => {
   let terminal: Terminal | null = null;
+  let rows: ScreenRows | null = null;
   let release = () => {};
   let disposed = false;
   fontsReady().then(() => {
@@ -76,7 +70,6 @@ export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () 
       fontSize: LARGEST_FONT_PX,
       scrollback: 0,
       disableStdin: true,
-      screenReaderMode: true,
       cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches,
       cursorInactiveStyle: "block",
       theme: PALETTE,
@@ -85,13 +78,14 @@ export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () 
     terminal.unicode.register(daemonWidths);
     terminal.unicode.activeVersion = daemonWidths.version;
     terminal.open(host);
-    dropAnnouncementsOnceDrawn(terminal);
+    rows = mirrorRows(terminal, host);
     drawWithWebgl(terminal);
-    release = use(terminal);
+    release = use(terminal, rows.update);
   });
   return () => {
     disposed = true;
     release();
+    rows?.dispose();
     terminal?.dispose();
   };
 };
