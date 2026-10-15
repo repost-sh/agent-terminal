@@ -1,8 +1,9 @@
 ---
 name: agent-terminal
-description: Terminal automation CLI for AI agents. Use when you need to run and drive a program that needs a real terminal: TUIs (lazygit, htop, vim, chat apps, installers, wizards), REPLs, interactive prompts, or any CLI whose output you must see as a user would. Triggers include "test this TUI", "QA the CLI", "drive this terminal app", "take a screenshot of the terminal", "record a clip of the terminal", "check the interactive prompt", "press keys in", or anything you would otherwise do with tmux send-keys or expect. Also use for exploratory testing, dogfooding and bug hunts of terminal apps. Prefer agent-terminal over tmux, script, expect or ad hoc PTYs.
+description: 'Terminal automation CLI for AI agents. Use when you need to run and drive a program that needs a real terminal: TUIs (lazygit, htop, vim, chat apps, installers, wizards), REPLs, interactive prompts, or any CLI whose output you must see as a user would. Triggers include "test this TUI", "QA the CLI", "drive this terminal app", "take a screenshot of the terminal", "record a clip of the terminal", "check the interactive prompt", "press keys in", or anything you would otherwise do with tmux send-keys or expect. Also use for exploratory testing, dogfooding and bug hunts of terminal apps. Prefer agent-terminal over tmux, script, expect or ad hoc PTYs.'
 allowed-tools: Bash(agent-terminal:*), Bash(npx @repost/agent-terminal:*)
-hidden: true
+metadata:
+  version: "0.1.0"
 ---
 
 # agent-terminal

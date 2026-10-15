@@ -171,17 +171,40 @@ fn simultaneous_skills_path_calls_each_see_complete_files() {
     });
 }
 
-fn stub_in(user: &Path) -> PathBuf {
+#[test]
+fn skills_path_removes_the_folders_older_versions_left() {
+    let at = AgentTerminal::new();
+    let cache = at.home().join("skills");
+    for left in ["0.0.1", "0.1.0-alpha.1", "999.0.0", "notes"] {
+        std::fs::create_dir_all(cache.join(left).join("tui-qa/templates")).unwrap();
+        std::fs::write(cache.join(left).join("tui-qa/templates/report.md"), "left behind\n").unwrap();
+    }
+    std::thread::scope(|scope| {
+        let calls: Vec<_> = (0..8).map(|_| scope.spawn(|| at.run(&["skills", "path"]).code())).collect();
+        let codes: Vec<i32> = calls.into_iter().map(|call| call.join().unwrap()).collect();
+        assert_eq!(codes, vec![0; 8]);
+    });
+    let left: std::collections::BTreeSet<String> =
+        std::fs::read_dir(&cache).unwrap().map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
+    assert_eq!(left, [VERSION, "999.0.0", "notes"].map(String::from).into());
+    assert_eq!(
+        std::fs::read_to_string(cache.join("999.0.0/tui-qa/templates/report.md")).unwrap(),
+        "left behind\n",
+        "a newer version's folder is not this version's to remove"
+    );
+}
+
+pub fn stub_in(user: &Path) -> PathBuf {
     user.join(".claude/skills/agent-terminal/SKILL.md")
 }
 
-fn stub_of_version(version: &str) -> String {
+pub fn stub_of_version(version: &str) -> String {
     format!(
         "---\nname: agent-terminal\ndescription: The stub of agent-terminal {version}\nmetadata:\n  version: \"{version}\"\n---\n\n# agent-terminal {version}\n"
     )
 }
 
-fn put_stub(user: &Path, contents: &str) {
+pub fn put_stub(user: &Path, contents: &str) {
     let stub = stub_in(user);
     std::fs::create_dir_all(stub.parent().unwrap()).unwrap();
     std::fs::write(stub, contents).unwrap();
@@ -201,9 +224,92 @@ fn install_skills_writes_the_discovery_stub_into_the_agent_skills_folder() {
     assert!(installed.starts_with("---\nname: agent-terminal\n"), "{installed}");
     assert!(installed.contains("\nInstall: `npm i -g @repost/agent-terminal`\n"), "{installed}");
     assert!(
-        installed.ends_with(&format!("hidden: true\nmetadata:\n  version: \"{VERSION}\"\n---\n{body}")),
+        installed.ends_with(&format!(
+            "\nallowed-tools: Bash(agent-terminal:*), Bash(npx @repost/agent-terminal:*)\nmetadata:\n  version: \
+             \"{VERSION}\"\n---\n{body}"
+        )),
         "{installed}"
     );
+}
+
+fn frontmatter_keys(skill: &str) -> Vec<&str> {
+    let (front, _) = skill.strip_prefix("---\n").and_then(|rest| rest.split_once("\n---\n")).expect("frontmatter");
+    front.lines().filter(|line| !line.starts_with(' ')).filter_map(|line| Some(line.split_once(':')?.0)).collect()
+}
+
+fn installed_stub(at: &AgentTerminal) -> String {
+    let user = at.home().join("user");
+    at.run_with_env(&["install", "--skills"], &[("HOME", &user)]).success();
+    std::fs::read_to_string(stub_in(&user)).unwrap()
+}
+
+#[test]
+fn the_stub_is_not_hidden_so_opencode_and_every_other_assistant_loads_it() {
+    let at = AgentTerminal::new();
+    assert_eq!(frontmatter_keys(&installed_stub(&at)), ["name", "description", "allowed-tools", "metadata"]);
+}
+
+fn yaml_problem(value: &str) -> Option<&'static str> {
+    if let Some(quote) = value.chars().next().filter(|first| ['\'', '"'].contains(first)) {
+        return (value.len() < 2 || !value.ends_with(quote)).then_some("a quoted value ends with its quote");
+    }
+    if value.starts_with(['[', '{', '>', '|', '*', '&', '!', '%', '@', '`', '#']) {
+        return Some("a plain value starts with a YAML indicator");
+    }
+    if value.contains(": ") {
+        return Some("\": \" in a plain value starts a nested mapping");
+    }
+    value.contains(" #").then_some("\" #\" in a plain value starts a comment")
+}
+
+#[test]
+fn every_skills_frontmatter_is_yaml_that_npx_skills_add_and_other_strict_readers_parse() {
+    let at = AgentTerminal::new();
+    let mut problems = Vec::new();
+    for name in ["agent-terminal", "core", "tui-qa", "cli-qa"] {
+        let guide = at.run(&["skills", "get", name]).success().stdout();
+        let (front, _) = guide.strip_prefix("---\n").and_then(|rest| rest.split_once("\n---\n")).expect("frontmatter");
+        for line in front.lines().filter(|line| !line.starts_with(' ') && !line.ends_with(':')) {
+            match line.split_once(": ") {
+                Some((key, value)) => {
+                    problems.extend(yaml_problem(value).map(|problem| format!("{name}: {key}: {problem}")))
+                }
+                None => problems.push(format!("{name}: `{line}` is not `key: value`")),
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+#[test]
+fn npx_skills_add_finds_one_skill_the_versioned_stub_that_install_writes() {
+    let at = AgentTerminal::new();
+    let skills = Path::new(env!("CARGO_MANIFEST_DIR")).join("../skills");
+    let found: Vec<String> =
+        std::fs::read_dir(skills).unwrap().map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
+    assert_eq!(found, ["agent-terminal"]);
+    assert_eq!(
+        shipped("skills/agent-terminal/SKILL.md"),
+        installed_stub(&at),
+        "skills/agent-terminal/SKILL.md must carry metadata.version {VERSION}, the version in cli/Cargo.toml"
+    );
+}
+
+#[test]
+fn the_plugin_marketplace_offers_one_plugin_holding_the_stub_that_install_writes() {
+    let at = AgentTerminal::new();
+    let marketplace: serde_json::Value = serde_json::from_str(&shipped(".claude-plugin/marketplace.json")).unwrap();
+    let plugins = marketplace["plugins"].as_array().expect("plugins");
+    let names: Vec<&str> = plugins.iter().map(|plugin| plugin["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["agent-terminal"]);
+    let source = Path::new(plugins[0]["source"].as_str().unwrap());
+    let skills: Vec<String> = plugins[0]["skills"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|skill| shipped(source.join(skill.as_str().unwrap()).join("SKILL.md").to_str().unwrap()))
+        .collect();
+    assert_eq!(skills, [installed_stub(&at)]);
 }
 
 #[test]

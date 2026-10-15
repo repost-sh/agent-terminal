@@ -32,7 +32,8 @@ pub fn run(target: Target, read_only: bool, json: bool, launch: Launch) -> i32 {
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     let call = Call { typed: Some(typed), request: Request::Attach { target, read_only } };
     let (response, stream) = match connection::keep_open(&call, &launch) {
-        Ok(opened) => opened,
+        Ok(Ok(opened)) => opened,
+        Ok(Err(refusal)) => return output::error(&refusal, json),
         Err(e) => return output::refuse(&format!("{e:#}"), json),
     };
     let attached = match response {

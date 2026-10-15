@@ -231,13 +231,18 @@ enum Command {
     #[command(about = "MCP stdio server with the same commands as tools")]
     Mcp,
     #[command(
-        about = "Check PTY support, the built-in fonts, shell integration and the daemon socket, and say how to fix each problem"
+        about = "Check PTY support, the built-in fonts, shell integration, the daemon (its socket and version) and the installed skill stub's version, and say how to fix each problem"
     )]
     Doctor {
-        #[arg(long, help = "Remove stale sockets and state, bring shell integration scripts up to date")]
+        #[arg(
+            long,
+            help = "Remove stale sockets and state, bring shell integration scripts and an older skill stub up to date"
+        )]
         fix: bool,
     },
-    #[command(about = "Upgrade to the latest version, with npm or Homebrew, whichever installed it")]
+    #[command(
+        about = "Upgrade to the latest version with what installed this one (npm, pnpm, yarn, bun or Homebrew), and refresh the installed skill stub"
+    )]
     Upgrade,
     #[command(about = "Print the version")]
     Version,
