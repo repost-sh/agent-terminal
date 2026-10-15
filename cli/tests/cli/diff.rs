@@ -11,7 +11,7 @@ fn open_with_cue(at: &AgentTerminal, cue: &Cue) {
         "--lines",
         "2",
         "--cue",
-        &cue.dir(),
+        &cue.path(),
     ])
     .success();
     cue.print("");
@@ -55,7 +55,7 @@ fn diff_snapshot_counts_open_as_a_snapshot_and_has_json() {
             "--lines",
             "1",
             "--cue",
-            &cue.dir(),
+            &cue.path(),
         ])
         .success()
         .json();

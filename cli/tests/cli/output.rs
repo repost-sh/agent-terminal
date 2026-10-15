@@ -1,7 +1,7 @@
 use crate::support::{AgentTerminal, Cue, fixture};
 
 fn open_with_cue(at: &AgentTerminal, cue: &Cue) {
-    at.run(&["open", "--wait", "line 2", &fixture("line-printer"), "--lines", "2", "--cue", &cue.dir()]).success();
+    at.run(&["open", "--wait", "line 2", &fixture("line-printer"), "--lines", "2", "--cue", &cue.path()]).success();
     cue.print("");
 }
 

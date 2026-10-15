@@ -1,7 +1,8 @@
-use std::io::Write;
+use std::io::{Read, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 pub struct AgentTerminal {
     home: tempfile::TempDir,
@@ -117,26 +118,34 @@ impl Run {
 
 pub struct Cue {
     dir: tempfile::TempDir,
+    listener: UnixListener,
+    fixture: Mutex<Option<UnixStream>>,
 }
 
 impl Cue {
     pub fn new() -> Self {
         let dir = tempfile::Builder::new().prefix("cue-").tempdir_in("/tmp").expect("temp cue folder");
-        for fifo in ["cue", "ack"] {
-            let status = Command::new("mkfifo").arg(dir.path().join(fifo)).status().expect("run mkfifo");
-            assert!(status.success(), "mkfifo {fifo} failed");
-        }
-        Self { dir }
+        let listener = UnixListener::bind(dir.path().join("cue")).expect("listen for the fixture's cue connection");
+        Self { dir, listener, fixture: Mutex::new(None) }
     }
 
-    pub fn dir(&self) -> String {
-        self.dir.path().to_string_lossy().into_owned()
+    pub fn path(&self) -> String {
+        self.dir.path().join("cue").to_string_lossy().into_owned()
     }
 
     pub fn print(&self, text: &str) {
-        std::fs::write(self.dir.path().join("cue"), text).expect("send the cue");
-        let ack = std::fs::read_to_string(self.dir.path().join("ack")).expect("read the acknowledgement");
-        assert_eq!(ack, "printed\n");
+        let mut connected = self.fixture.lock().unwrap();
+        let fixture =
+            connected.get_or_insert_with(|| self.listener.accept().expect("the fixture connects to its cue").0);
+        let length = u32::try_from(text.len()).expect("a cue shorter than 4 GiB").to_be_bytes();
+        fixture.write_all(&length).and_then(|()| fixture.write_all(text.as_bytes())).expect("send the cue");
+        let mut ack = [0u8; 1];
+        fixture.read_exact(&mut ack).expect("read the acknowledgement");
+        assert_eq!(&ack, b"\n");
+    }
+
+    pub fn restarted(&self) {
+        self.fixture.lock().unwrap().take();
     }
 }
 
