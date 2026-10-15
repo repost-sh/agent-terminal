@@ -1,7 +1,7 @@
 use crate::protocol::{
     BatchOutcome, Checked, ClickTarget, Clip, CommandRecord, DashboardStopped, Delivered, Delivery, DiffBase,
-    Direction, ErrorBody, Exit, Fact, Modes, MouseButton, MouseEvent, Owner, Ref, RefKind, Reply, Response,
-    SavedRecording, Screenshot, ScrollBy, SessionInfo, Snapshot, SnapshotDiff, Waited,
+    Direction, ErrorBody, Exit, Fact, Modes, MouseButton, MouseEvent, Owner, Ref, RefKind, Reply, Response, Screenshot,
+    ScrollBy, SessionInfo, Snapshot, SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
 
@@ -95,8 +95,6 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::Marked(marked) => println!("{}", serde_json::json!(marked)),
         Reply::Printed(printed) => println!("{}", serde_json::json!(printed)),
         Reply::Diff(diff) => println!("{}", serde_json::json!(diff)),
-        Reply::Recording(recording) => println!("{}", serde_json::json!(recording)),
-        Reply::Saved(saved) => println!("{}", serde_json::json!(saved)),
         Reply::Exported(export) => println!("{}", serde_json::json!(export)),
         Reply::Screenshot(screenshot) => println!("{}", serde_json::json!(screenshot)),
         Reply::ScreenshotDiff(diff) => println!("{}", serde_json::json!(diff)),
@@ -140,10 +138,6 @@ pub fn reply_text(reply: &Reply) -> String {
         Reply::Marked(marked) => format!("marked {} at frame {}\n", marked.mark, marked.frame),
         Reply::Printed(printed) => printed.output.clone(),
         Reply::Diff(diff) => diff_text(diff),
-        Reply::Recording(recording) => {
-            format!("recording {} {} to {}\n", recording.session, recording.tab, recording.path.display())
-        }
-        Reply::Saved(saved) => format!("{}\n", saved_text(saved)),
         Reply::Exported(export) => {
             let mut text = format!(
                 "exported session {} to {} ({}, {} KB)\n",
@@ -207,10 +201,6 @@ fn clip_text(clip: &Clip) -> String {
         count(clip.frames, "frame"),
         duration(clip.duration_ms)
     )
-}
-
-fn saved_text(saved: &SavedRecording) -> String {
-    format!("saved {} ({}, {} KB)", saved.path.display(), duration(saved.duration_ms), saved.bytes.div_ceil(1024))
 }
 
 fn record_line(record: &CommandRecord) -> String {

@@ -44,14 +44,13 @@ type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   ref?: Ref<HTMLButtonElement>;
   label: string;
   icon: LucideIcon;
-  glyph?: ReactNode;
   tooltip?: string;
   kind?: keyof typeof ICON_BUTTON;
 };
 
-export const IconButton = ({ label, icon: Icon, glyph, tooltip, kind = "tool", className, ...rest }: IconButtonProps) => (
+export const IconButton = ({ label, icon: Icon, tooltip, kind = "tool", className, ...rest }: IconButtonProps) => (
   <button type="button" data-tooltip={tooltip ?? label} className={cn(ICON_BUTTON[kind], className)} {...rest}>
-    {glyph ?? <Icon aria-hidden="true" />}
+    <Icon aria-hidden="true" />
     <span className="sr-only">{label}</span>
   </button>
 );

@@ -158,11 +158,6 @@ enum Command {
         #[command(subcommand)]
         what: DiffCommand,
     },
-    #[command(about = "Save the tab as an asciicast (.cast) file that plays in asciinema")]
-    Record {
-        #[command(subcommand)]
-        action: RecordAction,
-    },
     #[command(about = "Everything about this session in one file, for a bug report")]
     Trace {
         #[command(subcommand)]
@@ -678,19 +673,6 @@ enum DiffCommand {
         #[command(flatten)]
         look: LookArgs,
     },
-}
-
-#[derive(Subcommand)]
-enum RecordAction {
-    #[command(
-        about = "Save the tab to a .cast file from now on, starting from the screen as it is (default: ~/.agent-terminal/recordings/<session>-<tab>-<frame>.cast)"
-    )]
-    Start {
-        #[arg(help = "Where to save it", value_name = "PATH")]
-        path: Option<PathBuf>,
-    },
-    #[command(about = "Stop saving and print the file, its length and its size")]
-    Stop,
 }
 
 #[derive(Subcommand)]
@@ -1214,11 +1196,6 @@ fn request(cli: Cli) -> Result<Request, String> {
             let png = ScreenshotArgs { path: output, annotate: false, format: Some(ScreenshotFormat::Png), look };
             Request::DiffScreenshot { target, baseline: absolute(&baseline)?, shot: png.shot(dir)?, threshold }
         }
-        Command::Record { action: RecordAction::Start { path } } => {
-            let path = path.map(|path| absolute(&path)).transpose()?;
-            Request::RecordStart { target, path }
-        }
-        Command::Record { action: RecordAction::Stop } => Request::RecordStop { target },
         Command::Trace { action: TraceAction::Export { path } } => {
             Request::TraceExport { session: target.session, path: absolute(&path)? }
         }

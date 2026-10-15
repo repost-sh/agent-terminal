@@ -2,7 +2,6 @@ import type { ComponentType } from "react";
 
 import { ControlButton } from "./components/control-button";
 import { LayoutSwitch } from "./components/layout-switch";
-import { RecordButton } from "./components/record-button";
 import { RestartButton } from "./components/restart-button";
 import { ScreenshotButton } from "./components/screenshot-button";
 import type { TabInfo } from "./lib/protocol";
@@ -18,7 +17,6 @@ export type ToolbarAction = { id: string; Action: ComponentType<ToolbarActionPro
 export const TOOLBAR_ACTIONS: ToolbarAction[] = [
   { id: "restart", Action: RestartButton },
   { id: "screenshot", Action: ScreenshotButton },
-  { id: "record", Action: RecordButton },
   { id: "layout", Action: LayoutSwitch },
   { id: "control", Action: ControlButton },
 ];

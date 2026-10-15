@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use serde::Serialize;
 use serde_json::json;
 
@@ -22,22 +22,9 @@ pub struct Position {
     pub seconds: f64,
 }
 
-pub struct Saved {
-    pub path: PathBuf,
-    pub duration: Duration,
-    pub bytes: u64,
-}
-
 struct Writer {
     tape: Tape,
-    command: String,
     undecoded: Vec<u8>,
-    copy: Option<Copy>,
-}
-
-struct Copy {
-    tape: Tape,
-    started: Instant,
 }
 
 struct Tape {
@@ -73,10 +60,6 @@ impl Clock {
             origin: Instant::now(),
             offset: f64::from(since_epoch.subsec_micros()) / 1e6,
         }
-    }
-
-    fn from_now() -> Self {
-        Self { offset: 0.0, ..Self::on_the_second() }
     }
 
     fn seconds(&self) -> f64 {
@@ -122,7 +105,7 @@ impl Recording {
             eprintln!("starting the recording {} failed: {e:#}", path.display());
             Tape { path, file: Err(format!("{e:#}")), clock: Clock::on_the_second(), length: 0 }
         });
-        let writer = Writer { tape, command, undecoded: Vec::new(), copy: None };
+        let writer = Writer { tape, undecoded: Vec::new() };
         Arc::new(Self { tab, writer: Mutex::new(writer) })
     }
 
@@ -130,22 +113,22 @@ impl Recording {
         let mut writer = self.writer.lock().unwrap();
         let text = decode(&mut writer.undecoded, bytes);
         if !text.is_empty() {
-            writer.event("o", &text);
+            writer.tape.event("o", &text);
         }
         writer.tape.length
     }
 
     pub fn input(&self, bytes: &[u8]) {
-        self.writer.lock().unwrap().event("i", &String::from_utf8_lossy(bytes));
+        self.writer.lock().unwrap().tape.event("i", &String::from_utf8_lossy(bytes));
     }
 
     pub fn mark(&self, name: &str) {
-        self.writer.lock().unwrap().event("m", name);
+        self.writer.lock().unwrap().tape.event("m", name);
     }
 
     pub fn resize(&self, size: Size) -> u64 {
         let mut writer = self.writer.lock().unwrap();
-        writer.event("r", &format!("{}x{}", size.cols, size.rows));
+        writer.tape.event("r", &format!("{}x{}", size.cols, size.rows));
         writer.tape.length
     }
 
@@ -161,7 +144,7 @@ impl Recording {
         let mut writer = self.writer.lock().unwrap();
         let mut text = String::from_utf8_lossy(&std::mem::take(&mut writer.undecoded)).into_owned();
         text.push_str(RESET);
-        writer.event("o", &text);
+        writer.tape.event("o", &text);
     }
 
     pub fn position(&self) -> Result<Position> {
@@ -170,49 +153,6 @@ impl Recording {
             return Err(failure.context(format!("{} has no recording to clip", self.tab)));
         }
         Ok(Position { path: writer.tape.path.clone(), seconds: writer.tape.clock.seconds() })
-    }
-
-    pub fn save_to(&self, path: &Path, size: Size, screen: &str) -> Result<()> {
-        let mut writer = self.writer.lock().unwrap();
-        if let Some(copy) = &writer.copy {
-            bail!(
-                "{} is already being recorded to {}; stop with `agent-terminal record stop`",
-                self.tab,
-                copy.tape.path.display()
-            );
-        }
-        let mut tape = Tape::create(path, size, &writer.command, Clock::from_now())?;
-        tape.event("o", screen);
-        if let Some(failure) = tape.failure() {
-            return Err(failure);
-        }
-        writer.copy = Some(Copy { tape, started: Instant::now() });
-        Ok(())
-    }
-
-    pub fn saving_to(&self) -> Option<PathBuf> {
-        self.writer.lock().unwrap().copy.as_ref().map(|copy| copy.tape.path.clone())
-    }
-
-    pub fn stop_saving(&self) -> Result<Saved> {
-        let copy = self.writer.lock().unwrap().copy.take().ok_or_else(|| {
-            anyhow!("{} is not being recorded to a file; start with `agent-terminal record start [path]`", self.tab)
-        })?;
-        if let Some(failure) = copy.tape.failure() {
-            return Err(failure);
-        }
-        let path = copy.tape.path;
-        let bytes = std::fs::metadata(&path).with_context(|| format!("read {}", path.display()))?.len();
-        Ok(Saved { path, duration: copy.started.elapsed(), bytes })
-    }
-}
-
-impl Writer {
-    fn event(&mut self, kind: &str, data: &str) {
-        self.tape.event(kind, data);
-        if let Some(copy) = &mut self.copy {
-            copy.tape.event(kind, data);
-        }
     }
 }
 

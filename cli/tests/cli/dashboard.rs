@@ -128,6 +128,19 @@ fn the_api_serves_a_shell_command_with_its_colors_kept() {
 }
 
 #[test]
+fn the_dashboard_has_no_record_start_or_stop() {
+    let at = AgentTerminal::new();
+    at.run(&["--session", "qa", "open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    let port = start(&at);
+
+    for action in ["start", "stop"] {
+        let answer = post(port, &format!("/api/session/qa/t1/record/{action}"), "");
+        assert_eq!((answer.status, answer.body.as_str()), (404, "no such dashboard API"), "record/{action}");
+    }
+    assert!(!at.home().join("recordings").exists());
+}
+
+#[test]
 fn the_dashboard_refuses_requests_from_other_sites() {
     let at = AgentTerminal::new();
     let port = start(&at);

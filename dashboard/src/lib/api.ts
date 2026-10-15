@@ -65,10 +65,6 @@ export const takeScreenshot = (session: string, tab: string, frame: number | nul
     },
   );
 
-export const startRecording = async (session: string, tab: string) => (await post<{ path: string }>(`${tabPath(session, tab)}/record/start`)).path;
-
-export const stopRecording = async (session: string, tab: string) => (await post<{ path: string }>(`${tabPath(session, tab)}/record/stop`)).path;
-
 export const commandOutput = async (session: string, tab: string, id: number) => {
   const response = await fetch(`${tabPath(session, tab)}/commands/${id}`);
   const text = await response.text();

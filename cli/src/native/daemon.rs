@@ -22,9 +22,8 @@ use crate::output::{self, call_line};
 use crate::protocol::{
     self, Addressed, AttachEvent, AttachInput, Attached, BatchOutcome, BatchStep, Call, Checked, Closed, CommandOutput,
     CommandRecord, Dashboard, DashboardStopped, Delivered, ErrorBody, Expect, Export, History, HumanInput, Input,
-    Marked, Matches, Mirror, Printed, RecordingFile, Reply, Request, Response, RowRange, SavedRecording, Screenshot,
-    SessionInfo, Sessions, Shell, Shot, Size, Snapshot, SnapshotOptions, Style, TabId, TabRef, Target, TextMatch, Wait,
-    Waited,
+    Marked, Matches, Mirror, Printed, Reply, Request, Response, RowRange, Screenshot, SessionInfo, Sessions, Shell,
+    Shot, Size, Snapshot, SnapshotOptions, Style, TabId, TabRef, Target, TextMatch, Wait, Waited,
 };
 
 const CONTROL_HANDED_BACK: &str = "a human to hand back control";
@@ -244,33 +243,6 @@ impl Daemon {
             Request::DiffSnapshot { target, baseline } => {
                 let (_, terminal) = self.target(&target)?;
                 terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(failure)
-            }
-            Request::RecordStart { target, path } => {
-                let (id, terminal) = self.target(&target)?;
-                let Target { session, .. } = target;
-                let path = match path {
-                    Some(path) => path,
-                    None => home().map_err(error_body)?.join("recordings").join(format!(
-                        "{}-{id}-{}.cast",
-                        store::file_name(&session),
-                        terminal.frame()
-                    )),
-                };
-                terminal.save_recording(&path).map_err(error_body)?;
-                self.changes.notify();
-                Ok(Reply::Recording(RecordingFile { session, tab: id.to_string(), path }))
-            }
-            Request::RecordStop { target } => {
-                let (id, terminal) = self.target(&target)?;
-                let saved = terminal.recording().stop_saving().map_err(error_body)?;
-                self.changes.notify();
-                Ok(Reply::Saved(SavedRecording {
-                    session: target.session,
-                    tab: id.to_string(),
-                    path: saved.path,
-                    duration_ms: saved.duration.as_millis() as u64,
-                    bytes: saved.bytes,
-                }))
             }
             Request::TraceExport { session, path } => {
                 let exported = home().and_then(|home| store::export(&home, &session, &path)).map_err(error_body)?;

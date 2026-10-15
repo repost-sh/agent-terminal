@@ -8,7 +8,7 @@ Main job: **QA of TUIs and CLIs by agents** (lazygit-style apps, chat TUIs, inst
 
 ## Principles
 
-1. **Same vocabulary as agent-browser.** `open`, `snapshot`, `screenshot`, `press`, `type`, `click`, `wait`, `close`, `--session`, `tab`, `batch`, `diff`, `record`, `dashboard`, `skills`, `--json`. An agent that knows one CLI already knows the other.
+1. **Same vocabulary as agent-browser.** `open`, `snapshot`, `screenshot`, `press`, `type`, `click`, `wait`, `close`, `--session`, `tab`, `batch`, `diff`, `dashboard`, `skills`, `--json`. An agent that knows one CLI already knows the other.
 2. **Text first, pixels when you need them.** `snapshot` is the cheap default: the screen as text, with row numbers, cursor, modes and refs. `screenshot` renders a PNG for vision models, humans and evidence.
 3. **Act and wait in one call.** Every input command accepts `--wait …`, so the usual loop is one round trip: `press Enter --wait-stable`.
 4. **Event driven, not polling.** A resident daemon owns the PTYs and a headless VT emulator per terminal. Waits wake on the next frame that matches.
