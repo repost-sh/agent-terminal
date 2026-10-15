@@ -234,11 +234,13 @@ impl Daemon {
                     )),
                 };
                 terminal.recording().save_to(&path).map_err(error_body)?;
+                self.changes.notify();
                 Ok(Reply::Recording(RecordingFile { session, tab, path }))
             }
             Request::RecordStop { session, tab } => {
                 let (id, terminal) = self.target(&session, tab)?;
                 let saved = terminal.recording().stop_saving().map_err(error_body)?;
+                self.changes.notify();
                 Ok(Reply::Saved(SavedRecording {
                     session,
                     tab: tab_name(id),

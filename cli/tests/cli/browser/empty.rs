@@ -21,6 +21,7 @@ fn with_no_sessions_the_dashboard_offers_the_three_commands_to_get_started() {
             "Copy agent-terminal shell",
             "agent-terminal skills get core",
             "Copy agent-terminal skills get core",
+            "New session",
         ]
     );
     assert_eq!(browser.text("nav").trim(), "No sessions");

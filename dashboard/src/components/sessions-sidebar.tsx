@@ -1,4 +1,4 @@
-import { ChevronRight, Moon, SquareTerminal, Sun } from "lucide-react";
+import { ChevronRight, Moon, Plus, SquareTerminal, Sun, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import type { Connection } from "../lib/daemon";
@@ -6,6 +6,9 @@ import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { followLink, tabRoute } from "../lib/route";
 import { tabName, tabState } from "../lib/tabs";
 import type { Theme } from "../lib/theme";
+import { CloseAllDialog } from "./close-all";
+import { showDialog } from "./dialog";
+import { NewSessionDialog } from "./new-session";
 import { Badge, Chip, Dot, IconButton, cn } from "./ui";
 
 export type Selected = { session: string; tab: string } | null;
@@ -90,6 +93,16 @@ const SessionGroup = ({ info, selected, routeOf }: { info: SessionInfo; selected
             routeOf={routeOf}
           />
         ))}
+        <li>
+          <button
+            type="button"
+            onClick={() => showDialog((live) => <NewSessionDialog sessions={live} existing={info.session} />)}
+            className="flex w-full items-center gap-2 py-1 pr-1 pl-7 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+          >
+            <Plus aria-hidden="true" className="size-4" />
+            New tab<span className="sr-only"> in {info.session}</span>
+          </button>
+        </li>
       </ul>
     </div>
   );
@@ -124,6 +137,20 @@ export const SessionsSidebar = ({ connection, sessions, selected, theme, onToggl
             label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             icon={theme === "dark" ? Sun : Moon}
             onClick={onToggleTheme}
+          />
+          <IconButton
+            kind="head"
+            label="Close all sessions"
+            icon={Trash2}
+            disabled={connection === "down" || !sessions?.length}
+            onClick={() => showDialog((live) => <CloseAllDialog sessions={live} />)}
+          />
+          <IconButton
+            kind="head"
+            label="New session"
+            icon={Plus}
+            disabled={connection === "down"}
+            onClick={() => showDialog((live) => <NewSessionDialog sessions={live} existing={null} />)}
           />
         </div>
       </div>

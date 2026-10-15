@@ -12,19 +12,23 @@ const BUTTON_VARIANT = {
   default: "bg-primary text-primary-foreground hover:bg-primary/80",
   ghost: "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
   outline: "border-border bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+  destructive:
+    "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
 };
 
 const BUTTON_SIZE = {
   sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] [&_svg]:size-3.5",
+  "icon-sm": "size-7 rounded-[min(var(--radius-md),12px)] text-sm [&_svg]:size-4",
 };
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: keyof typeof BUTTON_VARIANT;
+  size?: keyof typeof BUTTON_SIZE;
   icon?: LucideIcon;
 };
 
-export const Button = ({ variant = "default", icon: Icon, className, children, ...rest }: ButtonProps) => (
-  <button type="button" className={cn(BUTTON_BASE, BUTTON_VARIANT[variant], BUTTON_SIZE.sm, className)} {...rest}>
+export const Button = ({ variant = "default", size = "sm", icon: Icon, className, children, ...rest }: ButtonProps) => (
+  <button type="button" className={cn(BUTTON_BASE, BUTTON_VARIANT[variant], BUTTON_SIZE[size], className)} {...rest}>
     {Icon && <Icon aria-hidden="true" />}
     {children}
   </button>
@@ -39,13 +43,14 @@ type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   ref?: Ref<HTMLButtonElement>;
   label: string;
   icon: LucideIcon;
+  glyph?: ReactNode;
   tooltip?: string;
   kind?: keyof typeof ICON_BUTTON;
 };
 
-export const IconButton = ({ label, icon: Icon, tooltip, kind = "tool", className, ...rest }: IconButtonProps) => (
+export const IconButton = ({ label, icon: Icon, glyph, tooltip, kind = "tool", className, ...rest }: IconButtonProps) => (
   <button type="button" data-tooltip={tooltip ?? label} className={cn(ICON_BUTTON[kind], className)} {...rest}>
-    <Icon aria-hidden="true" />
+    {glyph ?? <Icon aria-hidden="true" />}
     <span className="sr-only">{label}</span>
   </button>
 );
@@ -105,7 +110,7 @@ export const Dot = ({ tone, className }: { tone: Tone; className?: string }) => 
   <span aria-hidden="true" className={cn("inline-block size-2 shrink-0 rounded-full", DOT[tone], className)} />
 );
 
-const copy = async (value: string) => {
+export const copy = async (value: string) => {
   try {
     await navigator.clipboard.writeText(value);
     toast("success", "Copied", value);

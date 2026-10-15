@@ -93,15 +93,26 @@ fn session_list_shows_every_tab_with_its_program_size_and_status() {
          a t2 · line-printer · 20x3 · exited 4 · current\n\
          b t1 · fixture-tui · 50x8 · running · current\n"
     );
+    let printer = fixture("line-printer");
+    let cwd = std::env::current_dir().unwrap().to_string_lossy().into_owned();
     assert_eq!(
         at.run(&["--json", "session", "list"]).success().json(),
         serde_json::json!({ "sessions": [
             { "session": "a", "current": "t2", "tabs": [
-                { "tab": "t1", "program": "line-printer", "cols": 30, "rows": 5, "exited": false, "exit_code": null },
-                { "tab": "t2", "program": "line-printer", "cols": 20, "rows": 3, "exited": true, "exit_code": 4 },
+                {
+                    "tab": "t1", "program": "line-printer", "command": format!("{printer} --lines 1 --hold"), "cwd": cwd,
+                    "cols": 30, "rows": 5, "exited": false, "exit_code": null, "recording": null,
+                },
+                {
+                    "tab": "t2", "program": "line-printer", "command": format!("{printer} --lines 1 --exit 4"), "cwd": cwd,
+                    "cols": 20, "rows": 3, "exited": true, "exit_code": 4, "recording": null,
+                },
             ] },
             { "session": "b", "current": "t1", "tabs": [
-                { "tab": "t1", "program": "fixture-tui", "cols": 50, "rows": 8, "exited": false, "exit_code": null },
+                {
+                    "tab": "t1", "program": "fixture-tui", "command": fixture("fixture-tui"), "cwd": cwd,
+                    "cols": 50, "rows": 8, "exited": false, "exit_code": null, "recording": null,
+                },
             ] },
         ] })
     );

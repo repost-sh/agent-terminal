@@ -1,16 +1,15 @@
-import { closeTab, restartTab } from "../lib/api";
+import { closeTab, reason } from "../lib/api";
 import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
 import type { Layout } from "../lib/split";
 import { useTabStream } from "../lib/stream";
 import { firstTab, tabName } from "../lib/tabs";
 import { announce } from "./announcer";
+import { restartProgram } from "./restart-button";
 import { StatusBar } from "./status-bar";
 import { Viewport } from "./terminal-view";
 import { toast } from "./toaster";
 import { Toolbar } from "./toolbar";
-
-const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 type TabScreenProps = { session: string; tab: TabInfo; sessions: SessionInfo[]; onLayout: (count: Layout) => void };
 
@@ -19,13 +18,7 @@ export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) 
   const name = tabName(session, tab.tab);
 
   const restart = async () => {
-    try {
-      await restartTab(session, tab.tab);
-      announce(`${tab.program} restarted`);
-      document.getElementById("main-content")?.focus({ preventScroll: true });
-    } catch (error) {
-      toast("error", `Could not restart ${tab.program}`, reason(error));
-    }
+    if (await restartProgram(session, tab)) document.getElementById("main-content")?.focus({ preventScroll: true });
   };
 
   const close = async () => {
@@ -42,7 +35,7 @@ export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) 
 
   return (
     <>
-      <Toolbar layout={1} onLayout={onLayout} />
+      <Toolbar layout={1} onLayout={onLayout} current={{ session, tab, stream: state, shown }} />
       <div className="h-px shrink-0 bg-border" role="none" />
       <Viewport
         paint={paint}

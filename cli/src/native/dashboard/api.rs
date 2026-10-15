@@ -7,7 +7,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use super::{Backend, tab_id};
-use crate::protocol::{Request, Sessions, Wait};
+use crate::protocol::{ErrorBody, Look, Request, ScreenshotFormat, Sessions, Shot, Wait};
 
 const RESTART_SETTLES_AFTER_MS: u64 = 300;
 const RESTART_TIMEOUT_MS: u64 = 25_000;
@@ -59,14 +59,56 @@ pub async fn close(State(backend): State<Arc<dyn Backend>>, Path((session, tab))
     call(backend, Request::Close { session, all: false, tab: Some(id) }).await
 }
 
-async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
+pub async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
+    call(backend, Request::Close { session: String::new(), all: true, tab: None }).await
+}
+
+pub async fn screenshot(
+    State(backend): State<Arc<dyn Backend>>,
+    Path((session, tab)): Path<(String, String)>,
+) -> Response {
+    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
+    let shot = Shot {
+        path: None,
+        dir: None,
+        format: ScreenshotFormat::Png,
+        look: Look::default(),
+        rows: None,
+        annotate: false,
+    };
+    call(backend, Request::Screenshot { session, tab: Some(id), shot }).await
+}
+
+pub async fn record_start(
+    State(backend): State<Arc<dyn Backend>>,
+    Path((session, tab)): Path<(String, String)>,
+) -> Response {
+    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
+    call(backend, Request::RecordStart { session, tab: Some(id), path: None }).await
+}
+
+pub async fn record_stop(
+    State(backend): State<Arc<dyn Backend>>,
+    Path((session, tab)): Path<(String, String)>,
+) -> Response {
+    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
+    call(backend, Request::RecordStop { session, tab: Some(id) }).await
+}
+
+pub async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
     match tokio::task::spawn_blocking(move || backend.call(request)).await {
         Ok(Ok(reply)) => Json(reply).into_response(),
-        Ok(Err(error)) => {
-            (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({ "error": error }))).into_response()
-        }
+        Ok(Err(error)) => refusal(error),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("the daemon call failed: {e}")).into_response(),
     }
+}
+
+pub fn refused(message: String) -> Response {
+    refusal(ErrorBody { code: crate::exit::ERROR, message, snapshot: None })
+}
+
+fn refusal(error: ErrorBody) -> Response {
+    (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({ "error": error }))).into_response()
 }
 
 fn no_tab(session: &str, tab: &str) -> Response {

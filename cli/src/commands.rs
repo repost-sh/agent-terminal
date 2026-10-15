@@ -1392,10 +1392,7 @@ fn parse_size(value: &str) -> Result<Size, String> {
     let (cols, rows) = value.split_once('x').ok_or("expected COLSxROWS, e.g. 120x40")?;
     let cols: u16 = cols.parse().map_err(|_| format!("invalid column count: {cols}"))?;
     let rows: u16 = rows.parse().map_err(|_| format!("invalid row count: {rows}"))?;
-    if !(2..=1000).contains(&cols) || !(2..=1000).contains(&rows) {
-        return Err("columns and rows must be between 2 and 1000".into());
-    }
-    Ok(Size { cols, rows })
+    Size::new(cols, rows)
 }
 
 fn read_baseline(path: &std::path::Path) -> Result<Baseline, String> {

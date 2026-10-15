@@ -1,10 +1,13 @@
 export type TabInfo = {
   tab: string;
   program: string;
+  command: string;
+  cwd: string;
   cols: number;
   rows: number;
   exited: boolean;
   exit_code: number | null;
+  recording: string | null;
 };
 
 export type SessionInfo = {

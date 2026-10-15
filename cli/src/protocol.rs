@@ -15,6 +15,15 @@ pub struct Size {
     pub rows: u16,
 }
 
+impl Size {
+    pub fn new(cols: u16, rows: u16) -> Result<Self, String> {
+        if !(2..=1000).contains(&cols) || !(2..=1000).contains(&rows) {
+            return Err("columns and rows must be between 2 and 1000".into());
+        }
+        Ok(Self { cols, rows })
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "until", rename_all = "kebab-case")]
 pub enum Wait {
@@ -1027,10 +1036,13 @@ impl SessionInfo {
 pub struct TabInfo {
     pub tab: String,
     pub program: String,
+    pub command: String,
+    pub cwd: String,
     pub cols: u16,
     pub rows: u16,
     pub exited: bool,
     pub exit_code: Option<i32>,
+    pub recording: Option<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

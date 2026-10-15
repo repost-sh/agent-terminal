@@ -1,11 +1,14 @@
 mod activity;
+mod close_all;
 mod commands;
 mod empty;
 mod info;
+mod new_session;
 mod output;
 mod sidebar;
 mod split;
 mod terminal;
+mod toolbar;
 
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -38,6 +41,7 @@ impl Browser {
         let n = OPENED.fetch_add(1, Ordering::SeqCst);
         let browser = Self { session: format!("agent-terminal-test-{}-{n}", std::process::id()) };
         browser.run(&["set", "viewport", "1440", "900"]);
+        browser.run(&["set", "media", "reduced-motion"]);
         browser.run(&["open", url]);
         browser
     }
@@ -110,6 +114,28 @@ impl Browser {
 
     pub fn click_button(&self, name: &str) {
         self.run(&["find", "role", "button", "click", "--name", name, "--exact"]);
+    }
+
+    #[track_caller]
+    pub fn click_button_in(&self, scope: &str, name: &str) {
+        let listed = self.run(&["snapshot", "-i", "-s", scope]);
+        let button = format!("button {}", js_string(name));
+        let reference = listed
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("- "))
+            .find(|line| line.strip_prefix(&button).is_some_and(|rest| rest.starts_with(' ')))
+            .and_then(|line| line.split("[ref=").nth(1)?.split(']').next())
+            .unwrap_or_else(|| panic!("no button {name:?} in {scope}:\n{listed}"))
+            .to_string();
+        self.run(&["click", &format!("@{reference}")]);
+    }
+
+    pub fn fill(&self, label: &str, text: &str) {
+        self.run(&["find", "label", label, "fill", text, "--exact"]);
+    }
+
+    pub fn check(&self, label: &str) {
+        self.run(&["find", "label", label, "check", "--exact"]);
     }
 
     pub fn screen(&self) -> Vec<String> {

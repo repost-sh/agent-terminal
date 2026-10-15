@@ -26,11 +26,19 @@ fn tab_new_runs_another_terminal_in_the_same_session() {
                   default t2 · line-printer · 20x3 · running · current\n";
     assert_eq!(at.run(&["tab"]).success().stdout(), listed);
     assert_eq!(at.run(&["tab", "list"]).success().stdout(), listed);
+    let printer = fixture("line-printer");
+    let cwd = std::env::current_dir().unwrap().to_string_lossy().into_owned();
     assert_eq!(
         at.run(&["--json", "tab"]).success().json(),
         serde_json::json!({ "session": "default", "current": "t2", "tabs": [
-            { "tab": "t1", "program": "line-printer", "cols": 20, "rows": 2, "exited": false, "exit_code": null },
-            { "tab": "t2", "program": "line-printer", "cols": 20, "rows": 3, "exited": false, "exit_code": null },
+            {
+                "tab": "t1", "program": "line-printer", "command": format!("{printer} --lines 1 --hold"), "cwd": cwd,
+                "cols": 20, "rows": 2, "exited": false, "exit_code": null, "recording": null,
+            },
+            {
+                "tab": "t2", "program": "line-printer", "command": format!("{printer} --lines 2 --hold"), "cwd": cwd,
+                "cols": 20, "rows": 3, "exited": false, "exit_code": null, "recording": null,
+            },
         ] })
     );
 }

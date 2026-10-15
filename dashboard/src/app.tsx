@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 
 import { Announcers } from "./components/announcer";
+import { DialogLayer, useOpenDialog } from "./components/dialog";
 import { Disconnected, NoSessions, NotFound, NotOpen } from "./components/empty-screens";
 import { ResizeHandle } from "./components/resize-handle";
 import { SessionsSidebar, type RouteOf, type Selected } from "./components/sessions-sidebar";
@@ -23,6 +24,7 @@ export const App = () => {
   const [sidebarPct, setSidebarPct] = useState(15);
   const [splitFocus, setSplitFocus] = useState(0);
   const route = parseRoute(usePath());
+  const dialog = useOpenDialog();
 
   const screen = ((): Screen => {
     if (connection === "down") {
@@ -80,7 +82,7 @@ export const App = () => {
       >
         Skip to content
       </a>
-      <div className="shell fixed inset-0 bg-background">
+      <div className="shell fixed inset-0 bg-background" inert={dialog !== null}>
         <div className="shell-cols flex h-full min-h-0 w-full">
           <SessionsSidebar
             connection={connection}
@@ -99,6 +101,7 @@ export const App = () => {
           {screen.right}
         </div>
       </div>
+      <DialogLayer sessions={sessions ?? []} />
       <Toaster />
       <TooltipLayer />
       <Announcers title={screen.title ?? ""} />
