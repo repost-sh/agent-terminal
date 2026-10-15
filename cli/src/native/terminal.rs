@@ -15,6 +15,7 @@ use crate::native::output_log::{Offsets, Output, OutputLog};
 use crate::native::pty::{self, Signaller, Spawned, Stopper};
 use crate::native::recording::Recording;
 use crate::native::refs::{self, Found, Grid};
+use crate::native::replay::Replay;
 use crate::native::screen::{Screen, ShellReport};
 use crate::native::store::CommandLog;
 use crate::native::wait::{self, Condition, Moment, Verdict};
@@ -355,6 +356,27 @@ impl Terminal {
         let grid = state.screen.grid();
         let refs = refs.then(|| remember_refs(&mut state, &grid));
         Ok(Capture { grid, rows, frame: state.frame, refs })
+    }
+
+    pub fn capture_at(&self, frame: u64, rows: Option<RowRange>) -> Result<Option<Capture>> {
+        let (run, ends, now) = {
+            let state = self.state.lock().unwrap();
+            (self.run.clone(), state.frame_ends.clone(), state.frame)
+        };
+        if frame == now {
+            return self.capture(rows, false).map(Some).map_err(anyhow::Error::msg);
+        }
+        let Some(passed) = ends.get(..frame as usize).filter(|_| frame > 0) else {
+            return Ok(None);
+        };
+        let mut replay = Replay::start(&run)?;
+        for end in passed {
+            replay.next_frame(*end)?;
+        }
+        let grid = replay.grid();
+        let size = Size { cols: grid.rows.first().map_or(0, Vec::len) as u16, rows: grid.rows.len() as u16 };
+        let rows = row_range(size, rows).map_err(anyhow::Error::msg)?;
+        Ok(Some(Capture { grid, rows, frame, refs: None }))
     }
 
     pub fn text_rows(&self, rows: Option<RowRange>, ansi: bool) -> Result<(u64, Vec<String>), String> {

@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use serde::Deserialize;
 
 use super::{Backend, tab_id};
 use crate::protocol::{ErrorBody, Request, Sessions, Shot, Target, Wait};
@@ -63,12 +65,26 @@ pub async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
     call(backend, Request::Close { target: Target { session: String::new(), tab: None }, all: true }).await
 }
 
+#[derive(Deserialize, Default)]
+pub struct Shown {
+    frame: Option<u64>,
+}
+
 pub async fn screenshot(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
+    body: Bytes,
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Screenshot { target: Target::tab(&session, id), shot: Shot::default() }).await
+    let shown = match body.is_empty() {
+        true => Shown::default(),
+        false => match serde_json::from_slice::<Shown>(&body) {
+            Ok(shown) => shown,
+            Err(e) => return refused(format!("the screenshot request is not {{\"frame\": <n>}}: {e}")),
+        },
+    };
+    let shot = Shot { frame: shown.frame, ..Shot::default() };
+    call(backend, Request::Screenshot { target: Target::tab(&session, id), shot }).await
 }
 
 pub async fn record_start(

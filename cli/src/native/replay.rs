@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 
 use crate::native::cast::Reader;
+use crate::native::refs::Grid;
 use crate::native::screen::Screen;
 use crate::native::terminal::{Picture, Run};
 
@@ -21,6 +22,10 @@ impl Replay {
         let mut cast = Reader::open(&run.cast)?;
         cast.seek(run.from)?;
         Ok(Self { cast, screen: Screen::new(run.size), drawn_at: 0.0, frame: 0 })
+    }
+
+    pub fn grid(&self) -> Grid {
+        self.screen.grid()
     }
 
     pub fn next_frame(&mut self, end: u64) -> Result<Drawn> {
