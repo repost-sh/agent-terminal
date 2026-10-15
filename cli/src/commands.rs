@@ -240,7 +240,9 @@ enum Command {
         )]
         fix: bool,
     },
-    #[command(about = "Upgrade to the latest version, with npm or Homebrew, whichever installed it")]
+    #[command(
+        about = "Upgrade to the latest version with what installed this one (npm, pnpm, yarn, bun or Homebrew), and refresh the installed skill stub"
+    )]
     Upgrade,
     #[command(about = "Print the version")]
     Version,
