@@ -1,21 +1,25 @@
+use std::fmt::{self, Write as _};
 use std::fs::{File, OpenOptions};
-use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use std::io::{self, Cursor, ErrorKind, Write};
+use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
+use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
 use crate::native::changes::Changes;
+use crate::native::log;
 use crate::native::render::Cells;
 use crate::output::call_line;
 use crate::protocol::{CommandRecord, HumanInput, TabId};
 
-pub struct SessionFolder {
+pub(crate) struct SessionFolder {
     path: PathBuf,
     last_tab: Mutex<Option<TabId>>,
     activity: Mutex<Calls>,
@@ -31,27 +35,27 @@ struct Calls {
 }
 
 #[derive(Serialize, Clone, PartialEq, Eq)]
-pub struct PendingCall {
+pub(crate) struct PendingCall {
     pub time: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tab: Option<String>,
     pub command: String,
 }
 
-pub struct Pending {
+pub(crate) struct Pending {
     folder: Arc<SessionFolder>,
     id: u64,
 }
 
 impl Pending {
-    pub fn log(self, entry: &ActivityEntry) {
+    pub(crate) fn log(self, entry: &ActivityEntry) {
         self.folder.append(entry, Some(self.id));
     }
 }
 
 impl Drop for Pending {
     fn drop(&mut self) {
-        let mut calls = self.folder.activity.lock().unwrap();
+        let mut calls = self.folder.activity.lock().unwrap_or_else(PoisonError::into_inner);
         let before = calls.pending.len();
         calls.pending.retain(|(id, _)| *id != self.id);
         let ended = calls.pending.len() != before;
@@ -63,7 +67,7 @@ impl Drop for Pending {
 }
 
 #[derive(Serialize)]
-pub struct ActivityEntry {
+pub(crate) struct ActivityEntry {
     pub time: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tab: Option<String>,
@@ -86,7 +90,7 @@ pub struct ActivityEntry {
 const KEPT_OUTPUT_BYTES: usize = 64 * 1024;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct ScreenshotEntry {
+pub(crate) struct ScreenshotEntry {
     pub time: String,
     pub tab: String,
     pub frame: u64,
@@ -99,12 +103,12 @@ pub struct ScreenshotEntry {
 }
 
 impl ActivityEntry {
-    pub fn at(time: SystemTime, typed: &[String], duration: Duration) -> Self {
+    pub(crate) fn at(time: SystemTime, typed: &[String], duration: Duration) -> Self {
         Self {
             time: humantime::format_rfc3339_millis(time).to_string(),
             tab: None,
             command: call_line(typed),
-            duration_ms: duration.as_millis() as u64,
+            duration_ms: u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
             exit: 0,
             error: None,
             frame: None,
@@ -115,19 +119,19 @@ impl ActivityEntry {
         }
     }
 
-    pub fn printed(&mut self, mut text: String) {
+    pub(crate) fn printed(&mut self, mut text: String) {
         if text.len() > KEPT_OUTPUT_BYTES {
             let kept = text.floor_char_boundary(KEPT_OUTPUT_BYTES);
             let left = text.len() - kept;
             text.truncate(kept);
-            text.push_str(&format!("\n… {left} more bytes not kept\n"));
+            text = format!("{text}\n… {left} more bytes not kept\n");
         }
         self.output = text;
     }
 }
 
 impl SessionFolder {
-    pub fn start(home: &Path, session: &str) -> Result<Self> {
+    pub(crate) fn start(home: &Path, session: &str) -> Result<Self> {
         let path = folder(home, session);
         match std::fs::remove_dir_all(&path) {
             Ok(()) => {}
@@ -145,15 +149,15 @@ impl SessionFolder {
         })
     }
 
-    pub fn next_tab(&self) -> TabId {
-        let mut last = self.last_tab.lock().unwrap();
+    pub(crate) fn next_tab(&self) -> TabId {
+        let mut last = self.last_tab.lock().unwrap_or_else(PoisonError::into_inner);
         let next = last.map_or(TabId::FIRST, TabId::next);
         *last = Some(next);
         next
     }
 
-    pub fn begin(self: &Arc<Self>, time: SystemTime, tab: Option<String>, typed: &[String]) -> Pending {
-        let mut calls = self.activity.lock().unwrap();
+    pub(crate) fn begin(self: &Arc<Self>, time: SystemTime, tab: Option<String>, typed: &[String]) -> Pending {
+        let mut calls = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
         let id = calls.next;
         calls.next += 1;
         let time = humantime::format_rfc3339_millis(time).to_string();
@@ -163,83 +167,93 @@ impl SessionFolder {
         Pending { folder: Arc::clone(self), id }
     }
 
-    pub fn log(&self, entry: &ActivityEntry) {
+    pub(crate) fn log(&self, entry: &ActivityEntry) {
         self.append(entry, None);
     }
 
     fn append(&self, entry: &ActivityEntry, ending: Option<u64>) {
         let path = self.path.join("activity.jsonl");
         let appended = serde_json::to_string(entry).map_err(anyhow::Error::from).and_then(|line| {
-            let mut calls = self.activity.lock().unwrap();
+            let mut calls = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
             calls.pending.retain(|(id, _)| Some(*id) != ending);
             append_line(&path, &line)
         });
         if let Err(e) = appended {
-            eprintln!("adding `{}` to the activity log {} failed: {e:#}", entry.command, path.display());
+            log::note(format_args!("adding `{}` to the activity log {} failed: {e:#}", entry.command, path.display()));
         }
         self.logged.notify();
     }
 
-    pub fn keep_screenshot(&self, entry: &ScreenshotEntry) {
+    pub(crate) fn keep_screenshot(&self, entry: &ScreenshotEntry) {
         let path = self.path.join("screenshots.jsonl");
         let appended = serde_json::to_string(entry).map_err(anyhow::Error::from).and_then(|line| {
-            let _turn = self.screenshots.lock().unwrap();
+            let _turn = self.screenshots.lock().unwrap_or_else(PoisonError::into_inner);
             append_line(&path, &line)
         });
         match appended {
             Ok(()) => self.screenshots_listed.notify(),
-            Err(e) => {
-                eprintln!("adding {} to the screenshot list {} failed: {e:#}", entry.path.display(), path.display())
-            }
+            Err(e) => log::note(format_args!(
+                "adding {} to the screenshot list {} failed: {e:#}",
+                entry.path.display(),
+                path.display()
+            )),
         }
     }
 
-    pub fn screenshots_listed(&self) -> watch::Receiver<u64> {
+    pub(crate) fn screenshots_listed(&self) -> watch::Receiver<u64> {
         self.screenshots_listed.subscribe()
     }
 
-    pub fn logged(&self) -> watch::Receiver<u64> {
+    pub(crate) fn logged(&self) -> watch::Receiver<u64> {
         self.logged.subscribe()
     }
 
-    pub fn activity_and_pending_since(&self, offset: u64) -> Result<(Vec<serde_json::Value>, u64, Vec<PendingCall>)> {
-        let calls = self.activity.lock().unwrap();
+    pub(crate) fn activity_and_pending_since(
+        &self,
+        offset: u64,
+    ) -> Result<(Vec<serde_json::Value>, u64, Vec<PendingCall>)> {
+        let calls = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
         let (entries, end) = self.activity_since(offset)?;
         Ok((entries, end, calls.pending.iter().map(|(_, call)| call.clone()).collect()))
     }
 
-    pub fn activity_since(&self, offset: u64) -> Result<(Vec<serde_json::Value>, u64)> {
+    pub(crate) fn activity_since(&self, offset: u64) -> Result<(Vec<serde_json::Value>, u64)> {
         activity_in(&self.path, offset)
     }
 
-    pub fn screenshots(&self) -> Result<Vec<ScreenshotEntry>> {
+    pub(crate) fn screenshots(&self) -> Result<Vec<ScreenshotEntry>> {
         screenshots_in(&self.path)
     }
 
-    pub fn command_log(&self, tab: &str) -> CommandLog {
+    pub(crate) fn command_log(&self, tab: &str) -> CommandLog {
         CommandLog { path: self.path.join(format!("{tab}.commands.jsonl")) }
     }
 }
 
 fn activity_in(folder: &Path, offset: u64) -> Result<(Vec<serde_json::Value>, u64)> {
     let path = folder.join("activity.jsonl");
-    let mut log = match File::open(&path) {
+    let log = match File::open(&path) {
         Ok(log) => log,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok((Vec::new(), offset)),
         Err(e) => return Err(e).with_context(|| format!("open {}", path.display())),
     };
-    let mut read = Vec::new();
-    log.seek(SeekFrom::Start(offset))
-        .and_then(|_| log.read_to_end(&mut read))
-        .with_context(|| format!("read {}", path.display()))?;
+    let mut read = appended_since(&log, offset).with_context(|| format!("read {}", path.display()))?;
     let complete = read.iter().rposition(|byte| *byte == b'\n').map_or(0, |end| end + 1);
-    let entries = read[..complete]
+    read.truncate(complete);
+    let entries = read
         .split(|byte| *byte == b'\n')
         .filter(|line| !line.is_empty())
         .map(serde_json::from_slice)
         .collect::<Result<Vec<_>, _>>()
         .with_context(|| format!("read {}", path.display()))?;
     Ok((entries, offset + complete as u64))
+}
+
+fn appended_since(log: &File, offset: u64) -> Result<Vec<u8>> {
+    let length = log.metadata()?.len();
+    let mut read = vec![0; usize::try_from(length.saturating_sub(offset))?];
+    log.read_exact_at(&mut read, offset)?;
+    Ok(read)
 }
 
 fn screenshots_in(folder: &Path) -> Result<Vec<ScreenshotEntry>> {
@@ -261,7 +275,7 @@ fn screenshots_in(folder: &Path) -> Result<Vec<ScreenshotEntry>> {
 }
 
 #[derive(Clone)]
-pub struct CommandLog {
+pub(crate) struct CommandLog {
     path: PathBuf,
 }
 
@@ -273,17 +287,17 @@ struct LoggedCommand<'a> {
 }
 
 impl CommandLog {
-    pub fn append(&self, record: &CommandRecord, output: &str) {
+    pub(crate) fn append(&self, record: &CommandRecord, output: &str) {
         let appended = serde_json::to_string(&LoggedCommand { record, output })
             .map_err(anyhow::Error::from)
             .and_then(|line| append_line(&self.path, &line));
         if let Err(e) = appended {
-            eprintln!(
+            log::note(format_args!(
                 "adding command {} `{}` to the command log {} failed: {e:#}",
                 record.id,
                 record.command,
                 self.path.display()
-            );
+            ));
         }
     }
 }
@@ -294,77 +308,106 @@ fn append_line(path: &Path, line: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
+static WRITES: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     let name = path.file_name().with_context(|| format!("{} names no file", path.display()))?;
-    static WRITES: AtomicU64 = AtomicU64::new(0);
     let write = WRITES.fetch_add(1, Ordering::Relaxed);
     let partial = parent.join(format!(".{}.{}-{write}.partial", name.to_string_lossy(), std::process::id()));
     std::fs::write(&partial, bytes).with_context(|| format!("write {}", partial.display()))?;
     std::fs::rename(&partial, path).with_context(|| format!("move {} to {}", partial.display(), path.display()))
 }
 
-pub struct Exported {
+pub(crate) struct Exported {
     pub files: usize,
     pub bytes: u64,
     pub missing: Vec<PathBuf>,
 }
 
-pub fn export(home: &Path, session: &str, to: &Path) -> Result<Exported> {
+pub(crate) fn export(home: &Path, session: &str, to: &Path) -> Result<Exported> {
     let folder = folder(home, session);
     if !folder.is_dir() {
         bail!(
             "session {session} has nothing to export; open a terminal in it first with `agent-terminal open <program>`"
         );
     }
-    let mut files = Vec::new();
-    files_in(&folder, &mut files)?;
-    let root = file_name(session);
-    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    for file in &files {
-        let mut contents = std::fs::read(file).with_context(|| format!("read {}", file.display()))?;
-        if is_appended_to(file) {
-            contents.truncate(contents.iter().rposition(|byte| *byte == b'\n').map_or(0, |end| end + 1));
-        }
-        let name = file
-            .strip_prefix(&folder)
-            .with_context(|| format!("{} is outside {}", file.display(), folder.display()))?;
-        zip.start_file(format!("{root}/{}", name.display()), options)?;
-        zip.write_all(&contents)?;
-    }
-    let mut named: Vec<String> = Vec::new();
-    let mut missing = Vec::new();
-    let mut added = 0;
-    for path in saved_screenshots(&folder)? {
-        let contents = match std::fs::read(&path) {
-            Ok(contents) => contents,
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                missing.push(path);
-                continue;
-            }
-            Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
-        };
-        let name = path.file_name().map_or_else(|| "file".into(), |name| name.to_string_lossy().into_owned());
-        let mut entry = format!("{root}/screenshots/{name}");
-        for copy in 2.. {
-            if !named.contains(&entry) {
-                break;
-            }
-            entry = format!("{root}/screenshots/{copy}-{name}");
-        }
-        zip.start_file(entry.as_str(), options)?;
-        zip.write_all(&contents)?;
-        named.push(entry);
-        added += 1;
-    }
-    let zipped = zip.finish()?.into_inner();
+    let mut zip = SessionZip::new(file_name(session));
+    let files = zip.add_folder(&folder)?;
+    let (added, missing) = zip.add_screenshots(&folder)?;
+    let zipped = zip.writer.finish()?.into_inner();
     if let Some(parent) = to.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     std::fs::write(to, &zipped).with_context(|| format!("write {}", to.display()))?;
-    Ok(Exported { files: files.len() + added, bytes: zipped.len() as u64, missing })
+    Ok(Exported { files: files + added, bytes: zipped.len() as u64, missing })
+}
+
+struct SessionZip {
+    writer: ZipWriter<Cursor<Vec<u8>>>,
+    root: String,
+    options: SimpleFileOptions,
+    named: Vec<String>,
+}
+
+impl SessionZip {
+    fn new(root: String) -> Self {
+        Self {
+            writer: ZipWriter::new(Cursor::new(Vec::new())),
+            root,
+            options: SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+            named: Vec::new(),
+        }
+    }
+
+    fn add_folder(&mut self, folder: &Path) -> Result<usize> {
+        let mut files = Vec::new();
+        files_in(folder, &mut files)?;
+        for file in &files {
+            let mut contents = std::fs::read(file).with_context(|| format!("read {}", file.display()))?;
+            if is_appended_to(file) {
+                contents.truncate(contents.iter().rposition(|byte| *byte == b'\n').map_or(0, |end| end + 1));
+            }
+            let name = file
+                .strip_prefix(folder)
+                .with_context(|| format!("{} is outside {}", file.display(), folder.display()))?;
+            self.writer.start_file(format!("{}/{}", self.root, name.display()), self.options)?;
+            self.writer.write_all(&contents)?;
+        }
+        Ok(files.len())
+    }
+
+    fn add_screenshots(&mut self, folder: &Path) -> Result<(usize, Vec<PathBuf>)> {
+        let mut missing = Vec::new();
+        let mut added = 0;
+        for path in saved_screenshots(folder)? {
+            match std::fs::read(&path) {
+                Ok(contents) => {
+                    self.add_screenshot(&path, &contents)?;
+                    added += 1;
+                }
+                Err(e) if e.kind() == ErrorKind::NotFound => missing.push(path),
+                Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+            }
+        }
+        Ok((added, missing))
+    }
+
+    fn add_screenshot(&mut self, path: &Path, contents: &[u8]) -> Result<()> {
+        let name = path.file_name().map_or_else(|| "file".into(), |name| name.to_string_lossy().into_owned());
+        let mut entry = format!("{}/screenshots/{name}", self.root);
+        for copy in 2.. {
+            if !self.named.contains(&entry) {
+                break;
+            }
+            entry = format!("{}/screenshots/{copy}-{name}", self.root);
+        }
+        self.writer.start_file(entry.as_str(), self.options)?;
+        self.writer.write_all(contents)?;
+        self.named.push(entry);
+        Ok(())
+    }
 }
 
 fn saved_screenshots(folder: &Path) -> Result<Vec<PathBuf>> {
@@ -392,7 +435,7 @@ fn is_appended_to(file: &Path) -> bool {
 
 fn files_in(folder: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     let mut entries = std::fs::read_dir(folder)
-        .and_then(|entries| entries.map(|entry| entry.map(|entry| entry.path())).collect::<std::io::Result<Vec<_>>>())
+        .and_then(|entries| entries.map(|entry| entry.map(|entry| entry.path())).collect::<io::Result<Vec<_>>>())
         .with_context(|| format!("list {}", folder.display()))?;
     entries.sort();
     for path in entries {
@@ -405,22 +448,19 @@ fn files_in(folder: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-pub fn folder(home: &Path, session: &str) -> PathBuf {
+pub(crate) fn folder(home: &Path, session: &str) -> PathBuf {
     home.join("sessions").join(file_name(session))
 }
 
-pub fn file_name(session: &str) -> String {
+pub(crate) fn file_name(session: &str) -> String {
     if session.is_empty() {
         return "%".into();
     }
-    let mut name = String::with_capacity(session.len());
-    for (i, byte) in session.bytes().enumerate() {
-        let kept = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_') || (byte == b'.' && i > 0);
-        if kept {
-            name.push(byte as char);
-        } else {
-            name.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    name
+    fmt::from_fn(|f| {
+        session.bytes().enumerate().try_for_each(|(i, byte)| {
+            let kept = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_') || (byte == b'.' && i > 0);
+            if kept { f.write_char(char::from(byte)) } else { write!(f, "%{byte:02X}") }
+        })
+    })
+    .to_string()
 }

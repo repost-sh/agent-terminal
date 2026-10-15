@@ -11,19 +11,19 @@ use crate::protocol::TabId;
 
 type Lookup<T> = Box<dyn Fn() -> Option<Arc<T>> + Send + Sync>;
 
-pub enum Event {
+pub(super) enum Event {
     Woke,
     Received(Utf8Bytes),
     HungUp,
 }
 
-pub enum Wake {
+pub(super) enum Wake {
     OnChange,
     At(Instant),
     OnMessage,
 }
 
-pub struct Follow<T> {
+pub(super) struct Follow<T> {
     lookup: Lookup<T>,
     signal: fn(&T) -> Option<watch::Receiver<u64>>,
     lifecycle: watch::Receiver<u64>,
@@ -32,7 +32,7 @@ pub struct Follow<T> {
 }
 
 impl Follow<Terminal> {
-    pub fn tab(
+    pub(super) fn tab(
         backend: &Arc<dyn Backend>,
         session: String,
         id: TabId,
@@ -44,16 +44,20 @@ impl Follow<Terminal> {
 }
 
 impl<T> Follow<T> {
-    pub fn new(backend: &Arc<dyn Backend>, lookup: Lookup<T>, signal: fn(&T) -> Option<watch::Receiver<u64>>) -> Self {
+    pub(super) fn new(
+        backend: &Arc<dyn Backend>,
+        lookup: Lookup<T>,
+        signal: fn(&T) -> Option<watch::Receiver<u64>>,
+    ) -> Self {
         Self { lookup, signal, lifecycle: backend.changes(), extra: None, watched: None }
     }
 
-    pub fn and(mut self, extra: Option<watch::Receiver<u64>>) -> Self {
+    pub(super) fn and(mut self, extra: Option<watch::Receiver<u64>>) -> Self {
         self.extra = extra;
         self
     }
 
-    pub fn next(&mut self) -> Option<(Arc<T>, bool)> {
+    pub(super) fn next(&mut self) -> Option<(Arc<T>, bool)> {
         self.lifecycle.borrow_and_update();
         if let Some(extra) = &mut self.extra {
             extra.borrow_and_update();
@@ -69,37 +73,51 @@ impl<T> Follow<T> {
         Some((current, replaced))
     }
 
-    pub async fn changed(&mut self, socket: &mut WebSocket) -> bool {
+    pub(super) async fn changed(&mut self, socket: &mut WebSocket) -> bool {
         !matches!(self.event(socket, Wake::OnChange).await, Event::HungUp)
     }
 
-    pub async fn event(&mut self, socket: &mut WebSocket, wake: Wake) -> Event {
+    pub(super) async fn event(&mut self, socket: &mut WebSocket, wake: Wake) -> Event {
         let Self { lifecycle, extra, watched, .. } = self;
         let listening = matches!(wake, Wake::OnChange);
         let signal = changed_or_never(watched.as_mut().and_then(|(_, signal)| signal.as_mut()).filter(|_| listening));
         let extra = changed_or_never(extra.as_mut().filter(|_| listening));
-        let deadline = match wake {
-            Wake::At(deadline) => Some(deadline),
+        let deadline = sleep_until_or_never(wake.deadline());
+        let changed = first(first(lifecycle.changed(), signal), extra);
+        let woken = first(async { woke(changed.await) }, async {
+            deadline.await;
+            Event::Woke
+        });
+        first(woken, async { from_socket(socket.recv().await) }).await
+    }
+}
+
+pub(super) async fn first<T>(one: impl Future<Output = T>, other: impl Future<Output = T>) -> T {
+    tokio::select! {
+        done = one => done,
+        done = other => done,
+    }
+}
+
+impl Wake {
+    fn deadline(&self) -> Option<Instant> {
+        match self {
+            Wake::At(deadline) => Some(*deadline),
             Wake::OnChange | Wake::OnMessage => None,
-        };
-        tokio::select! {
-            changed = lifecycle.changed() => woke(changed),
-            changed = signal => woke(changed),
-            changed = extra => woke(changed),
-            received = socket.recv() => match received {
-                Some(Ok(Message::Text(text))) => Event::Received(text),
-                received => if hung_up(received) { Event::HungUp } else { Event::Woke },
-            },
-            () = sleep_until_or_never(deadline) => Event::Woke,
         }
     }
 }
 
-fn woke(changed: Result<(), watch::error::RecvError>) -> Event {
-    match changed {
-        Ok(()) => Event::Woke,
-        Err(_) => Event::HungUp,
+fn from_socket(received: Option<Result<Message, axum::Error>>) -> Event {
+    match received {
+        Some(Ok(Message::Text(text))) => Event::Received(text),
+        received if hung_up(received.as_ref()) => Event::HungUp,
+        _ => Event::Woke,
     }
+}
+
+fn woke(changed: Result<(), watch::error::RecvError>) -> Event {
+    changed.map_or(Event::HungUp, |()| Event::Woke)
 }
 
 async fn sleep_until_or_never(deadline: Option<Instant>) {

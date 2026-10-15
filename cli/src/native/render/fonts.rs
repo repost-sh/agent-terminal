@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
+use anyhow::{Context, Result};
+use num_traits::ToPrimitive;
 use swash::FontRef;
 use swash::scale::image::Content;
 use swash::scale::{Render, ScaleContext, Source};
@@ -17,7 +19,7 @@ macro_rules! font_file {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Face {
+pub(crate) enum Face {
     Regular,
     Bold,
     Italic,
@@ -27,9 +29,10 @@ pub enum Face {
 }
 
 impl Face {
-    pub const ALL: [Face; 6] = [Face::Regular, Face::Bold, Face::Italic, Face::BoldItalic, Face::Symbols, Face::Emoji];
+    pub(crate) const ALL: [Face; 6] =
+        [Face::Regular, Face::Bold, Face::Italic, Face::BoldItalic, Face::Symbols, Face::Emoji];
 
-    pub fn styled(bold: bool, italic: bool) -> Self {
+    pub(crate) fn styled(bold: bool, italic: bool) -> Self {
         match (bold, italic) {
             (false, false) => Face::Regular,
             (true, false) => Face::Bold,
@@ -49,15 +52,15 @@ impl Face {
         }
     }
 
-    pub fn bytes(self) -> &'static [u8] {
+    pub(crate) fn bytes(self) -> &'static [u8] {
         self.file().1
     }
 
-    pub fn file_name(self) -> &'static str {
+    pub(crate) fn file_name(self) -> &'static str {
         self.file().0
     }
 
-    pub fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Face::Regular => "JetBrains Mono",
             Face::Bold => "JetBrains Mono Bold",
@@ -68,7 +71,7 @@ impl Face {
         }
     }
 
-    pub fn font(self) -> Option<FontRef<'static>> {
+    pub(crate) fn font(self) -> Option<FontRef<'static>> {
         FontRef::from_index(self.bytes(), 0)
     }
 
@@ -78,46 +81,48 @@ impl Face {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CellSize {
-    pub width: u32,
-    pub height: u32,
-    pub baseline: u32,
+pub(crate) struct CellSize {
+    pub width: u16,
+    pub height: u16,
+    pub baseline: u16,
     pub px: f32,
-    pub underline: u32,
-    pub strikeout: u32,
-    pub stroke: u32,
+    pub underline: u16,
+    pub strikeout: u16,
+    pub stroke: u16,
 }
 
 impl CellSize {
-    pub fn at(scale: u8) -> Self {
+    pub(crate) fn at(scale: u8) -> Result<Self> {
         Self::for_px(FONT_PX * f32::from(scale.max(1)))
     }
 
-    pub fn for_px(px: f32) -> Self {
-        let font = regular();
+    pub(crate) fn for_px(px: f32) -> Result<Self> {
+        let font = regular()?;
         let metrics = font.metrics(&[]).scale(px);
         let advance = font.glyph_metrics(&[]).scale(px).advance_width(font.charmap().map('M'));
         let natural = metrics.ascent + metrics.descent + metrics.leading;
         let height = natural.round().max(1.0);
         let baseline = (metrics.ascent + (height - natural) / 2.0).round();
         let stroke = metrics.stroke_size.round().max(1.0);
-        Self {
-            width: advance.round().max(1.0) as u32,
-            height: height as u32,
-            baseline: baseline as u32,
+        let whole =
+            |value: f32| value.to_u16().with_context(|| format!("the bundled font measures {value} pixels at {px}px"));
+        Ok(Self {
+            width: whole(advance.round().max(1.0))?,
+            height: whole(height)?,
+            baseline: whole(baseline)?,
             px,
-            underline: (baseline - metrics.underline_offset).round().clamp(0.0, height - stroke) as u32,
-            strikeout: (baseline - metrics.strikeout_offset).round().clamp(0.0, height - stroke) as u32,
-            stroke: stroke as u32,
-        }
+            underline: whole((baseline - metrics.underline_offset).round().clamp(0.0, height - stroke))?,
+            strikeout: whole((baseline - metrics.strikeout_offset).round().clamp(0.0, height - stroke))?,
+            stroke: whole(stroke)?,
+        })
     }
 }
 
-fn regular() -> FontRef<'static> {
-    Face::Regular.font().expect("the bundled JetBrains Mono parses")
+fn regular() -> Result<FontRef<'static>> {
+    Face::Regular.font().context("the bundled JetBrains Mono does not parse")
 }
 
-pub struct Mask {
+pub(crate) struct Mask {
     pub left: i32,
     pub top: i32,
     pub width: u32,
@@ -125,21 +130,44 @@ pub struct Mask {
     pub alpha: Vec<u8>,
 }
 
+impl Mask {
+    fn right(&self) -> i64 {
+        i64::from(self.left) + i64::from(self.width)
+    }
+
+    fn bottom(&self) -> i64 {
+        i64::from(self.top) + i64::from(self.height)
+    }
+
+    fn covering(base: &Mask, mark: &Mask) -> Option<Mask> {
+        let (left, top) = (base.left.min(mark.left), base.top.min(mark.top));
+        let width = u32::try_from(base.right().max(mark.right()) - i64::from(left)).ok()?;
+        let height = u32::try_from(base.bottom().max(mark.bottom()) - i64::from(top)).ok()?;
+        let alpha = vec![0u8; usize::try_from(u64::from(width) * u64::from(height)).ok()?];
+        Some(Mask { left, top, width, height, alpha })
+    }
+
+    pub(crate) fn rows(&self) -> impl Iterator<Item = &[u8]> {
+        let width = usize::try_from(self.width).unwrap_or(usize::MAX).max(1);
+        self.alpha.chunks(width)
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
     text: String,
     face: Face,
     px: u32,
-    span: u32,
+    span: u16,
 }
 
-pub struct Glyphs {
+pub(crate) struct Glyphs {
     context: ScaleContext,
     fonts: Vec<(Face, FontRef<'static>)>,
     masks: HashMap<Key, Option<Arc<Mask>>>,
 }
 
-pub static GLYPHS: LazyLock<Mutex<Glyphs>> = LazyLock::new(|| Mutex::new(Glyphs::new()));
+pub(crate) static GLYPHS: LazyLock<Mutex<Glyphs>> = LazyLock::new(|| Mutex::new(Glyphs::new()));
 
 const VARIATION_SELECTORS: std::ops::RangeInclusive<char> = '\u{fe00}'..='\u{fe0f}';
 const ZERO_WIDTH_JOINER: char = '\u{200d}';
@@ -158,11 +186,11 @@ impl Glyphs {
         self.fonts.iter().find(|(f, _)| *f == face).map(|(_, font)| *font)
     }
 
-    pub fn covers(&self, face: Face, c: char) -> bool {
+    pub(crate) fn covers(&self, face: Face, c: char) -> bool {
         self.font(face).is_some_and(|font| font.charmap().map(c) != 0)
     }
 
-    pub fn mask(&mut self, text: &str, style: Face, cell: &CellSize, span: u32) -> Option<Arc<Mask>> {
+    pub(crate) fn mask(&mut self, text: &str, style: Face, cell: &CellSize, span: u16) -> Option<Arc<Mask>> {
         let key = Key { text: text.to_string(), face: style, px: cell.px.to_bits(), span };
         if let Some(found) = self.masks.get(&key) {
             return found.clone();
@@ -172,11 +200,12 @@ impl Glyphs {
         drawn
     }
 
-    fn draw(&mut self, text: &str, style: Face, cell: &CellSize, span: u32) -> Option<Mask> {
+    fn draw(&mut self, text: &str, style: Face, cell: &CellSize, span: u16) -> Option<Mask> {
         let mut chars = text.chars().filter(|c| !VARIATION_SELECTORS.contains(c));
         let first = chars.next()?;
+        let scale = (cell.px / FONT_PX).round().clamp(0.0, 255.0).to_u8().unwrap_or_default();
         if text.chars().count() == 1
-            && let Some(mask) = boxes::mask(first, cell.width * span, cell.height, (cell.px / FONT_PX).round() as u8)
+            && let Some(mask) = boxes::mask(first, cell.width * span, cell.height, scale)
         {
             return Some(mask);
         }
@@ -184,8 +213,12 @@ impl Glyphs {
         let face = self.face_for(first, style, emoji_first)?;
         let mut drawn = self.glyph(face, first, cell, span)?;
         for mark in chars.take_while(|c| *c != ZERO_WIDTH_JOINER).filter(|c| is_combining(*c)) {
-            if let Some(mark) = self.face_for(mark, style, false).and_then(|face| self.glyph(face, mark, cell, span)) {
-                drawn = merged(drawn, &mark);
+            if let Some(merged) = self
+                .face_for(mark, style, false)
+                .and_then(|face| self.glyph(face, mark, cell, span))
+                .and_then(|mark| merged(&drawn, &mark))
+            {
+                drawn = merged;
             }
         }
         Some(drawn)
@@ -200,10 +233,10 @@ impl Glyphs {
         order.into_iter().find(|face| self.covers(*face, c))
     }
 
-    fn glyph(&mut self, face: Face, c: char, cell: &CellSize, span: u32) -> Option<Mask> {
+    fn glyph(&mut self, face: Face, c: char, cell: &CellSize, span: u16) -> Option<Mask> {
         let font = self.font(face)?;
         let id = font.charmap().map(c);
-        let room = (cell.width * span) as f32;
+        let room = f32::from(cell.width * span);
         let natural = font.glyph_metrics(&[]).scale(cell.px).advance_width(id);
         let px = if !face.is_text() && natural > room && natural > 0.0 { cell.px * room / natural } else { cell.px };
         let advance = if face.is_text() && span == 1 { room } else { natural * px / cell.px };
@@ -217,8 +250,8 @@ impl Glyphs {
             return None;
         }
         Some(Mask {
-            left: shift.trunc() as i32 + image.placement.left,
-            top: cell.baseline as i32 - image.placement.top,
+            left: shift.trunc().to_i32()? + image.placement.left,
+            top: i32::from(cell.baseline) - image.placement.top,
             width: image.placement.width,
             height: image.placement.height,
             alpha: image.data,
@@ -226,21 +259,30 @@ impl Glyphs {
     }
 }
 
-fn merged(base: Mask, mark: &Mask) -> Mask {
-    let left = base.left.min(mark.left);
-    let top = base.top.min(mark.top);
-    let right = (base.left + base.width as i32).max(mark.left + mark.width as i32);
-    let bottom = (base.top + base.height as i32).max(mark.top + mark.height as i32);
-    let (width, height) = ((right - left) as u32, (bottom - top) as u32);
-    let mut alpha = vec![0u8; (width * height) as usize];
-    for part in [&base, mark] {
-        for y in 0..part.height {
-            for x in 0..part.width {
-                let at = ((part.top - top) as u32 + y) * width + (part.left - left) as u32 + x;
-                let value = part.alpha[(y * part.width + x) as usize];
-                alpha[at as usize] = alpha[at as usize].max(value);
-            }
-        }
+fn merged(base: &Mask, mark: &Mask) -> Option<Mask> {
+    let mut merged = Mask::covering(base, mark)?;
+    merged.overlay(base)?;
+    merged.overlay(mark)?;
+    Some(merged)
+}
+
+impl Mask {
+    fn stride(&self) -> Option<usize> {
+        usize::try_from(self.width).ok()
     }
-    Mask { left, top, width, height, alpha }
+
+    fn overlay(&mut self, part: &Mask) -> Option<()> {
+        let stride = self.stride()?;
+        let corner = (usize::try_from(part.left - self.left).ok()?, usize::try_from(part.top - self.top).ok()?);
+        paint(&mut self.alpha, stride, corner, part)
+    }
+}
+
+fn paint(alpha: &mut [u8], stride: usize, (across, down): (usize, usize), part: &Mask) -> Option<()> {
+    for (y, row) in part.rows().enumerate() {
+        let start = (down + y) * stride + across;
+        let target = alpha.get_mut(start..start + row.len())?;
+        target.iter_mut().zip(row).for_each(|(slot, value)| *slot = (*slot).max(*value));
+    }
+    Some(())
 }

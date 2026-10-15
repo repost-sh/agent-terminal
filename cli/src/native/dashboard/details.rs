@@ -3,9 +3,10 @@ use std::sync::{Arc, Weak};
 use super::follow::Follow;
 use super::stream::send;
 use super::{Backend, tab_id};
+use crate::native::log;
 use crate::native::output_log::{Marked, Output, Slice};
 use crate::native::pty;
-use crate::native::store::PendingCall;
+use crate::native::store::{PendingCall, SessionFolder};
 use crate::native::terminal::Terminal;
 use crate::output::call_line;
 use crate::protocol::{Modes, Shell, TabId};
@@ -70,7 +71,7 @@ struct EnvVar {
     value: Option<String>,
 }
 
-pub async fn activity(
+pub(super) async fn activity(
     ws: WebSocketUpgrade,
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
@@ -94,23 +95,10 @@ async fn follow_activity(mut socket: WebSocket, backend: Arc<dyn Backend>, sessi
             send(&mut socket, &ActivityUpdate::Closed).await;
             return;
         };
-        let read = match tokio::task::spawn_blocking(move || folder.activity_and_pending_since(offset)).await {
-            Ok(read) => read,
-            Err(e) => Err(e.into()),
+        let Some(Read { entries, end, pending }) = read_activity(folder, offset, &session, &tab).await else {
+            return;
         };
-        let (entries, pending) = match read {
-            Ok((entries, end, pending)) => {
-                offset = end;
-                let mine = |entry: &serde_json::Value| entry["tab"] == tab;
-                let pending: Vec<PendingCall> =
-                    pending.into_iter().filter(|call| call.tab.as_deref() == Some(tab.as_str())).collect();
-                (entries.into_iter().filter(mine).collect::<Vec<_>>(), pending)
-            }
-            Err(e) => {
-                eprintln!("dashboard: reading the activity of {session} {tab} failed: {e:#}");
-                return;
-            }
-        };
+        offset = end;
         if sent.as_ref() != Some(&pending) || !entries.is_empty() {
             if !send(&mut socket, &ActivityUpdate::Entries { entries, pending: pending.clone() }).await {
                 return;
@@ -123,7 +111,26 @@ async fn follow_activity(mut socket: WebSocket, backend: Arc<dyn Backend>, sessi
     }
 }
 
-pub async fn output(
+struct Read {
+    entries: Vec<Value>,
+    end: u64,
+    pending: Vec<PendingCall>,
+}
+
+async fn read_activity(folder: Arc<SessionFolder>, offset: u64, session: &str, tab: &str) -> Option<Read> {
+    let read = match tokio::task::spawn_blocking(move || folder.activity_and_pending_since(offset)).await {
+        Ok(read) => read,
+        Err(e) => Err(e.into()),
+    };
+    let (entries, end, pending) = read
+        .inspect_err(|e| log::note(format_args!("dashboard: reading the activity of {session} {tab} failed: {e:#}")))
+        .ok()?;
+    let entries = entries.into_iter().filter(|entry| entry.get("tab").is_some_and(|mine| *mine == tab)).collect();
+    let pending = pending.into_iter().filter(|call| call.tab.as_deref() == Some(tab)).collect();
+    Some(Read { entries, end, pending })
+}
+
+pub(super) async fn output(
     ws: WebSocketUpgrade,
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
@@ -146,15 +153,15 @@ impl Stream {
         let mut taken = 0;
         for &(at, name) in marks {
             let Some(until) = at.checked_sub(slice.start) else { continue };
-            let until = (until as usize).min(slice.bytes.len());
-            let text = self.decode(&slice.bytes[taken..until]);
+            let until = usize::try_from(until).unwrap_or(usize::MAX).min(slice.bytes.len());
+            let text = self.decode(slice.bytes.get(taken..until).unwrap_or_default());
             if !text.is_empty() {
                 segments.push(Segment::Text(text));
             }
             segments.push(Segment::Mark(name.to_string()));
             taken = until;
         }
-        let text = self.decode(&slice.bytes[taken..]);
+        let text = self.decode(slice.bytes.get(taken..).unwrap_or_default());
         if !text.is_empty() {
             segments.push(Segment::Text(text));
         }
@@ -171,29 +178,42 @@ impl Stream {
         let mut pending = std::mem::take(&mut self.undecoded);
         pending.extend_from_slice(bytes);
         let mut text = String::new();
-        let mut start = 0;
+        let mut rest = pending.as_slice();
         loop {
-            match std::str::from_utf8(&pending[start..]) {
-                Ok(valid) => {
-                    text.push_str(valid);
+            match decode_step(rest, &mut text) {
+                Decoded::Whole => return text,
+                Decoded::Partial(after) => {
+                    self.undecoded = after.to_vec();
                     return text;
                 }
-                Err(e) => {
-                    let valid_end = start + e.valid_up_to();
-                    text.push_str(&String::from_utf8_lossy(&pending[start..valid_end]));
-                    match e.error_len() {
-                        Some(len) => {
-                            text.push(char::REPLACEMENT_CHARACTER);
-                            start = valid_end + len;
-                        }
-                        None => {
-                            self.undecoded = pending.split_off(valid_end);
-                            return text;
-                        }
-                    }
-                }
+                Decoded::Replaced(after) => rest = after,
             }
         }
+    }
+}
+
+enum Decoded<'a> {
+    Whole,
+    Partial(&'a [u8]),
+    Replaced(&'a [u8]),
+}
+
+fn decode_step<'a>(rest: &'a [u8], text: &mut String) -> Decoded<'a> {
+    let error = match std::str::from_utf8(rest) {
+        Ok(valid) => {
+            text.push_str(valid);
+            return Decoded::Whole;
+        }
+        Err(error) => error,
+    };
+    let (valid, after) = rest.split_at_checked(error.valid_up_to()).unwrap_or((rest, &[]));
+    text.push_str(&String::from_utf8_lossy(valid));
+    match error.error_len() {
+        Some(len) => {
+            text.push(char::REPLACEMENT_CHARACTER);
+            Decoded::Replaced(after.get(len..).unwrap_or_default())
+        }
+        None => Decoded::Partial(after),
     }
 }
 
@@ -209,8 +229,10 @@ impl Streamed {
         output.raw.start == self.raw.offset
             && output.styled.start == self.styled.offset
             && output.marks.starts_with(&self.marks)
-            && output.marks[self.marks.len()..]
+            && output
+                .marks
                 .iter()
+                .skip(self.marks.len())
                 .all(|mark| mark.raw >= self.raw.offset && mark.styled >= self.styled.offset)
     }
 }
@@ -242,14 +264,13 @@ fn output_update(terminal: &Terminal, streamed: &mut Option<Streamed>) -> Option
     let mut output = terminal.output_since(raw, styled);
     let continues = streamed.take().filter(|streamed| streamed.continues(&output));
     let reset = continues.is_none();
-    let mut streamed_now = match continues {
-        Some(continues) => continues,
-        None => {
-            output = terminal.output_since(0, 0);
-            Streamed::default()
-        }
+    let mut streamed_now = if let Some(continues) = continues {
+        continues
+    } else {
+        output = terminal.output_since(0, 0);
+        Streamed::default()
     };
-    let new = &output.marks[streamed_now.marks.len()..];
+    let new = output.marks.get(streamed_now.marks.len()..).unwrap_or_default();
     let raw_marks: Vec<(u64, &str)> = new.iter().map(|mark| (mark.raw, mark.name.as_str())).collect();
     let styled_marks: Vec<(u64, &str)> = new.iter().map(|mark| (mark.styled, mark.name.as_str())).collect();
     let raw = streamed_now.raw.segments(&output.raw, &raw_marks);
@@ -259,7 +280,7 @@ fn output_update(terminal: &Terminal, streamed: &mut Option<Streamed>) -> Option
     (reset || !raw.is_empty() || !styled.is_empty()).then_some(OutputUpdate::Output { reset, styled, raw })
 }
 
-pub async fn info(
+pub(super) async fn info(
     ws: WebSocketUpgrade,
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
@@ -281,7 +302,7 @@ async fn follow_info(mut socket: WebSocket, backend: Arc<dyn Backend>, session: 
         let info = match serde_json::to_string(&InfoUpdate::Info(Box::new(info_of(&terminal)))) {
             Ok(info) => info,
             Err(e) => {
-                eprintln!("dashboard: encoding the info of {session} {id} failed: {e}");
+                log::note(format_args!("dashboard: encoding the info of {session} {id} failed: {e}"));
                 return;
             }
         };
@@ -316,8 +337,8 @@ fn info_of(terminal: &Terminal) -> Info {
         },
         modes: setup.modes,
         started: humantime::format_rfc3339_millis(setup.started).to_string(),
-        exited: setup.exit.is_some(),
-        exit_code: setup.exit.flatten(),
+        exited: setup.status.exited(),
+        exit_code: setup.status.code(),
         env: masked(env),
     }
 }
@@ -333,7 +354,7 @@ fn masked(mut env: Vec<(String, String)>) -> Vec<EnvVar> {
         .collect()
 }
 
-pub async fn screenshot(
+pub(super) async fn screenshot(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, path)): Path<(String, String)>,
 ) -> Response {

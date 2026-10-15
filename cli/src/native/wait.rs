@@ -7,7 +7,7 @@ use crate::native::commands::PromptState;
 use crate::native::screen::{Screen, ScreenView};
 use crate::protocol::{RowRange, TextMatch, Wait};
 
-pub enum Condition {
+pub(crate) enum Condition {
     Text(Pattern),
     Gone(Pattern),
     Stable(Duration, Option<Instant>),
@@ -20,41 +20,42 @@ pub enum Condition {
     PromptAfter(u64),
 }
 
-pub struct Pattern {
+pub(crate) struct Pattern {
     regex: Regex,
     rows: Option<RowRange>,
 }
 
-pub fn compile(text: &str, regex: bool) -> Result<Regex, String> {
+pub(crate) fn compile(text: &str, regex: bool) -> Result<Regex, String> {
     let source = if regex { text.to_string() } else { regex::escape(text) };
     Regex::new(&source).map_err(|e| format!("invalid regex {text:?}: {e}"))
 }
 
 impl Pattern {
-    pub fn new(text: &TextMatch) -> Result<Self, String> {
+    pub(crate) fn new(text: &TextMatch) -> Result<Self, String> {
         Ok(Self { regex: compile(&text.text, text.regex)?, rows: text.rows })
     }
 
-    pub fn rows_found(&self, lines: &[String]) -> Vec<u16> {
-        let (first, last) = self.rows.map_or((1, lines.len()), |rows| (rows.first as usize, rows.last as usize));
-        (first..=last.min(lines.len()))
-            .filter(|&row| self.regex.is_match(&lines[row - 1]))
-            .map(|row| row as u16)
+    pub(crate) fn rows_found(&self, lines: &[String]) -> Vec<u16> {
+        let (first, last) = self.rows.map_or((1, u16::MAX), |rows| (rows.first, rows.last));
+        (1..=u16::MAX)
+            .zip(lines)
+            .filter(|(row, line)| (first..=last).contains(row) && self.regex.is_match(line))
+            .map(|(row, _)| row)
             .collect()
     }
 
-    pub fn found(&self, lines: &[String]) -> bool {
+    pub(crate) fn found(&self, lines: &[String]) -> bool {
         !self.rows_found(lines).is_empty()
     }
 }
 
-pub enum Verdict {
+pub(crate) enum Verdict {
     Met,
     Pending(Option<Instant>),
     Never,
 }
 
-pub struct Moment<'a> {
+pub(crate) struct Moment<'a> {
     now: Instant,
     screen: &'a Screen,
     frame: u64,
@@ -66,7 +67,7 @@ pub struct Moment<'a> {
 }
 
 impl<'a> Moment<'a> {
-    pub fn new(
+    pub(crate) fn new(
         screen: &'a Screen,
         frame: u64,
         last_change: Instant,
@@ -77,7 +78,7 @@ impl<'a> Moment<'a> {
         Self { now: Instant::now(), screen, frame, last_change, last_output, exited, prompt, view: OnceCell::new() }
     }
 
-    pub fn now(&self) -> Instant {
+    pub(crate) fn now(&self) -> Instant {
         self.now
     }
 
@@ -87,7 +88,7 @@ impl<'a> Moment<'a> {
 }
 
 impl Condition {
-    pub fn new(wait: &Wait) -> Result<Self, String> {
+    pub(crate) fn new(wait: &Wait) -> Result<Self, String> {
         Ok(match wait {
             Wait::Text(text) => Condition::Text(Pattern::new(text)?),
             Wait::Gone(text) => Condition::Gone(Pattern::new(text)?),
@@ -101,7 +102,7 @@ impl Condition {
         })
     }
 
-    pub fn counted_from(self, action: Instant) -> Self {
+    pub(crate) fn counted_from(self, action: Instant) -> Self {
         match self {
             Condition::Stable(quiet, _) => Condition::Stable(quiet, Some(action)),
             Condition::Idle(quiet, _) => Condition::Idle(quiet, Some(action)),
@@ -109,7 +110,7 @@ impl Condition {
         }
     }
 
-    pub fn judge(&self, moment: &Moment, deadline: Instant) -> Verdict {
+    pub(crate) fn judge(&self, moment: &Moment<'_>, deadline: Instant) -> Verdict {
         let now = moment.now().min(deadline);
         match self {
             Condition::Text(pattern) => while_running(pattern.found(&moment.view().lines), moment),
@@ -134,7 +135,7 @@ impl Condition {
     }
 }
 
-fn while_running(met: bool, moment: &Moment) -> Verdict {
+fn while_running(met: bool, moment: &Moment<'_>) -> Verdict {
     if met {
         Verdict::Met
     } else if moment.exited {

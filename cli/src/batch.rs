@@ -11,7 +11,7 @@ enum Call {
     Args(Vec<String>),
 }
 
-pub fn calls(commands: &[String]) -> Result<Vec<Vec<String>>, String> {
+pub(crate) fn calls(commands: &[String]) -> Result<Vec<Vec<String>>, String> {
     let calls = if commands.is_empty() { from_stdin()? } else { commands.iter().cloned().map(Call::Line).collect() };
     if calls.is_empty() {
         return Err(NO_COMMANDS.into());
@@ -28,7 +28,7 @@ pub fn calls(commands: &[String]) -> Result<Vec<Vec<String>>, String> {
         .collect()
 }
 
-pub fn not_valid(index: usize, call: &str, reason: &str) -> String {
+pub(crate) fn not_valid(index: usize, call: &str, reason: &str) -> String {
     format!("batch command {} is not valid, so nothing ran: {call}\n{reason}", index + 1)
 }
 

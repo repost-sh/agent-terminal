@@ -1,5 +1,6 @@
+use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
-use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use std::io::{self, ErrorKind, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
@@ -13,7 +14,7 @@ use crate::output;
 use crate::protocol::ErrorBody;
 
 #[derive(Subcommand)]
-pub enum Action {
+pub(crate) enum Action {
     #[command(about = "The skills in this version, one line each")]
     List,
     #[command(about = "Print a skill's guide")]
@@ -32,60 +33,58 @@ pub enum Action {
 
 struct Skill {
     name: &'static str,
-    shipped: &'static [(&'static str, &'static str)],
+    guide: &'static str,
+    extras: &'static [(&'static str, &'static str)],
 }
 
+const GUIDE: &str = "SKILL.md";
+
 const SKILLS: &[Skill] = &[
-    Skill { name: "agent-terminal", shipped: &[("SKILL.md", include_str!("../../skills/agent-terminal/SKILL.md"))] },
-    Skill { name: "core", shipped: &[("SKILL.md", include_str!("../../skill-data/core/SKILL.md"))] },
+    Skill { name: "agent-terminal", guide: include_str!("../../skills/agent-terminal/SKILL.md"), extras: &[] },
+    Skill { name: "core", guide: include_str!("../../skill-data/core/SKILL.md"), extras: &[] },
     Skill {
         name: "tui-qa",
-        shipped: &[
-            ("SKILL.md", include_str!("../../skill-data/tui-qa/SKILL.md")),
-            ("templates/report.md", include_str!("../../skill-data/tui-qa/templates/report.md")),
-        ],
+        guide: include_str!("../../skill-data/tui-qa/SKILL.md"),
+        extras: &[("templates/report.md", include_str!("../../skill-data/tui-qa/templates/report.md"))],
     },
     Skill {
         name: "cli-qa",
-        shipped: &[
-            ("SKILL.md", include_str!("../../skill-data/cli-qa/SKILL.md")),
-            ("templates/report.md", include_str!("../../skill-data/cli-qa/templates/report.md")),
-        ],
+        guide: include_str!("../../skill-data/cli-qa/SKILL.md"),
+        extras: &[("templates/report.md", include_str!("../../skill-data/cli-qa/templates/report.md"))],
     },
 ];
 
 impl Skill {
-    fn sections(&self) -> (&'static str, &'static str) {
-        self.shipped[0]
-            .1
+    fn sections(&self) -> Result<(&'static str, &'static str)> {
+        self.guide
             .strip_prefix("---\n")
             .and_then(|guide| guide.split_once("\n---\n"))
-            .expect("every built-in skill starts with frontmatter")
+            .with_context(|| format!("the built-in skill {} does not start with frontmatter", self.name))
     }
 
-    fn guide(&self) -> String {
-        let (front, body) = self.sections();
+    fn versioned_guide(&self) -> Result<String> {
+        let (front, body) = self.sections()?;
         let fields = front.split_once("\nmetadata:\n").map_or(front, |(fields, _)| fields);
-        format!("---\n{fields}\nmetadata:\n  version: \"{VERSION}\"\n---\n{body}")
+        Ok(format!("---\n{fields}\nmetadata:\n  version: \"{VERSION}\"\n---\n{body}"))
     }
 
-    fn files(&self) -> Vec<(&'static str, String)> {
-        let mut files = vec![(self.shipped[0].0, self.guide())];
-        files.extend(self.shipped[1..].iter().map(|(path, text)| (*path, text.to_string())));
-        files
+    fn files(&self) -> Result<Vec<(&'static str, String)>> {
+        let mut files = vec![(GUIDE, self.versioned_guide()?)];
+        files.extend(self.extras.iter().map(|(path, text)| (*path, (*text).to_string())));
+        Ok(files)
     }
 
-    fn frontmatter(&self, key: &str) -> Option<&'static str> {
-        self.sections().0.lines().find_map(|line| line.strip_prefix(key)?.strip_prefix(": "))
+    fn description(&self) -> Result<&'static str> {
+        let (front, _) = self.sections()?;
+        front
+            .lines()
+            .find_map(|line| line.strip_prefix("description")?.strip_prefix(": "))
+            .with_context(|| format!("the built-in skill {} has no description", self.name))
     }
 
-    fn description(&self) -> &'static str {
-        self.frontmatter("description").expect("every built-in skill has a description")
-    }
-
-    fn summary(&self) -> &'static str {
-        let description = self.description();
-        description.find(". ").map_or(description, |end| &description[..=end])
+    fn summary(&self) -> Result<&'static str> {
+        let description = self.description()?;
+        Ok(description.find(". ").and_then(|end| description.get(..=end)).unwrap_or(description))
     }
 
     fn is_stub(&self) -> bool {
@@ -93,50 +92,45 @@ impl Skill {
     }
 }
 
-pub fn run(action: Option<Action>, json: bool, cli: clap::Command) -> i32 {
-    let result = match action.unwrap_or(Action::List) {
-        Action::List => {
-            list(json);
-            Ok(())
-        }
+pub(crate) fn run(action: Option<Action>, json: bool, cli: clap::Command) -> io::Result<i32> {
+    let printed = match action.unwrap_or(Action::List) {
+        Action::List => list(json),
         Action::Get { name, full } => get(&name, full, json, cli),
         Action::Path { name } => path(name.as_deref(), json),
     };
-    finish(result, json)
+    finish(printed, json)
 }
 
-pub fn install(json: bool) -> i32 {
-    let result = install_stub().map(|outcome| {
+pub(crate) fn install(json: bool) -> io::Result<i32> {
+    let printed = install_stub().and_then(|outcome| {
         if json {
-            println!("{}", serde_json::json!(outcome));
-        } else if outcome.installed {
-            println!("installed the agent-terminal skill {} at {}", outcome.version, outcome.path.display());
-        } else {
-            println!(
-                "kept the newer agent-terminal skill {} at {} (this is {VERSION})",
-                outcome.version,
-                outcome.path.display()
-            );
+            return Ok(format!("{}\n", serde_json::to_value(&outcome)?));
         }
+        let at = outcome.path.display();
+        Ok(if outcome.installed {
+            format!("installed the agent-terminal skill {} at {at}\n", outcome.version)
+        } else {
+            format!("kept the newer agent-terminal skill {} at {at} (this is {VERSION})\n", outcome.version)
+        })
     });
-    finish(result, json)
+    finish(printed, json)
 }
 
-fn finish(result: Result<()>, json: bool) -> i32 {
-    match result {
-        Ok(()) => 0,
+fn finish(printed: Result<String>, json: bool) -> io::Result<i32> {
+    match printed {
+        Ok(text) => output::print(&text).map(|()| 0),
         Err(e) => output::error(&ErrorBody::failure(format!("{e:#}")), json),
     }
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Installed {
+pub(crate) struct StubInstall {
     pub installed: bool,
     pub path: PathBuf,
     pub version: String,
 }
 
-pub enum Stub {
+pub(crate) enum Stub {
     Missing,
     Current,
     Older(Version),
@@ -145,31 +139,31 @@ pub enum Stub {
 }
 
 impl Stub {
-    fn of(contents: &[u8]) -> Self {
-        let ours = crate::this_version();
-        match stamped_version(&String::from_utf8_lossy(contents)) {
+    fn of(contents: &[u8]) -> Result<Self> {
+        let ours = crate::this_version()?;
+        Ok(match stamped_version(&String::from_utf8_lossy(contents)) {
             None => Stub::Unversioned,
             Some(theirs) if theirs == ours => Stub::Current,
             Some(theirs) if theirs > ours => Stub::Newer(theirs),
             Some(theirs) => Stub::Older(theirs),
-        }
+        })
     }
 }
 
-pub struct InstalledStub {
+pub(crate) struct InstalledStub {
     pub path: PathBuf,
     pub stub: Stub,
     pub rewritten: bool,
 }
 
-pub fn installed_stub() -> Result<InstalledStub> {
+pub(crate) fn installed_stub() -> Result<InstalledStub> {
     let path = stub_path()?;
     let stub =
         open_stub(&path, OpenOptions::new().read(true), File::lock_shared)?.map_or(Stub::Missing, |(_, stub)| stub);
     Ok(InstalledStub { path, stub, rewritten: false })
 }
 
-pub fn repair_stub() -> Result<InstalledStub> {
+pub(crate) fn repair_stub() -> Result<InstalledStub> {
     let path = stub_path()?;
     let Some((mut file, stub)) = open_stub(&path, OpenOptions::new().read(true).write(true), File::lock)? else {
         return Ok(InstalledStub { path, stub: Stub::Missing, rewritten: false });
@@ -187,7 +181,7 @@ fn stub_path() -> Result<PathBuf> {
     Ok(PathBuf::from(user).join(".claude/skills/agent-terminal/SKILL.md"))
 }
 
-fn install_stub() -> Result<Installed> {
+fn install_stub() -> Result<StubInstall> {
     let path = stub_path()?;
     let folder = path.parent().context("the stub has a folder")?;
     std::fs::create_dir_all(folder).with_context(|| format!("create {}", folder.display()))?;
@@ -196,30 +190,25 @@ fn install_stub() -> Result<Installed> {
     let (mut file, stub) =
         open_stub(&path, &creating, File::lock)?.with_context(|| format!("create {}", path.display()))?;
     if let Stub::Newer(theirs) = stub {
-        return Ok(Installed { installed: false, path, version: theirs.to_string() });
+        return Ok(StubInstall { installed: false, path, version: theirs.to_string() });
     }
     write_stub(&mut file, &path)?;
-    Ok(Installed { installed: true, path, version: VERSION.to_string() })
+    Ok(StubInstall { installed: true, path, version: VERSION.to_string() })
 }
 
-fn open_stub(
-    path: &Path,
-    options: &OpenOptions,
-    lock: fn(&File) -> std::io::Result<()>,
-) -> Result<Option<(File, Stub)>> {
-    let mut file = match options.open(path) {
+fn open_stub(path: &Path, options: &OpenOptions, lock: fn(&File) -> io::Result<()>) -> Result<Option<(File, Stub)>> {
+    let file = match options.open(path) {
         Ok(file) => file,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e).with_context(|| format!("open {}", path.display())),
     };
     lock(&file).with_context(|| format!("lock {}", path.display()))?;
-    let mut contents = Vec::new();
-    file.read_to_end(&mut contents).with_context(|| format!("read {}", path.display()))?;
-    Ok(Some((file, Stub::of(&contents))))
+    let contents = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    Ok(Some((file, Stub::of(&contents)?)))
 }
 
 fn write_stub(file: &mut File, path: &Path) -> Result<()> {
-    let stub = find("agent-terminal")?.guide();
+    let stub = find("agent-terminal")?.versioned_guide()?;
     file.set_len(0).with_context(|| format!("truncate {}", path.display()))?;
     file.seek(SeekFrom::Start(0)).with_context(|| format!("rewind {}", path.display()))?;
     file.write_all(stub.as_bytes()).with_context(|| format!("write {}", path.display()))
@@ -243,62 +232,64 @@ fn find(name: &str) -> Result<&'static Skill> {
         .ok_or_else(|| anyhow!("no skill named {name}; list them with `agent-terminal skills list`"))
 }
 
-fn list(json: bool) {
+fn list(json: bool) -> Result<String> {
     let listed: Vec<&Skill> = SKILLS.iter().filter(|skill| !skill.is_stub()).collect();
     if json {
-        let skills: Vec<_> = listed
+        let skills = listed
             .iter()
-            .map(|skill| serde_json::json!({ "name": skill.name, "description": skill.description() }))
-            .collect();
-        println!("{}", serde_json::json!({ "skills": skills }));
-    } else {
-        let width = listed.iter().map(|skill| skill.name.len()).max().unwrap_or(0);
-        for skill in listed {
-            println!("{:<width$}  {}", skill.name, skill.summary());
-        }
+            .map(|skill| Ok(serde_json::json!({ "name": skill.name, "description": skill.description()? })))
+            .collect::<Result<Vec<_>>>()?;
+        return Ok(format!("{}\n", serde_json::json!({ "skills": skills })));
     }
+    let width = listed.iter().map(|skill| skill.name.len()).max().unwrap_or(0);
+    let mut text = String::new();
+    for skill in listed {
+        writeln!(text, "{:<width$}  {}", skill.name, skill.summary()?)?;
+    }
+    Ok(text)
 }
 
-fn get(name: &str, full: bool, json: bool, cli: clap::Command) -> Result<()> {
+fn get(name: &str, full: bool, json: bool, cli: clap::Command) -> Result<String> {
     let skill = find(name)?;
-    let mut content = skill.guide();
+    let mut content = skill.versioned_guide()?;
     if full {
-        for (path, text) in &skill.shipped[1..] {
-            content.push_str(&format!("\n--- {path} ---\n\n{text}"));
+        for (path, text) in skill.extras {
+            write!(content, "\n--- {path} ---\n\n{text}")?;
         }
         if skill.name == "core" {
-            content.push_str(&format!("\n--- command reference ---\n\n{}", reference(cli)));
+            write!(content, "\n--- command reference ---\n\n{}", reference(cli))?;
         }
     }
     if json {
-        println!("{}", serde_json::json!({ "name": skill.name, "content": content }));
-    } else {
-        print!("{content}");
+        return Ok(format!("{}\n", serde_json::json!({ "name": skill.name, "content": content })));
     }
-    Ok(())
+    Ok(content)
 }
 
-fn path(name: Option<&str>, json: bool) -> Result<()> {
+#[derive(Serialize)]
+struct SkillPath<'a> {
+    path: &'a Path,
+}
+
+fn path(name: Option<&str>, json: bool) -> Result<String> {
     let skill = name.map(find).transpose()?;
     let cache = connection::home()?.join("skills");
     let root = cache.join(VERSION);
     for each in SKILLS {
-        for (relative, text) in each.files() {
+        for (relative, text) in each.files()? {
             write_atomically(&root.join(each.name).join(relative), &text)?;
         }
     }
     remove_older_versions(&cache)?;
     let path = skill.map_or_else(|| root.clone(), |skill| root.join(skill.name));
     if json {
-        println!("{}", serde_json::json!({ "path": path }));
-    } else {
-        println!("{}", path.display());
+        return Ok(format!("{}\n", serde_json::to_value(SkillPath { path: &path })?));
     }
-    Ok(())
+    Ok(format!("{}\n", path.display()))
 }
 
 fn remove_older_versions(cache: &Path) -> Result<()> {
-    let ours = crate::this_version();
+    let ours = crate::this_version()?;
     for entry in std::fs::read_dir(cache).with_context(|| format!("read {}", cache.display()))? {
         let entry = entry.with_context(|| format!("read {}", cache.display()))?;
         let folder = entry.path();

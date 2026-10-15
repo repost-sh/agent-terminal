@@ -5,11 +5,15 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+use serde_json::Value;
 use tokio::sync::watch;
 
+use super::follow::first;
 use super::stream::send;
 use super::{Backend, tab_id};
 use crate::commands::without_global_options;
+use crate::native::control::Hold;
+use crate::native::log;
 use crate::native::store::SessionFolder;
 use crate::output::call_line;
 use crate::protocol::{HumanInput, TabId};
@@ -23,7 +27,7 @@ enum ControlUpdate {
     Closed,
 }
 
-pub async fn take(
+pub(super) async fn take(
     ws: WebSocketUpgrade,
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
@@ -49,11 +53,11 @@ impl Refusals {
         let offset = match tokio::task::spawn_blocking(move || reading.activity_since(0)).await {
             Ok(Ok((_, end))) => end,
             Ok(Err(e)) => {
-                eprintln!("dashboard: reading the activity of {tab} failed: {e:#}");
+                log::note(format_args!("dashboard: reading the activity of {tab} failed: {e:#}"));
                 return None;
             }
             Err(e) => {
-                eprintln!("dashboard: reading the activity of {tab} failed: {e}");
+                log::note(format_args!("dashboard: reading the activity of {tab} failed: {e}"));
                 return None;
             }
         };
@@ -69,20 +73,25 @@ impl Refusals {
                 entries
             }
             Ok(Err(e)) => {
-                eprintln!("dashboard: reading the activity of {} failed: {e:#}", self.tab);
+                log::note(format_args!("dashboard: reading the activity of {} failed: {e:#}", self.tab));
                 return Vec::new();
             }
             Err(e) => {
-                eprintln!("dashboard: reading the activity of {} failed: {e}", self.tab);
+                log::note(format_args!("dashboard: reading the activity of {} failed: {e}", self.tab));
                 return Vec::new();
             }
         };
         entries
             .into_iter()
-            .filter(|entry| entry["tab"] == self.tab && entry["exit"] == crate::exit::HUMAN_CONTROL)
-            .filter_map(|entry| entry["command"].as_str().and_then(shlex::split))
+            .filter(|entry| self.refused_here(entry))
+            .filter_map(|entry| entry.get("command").and_then(Value::as_str).and_then(shlex::split))
             .map(|typed| call_line(&without_global_options(&typed)))
             .collect()
+    }
+
+    fn refused_here(&self, entry: &Value) -> bool {
+        entry.get("tab").is_some_and(|tab| *tab == self.tab)
+            && entry.get("exit").is_some_and(|exit| *exit == crate::exit::HUMAN_CONTROL)
     }
 }
 
@@ -93,75 +102,123 @@ async fn logged(refusals: Option<&mut Refusals>) -> Result<(), watch::error::Rec
     }
 }
 
+struct Holding {
+    backend: Arc<dyn Backend>,
+    session: String,
+    id: TabId,
+    hold: Arc<Hold>,
+    refusals: Option<Refusals>,
+}
+
+enum Next {
+    Lifecycle(bool),
+    Logged(bool),
+    Received(Option<Result<Message, axum::Error>>),
+}
+
 async fn hold(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
+    let Some(hold) = take_control(&mut socket, &backend, &session, id).await else {
+        return;
+    };
+    let mut holding = Holding::start(backend, session, id, hold).await;
+    if send(&mut socket, &ControlUpdate::Held).await {
+        holding.run(&mut socket).await;
+    }
+}
+
+async fn take_control(
+    socket: &mut WebSocket,
+    backend: &Arc<dyn Backend>,
+    session: &str,
+    id: TabId,
+) -> Option<Arc<Hold>> {
     let taking = {
-        let (backend, session) = (Arc::clone(&backend), session.clone());
+        let (backend, session) = (Arc::clone(backend), session.to_string());
         tokio::task::spawn_blocking(move || backend.take_control(&session, id)).await
     };
-    let hold = match taking {
-        Ok(Ok(hold)) => Arc::new(hold),
+    match taking {
+        Ok(Ok(hold)) => Some(Arc::new(hold)),
         Ok(Err(refused)) => {
-            send(&mut socket, &ControlUpdate::Refused { message: refused.message }).await;
-            return;
+            send(socket, &ControlUpdate::Refused { message: refused.message }).await;
+            None
         }
         Err(e) => {
-            eprintln!("dashboard: taking control of {session} {id} failed: {e}");
-            return;
+            log::note(format_args!("dashboard: taking control of {session} {id} failed: {e}"));
+            None
         }
-    };
-    let tab = id.to_string();
-    let mut refusals = match backend.folder(&session) {
-        Some(folder) => Refusals::start(folder, tab.clone()).await,
-        None => None,
-    };
-    let mut lifecycle = backend.changes();
-    if !send(&mut socket, &ControlUpdate::Held).await {
-        return;
     }
-    loop {
+}
+
+impl Holding {
+    async fn start(backend: Arc<dyn Backend>, session: String, id: TabId, hold: Arc<Hold>) -> Self {
+        let refusals = match backend.folder(&session) {
+            Some(folder) => Refusals::start(folder, id.to_string()).await,
+            None => None,
+        };
+        Self { backend, session, id, hold, refusals }
+    }
+
+    async fn run(&mut self, socket: &mut WebSocket) {
+        let mut lifecycle = self.backend.changes();
+        while self.step(&mut lifecycle, socket).await {}
+    }
+
+    async fn step(&mut self, lifecycle: &mut watch::Receiver<u64>, socket: &mut WebSocket) -> bool {
         lifecycle.borrow_and_update();
-        if !backend.holds(&session, id, &hold) {
-            send(&mut socket, &ControlUpdate::Closed).await;
-            return;
+        if self.backend.holds(&self.session, self.id, &self.hold) {
+            return self.act(lifecycle, socket).await;
         }
-        tokio::select! {
-            changed = lifecycle.changed() => if changed.is_err() { return },
-            changed = logged(refusals.as_mut()) => {
-                if changed.is_err() {
-                    return;
-                }
-                let refused = match &mut refusals {
-                    Some(refusals) => refusals.new_ones().await,
-                    None => Vec::new(),
-                };
-                for command in refused {
-                    if !send(&mut socket, &ControlUpdate::AgentRefused { command }).await {
-                        return;
-                    }
-                }
+        send(socket, &ControlUpdate::Closed).await;
+        false
+    }
+
+    async fn act(&mut self, lifecycle: &mut watch::Receiver<u64>, socket: &mut WebSocket) -> bool {
+        match self.next(lifecycle, socket).await {
+            Next::Lifecycle(open) => open,
+            Next::Logged(open) => open && self.tell_refusals(socket).await,
+            Next::Received(received) => self.received(socket, received).await,
+        }
+    }
+
+    async fn next(&mut self, lifecycle: &mut watch::Receiver<u64>, socket: &mut WebSocket) -> Next {
+        let changed = first(async { Next::Lifecycle(lifecycle.changed().await.is_ok()) }, async {
+            Next::Logged(logged(self.refusals.as_mut()).await.is_ok())
+        });
+        first(changed, async { Next::Received(socket.recv().await) }).await
+    }
+
+    async fn tell_refusals(&mut self, socket: &mut WebSocket) -> bool {
+        let refused = match &mut self.refusals {
+            Some(refusals) => refusals.new_ones().await,
+            None => Vec::new(),
+        };
+        for command in refused {
+            if !send(socket, &ControlUpdate::AgentRefused { command }).await {
+                return false;
             }
-            received = socket.recv() => {
-                let text = match received {
-                    Some(Ok(Message::Text(text))) => text,
-                    Some(Ok(Message::Binary(_) | Message::Ping(_) | Message::Pong(_))) => continue,
-                    None | Some(Err(_) | Ok(Message::Close(_))) => return,
-                };
-                let typed = match serde_json::from_str::<HumanInput>(&text) {
-                    Ok(input) => {
-                        let (backend, session, hold) = (Arc::clone(&backend), session.clone(), Arc::clone(&hold));
-                        match tokio::task::spawn_blocking(move || backend.type_as_human(&session, id, &hold, &input)).await {
-                            Ok(typed) => typed.map_err(|refused| refused.message),
-                            Err(e) => Err(format!("sending the key failed: {e}")),
-                        }
-                    }
-                    Err(e) => Err(format!("{text} is not a key: {e}")),
-                };
-                if let Err(message) = typed
-                    && !send(&mut socket, &ControlUpdate::Refused { message }).await
-                {
-                    return;
-                }
-            }
+        }
+        true
+    }
+
+    async fn received(&self, socket: &mut WebSocket, received: Option<Result<Message, axum::Error>>) -> bool {
+        let text = match received {
+            Some(Ok(Message::Text(text))) => text,
+            Some(Ok(Message::Binary(_) | Message::Ping(_) | Message::Pong(_))) => return true,
+            None | Some(Err(_) | Ok(Message::Close(_))) => return false,
+        };
+        match self.type_keys(&text).await {
+            Ok(()) => true,
+            Err(message) => send(socket, &ControlUpdate::Refused { message }).await,
+        }
+    }
+
+    async fn type_keys(&self, text: &str) -> Result<(), String> {
+        let input = serde_json::from_str::<HumanInput>(text).map_err(|e| format!("{text} is not a key: {e}"))?;
+        let (backend, session, hold, id) =
+            (Arc::clone(&self.backend), self.session.clone(), Arc::clone(&self.hold), self.id);
+        match tokio::task::spawn_blocking(move || backend.type_as_human(&session, id, &hold, &input)).await {
+            Ok(typed) => typed.map_err(|refused| refused.message),
+            Err(e) => Err(format!("sending the key failed: {e}")),
         }
     }
 }

@@ -1,17 +1,22 @@
-use std::io::{ErrorKind, IsTerminal, Read, Write};
+use std::io::{self, ErrorKind, IsTerminal, Read, Write};
+use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
+use std::sync::mpsc::{self, Sender};
+use std::thread::JoinHandle;
 
-use anyhow::{Context, Result, bail};
-use rustix::termios::{self, OptionalActions, Termios};
+use anyhow::{Context, Result, anyhow, bail};
+use rustix::termios::{self, OptionalActions};
 
 use crate::connection::{self, Launch};
 use crate::key::{Key, KeyCode, Mods};
 use crate::output;
+use crate::protocol::request;
 use crate::protocol::{
     self, AttachEvent, AttachInput, Attached, Call, HumanInput, Mirror, Reply, Request, Response, Target,
 };
 
-const DETACH: [u8; 2] = [0x10, 0x11];
+const DETACH_FIRST: u8 = 0x10;
+const DETACH: [u8; 2] = [DETACH_FIRST, 0x11];
 const PASTE_START: &[u8] = b"\x1b[200~";
 const PASTE_END: &[u8] = b"\x1b[201~";
 const TAKE_OVER: &str = "\x1b[?1049h\x1b[?7l\x1b[?2004h\x1b[0m\x1b[2J";
@@ -22,16 +27,16 @@ enum End {
     Closed,
 }
 
-pub fn run(target: Target, read_only: bool, json: bool, launch: Launch) -> i32 {
-    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+pub(crate) fn run(target: Target, read_only: bool, json: bool, launch: &Launch) -> io::Result<i32> {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return output::refuse(
             "attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead",
             json,
         );
     }
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
-    let call = Call { typed: Some(typed), request: Request::Attach { target, read_only } };
-    let (response, stream) = match connection::keep_open(&call, &launch) {
+    let call = Call { typed: Some(typed), request: Request::Attach(request::Attach { target, read_only }) };
+    let (response, stream) = match connection::keep_open(&call, launch) {
         Ok(Ok(opened)) => opened,
         Ok(Err(refusal)) => return output::error(&refusal, json),
         Err(e) => return output::refuse(&format!("{e:#}"), json),
@@ -44,49 +49,54 @@ pub fn run(target: Target, read_only: bool, json: bool, launch: Launch) -> i32 {
         Response::Err(error) => return output::error(&error, json),
     };
     match watch(&attached, stream) {
-        Ok(end) => {
-            report(&attached, &end, json);
-            0
-        }
+        Ok(end) => report(&attached, &end, json).map(|()| 0),
         Err(e) => output::refuse(&format!("{e:#}"), json),
     }
 }
 
-fn report(attached: &Attached, end: &End, json: bool) {
+fn report(attached: &Attached, end: &End, json: bool) -> io::Result<()> {
     let (word, text) = match end {
         End::Detached => ("detached", format!("detached from {} {}", attached.session, attached.tab)),
         End::Closed => ("closed", format!("{} {} was closed; detached", attached.session, attached.tab)),
     };
     if json {
-        println!("{}", serde_json::json!({ "session": attached.session, "tab": attached.tab, "end": word }));
+        output::print_json(&serde_json::json!({ "session": attached.session, "tab": attached.tab, "end": word }))
     } else {
-        println!("{text}");
+        output::print(&format!("{text}\n"))
     }
 }
 
 fn watch(attached: &Attached, stream: UnixStream) -> Result<End> {
-    let mut keys = stream.try_clone().context("share the connection to the daemon")?;
-    let takeover = Takeover::start()?;
-    let read_only = attached.read_only;
-    let (forwarded, outcome) = std::sync::mpsc::channel();
+    let keys = stream.try_clone().context("share the connection to the daemon")?;
+    let (ended, forwarder, outcome) = taken_over(|| {
+        let (report, outcome) = mpsc::channel();
+        let forwarder = forward_in_background(keys, attached.read_only, report);
+        Ok((mirror(attached, stream), forwarder, outcome))
+    })?;
+    if let Ok(Err(e)) = outcome.try_recv() {
+        return Err(e);
+    }
+    if forwarder.is_finished() {
+        return match forwarder.join() {
+            Ok(closed) => closed.and(ended),
+            Err(_) => Err(anyhow!("forwarding your keys to the daemon panicked")),
+        };
+    }
+    ended
+}
+
+fn forward_in_background(mut keys: UnixStream, read_only: bool, report: Sender<Result<()>>) -> JoinHandle<Result<()>> {
     std::thread::spawn(move || {
         let sent = forward_keys(&mut keys, read_only);
         let failed = sent.is_err();
-        if let Err(unheard) = forwarded.send(sent)
-            && let Err(e) = unheard.0
-        {
-            eprintln!("error: {e:#}");
+        if let Err(unheard) = report.send(sent) {
+            return unheard.0;
         }
-        if failed && let Err(e) = keys.shutdown(std::net::Shutdown::Both) {
-            eprintln!("error: closing the connection to the daemon failed: {e}");
+        if failed {
+            keys.shutdown(Shutdown::Both).context("close the connection to the daemon")?;
         }
-    });
-    let ended = mirror(attached, stream);
-    drop(takeover);
-    match outcome.try_recv() {
-        Ok(Err(e)) => Err(e),
-        Ok(Ok(())) | Err(_) => ended,
-    }
+        Ok(())
+    })
 }
 
 fn mirror(attached: &Attached, mut stream: UnixStream) -> Result<End> {
@@ -102,7 +112,7 @@ fn mirror(attached: &Attached, mut stream: UnixStream) -> Result<End> {
 }
 
 fn forward_keys(daemon: &mut UnixStream, read_only: bool) -> Result<()> {
-    let mut stdin = std::io::stdin().lock();
+    let mut stdin = io::stdin().lock();
     let mut keys = Keys::default();
     let mut buffer = [0u8; 4096];
     loop {
@@ -115,7 +125,8 @@ fn forward_keys(daemon: &mut UnixStream, read_only: bool) -> Result<()> {
                 return Err(anyhow::Error::new(e).context("read your keys"));
             }
         };
-        for pressed in keys.feed(&buffer[..read]) {
+        let filled = buffer.get(..read).context("stdin reported more bytes than it was given room for")?;
+        for pressed in keys.feed(filled) {
             match pressed {
                 Pressed::Detach => return send(daemon, &AttachInput::Detach),
                 Pressed::Human(_) if read_only => {}
@@ -129,36 +140,25 @@ fn send(daemon: &mut UnixStream, input: &AttachInput) -> Result<()> {
     protocol::write(daemon, input).context("send your keys to the daemon")
 }
 
-struct Takeover {
-    original: Termios,
-}
-
-impl Takeover {
-    fn start() -> Result<Self> {
-        let stdin = std::io::stdin();
-        let original = termios::tcgetattr(&stdin).context("read your terminal's settings")?;
-        let mut raw = original.clone();
-        raw.make_raw();
-        termios::tcsetattr(&stdin, OptionalActions::Now, &raw).context("put your terminal in raw mode")?;
-        let takeover = Self { original };
-        show(TAKE_OVER)?;
-        Ok(takeover)
-    }
-}
-
-impl Drop for Takeover {
-    fn drop(&mut self) {
-        if let Err(e) = show(HAND_BACK) {
-            eprintln!("error: restoring your terminal's screen failed: {e:#}");
-        }
-        if let Err(e) = termios::tcsetattr(std::io::stdin(), OptionalActions::Now, &self.original) {
-            eprintln!("error: restoring your terminal's settings failed: {e}");
-        }
+fn taken_over<T>(work: impl FnOnce() -> Result<T>) -> Result<T> {
+    let stdin = io::stdin();
+    let original = termios::tcgetattr(&stdin).context("read your terminal's settings")?;
+    let mut raw = original.clone();
+    raw.make_raw();
+    termios::tcsetattr(&stdin, OptionalActions::Now, &raw).context("put your terminal in raw mode")?;
+    let worked = show(TAKE_OVER).and_then(|()| work());
+    let handed_back = show(HAND_BACK).context("restore your terminal's screen");
+    let restored =
+        termios::tcsetattr(&stdin, OptionalActions::Now, &original).context("restore your terminal's settings");
+    match (worked, handed_back.and(restored)) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(e), Ok(())) | (Ok(_), Err(e)) => Err(e),
+        (Err(e), Err(restoring)) => Err(e.context(format!("then {restoring:#}"))),
     }
 }
 
 fn show(text: &str) -> Result<()> {
-    let mut stdout = std::io::stdout().lock();
+    let mut stdout = io::stdout().lock();
     stdout.write_all(text.as_bytes()).and_then(|()| stdout.flush()).context("write to your terminal")
 }
 
@@ -182,7 +182,7 @@ impl Painter {
     }
 
     fn paint(&mut self, screen: &Mirror) -> Result<()> {
-        let window = termios::tcgetwinsize(std::io::stdout()).context("read your terminal's size")?;
+        let window = termios::tcgetwinsize(io::stdout()).context("read your terminal's size")?;
         let fit = (window.ws_col, window.ws_row, screen.cols, screen.rows);
         let mut paint = String::new();
         if self.fitted != Some(fit) {
@@ -191,13 +191,13 @@ impl Painter {
             self.hint.clear();
             self.fitted = Some(fit);
         }
-        let visible = usize::from(screen.rows.min(window.ws_row)).min(screen.lines.len());
-        for (index, line) in screen.lines[..visible].iter().enumerate() {
+        let visible = usize::from(screen.rows.min(window.ws_row));
+        for (index, line) in screen.lines.iter().take(visible).enumerate() {
             if self.shown.get(index) != Some(line) {
                 paint.push_str(&crate::paint::row(index, line));
             }
         }
-        self.shown = screen.lines[..visible].to_vec();
+        self.shown = screen.lines.iter().take(visible).cloned().collect();
         if window.ws_row > screen.rows {
             let hint: String = self.hint_for(screen).chars().take(usize::from(window.ws_col)).collect();
             if hint != self.hint {
@@ -237,53 +237,85 @@ impl Keys {
     fn feed(&mut self, bytes: &[u8]) -> Vec<Pressed> {
         let mut data = std::mem::take(&mut self.pending);
         data.extend_from_slice(bytes);
-        let mut pressed = Vec::new();
-        let mut text = String::new();
-        let mut at = 0;
-        while at < data.len() {
-            let rest = &data[at..];
-            if let Some(pasted) = &mut self.pasting {
-                let end = find(rest, PASTE_END);
-                pasted.extend_from_slice(&rest[..end.unwrap_or(rest.len())]);
-                at += end.map_or(rest.len(), |end| end + PASTE_END.len());
-                if end.is_some() {
-                    let pasted = String::from_utf8_lossy(pasted).into_owned();
-                    self.pasting = None;
-                    pressed.push(Pressed::Human(HumanInput::Pasted(pasted)));
-                }
+        let mut typing = Typing::default();
+        let mut rest = data.as_slice();
+        while !rest.is_empty() {
+            if self.pasting.is_some() {
+                rest = self.paste(rest, &mut typing);
                 continue;
             }
             let Some((step, used)) = step(rest) else {
                 self.pending = rest.to_vec();
                 break;
             };
-            at += used;
-            match step {
-                Step::Text(c) => text.push(c),
-                Step::Key(key) => {
-                    typed(&mut pressed, &mut text);
-                    pressed.push(Pressed::Human(HumanInput::Pressed(key)));
-                }
-                Step::Detach => {
-                    typed(&mut pressed, &mut text);
-                    pressed.push(Pressed::Detach);
-                    return pressed;
-                }
-                Step::PasteStart => {
-                    typed(&mut pressed, &mut text);
-                    self.pasting = Some(Vec::new());
-                }
-                Step::Skip => {}
+            rest = rest.get(used..).unwrap_or_default();
+            if self.take(&step, &mut typing) == Taken::Detach {
+                break;
             }
         }
-        typed(&mut pressed, &mut text);
-        pressed
+        typing.finish()
+    }
+
+    fn paste<'a>(&mut self, rest: &'a [u8], typing: &mut Typing) -> &'a [u8] {
+        let Some(pasted) = &mut self.pasting else {
+            return rest;
+        };
+        let Some((body, after)) = split_around(rest, PASTE_END) else {
+            pasted.extend_from_slice(rest);
+            return &[];
+        };
+        pasted.extend_from_slice(body);
+        let text = String::from_utf8_lossy(pasted).into_owned();
+        self.pasting = None;
+        typing.pressed.push(Pressed::Human(HumanInput::Pasted(text)));
+        after
+    }
+
+    fn take(&mut self, step: &Step, typing: &mut Typing) -> Taken {
+        match step {
+            Step::Text(c) => typing.text.push(*c),
+            Step::Key(key) => typing.press(Pressed::Human(HumanInput::Pressed(*key))),
+            Step::Detach => {
+                typing.press(Pressed::Detach);
+                return Taken::Detach;
+            }
+            Step::PasteStart => {
+                typing.flush();
+                self.pasting = Some(Vec::new());
+            }
+            Step::Skip => {}
+        }
+        Taken::Key
     }
 }
 
-fn typed(pressed: &mut Vec<Pressed>, text: &mut String) {
-    if !text.is_empty() {
-        pressed.push(Pressed::Human(HumanInput::Typed(std::mem::take(text))));
+#[derive(PartialEq, Eq)]
+enum Taken {
+    Key,
+    Detach,
+}
+
+#[derive(Default)]
+struct Typing {
+    pressed: Vec<Pressed>,
+    text: String,
+}
+
+impl Typing {
+    fn flush(&mut self) {
+        if !self.text.is_empty() {
+            self.pressed.push(Pressed::Human(HumanInput::Typed(std::mem::take(&mut self.text))));
+        }
+    }
+
+    fn press(&mut self, pressed: Pressed) {
+        self.flush();
+        self.pressed.push(pressed);
+    }
+
+    fn finish(mut self) -> Vec<Pressed> {
+        self.flush();
+        self.pressed
     }
 }
 
@@ -296,50 +328,64 @@ enum Step {
 }
 
 fn step(bytes: &[u8]) -> Option<(Step, usize)> {
-    Some(match bytes {
-        [] => return None,
-        [first] if *first == DETACH[0] => return None,
-        [first, second, ..] if [*first, *second] == DETACH => (Step::Detach, 2),
-        [0x1b, ..] if bytes.starts_with(PASTE_START) => (Step::PasteStart, PASTE_START.len()),
-        [0x1b, b'[', ..] => csi(bytes)?,
-        [0x1b, b'O'] => return None,
-        [0x1b, b'O', final_byte, ..] => match ss3_key(*final_byte) {
-            Some(code) => (Step::Key(plain(code)), 3),
-            None => (Step::Skip, 3),
-        },
-        [0x1b] | [0x1b, 0x1b, ..] => (Step::Key(plain(KeyCode::Esc)), 1),
-        [0x1b, rest @ ..] => match step(rest)? {
-            (Step::Key(key), used) => (Step::Key(Key { mods: Mods { alt: true, ..key.mods }, ..key }), used + 1),
-            (Step::Text(c), used) => {
-                (Step::Key(Key { code: KeyCode::Char(c), mods: Mods { alt: true, ..Mods::default() } }), used + 1)
-            }
-            (Step::Detach | Step::PasteStart | Step::Skip, _) => (Step::Key(plain(KeyCode::Esc)), 1),
-        },
-        [byte, ..] if *byte < 0x20 || *byte == 0x7f => (Step::Key(control_key(*byte)), 1),
-        [byte, ..] => {
-            let width = match byte {
-                0xc0..=0xdf => 2,
-                0xe0..=0xef => 3,
-                0xf0..=0xf7 => 4,
-                0x80..=0xff => return Some((Step::Skip, 1)),
-                _ => 1,
-            };
-            match std::str::from_utf8(bytes.get(..width)?).ok().and_then(|text| text.chars().next()) {
-                Some(c) => (Step::Text(c), width),
-                None => (Step::Skip, 1),
-            }
+    match bytes {
+        [] | [DETACH_FIRST] => None,
+        [first, second, ..] if [*first, *second] == DETACH => Some((Step::Detach, 2)),
+        [0x1b, after @ ..] => escape(bytes, after),
+        [byte, ..] if *byte < 0x20 || *byte == 0x7f => Some((Step::Key(control_key(*byte)), 1)),
+        [lead, ..] => text(bytes, *lead),
+    }
+}
+
+fn escape(bytes: &[u8], after: &[u8]) -> Option<(Step, usize)> {
+    if bytes.starts_with(PASTE_START) {
+        return Some((Step::PasteStart, PASTE_START.len()));
+    }
+    Some(match after {
+        [b'[', ..] => csi(bytes)?,
+        [b'O'] => return None,
+        [b'O', final_byte, ..] => (ss3_key(*final_byte).map_or(Step::Skip, |code| Step::Key(plain(code))), 3),
+        [] | [0x1b, ..] => (Step::Key(plain(KeyCode::Esc)), 1),
+        rest => alt(rest)?,
+    })
+}
+
+fn alt(rest: &[u8]) -> Option<(Step, usize)> {
+    Some(match step(rest)? {
+        (Step::Key(key), used) => (Step::Key(Key { mods: Mods { alt: true, ..key.mods }, ..key }), used + 1),
+        (Step::Text(c), used) => {
+            (Step::Key(Key { code: KeyCode::Char(c), mods: Mods { alt: true, ..Mods::default() } }), used + 1)
         }
+        (Step::Detach | Step::PasteStart | Step::Skip, _) => (Step::Key(plain(KeyCode::Esc)), 1),
+    })
+}
+
+fn text(bytes: &[u8], lead: u8) -> Option<(Step, usize)> {
+    let width = match lead {
+        0xc0..=0xdf => 2,
+        0xe0..=0xef => 3,
+        0xf0..=0xf7 => 4,
+        0x80..=0xff => return Some((Step::Skip, 1)),
+        _ => 1,
+    };
+    Some(match std::str::from_utf8(bytes.get(..width)?).ok().and_then(|text| text.chars().next()) {
+        Some(c) => (Step::Text(c), width),
+        None => (Step::Skip, 1),
     })
 }
 
 fn csi(bytes: &[u8]) -> Option<(Step, usize)> {
-    let end = bytes.iter().skip(2).position(|byte| (0x40..=0x7e).contains(byte))? + 2;
-    let params = String::from_utf8_lossy(&bytes[2..end]).into_owned();
+    let body = bytes.get(2..)?;
+    let at = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
+    let (params, after) = body.split_at_checked(at)?;
+    let final_byte = *after.first()?;
+    let end = at + 2;
+    let params = String::from_utf8_lossy(params).into_owned();
     let mut fields = params.split(';').map(|field| field.parse::<u8>().ok());
     let number = fields.next().flatten();
     let held = fields.next().flatten().unwrap_or(1).saturating_sub(1);
     let mods = Mods { shift: held & 1 != 0, alt: held & 2 != 0, ctrl: held & 4 != 0 };
-    let code = match (bytes[end], number) {
+    let code = match (final_byte, number) {
         (b'Z', _) => return Some((Step::Key(Key { code: KeyCode::Tab, mods: Mods { shift: true, ..mods } }), end + 1)),
         (b'~', Some(number)) => tilde_key(number),
         (final_byte, _) => ss3_key(final_byte),
@@ -403,6 +449,8 @@ fn ctrl(c: char) -> Key {
     Key { code: KeyCode::Char(c), mods: Mods { ctrl: true, ..Mods::default() } }
 }
 
-fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
+fn split_around<'a>(haystack: &'a [u8], needle: &[u8]) -> Option<(&'a [u8], &'a [u8])> {
+    let at = haystack.windows(needle.len()).position(|window| window == needle)?;
+    let (before, found) = haystack.split_at_checked(at)?;
+    Some((before, found.strip_prefix(needle)?))
 }

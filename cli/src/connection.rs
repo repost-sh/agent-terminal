@@ -13,19 +13,19 @@ use crate::VERSION;
 use crate::output::count;
 use crate::protocol::{self, Call, ErrorBody, OtherVersion, Reply, Request, Response};
 
-pub const READY: &str = "ready";
+pub(crate) const READY: &str = "ready";
 const STOPS_WITHIN: Duration = Duration::from_secs(10);
 
-pub enum IfNotRunning {
+pub(crate) enum IfNotRunning {
     Start(Launch),
     Answer(Reply),
 }
 
-pub struct Launch {
+pub(crate) struct Launch {
     pub idle_timeout: Duration,
 }
 
-pub fn home() -> Result<PathBuf> {
+pub(crate) fn home() -> Result<PathBuf> {
     if let Some(home) = std::env::var_os("AGENT_TERMINAL_HOME") {
         return Ok(PathBuf::from(home));
     }
@@ -35,15 +35,15 @@ pub fn home() -> Result<PathBuf> {
     Ok(PathBuf::from(user_home).join(".agent-terminal"))
 }
 
-pub fn socket_path() -> Result<PathBuf> {
+pub(crate) fn socket_path() -> Result<PathBuf> {
     Ok(home()?.join("daemon.sock"))
 }
 
-pub fn version_path() -> Result<PathBuf> {
+pub(crate) fn version_path() -> Result<PathBuf> {
     Ok(home()?.join("daemon.version"))
 }
 
-pub fn running_version() -> Result<Option<String>> {
+pub(crate) fn running_version() -> Result<Option<String>> {
     let path = version_path()?;
     match std::fs::read_to_string(&path) {
         Ok(version) => Ok(Some(version.trim().to_string())),
@@ -52,7 +52,7 @@ pub fn running_version() -> Result<Option<String>> {
     }
 }
 
-pub fn started_version() -> Result<Option<String>> {
+pub(crate) fn started_version() -> Result<Option<String>> {
     let running = running_version()?;
     if running.as_deref() == Some(VERSION) {
         return Ok(running);
@@ -61,7 +61,7 @@ pub fn started_version() -> Result<Option<String>> {
     running_version()
 }
 
-pub fn daemon_stop_advice(cli_version: Option<&str>) -> String {
+pub(crate) fn daemon_stop_advice(cli_version: Option<&str>) -> String {
     let next = match cli_version {
         Some(version) => format!("a {version} daemon"),
         None => "a daemon of the command's version".to_string(),
@@ -69,7 +69,7 @@ pub fn daemon_stop_advice(cli_version: Option<&str>) -> String {
     format!("`agent-terminal daemon stop` ends it and its terminals, and the next command starts {next}")
 }
 
-pub fn daemon_of(version: Option<&str>) -> String {
+pub(crate) fn daemon_of(version: Option<&str>) -> String {
     match version {
         Some(version) => format!("agent-terminal {version}"),
         None => "an agent-terminal that does not record its version".to_string(),
@@ -82,7 +82,7 @@ enum Reached {
     Refused(ErrorBody),
 }
 
-pub fn send(call: &Call, if_not_running: IfNotRunning) -> Result<Response> {
+pub(crate) fn send(call: &Call, if_not_running: IfNotRunning) -> Result<Response> {
     let mut stream = match reach(&call.request)? {
         Reached::Daemon(stream) => stream,
         Reached::Refused(refusal) => return Ok(Response::Err(refusal)),
@@ -95,7 +95,7 @@ pub fn send(call: &Call, if_not_running: IfNotRunning) -> Result<Response> {
     protocol::read(&mut stream)?.context("the daemon closed the connection without replying")
 }
 
-pub fn keep_open(call: &Call, launch: &Launch) -> Result<Result<(Response, UnixStream), ErrorBody>> {
+pub(crate) fn keep_open(call: &Call, launch: &Launch) -> Result<Result<(Response, UnixStream), ErrorBody>> {
     let mut stream = match reach(&call.request)? {
         Reached::Daemon(stream) => stream,
         Reached::Refused(refusal) => return Ok(Err(refusal)),
@@ -188,7 +188,7 @@ fn start_lock(home: &std::path::Path) -> Result<std::fs::File> {
     Ok(lock)
 }
 
-pub fn remove_stale_socket() -> Result<bool> {
+pub(crate) fn remove_stale_socket() -> Result<bool> {
     let _lock = start_lock(&home()?)?;
     let socket = socket_path()?;
     match UnixStream::connect(&socket) {
@@ -238,7 +238,7 @@ fn keep_inherited_descriptors_from_the_daemon() -> Result<()> {
         let descriptor: RawFd = name
             .to_str()
             .and_then(|number| number.parse().ok())
-            .with_context(|| format!("/dev/fd lists {name:?}, which is not a descriptor number"))?;
+            .with_context(|| format!("/dev/fd lists \"{}\", which is not a descriptor number", name.display()))?;
         if descriptor > 2 {
             fcntl(descriptor, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))
                 .with_context(|| format!("mark descriptor {descriptor} close-on-exec"))?;

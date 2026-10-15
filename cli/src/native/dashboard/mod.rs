@@ -21,11 +21,12 @@ use axum::routing::{get, post};
 use tokio::sync::{oneshot, watch};
 
 use crate::native::control::Hold;
+use crate::native::log;
 use crate::native::store::SessionFolder;
 use crate::native::terminal::Terminal;
 use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions, TabId};
 
-pub trait Backend: Send + Sync + 'static {
+pub(crate) trait Backend: Send + Sync + 'static {
     fn call(&self, request: Request) -> Result<Reply, ErrorBody>;
     fn sessions(&self) -> Sessions;
     fn terminal(&self, session: &str, tab: TabId) -> Option<Arc<Terminal>>;
@@ -36,7 +37,7 @@ pub trait Backend: Send + Sync + 'static {
     fn type_as_human(&self, session: &str, tab: TabId, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody>;
 }
 
-pub struct Server {
+pub(crate) struct Server {
     port: u16,
     origins: Vec<String>,
     stop: Option<oneshot::Sender<()>>,
@@ -44,11 +45,13 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn start(port: u16, origins: Vec<String>, backend: Arc<dyn Backend>) -> Result<Self> {
+    pub(crate) fn start(port: u16, origins: Vec<String>, backend: Arc<dyn Backend>) -> Result<Self> {
         let v4 = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).map_err(|e| refused(port, e))?;
         let port = v4.local_addr().context("read the dashboard's port")?.port();
         let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, port))
-            .inspect_err(|e| eprintln!("dashboard: listening on [::1]:{port} failed, serving 127.0.0.1 only: {e}"))
+            .inspect_err(|e| {
+                log::note(format_args!("dashboard: listening on [::1]:{port} failed, serving 127.0.0.1 only: {e}"));
+            })
             .ok();
         for listener in std::iter::once(&v4).chain(&v6) {
             listener.set_nonblocking(true).context("make the dashboard's socket non-blocking")?;
@@ -70,15 +73,15 @@ impl Server {
         Ok(Self { port, origins, stop: Some(stop), thread: Some(thread) })
     }
 
-    pub fn port(&self) -> u16 {
+    pub(crate) fn port(&self) -> u16 {
         self.port
     }
 
-    pub fn allows(&self, origin: &str) -> bool {
+    pub(crate) fn allows(&self, origin: &str) -> bool {
         self.origins.iter().any(|allowed| allowed == origin)
     }
 
-    pub fn info(&self) -> Dashboard {
+    pub(crate) fn info(&self) -> Dashboard {
         Dashboard { url: format!("http://localhost:{}", self.port), port: self.port }
     }
 }
@@ -88,12 +91,12 @@ impl Drop for Server {
         if let Some(stop) = self.stop.take()
             && stop.send(()).is_err()
         {
-            eprintln!("dashboard: the server had already stopped");
+            log::note(format_args!("dashboard: the server had already stopped"));
         }
         if let Some(thread) = self.thread.take()
             && thread.join().is_err()
         {
-            eprintln!("dashboard: the server thread panicked");
+            log::note(format_args!("dashboard: the server thread panicked"));
         }
     }
 }
@@ -112,13 +115,13 @@ async fn serve(app: Router, v4: TcpListener, v6: Option<TcpListener>, stopped: o
     let listen = |listener: TcpListener| {
         let app = app.clone();
         async move {
-            let address = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|e| e.to_string());
+            let address = listener.local_addr().map_or_else(|e| e.to_string(), |a| a.to_string());
             let served = match tokio::net::TcpListener::from_std(listener) {
                 Ok(listener) => axum::serve(listener, app).await,
                 Err(e) => Err(e),
             };
             if let Err(e) = served {
-                eprintln!("dashboard: serving {address} failed: {e}");
+                log::note(format_args!("dashboard: serving {address} failed: {e}"));
             }
         }
     };

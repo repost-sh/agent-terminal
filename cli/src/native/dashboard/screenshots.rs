@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use super::Backend;
 use super::follow::Follow;
-use super::stream::send;
+use super::stream::{send, send_changed};
+use crate::native::log;
 use crate::native::render::{self, CellBox};
 use crate::native::store::{ScreenshotEntry, SessionFolder};
 use anyhow::Context;
 use axum::Json;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -20,7 +21,7 @@ enum Update {
     Closed,
 }
 
-pub async fn stream(
+pub(super) async fn stream(
     ws: WebSocketUpgrade,
     State(backend): State<Arc<dyn Backend>>,
     Path(session): Path<String>,
@@ -39,38 +40,34 @@ async fn follow_screenshots(mut socket: WebSocket, backend: Arc<dyn Backend>, se
             send(&mut socket, &Update::Closed).await;
             return;
         };
-        let screenshots = match tokio::task::spawn_blocking(move || folder.screenshots()).await {
-            Ok(Ok(screenshots)) => screenshots,
-            Ok(Err(e)) => {
-                eprintln!("dashboard: reading the screenshots of {session} failed: {e:#}");
-                return;
-            }
-            Err(e) => {
-                eprintln!("dashboard: reading the screenshots of {session} failed: {e}");
-                return;
-            }
+        let Some(update) = screenshots_update(folder, &session).await else {
+            return;
         };
-        let update = match serde_json::to_string(&Update::Screenshots { screenshots }) {
-            Ok(update) => update,
-            Err(e) => {
-                eprintln!("dashboard: encoding the screenshots of {session} failed: {e}");
-                return;
-            }
-        };
-        if update != sent {
-            if socket.send(Message::text(update.clone())).await.is_err() {
-                return;
-            }
-            sent = update;
-        }
-        if !follow.changed(&mut socket).await {
+        if !send_changed(&mut socket, &mut sent, update).await || !follow.changed(&mut socket).await {
             return;
         }
     }
 }
 
+async fn screenshots_update(folder: Arc<SessionFolder>, session: &str) -> Option<String> {
+    let screenshots = match tokio::task::spawn_blocking(move || folder.screenshots()).await {
+        Ok(Ok(screenshots)) => screenshots,
+        Ok(Err(e)) => {
+            log::note(format_args!("dashboard: reading the screenshots of {session} failed: {e:#}"));
+            return None;
+        }
+        Err(e) => {
+            log::note(format_args!("dashboard: reading the screenshots of {session} failed: {e}"));
+            return None;
+        }
+    };
+    serde_json::to_string(&Update::Screenshots { screenshots })
+        .inspect_err(|e| log::note(format_args!("dashboard: encoding the screenshots of {session} failed: {e}")))
+        .ok()
+}
+
 #[derive(Deserialize)]
-pub struct Pair {
+pub(super) struct Pair {
     paths: [String; 2],
 }
 
@@ -80,7 +77,7 @@ struct Compared {
     boxes: Vec<CellBox>,
 }
 
-pub async fn compare(
+pub(super) async fn compare(
     State(backend): State<Arc<dyn Backend>>,
     Path(session): Path<String>,
     Json(Pair { paths }): Json<Pair>,

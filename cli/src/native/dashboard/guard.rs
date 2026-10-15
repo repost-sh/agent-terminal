@@ -8,12 +8,12 @@ use axum::response::{IntoResponse, Response};
 
 const LOOPBACK: [&str; 3] = ["localhost", "127.0.0.1", "[::1]"];
 
-pub struct Pages {
+pub(super) struct Pages {
     pub port: u16,
     pub origins: Vec<String>,
 }
 
-pub async fn same_origin(State(pages): State<Arc<Pages>>, request: Request, next: Next) -> Response {
+pub(super) async fn same_origin(State(pages): State<Arc<Pages>>, request: Request, next: Next) -> Response {
     if from_our_pages(request.headers(), &pages) {
         return next.run(request).await;
     }

@@ -18,7 +18,7 @@ enum Update {
     Closed,
 }
 
-pub async fn stream(
+pub(super) async fn stream(
     ws: WebSocketUpgrade,
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
@@ -39,7 +39,7 @@ async fn follow_commands(mut socket: WebSocket, backend: Arc<dyn Backend>, sessi
         };
         let integration = terminal.shell().is_some();
         let update = Update::Commands {
-            shell: integration || Shell::of_program(&terminal.program).is_some(),
+            shell: integration || Shell::of_program(terminal.program()).is_some(),
             integration,
             home: home.clone(),
             commands: terminal.commands().unwrap_or_default(),
@@ -50,7 +50,7 @@ async fn follow_commands(mut socket: WebSocket, backend: Arc<dyn Backend>, sessi
     }
 }
 
-pub async fn output(
+pub(super) async fn output(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab, id)): Path<(String, String, u32)>,
 ) -> Response {

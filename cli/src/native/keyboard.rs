@@ -1,3 +1,5 @@
+use std::fmt::{self, Write as _};
+
 use crate::key::{Key, KeyCode, Mods};
 use crate::native::screen::KeyboardModes;
 
@@ -15,7 +17,7 @@ enum Event {
     Release,
 }
 
-pub fn paste(text: &str, modes: KeyboardModes) -> Vec<u8> {
+pub(crate) fn paste(text: &str, modes: KeyboardModes) -> Vec<u8> {
     if modes.bracketed_paste {
         [&b"\x1b[200~"[..], text.replace('\x1b', "").as_bytes(), b"\x1b[201~"].concat()
     } else {
@@ -23,7 +25,7 @@ pub fn paste(text: &str, modes: KeyboardModes) -> Vec<u8> {
     }
 }
 
-pub fn encode(key: Key, modes: KeyboardModes) -> Result<Vec<u8>, String> {
+pub(crate) fn encode(key: Key, modes: KeyboardModes) -> Result<Vec<u8>, String> {
     let flags = modes.kitty_flags;
     let mut bytes = if flags & (DISAMBIGUATE | ALL_KEYS_AS_ESCAPES) == 0 {
         legacy(key, modes.app_cursor)?
@@ -55,27 +57,17 @@ fn produces_text(key: Key) -> bool {
     matches!(key.code, KeyCode::Char(_)) && !key.mods.ctrl && !key.mods.alt
 }
 
+struct Kitty {
+    number: u32,
+    final_byte: u8,
+    shift: bool,
+    alternate: Option<u32>,
+    text: Option<u32>,
+}
+
 fn kitty(key: Key, flags: u8, event: Event) -> Result<Vec<u8>, String> {
-    let mut shift = key.mods.shift;
-    let mut alternate = None;
-    let mut text = None;
     let (number, final_byte) = match key.code {
-        KeyCode::Char(c) => {
-            let base = single(c.to_lowercase()).unwrap_or(c);
-            shift |= base != c;
-            let shifted = if shift { single(base.to_uppercase()).unwrap_or(base) } else { base };
-            if flags & ALTERNATE_KEYS != 0 && shifted != base {
-                alternate = Some(shifted as u32);
-            }
-            if event == Event::Press
-                && flags & ASSOCIATED_TEXT != 0
-                && flags & ALL_KEYS_AS_ESCAPES != 0
-                && produces_text(key)
-            {
-                text = Some(shifted as u32);
-            }
-            (base as u32, b'u')
-        }
+        KeyCode::Char(c) => return Ok(kitty_char(key, c, flags, event).sequence(key.mods, event)),
         KeyCode::Enter => (13, b'u'),
         KeyCode::Tab => (9, b'u'),
         KeyCode::Backspace => (127, b'u'),
@@ -95,30 +87,59 @@ fn kitty(key: Key, flags: u8, event: Event) -> Result<Vec<u8>, String> {
         KeyCode::F(4) => (1, b'S'),
         KeyCode::F(n) => (function_key_number(n)?, b'~'),
     };
-    let mods = u8::from(shift) + 2 * u8::from(key.mods.alt) + 4 * u8::from(key.mods.ctrl);
-    let mods_field = mods != 0 || event == Event::Release;
+    let kitty = Kitty { number, final_byte, shift: key.mods.shift, alternate: None, text: None };
+    Ok(kitty.sequence(key.mods, event))
+}
 
-    let mut out = String::from("\x1b[");
-    if number != 1 || alternate.is_some() || mods_field || text.is_some() {
-        out.push_str(&number.to_string());
+fn kitty_char(key: Key, c: char, flags: u8, event: Event) -> Kitty {
+    let base = single(c.to_lowercase()).unwrap_or(c);
+    let shift = key.mods.shift || base != c;
+    let shifted = if shift { single(base.to_uppercase()).unwrap_or(base) } else { base };
+    let alternate = (flags & ALTERNATE_KEYS != 0 && shifted != base).then_some(u32::from(shifted));
+    let reports_text = event == Event::Press && flags & ASSOCIATED_TEXT != 0 && flags & ALL_KEYS_AS_ESCAPES != 0;
+    let text = (reports_text && produces_text(key)).then_some(u32::from(shifted));
+    Kitty { number: u32::from(base), final_byte: b'u', shift, alternate, text }
+}
+
+impl Kitty {
+    fn sequence(&self, held: Mods, event: Event) -> Vec<u8> {
+        let mods = u8::from(self.shift) + 2 * u8::from(held.alt) + 4 * u8::from(held.ctrl);
+        let mods_field = mods != 0 || event == Event::Release;
+        fmt::from_fn(|f| {
+            f.write_str("\x1b[")?;
+            self.write_key(f, mods_field)?;
+            self.write_modifiers(f, mods_field.then_some(mods), event)?;
+            f.write_char(char::from(self.final_byte))
+        })
+        .to_string()
+        .into_bytes()
     }
-    if let Some(alternate) = alternate {
-        out.push_str(&format!(":{alternate}"));
+
+    fn write_key(&self, f: &mut fmt::Formatter<'_>, mods_field: bool) -> fmt::Result {
+        if self.number != 1 || self.alternate.is_some() || mods_field || self.text.is_some() {
+            write!(f, "{}", self.number)?;
+        }
+        match self.alternate {
+            Some(alternate) => write!(f, ":{alternate}"),
+            None => Ok(()),
+        }
     }
-    if mods_field || text.is_some() {
-        out.push(';');
+
+    fn write_modifiers(&self, f: &mut fmt::Formatter<'_>, mods: Option<u8>, event: Event) -> fmt::Result {
+        if mods.is_some() || self.text.is_some() {
+            f.write_char(';')?;
+        }
+        if let Some(mods) = mods {
+            write!(f, "{}", mods + 1)?;
+        }
+        if event == Event::Release {
+            f.write_str(":3")?;
+        }
+        match self.text {
+            Some(text) => write!(f, ";{text}"),
+            None => Ok(()),
+        }
     }
-    if mods_field {
-        out.push_str(&(mods + 1).to_string());
-    }
-    if event == Event::Release {
-        out.push_str(":3");
-    }
-    if let Some(text) = text {
-        out.push_str(&format!(";{text}"));
-    }
-    out.push(final_byte as char);
-    Ok(out.into_bytes())
 }
 
 fn single(mut chars: impl Iterator<Item = char>) -> Option<char> {
@@ -153,7 +174,10 @@ fn legacy(key: Key, app_cursor: bool) -> Result<Vec<u8>, String> {
         KeyCode::Delete => tilde(3, modifier),
         KeyCode::PageUp => tilde(5, modifier),
         KeyCode::PageDown => tilde(6, modifier),
-        KeyCode::F(n @ 1..=4) => letter(b"PQRS"[usize::from(n) - 1], modifier, true),
+        KeyCode::F(1) => letter(b'P', modifier, true),
+        KeyCode::F(2) => letter(b'Q', modifier, true),
+        KeyCode::F(3) => letter(b'R', modifier, true),
+        KeyCode::F(4) => letter(b'S', modifier, true),
         KeyCode::F(n) => tilde(function_key_number(n)?, modifier),
     })
 }

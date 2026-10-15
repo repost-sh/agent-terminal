@@ -11,7 +11,7 @@ impl Scope {
         match self {
             Scope::Everywhere => true,
             Scope::ProductCode => relative.starts_with("src/"),
-            Scope::OutsideOf(home) => relative != *home,
+            Scope::OutsideOf(home) => !relative.starts_with(home),
         }
     }
 }
@@ -28,11 +28,7 @@ const BANNED: &[(&str, &str, Scope)] = &[
     ("#[ignore", "skipped test", Scope::Everywhere),
     ("thread::sleep", "sleep used as synchronization; wait on the event instead", Scope::ProductCode),
     ("let _ =", "dropped result; return it or log why it can fail", Scope::ProductCode),
-    (
-        "alacritty_terminal",
-        "the screen engine belongs in src/native/screen.rs",
-        Scope::OutsideOf("src/native/screen.rs"),
-    ),
+    ("alacritty_terminal", "the screen engine belongs in src/native/screen/", Scope::OutsideOf("src/native/screen/")),
     ("portable_pty", "the PTY library belongs in src/native/pty.rs", Scope::OutsideOf("src/native/pty.rs")),
 ];
 

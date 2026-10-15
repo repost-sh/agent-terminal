@@ -22,6 +22,7 @@ humantime = "2"
 include_dir = "0.7"
 libc = "0.2"
 nix = { version = "0.28", features = ["fs", "signal"] }
+num-traits = "0.2"
 png = "0.18"
 portable-pty = "0.9"
 regex = "1"
@@ -36,6 +37,8 @@ swash = "0.2"
 tiny-skia = "0.12"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 tokio = { version = "1", features = ["macros", "net", "process", "rt", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 
 [features]
 browser-tests = []

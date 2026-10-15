@@ -2,7 +2,7 @@ use crate::native::screen::{MouseMode, MouseReporting, MouseTracking};
 use crate::protocol::{Direction, MouseButton};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action {
+pub(crate) enum Action {
     Press(MouseButton),
     Release(MouseButton),
     Move { held: Option<MouseButton> },
@@ -16,7 +16,7 @@ const WHEEL_DOWN: u32 = 65;
 const X10_LAST: u16 = 223;
 const UTF8_LAST: u16 = 2015;
 
-pub fn encode(action: Action, row: u16, col: u16, reporting: MouseReporting) -> Result<Vec<u8>, String> {
+pub(crate) fn encode(action: Action, row: u16, col: u16, reporting: MouseReporting) -> Result<Vec<u8>, String> {
     if !reported(action, reporting.tracking) {
         return Ok(Vec::new());
     }
@@ -32,20 +32,27 @@ pub fn encode(action: Action, row: u16, col: u16, reporting: MouseReporting) -> 
             let end = if matches!(action, Action::Release(_)) { 'm' } else { 'M' };
             Ok(format!("\x1b[<{code};{col};{row}{end}").into_bytes())
         }
-        MouseMode::X10 => {
-            reachable(row, col, X10_LAST, reporting.encoding)?;
-            Ok([b'\x1b', b'[', b'M', 32 + code as u8, 32 + col as u8, 32 + row as u8].to_vec())
-        }
-        MouseMode::Utf8 => {
-            reachable(row, col, UTF8_LAST, reporting.encoding)?;
-            let mut bytes = b"\x1b[M".to_vec();
-            for value in [code, u32::from(col), u32::from(row)] {
-                let c = char::from_u32(32 + value).expect("values up to 2047 are characters");
-                bytes.extend_from_slice(c.encode_utf8(&mut [0u8; 4]).as_bytes());
-            }
-            Ok(bytes)
-        }
+        MouseMode::X10 => x10(code, row, col),
+        MouseMode::Utf8 => utf8(code, row, col),
     }
+}
+
+fn x10(code: u32, row: u16, col: u16) -> Result<Vec<u8>, String> {
+    reachable(row, col, X10_LAST, MouseMode::X10)?;
+    let byte =
+        |value: u32| u8::try_from(32 + value).map_err(|e| format!("the X10 mouse encoding cannot carry {value}: {e}"));
+    Ok(vec![0x1b, b'[', b'M', byte(code)?, byte(u32::from(col))?, byte(u32::from(row))?])
+}
+
+fn utf8(code: u32, row: u16, col: u16) -> Result<Vec<u8>, String> {
+    reachable(row, col, UTF8_LAST, MouseMode::Utf8)?;
+    let mut bytes = b"\x1b[M".to_vec();
+    for value in [code, u32::from(col), u32::from(row)] {
+        let c = char::from_u32(32 + value)
+            .ok_or_else(|| format!("the UTF-8 mouse encoding cannot carry {value} as a character"))?;
+        bytes.extend_from_slice(c.encode_utf8(&mut [0u8; 4]).as_bytes());
+    }
+    Ok(bytes)
 }
 
 fn reported(action: Action, tracking: MouseTracking) -> bool {

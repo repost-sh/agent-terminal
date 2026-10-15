@@ -5,9 +5,9 @@ use include_dir::{Dir, File, include_dir};
 
 static WEB_APP: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/assets/dashboard");
 
-pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+pub(super) const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
-pub async fn serve(uri: Uri) -> Response {
+pub(super) async fn serve(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     if path == "api" || path.starts_with("api/") {
         return (StatusCode::NOT_FOUND, "no such dashboard API").into_response();
@@ -28,7 +28,7 @@ fn send(file: &'static File<'static>, cache: &'static str) -> Response {
     respond(extension, cache, file.contents())
 }
 
-pub fn respond(extension: &str, cache: &'static str, bytes: &'static [u8]) -> Response {
+pub(super) fn respond(extension: &str, cache: &'static str, bytes: &'static [u8]) -> Response {
     ([(CONTENT_TYPE, content_type(extension)), (CACHE_CONTROL, cache)], bytes).into_response()
 }
 

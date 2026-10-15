@@ -9,10 +9,11 @@ use serde::Deserialize;
 use super::Backend;
 use super::api::{call, refused};
 use crate::native::pty;
+use crate::protocol::request;
 use crate::protocol::{Request, Sessions, Shell, Size};
 
 #[derive(Deserialize)]
-pub struct Opening {
+pub(super) struct Opening {
     session: String,
     new_session: bool,
     command: String,
@@ -22,7 +23,7 @@ pub struct Opening {
     shell_integration: bool,
 }
 
-pub async fn open(State(backend): State<Arc<dyn Backend>>, Json(opening): Json<Opening>) -> Response {
+pub(super) async fn open(State(backend): State<Arc<dyn Backend>>, Json(opening): Json<Opening>) -> Response {
     match opening.request(&backend.sessions()) {
         Ok(request) => call(backend, request).await,
         Err(message) => refused(message),
@@ -40,7 +41,7 @@ impl Opening {
         let cwd = working_directory(&self.cwd)?;
         let env = pty::inherited(std::env::vars());
         if !self.shell_integration {
-            return Ok(Request::Open {
+            return Ok(Request::Open(request::Open {
                 session: self.session,
                 program,
                 args: words.collect(),
@@ -49,11 +50,20 @@ impl Opening {
                 env,
                 wait: None,
                 timeout_ms: 0,
-            });
+            }));
         }
         let shell = Shell::of_program(&program)
             .ok_or_else(|| format!("{program} has no shell integration; it comes with zsh, bash and fish"))?;
-        Ok(Request::Shell { session: self.session, shell, program, size, cwd, env, wait: None, timeout_ms: 0 })
+        Ok(Request::Shell(request::OpenShell {
+            session: self.session,
+            shell,
+            program,
+            size,
+            cwd,
+            env,
+            wait: None,
+            timeout_ms: 0,
+        }))
     }
 }
 

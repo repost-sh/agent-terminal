@@ -21,19 +21,19 @@ const SCRIPTS: [Script; 4] = [
     Script { shell: Shell::Fish, path: "fish/agent-terminal.fish", text: include_str!("shell/agent-terminal.fish") },
 ];
 
-pub struct Audit {
+pub(crate) struct Audit {
     pub folder: PathBuf,
     pub current: usize,
     pub outdated: Vec<PathBuf>,
     pub leftovers: Vec<PathBuf>,
 }
 
-pub fn folder() -> Result<PathBuf> {
+pub(crate) fn folder() -> Result<PathBuf> {
     let folder = connection::home()?.join("shell");
     std::path::absolute(&folder).with_context(|| format!("find where {} is", folder.display()))
 }
 
-pub fn prepare(shell: Shell, mut command: pty::Command) -> Result<pty::Command> {
+pub(crate) fn prepare(shell: Shell, mut command: pty::Command) -> Result<pty::Command> {
     let folder = folder()?;
     {
         let _lock = lock()?;
@@ -62,7 +62,7 @@ pub fn prepare(shell: Shell, mut command: pty::Command) -> Result<pty::Command> 
     Ok(command)
 }
 
-pub fn audit() -> Result<Audit> {
+pub(crate) fn audit() -> Result<Audit> {
     let folder = folder()?;
     let mut audit = Audit { folder: folder.clone(), current: 0, outdated: Vec::new(), leftovers: Vec::new() };
     for entry in entries(&folder)? {
@@ -82,7 +82,7 @@ pub fn audit() -> Result<Audit> {
     Ok(audit)
 }
 
-pub fn repair() -> Result<Audit> {
+pub(crate) fn repair() -> Result<Audit> {
     let _lock = lock()?;
     let found = audit()?;
     for leftover in &found.leftovers {

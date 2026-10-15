@@ -1,11 +1,14 @@
-use std::io::ErrorKind;
+use std::fmt;
+use std::io::{self, ErrorKind};
 use std::os::unix::net::UnixStream;
+use std::path::Path;
 
 use serde::Serialize;
 
 use crate::VERSION;
 use crate::connection;
 use crate::native::{pty, render, shell};
+use crate::output;
 use crate::protocol::Shell;
 use crate::skills::{self, Stub};
 use crate::upgrade;
@@ -51,20 +54,29 @@ impl Check {
     }
 }
 
-pub fn run(fix: bool, json: bool) -> i32 {
+#[derive(Serialize)]
+struct Report<'a> {
+    ok: bool,
+    checks: &'a [Check],
+}
+
+pub(crate) fn run(fix: bool, json: bool) -> io::Result<i32> {
     let checks = [pty(), fonts(), shell(fix), daemon(fix), skill(fix)];
     let healthy = checks.iter().all(|check| check.status != Status::Problem);
     if json {
-        println!("{}", serde_json::json!({ "ok": healthy, "checks": checks }));
+        output::print_json(&Report { ok: healthy, checks: &checks })?;
     } else {
-        for check in &checks {
-            println!("{:<9}{:<9}{}", check.status.as_str(), check.name, check.message);
-            if let Some(fix) = &check.fix {
-                println!("{:18}fix: {fix}", "");
-            }
-        }
+        output::print(&fmt::from_fn(|f| checks.iter().try_for_each(|check| write_check(f, check))).to_string())?;
     }
-    if healthy { 0 } else { crate::exit::ERROR }
+    Ok(if healthy { 0 } else { crate::exit::ERROR })
+}
+
+fn write_check(f: &mut fmt::Formatter<'_>, check: &Check) -> fmt::Result {
+    writeln!(f, "{:<9}{:<9}{}", check.status.as_str(), check.name, check.message)?;
+    match &check.fix {
+        Some(fix) => writeln!(f, "{:18}fix: {fix}", ""),
+        None => Ok(()),
+    }
 }
 
 fn pty() -> Check {
@@ -103,36 +115,28 @@ fn shell(fix: bool) -> Check {
         Ok(audit) => audit,
         Err(e) => return Check::problem("shell", format!("{e:#}"), "set AGENT_TERMINAL_HOME to a folder you own"),
     };
-    let folder = audit.folder.display();
     let (changed, left_over) = (audit.outdated.len(), audit.leftovers.len());
     if changed + left_over > 0 && !fix {
         return Check::problem(
             "shell",
             format!(
-                "the shell integration scripts in {folder} are not this version's ({changed} changed, {left_over} left over)"
+                "the shell integration scripts in {} are not this version's ({changed} changed, {left_over} left over)",
+                audit.folder.display()
             ),
             "agent-terminal doctor --fix brings them up to date",
         );
     }
-    let yours = match std::env::var_os("SHELL") {
-        None => Err("SHELL is not set, so `agent-terminal shell` does not know which shell to open".to_string()),
-        Some(program) => {
-            let program = program.to_string_lossy();
-            Shell::of_program(&program).ok_or_else(|| {
-                format!("SHELL is {program}, which has no shell integration (zsh, bash and fish have it)")
-            })
-        }
-    };
-    let yours = match yours {
-        Ok(shell) => shell.name(),
+    match your_shell() {
+        Ok(yours) => scripts_check(&audit, yours.name()),
         Err(message) => {
-            return Check::problem(
-                "shell",
-                message,
-                "open a shell with agent-terminal shell --shell zsh (or bash, fish)",
-            );
+            Check::problem("shell", message, "open a shell with agent-terminal shell --shell zsh (or bash, fish)")
         }
-    };
+    }
+}
+
+fn scripts_check(audit: &shell::Audit, yours: &str) -> Check {
+    let folder = audit.folder.display();
+    let (changed, left_over) = (audit.outdated.len(), audit.leftovers.len());
     if changed + left_over > 0 {
         return Check::fixed(
             "shell",
@@ -152,6 +156,14 @@ fn shell(fix: bool) -> Check {
     Check::ok("shell", format!("{yours} (your SHELL) has shell integration; the scripts in {folder} are up to date"))
 }
 
+fn your_shell() -> Result<Shell, String> {
+    let program = std::env::var_os("SHELL")
+        .ok_or("SHELL is not set, so `agent-terminal shell` does not know which shell to open")?;
+    let program = program.to_string_lossy();
+    Shell::of_program(&program)
+        .ok_or_else(|| format!("SHELL is {program}, which has no shell integration (zsh, bash and fish have it)"))
+}
+
 fn daemon(fix: bool) -> Check {
     let socket = match connection::socket_path() {
         Ok(socket) => socket,
@@ -160,15 +172,7 @@ fn daemon(fix: bool) -> Check {
     match UnixStream::connect(&socket) {
         Ok(_) => running(&socket),
         Err(e) if e.kind() == ErrorKind::NotFound => Check::ok("daemon", "not running; the next command starts it"),
-        Err(e) if e.kind() == ErrorKind::ConnectionRefused && fix => match connection::remove_stale_socket() {
-            Ok(true) => Check::fixed("daemon", format!("removed the stale socket {}", socket.display())),
-            Ok(false) => daemon(false),
-            Err(e) => Check::problem(
-                "daemon",
-                format!("cannot remove the stale socket {}: {e:#}", socket.display()),
-                format!("remove it by hand: rm {}", socket.display()),
-            ),
-        },
+        Err(e) if e.kind() == ErrorKind::ConnectionRefused && fix => remove_stale(&socket),
         Err(e) if e.kind() == ErrorKind::ConnectionRefused => Check::problem(
             "daemon",
             format!("stale socket {}: no daemon is listening on it", socket.display()),
@@ -182,7 +186,19 @@ fn daemon(fix: bool) -> Check {
     }
 }
 
-fn running(socket: &std::path::Path) -> Check {
+fn remove_stale(socket: &Path) -> Check {
+    match connection::remove_stale_socket() {
+        Ok(true) => Check::fixed("daemon", format!("removed the stale socket {}", socket.display())),
+        Ok(false) => daemon(false),
+        Err(e) => Check::problem(
+            "daemon",
+            format!("cannot remove the stale socket {}: {e:#}", socket.display()),
+            format!("remove it by hand: rm {}", socket.display()),
+        ),
+    }
+}
+
+fn running(socket: &Path) -> Check {
     let socket = socket.display();
     let running = match connection::started_version() {
         Ok(running) => running,
@@ -218,8 +234,12 @@ fn skill(fix: bool) -> Check {
             format!("rewrote the agent-terminal skill at {path} as this version ({VERSION})"),
         );
     }
+    stub_check(installed.stub, &path.to_string())
+}
+
+fn stub_check(stub: Stub, path: &str) -> Check {
     let rewrite = "agent-terminal doctor --fix rewrites it";
-    match installed.stub {
+    match stub {
         Stub::Missing => Check::ok(
             "skill",
             format!(
