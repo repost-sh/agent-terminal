@@ -46,8 +46,10 @@ pub struct Grid {
 }
 
 impl Grid {
-    fn glyphs(&self, span: Span) -> Option<&[Glyph]> {
-        self.rows.get(span.row)?.get(span.col..=span.last_col)
+    fn glyphs(&self, area: Area) -> Option<Vec<Glyph>> {
+        let rows = self.rows.get(area.row..=area.last_row)?;
+        let cells = rows.iter().map(|row| row.get(area.col..=area.last_col)).collect::<Option<Vec<_>>>()?;
+        Some(cells.concat())
     }
 }
 
@@ -86,7 +88,7 @@ pub struct Found {
 
 impl Found {
     fn new(kind: RefKind, label: String, col: usize, area: Area, basis: Span, grid: &Grid) -> Self {
-        let seen = grid.rows[basis.row][basis.col..=basis.last_col].to_vec();
+        let seen = grid.glyphs(area).expect("a ref covers cells of the grid it was found on");
         Self { kind, label, row: basis.row, col, area, url: None, basis, seen }
     }
 
@@ -95,7 +97,7 @@ impl Found {
     }
 
     pub fn still_on(&self, grid: &Grid) -> bool {
-        grid.glyphs(self.basis) == Some(&self.seen[..])
+        grid.glyphs(self.area).as_ref() == Some(&self.seen)
     }
 }
 

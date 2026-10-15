@@ -1,3 +1,5 @@
+use serde_json::json;
+
 use crate::support::{AgentTerminal, fixture};
 
 const NO_MOUSE: &str = "this app has no mouse support; use keys";
@@ -112,6 +114,25 @@ fn click_on_a_ref_whose_cells_changed_asks_for_a_new_snapshot() {
         )
     );
     assert_eq!(at.received("default"), "x");
+}
+
+#[test]
+fn click_on_a_panel_whose_inside_changed_asks_for_a_new_snapshot() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui"), "--mouse"]).success();
+    let listed = at.run(&["--json", "snapshot", "-i"]).success().json();
+    assert_eq!((&listed["refs"][0]["kind"], &listed["refs"][0]["label"]), (&json!("panel"), &json!("Files")));
+    let frame = listed["frame"].as_u64().expect("a frame");
+
+    at.run(&["press", "j", "--wait", "Selected: beta.txt"]).success();
+    let clicked = at.run(&["click", "@t1"]);
+    assert_eq!(clicked.code(), 1, "{}", clicked.stdout());
+    assert_eq!(
+        clicked.stderr(),
+        format!(
+            "error: default t1: @t1 is from frame {frame}, and that part of the screen has changed since; take a new `agent-terminal snapshot -i` and use its refs\n"
+        )
+    );
 }
 
 #[test]
@@ -298,10 +319,12 @@ fn a_ref_of_the_fixture_tui_works_while_its_cells_are_unchanged() {
     open_tui(&at, &["--mouse"]);
     at.run(&["snapshot", "-i"]).success();
     at.run(&["press", "j", "--wait", "Selected: beta.txt"]).success();
-    let stale = at.run(&["click", "@t3"]);
-    assert_eq!(stale.code(), 1, "{}", stale.stderr());
-    assert!(stale.stderr().contains("take a new `agent-terminal snapshot -i`"), "{}", stale.stderr());
-    let clicked = at.run(&["click", "@t1", "--wait", "Mouse: left 1,2"]).success();
-    assert_eq!(clicked.stdout(), "clicked @t1 at 1,2 in default t1\n");
+    for changed in ["@t1", "@t2", "@t3"] {
+        let stale = at.run(&["click", changed]);
+        assert_eq!(stale.code(), 1, "{changed}: {}", stale.stderr());
+        assert!(stale.stderr().contains("take a new `agent-terminal snapshot -i`"), "{}", stale.stderr());
+    }
+    let clicked = at.run(&["click", "@t4", "--wait", "Mouse: left 8,1"]).success();
+    assert_eq!(clicked.stdout(), "clicked @t4 at 8,1 in default t1\n");
     at.run(&["expect", "Selected: beta.txt"]).success();
 }
