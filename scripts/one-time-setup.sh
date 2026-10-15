@@ -441,8 +441,7 @@ case "${1:-}" in
   *) die "$USAGE" ;;
 esac
 
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-WORK=$ROOT/.superpowers/one-time-setup
+WORK=${XDG_STATE_HOME:-$HOME/.local/state}/agent-terminal/one-time-setup
 ENV_FILE=$WORK/state.env
 READ_NPMRC=$WORK/npmrc
 PUBLISH_NPMRC=$WORK/npmrc-publish

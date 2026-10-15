@@ -131,7 +131,7 @@ function run(env, args, answers) {
   const before = calls(env).length;
   const result = spawnSync(path.join(env.repo, 'scripts', 'one-time-setup.sh'), args, {
     input: answers.map((answer) => `${answer}\n`).join(''),
-    env: { ...inherited, PATH: `${env.bin}:${process.env.PATH}`, FAKE_WORLD: env.world },
+    env: { ...inherited, PATH: `${env.bin}:${process.env.PATH}`, FAKE_WORLD: env.world, XDG_STATE_HOME: state(env) },
     encoding: 'utf8',
   });
   return { ...result, calls: calls(env).slice(before) };
@@ -181,8 +181,12 @@ function tapReady(env) {
   fs.writeFileSync(path.join(secrets, 'HOMEBREW_TAP_TOKEN'), 'earlier');
 }
 
+function state(env) {
+  return path.join(env.repo, 'state');
+}
+
 function previousRun(env, values) {
-  const dir = path.join(env.repo, '.superpowers', 'one-time-setup');
+  const dir = path.join(state(env), 'agent-terminal', 'one-time-setup');
   fs.mkdirSync(dir, { recursive: true });
   const lines = Object.entries(values).map(([key, value]) => `${key}='${value}'\n`);
   fs.writeFileSync(path.join(dir, 'state.env'), lines.join(''));

@@ -1,0 +1,26 @@
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-print-in-tests = true
+
+cognitive-complexity-threshold = 6
+too-many-arguments-threshold = 6
+too-many-lines-threshold = 40
+excessive-nesting-threshold = 4
+
+avoid-breaking-exported-api = false
+
+allow-renamed-params-for = [
+    "core::convert::From",
+    "core::convert::TryFrom",
+    "core::str::FromStr",
+    "std::fmt::Debug",
+    "std::fmt::Display",
+    "syn::visit::Visit",
+]
+
+disallowed-methods = [
+    { path = "std::process::exit", reason = "return std::process::ExitCode from main; below main, return the error to the caller" },
+    { path = "std::process::abort", reason = "aborting skips every destructor and produces no diagnostic; return the error to the caller" },
+]
