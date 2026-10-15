@@ -1,4 +1,4 @@
-use super::{Browser, Dashboard, snapshot_rows};
+use super::{Browser, Dashboard, snapshot_rows, timeline_controls};
 use crate::support::{AgentTerminal, Cue, fixture};
 
 fn stream(dashboard: &Dashboard) -> String {
@@ -47,6 +47,21 @@ fn the_live_terminal_shows_the_screen_on_connect_then_streams_matching_snapshot(
         browser.status(),
         ["Live", &stream(&dashboard), "40 × 6", "mouse sgr", "bracketed paste", &format!("frame {frame}")]
     );
+}
+
+#[test]
+fn a_tab_shows_only_the_live_screen_with_no_timeline_control() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "40x6", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    let (rows, frame) = snapshot_rows(&at, &[]);
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+
+    browser.wait_for_status(&format!("frame {frame}"));
+    browser.wait_for_screen("line 3");
+    assert_eq!(browser.screen(), rows);
+    assert_eq!(browser.status(), ["Live", &stream(&dashboard), "40 × 6", &format!("frame {frame}")]);
+    assert_eq!(timeline_controls(&browser), Vec::<String>::new());
 }
 
 #[test]
