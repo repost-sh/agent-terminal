@@ -42,7 +42,7 @@ const tabStream = (session: string, tab: string) => {
         if (terminal.cols !== update.cols || terminal.rows !== update.rows) terminal.resize(update.cols, update.rows);
         const { paint: bytes, ...meta } = update;
         terminal.write(bytes, () => {
-          reply({ type: "shown", frame: update.frame });
+          reply({ type: "shown" });
           if (!painting) return;
           publish({ shown: meta });
         });

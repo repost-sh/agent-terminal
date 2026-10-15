@@ -261,9 +261,7 @@ impl Reader {
                     Ok(Message::Text(text)) => {
                         counted.fetch_add(1, Ordering::Relaxed);
                         sized.fetch_add(text.len() as u64, Ordering::Relaxed);
-                        if let Some(shown) = acknowledgement(&text)
-                            && websocket.send(Message::text(shown)).is_err()
-                        {
+                        if is_frame(&text) && websocket.send(Message::text(SHOWN)).is_err() {
                             return;
                         }
                     }
@@ -289,15 +287,14 @@ impl Reader {
     }
 }
 
+const SHOWN: &str = r#"{"type":"shown"}"#;
+
 #[derive(Deserialize)]
 struct Update<'a> {
     #[serde(rename = "type")]
     kind: &'a str,
-    frame: Option<u64>,
 }
 
-fn acknowledgement(text: &str) -> Option<String> {
-    let update: Update = serde_json::from_str(text).ok()?;
-    let frame = update.frame.filter(|_| update.kind == "frame")?;
-    Some(format!(r#"{{"type":"shown","frame":{frame}}}"#))
+fn is_frame(text: &str) -> bool {
+    serde_json::from_str::<Update>(text).is_ok_and(|update| update.kind == "frame")
 }

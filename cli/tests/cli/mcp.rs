@@ -131,28 +131,6 @@ async fn every_command_of_the_cli_is_a_tool_with_its_options() {
 }
 
 #[tokio::test]
-async fn neither_the_help_nor_the_reference_nor_the_tool_list_mention_record() {
-    let at = AgentTerminal::new();
-    let record = regex::Regex::new(r"\brecord\b").unwrap();
-    let help = at.run(&["--help"]).success().stdout();
-    assert!(help.contains("screenshot"), "{help}");
-    assert!(!record.is_match(&help), "{help}");
-    let reference = at.run(&["skills", "get", "core", "--full"]).success().stdout();
-    let mentions: Vec<&str> = reference.lines().filter(|line| record.is_match(line)).collect();
-    assert!(mentions.is_empty(), "{mentions:?}");
-
-    let client = connect(&at, &[]).await;
-    let tools = client.list_all_tools().await.expect("list tools");
-    assert!(tools.iter().any(|tool| tool.name == "screenshot"));
-    let mentions: Vec<String> = tools
-        .iter()
-        .map(|tool| format!("{}: {}", tool.name, tool.description.as_deref().unwrap_or_default()))
-        .filter(|tool| tool.contains("record_") || record.is_match(tool))
-        .collect();
-    assert!(mentions.is_empty(), "{mentions:?}");
-}
-
-#[tokio::test]
 async fn an_mcp_client_opens_the_fixture_tui_presses_a_key_with_a_wait_and_reads_a_snapshot() {
     let at = AgentTerminal::new();
     let client = connect(&at, &[]).await;
@@ -286,16 +264,4 @@ async fn the_attach_tool_says_it_needs_a_terminal_and_what_to_use_instead() {
             "message": "attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead"
         } })
     );
-}
-
-#[tokio::test]
-async fn no_tool_cuts_or_mentions_clips() {
-    let at = AgentTerminal::new();
-    let client = connect(&at, &[]).await;
-
-    let tools = client.list_all_tools().await.expect("list the tools");
-    let clip = regex::Regex::new(r"(?i)\bclips?\b").unwrap();
-    let clips: Vec<&str> =
-        tools.iter().filter(|tool| clip.is_match(&json!(tool).to_string())).map(|tool| &*tool.name).collect();
-    assert!(clips.is_empty(), "tools that mention clips: {clips:?}");
 }

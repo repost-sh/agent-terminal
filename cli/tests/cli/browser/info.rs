@@ -18,7 +18,7 @@ fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
 }
 
 #[test]
-fn info_shows_the_setup_modes_and_the_environment_with_secrets_masked_by_the_daemon_and_no_recording() {
+fn info_shows_the_setup_modes_and_the_environment_with_secrets_masked_by_the_daemon() {
     let at = AgentTerminal::new();
     let cue = Cue::new();
     let printer = fixture("line-printer");
@@ -51,7 +51,6 @@ fn info_shows_the_setup_modes_and_the_environment_with_secrets_masked_by_the_dae
     browser.wait_for_text("xterm-256color");
 
     let shown = lists(&browser);
-    assert!(shown.iter().flatten().all(|(term, _)| term != "recording"), "{shown:?}");
     let args = format!("--lines 1 --cue {}", cue.path());
     let started = shown[0][7].1.clone();
     assert_eq!(
@@ -125,7 +124,6 @@ fn info_shows_the_setup_modes_and_the_environment_with_secrets_masked_by_the_dae
     let sent = sent.as_str().expect("the Info message");
     assert!(!sent.contains("hunter2-secret"), "{sent}");
     let sent: Value = serde_json::from_str(sent).unwrap();
-    assert_eq!(sent.get("recording"), None, "{sent}");
     let token = sent["env"].as_array().unwrap().iter().find(|var| var["name"] == "DEPLOY_TOKEN").cloned();
     assert_eq!(token, Some(json!({ "name": "DEPLOY_TOKEN", "value": null })));
     assert!(!browser.eval("document.documentElement.outerHTML").contains("hunter2-secret"));

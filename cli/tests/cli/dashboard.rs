@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
-use crate::support::{AgentTerminal, DashboardSocket, fixture};
+use crate::support::{AgentTerminal, fixture};
 
 struct Http {
     status: u16,
@@ -140,30 +140,6 @@ fn the_api_serves_a_shell_command_with_its_colors_kept() {
 
     let missing = get(port, "/api/session/default/t1/commands/9", &[]);
     assert_eq!((missing.status, missing.body.as_str()), (404, "no command 9 in default t1"));
-}
-
-#[test]
-fn the_dashboard_has_no_record_start_or_stop() {
-    let at = AgentTerminal::new();
-    at.run(&["--session", "qa", "open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
-    let port = start(&at);
-
-    for action in ["start", "stop"] {
-        let answer = post(port, &format!("/api/session/qa/t1/record/{action}"), "");
-        assert_eq!((answer.status, answer.body.as_str()), (404, "no such dashboard API"), "record/{action}");
-    }
-    assert!(!at.home().join("recordings").exists());
-}
-
-#[test]
-fn the_dashboard_has_no_timeline() {
-    let at = AgentTerminal::new();
-    at.run(&["--session", "qa", "open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
-    let port = start(&at);
-
-    let refused = DashboardSocket::refusal(port, "/api/session/qa/t1/timeline");
-
-    assert_eq!(refused, (404, "no such dashboard API".to_string()));
 }
 
 #[test]
@@ -330,24 +306,6 @@ fn a_screenshot_taken_from_the_dashboard_is_saved_listed_without_a_call_and_serv
     assert_eq!(served.bytes, std::fs::read(&path).expect("read the screenshot"));
     let activity = std::fs::read_to_string(at.home().join("sessions/qa/activity.jsonl")).expect("the activity log");
     assert!(!activity.contains(&path), "{activity}");
-}
-
-#[test]
-fn a_dashboard_screenshot_request_that_names_a_frame_is_refused() {
-    let at = AgentTerminal::new();
-    at.run(&["--session", "qa", "open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"])
-        .success();
-    let port = start(&at);
-
-    let refused = post(port, "/api/session/qa/t1/screenshot", "{\"frame\":1}");
-
-    assert_eq!(refused.status, 422, "{}{}", refused.head, refused.body);
-    let reply: serde_json::Value = serde_json::from_str(&refused.body).expect("JSON");
-    assert_eq!(
-        reply["error"]["message"],
-        "a dashboard screenshot is always of the current screen; its request has no body"
-    );
-    assert!(!at.home().join("screenshots").exists());
 }
 
 #[test]

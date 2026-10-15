@@ -45,7 +45,7 @@ fn toolbar_buttons(browser: &Browser) -> Vec<String> {
 }
 
 #[test]
-fn the_toolbar_offers_restart_screenshot_layouts_and_control_and_no_record_button() {
+fn the_toolbar_offers_restart_screenshot_layouts_and_control() {
     let at = AgentTerminal::new();
     at.run(&[
         "--session",

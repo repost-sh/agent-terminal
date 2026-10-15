@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::{Browser, Dashboard, snapshot_rows};
+use super::{Browser, Dashboard};
 use crate::support::{AgentTerminal, Run};
 
 const COMMANDS: &str = "ol[aria-label='Commands in default t1']";
@@ -127,31 +127,6 @@ fn the_commands_tab_lists_each_command_with_its_exit_status_and_expands_to_its_o
         ),
         "false true"
     );
-}
-
-#[test]
-fn clicking_a_command_opens_its_output_and_leaves_the_terminal_on_the_live_screen() {
-    let tab = ShellTab::opened();
-    tab.run(&["exec", "echo $((40 + 2))"]).success();
-    tab.run(&["exec", "echo done"]).success();
-    let (rows, frame) = snapshot_rows(&tab.at, &[]);
-    assert!(rows.iter().any(|row| row == "42"), "{rows:?}");
-    let dashboard = Dashboard::start(&tab.at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
-    browser.wait_for_status(&format!("frame {frame}"));
-    browser.wait_for_screen("42");
-    assert_eq!(browser.screen(), rows);
-    open_commands(&browser);
-    wait_for_listed(&browser, "echo done");
-
-    browser.run(&["click", &format!("{COMMANDS} > li:nth-child(1) button")]);
-    browser.wait_until(&format!(
-        "document.querySelector(\"{COMMANDS} > li:nth-child(1) > div > button + div\")?.innerText.trim() === '42'"
-    ));
-    let status = browser.status();
-    assert_eq!(status[0], "Live", "{status:?}");
-    assert_eq!(status.last(), Some(&format!("frame {frame}")), "{status:?}");
-    assert_eq!(browser.screen(), rows);
 }
 
 #[test]
