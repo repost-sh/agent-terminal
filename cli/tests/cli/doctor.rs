@@ -1,3 +1,4 @@
+use crate::skills::{put_stub, shipped, stub_in, stub_of_version};
 use crate::support::{AgentTerminal, Run};
 
 const FONTS: &str = "ok       fonts    JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in\n";
@@ -9,7 +10,7 @@ fn user(at: &AgentTerminal) -> std::path::PathBuf {
 }
 
 fn stub(at: &AgentTerminal) -> std::path::PathBuf {
-    user(at).join(".claude/skills/agent-terminal/SKILL.md")
+    stub_in(&user(at))
 }
 
 fn no_skill(at: &AgentTerminal) -> String {
@@ -309,28 +310,17 @@ fn doctor_says_the_installed_skill_is_this_version() {
     assert_eq!(json["ok"], true);
 }
 
-fn stub_of_version(version: &str) -> String {
-    format!(
-        "---\nname: agent-terminal\ndescription: The stub of agent-terminal {version}\nmetadata:\n  version: \"{version}\"\n---\n\n# agent-terminal {version}\n"
-    )
-}
-
-fn put_stub(at: &AgentTerminal, contents: &str) {
-    std::fs::create_dir_all(stub(at).parent().unwrap()).unwrap();
-    std::fs::write(stub(at), contents).unwrap();
-}
-
 fn installed(at: &AgentTerminal) -> String {
     std::fs::read_to_string(stub(at)).unwrap()
 }
 
 fn a_stale_skill_is_a_problem_and_fix_rewrites_it(stale: &str, state: &str) {
     let at = AgentTerminal::new();
-    let current = at.run(&["skills", "get", "agent-terminal"]).success().stdout();
+    let current = shipped("skills/agent-terminal/SKILL.md");
     let problem = format!("the agent-terminal skill at {} {state}", stub(&at).display());
     let fix = "agent-terminal doctor --fix rewrites it";
     let fixed = format!("rewrote the agent-terminal skill at {} as this version ({VERSION})", stub(&at).display());
-    put_stub(&at, stale);
+    put_stub(&user(&at), stale);
 
     let run = doctor(&at, &["doctor"]);
     assert_eq!(run.code(), 1);
@@ -348,7 +338,7 @@ fn a_stale_skill_is_a_problem_and_fix_rewrites_it(stale: &str, state: &str) {
     assert_eq!(skill_lines(&run), [format!("fixed    skill    {fixed}")]);
     assert_eq!(installed(&at), current);
 
-    put_stub(&at, stale);
+    put_stub(&user(&at), stale);
     let json = doctor(&at, &["doctor", "--fix", "--json"]).success().json();
     assert_eq!(json["checks"][4], serde_json::json!({ "name": "skill", "status": "fixed", "message": fixed }));
     assert_eq!(json["ok"], true);
@@ -380,7 +370,7 @@ fn doctor_reports_an_unversioned_skill_and_fix_rewrites_it() {
 fn doctor_reports_a_newer_skill_and_fix_leaves_it() {
     let at = AgentTerminal::new();
     let newer = stub_of_version("999.0.0");
-    put_stub(&at, &newer);
+    put_stub(&user(&at), &newer);
     let problem =
         format!("the agent-terminal skill at {} is 999.0.0, newer than this version ({VERSION})", stub(&at).display());
     let fix = "agent-terminal upgrade brings agent-terminal up to it (doctor --fix does not downgrade a skill)";

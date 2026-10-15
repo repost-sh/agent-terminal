@@ -2,7 +2,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::skills::{put_stub, stub_in, stub_of_version};
+use crate::skills::{put_stub, shipped, stub_in, stub_of_version};
 use crate::support::{AgentTerminal, Run};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -389,7 +389,7 @@ fn upgrade_refreshes_an_installed_skill_stub() {
             install.stub().display()
         )
     );
-    let refreshed = install.at.run(&["skills", "get", "agent-terminal"]).success().stdout();
+    let refreshed = shipped("skills/agent-terminal/SKILL.md");
     assert_eq!(std::fs::read_to_string(install.stub()).unwrap(), refreshed);
 
     let install = Install::new(NPM_INSTALLED_BINARY);
