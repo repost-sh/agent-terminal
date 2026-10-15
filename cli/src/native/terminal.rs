@@ -648,7 +648,7 @@ impl Terminal {
                 Verdict::Never => break Settled::Exited,
                 Verdict::Pending(wake) => wake,
             };
-            let now = moment.now;
+            let now = moment.now();
             if now >= deadline {
                 break Settled::TimedOut;
             }

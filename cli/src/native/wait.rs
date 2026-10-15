@@ -55,7 +55,7 @@ pub enum Verdict {
 }
 
 pub struct Moment<'a> {
-    pub now: Instant,
+    now: Instant,
     screen: &'a Screen,
     frame: u64,
     last_change: Instant,
@@ -75,6 +75,10 @@ impl<'a> Moment<'a> {
         prompt: Option<PromptState>,
     ) -> Self {
         Self { now: Instant::now(), screen, frame, last_change, last_output, exited, prompt, view: OnceCell::new() }
+    }
+
+    pub fn now(&self) -> Instant {
+        self.now
     }
 
     fn view(&self) -> &ScreenView {
@@ -106,12 +110,14 @@ impl Condition {
     }
 
     pub fn judge(&self, moment: &Moment, deadline: Instant) -> Verdict {
-        let now = moment.now.min(deadline);
+        let now = moment.now().min(deadline);
         match self {
             Condition::Text(pattern) => while_running(pattern.found(&moment.view().lines), moment),
             Condition::Gone(pattern) => while_running(!pattern.found(&moment.view().lines), moment),
-            Condition::Stable(quiet, since) => quiet_for(latest(moment.last_change, *since) + *quiet, now, moment),
-            Condition::Idle(quiet, since) => quiet_for(latest(moment.last_output, *since) + *quiet, now, moment),
+            Condition::Stable(quiet, since) => {
+                quiet_for(latest(moment.last_change, *since) + *quiet, now, moment.exited)
+            }
+            Condition::Idle(quiet, since) => quiet_for(latest(moment.last_output, *since) + *quiet, now, moment.exited),
             Condition::Exit => while_running(moment.exited, moment),
             Condition::Cursor(row, col) => {
                 let (line, column) = moment.view().cursor;
@@ -142,6 +148,6 @@ fn latest(last: Instant, since: Option<Instant>) -> Instant {
     since.map_or(last, |since| since.max(last))
 }
 
-fn quiet_for(until: Instant, now: Instant, moment: &Moment) -> Verdict {
-    if moment.exited || now >= until { Verdict::Met } else { Verdict::Pending(Some(until)) }
+fn quiet_for(until: Instant, now: Instant, exited: bool) -> Verdict {
+    if exited || now >= until { Verdict::Met } else { Verdict::Pending(Some(until)) }
 }
