@@ -154,9 +154,8 @@ fn the_screenshots_tab_lists_each_screenshot_of_the_session_live_with_the_call_t
     assert_eq!(browser.text("[role=tabpanel] [data-slot=badge]").trim(), "2");
     assert_eq!((thumbnail_width(&browser, 1), thumbnail_width(&browser, 2)), ("200".into(), "200".into()));
 
-    let taken =
-        browser.eval("fetch('/api/session/default/t1/screenshot', { method: 'POST' }).then((reply) => reply.status)");
-    assert_eq!(taken, "200");
+    browser.wait_for_status("Live");
+    browser.click_button("Take a screenshot");
     wait_for_shots(&browser, 3);
     assert_eq!(
         gallery(&browser)[2],
