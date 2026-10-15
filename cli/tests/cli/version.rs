@@ -1,10 +1,9 @@
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::skills::{put_stub, stub_in, stub_of_version};
-use crate::support::{AgentTerminal, Run};
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+use crate::skills::{put_stub, shipped, stub_in, stub_of_version};
+use crate::support::{AgentTerminal, Run, VERSION};
 
 #[test]
 fn version_prints_the_version() {
@@ -20,6 +19,7 @@ struct Install {
     binary: PathBuf,
     new_binary: PathBuf,
     bin: PathBuf,
+    global_bin: PathBuf,
     log: PathBuf,
     user: PathBuf,
 }
@@ -34,6 +34,7 @@ impl Install {
         std::fs::create_dir_all(&bin).unwrap();
         let install = Self {
             new_binary: at.home().join("agent-terminal-9.9.9"),
+            global_bin: at.home().join("installer/bin"),
             log: at.home().join("package-managers.log"),
             user: at.home().join("user"),
             binary,
@@ -67,6 +68,7 @@ impl Install {
             ("CALLS", &*self.log.to_string_lossy()),
             ("BINARY", &*self.binary.to_string_lossy()),
             ("NEW_BINARY", &*self.new_binary.to_string_lossy()),
+            ("GLOBAL_BIN", &*self.global_bin.to_string_lossy()),
             ("HOME", &*self.user.to_string_lossy()),
         ];
         self.at.run_program(&self.binary, args, "", &env)
@@ -95,13 +97,24 @@ fn written_in_a_child(command: &mut Command) {
 const NPM_INSTALLED_BINARY: &str =
     "prefix/lib/node_modules/@repost/agent-terminal/node_modules/@repost/agent-terminal-linux-x64/bin/agent-terminal";
 
-const REINSTALL: &str = "cp \"$NEW_BINARY\" \"$BINARY.new\"\nmv \"$BINARY.new\" \"$BINARY\"\necho 'changed 1 package'";
+const REINSTALL: &str =
+    "mkdir -p \"$GLOBAL_BIN\"\nln -sf \"$NEW_BINARY\" \"$GLOBAL_BIN/agent-terminal\"\necho 'changed 1 package'";
 
-const NEWER_ON_NPM: &[(&str, &str)] =
-    &[("view @repost/agent-terminal version", "echo 9.9.9"), ("install -g @repost/agent-terminal@latest", REINSTALL)];
+const PRINT_PREFIX: &str = "echo \"${GLOBAL_BIN%/bin}\"";
 
-const NEWER_ON_PNPM: &[(&str, &str)] =
-    &[("view @repost/agent-terminal version", "echo 9.9.9"), ("add -g @repost/agent-terminal@latest", REINSTALL)];
+const PRINT_BIN: &str = "echo \"$GLOBAL_BIN\"";
+
+const NEWER_ON_NPM: &[(&str, &str)] = &[
+    ("view @repost/agent-terminal version", "echo 9.9.9"),
+    ("install -g @repost/agent-terminal@latest", REINSTALL),
+    ("prefix -g", PRINT_PREFIX),
+];
+
+const NEWER_ON_PNPM: &[(&str, &str)] = &[
+    ("view @repost/agent-terminal version", "echo 9.9.9"),
+    ("add -g @repost/agent-terminal@latest", REINSTALL),
+    ("bin -g", PRINT_BIN),
+];
 
 const EVERY_INSTALLER: &str = "  npm install -g @repost/agent-terminal@latest
   pnpm add -g @repost/agent-terminal@latest
@@ -123,21 +136,21 @@ const INSTALLS: &[Installed] = &[
         binary: NPM_INSTALLED_BINARY,
         manager: "npm",
         answers: NEWER_ON_NPM,
-        calls: "npm view @repost/agent-terminal version\nnpm install -g @repost/agent-terminal@latest\n",
+        calls: "npm view @repost/agent-terminal version\nnpm install -g @repost/agent-terminal@latest\nnpm prefix -g\n",
     },
     Installed {
         installer: "pnpm",
         binary: "store/v11/links/@repost/agent-terminal-linux-x64/0.0.1/3f9c/node_modules/@repost/agent-terminal-linux-x64/bin/agent-terminal",
         manager: "pnpm",
         answers: NEWER_ON_PNPM,
-        calls: "pnpm view @repost/agent-terminal version\npnpm add -g @repost/agent-terminal@latest\n",
+        calls: "pnpm view @repost/agent-terminal version\npnpm add -g @repost/agent-terminal@latest\npnpm bin -g\n",
     },
     Installed {
         installer: "pnpm",
         binary: "global/5/node_modules/.pnpm/@repost+agent-terminal-linux-x64@0.0.1/node_modules/@repost/agent-terminal-linux-x64/bin/agent-terminal",
         manager: "pnpm",
         answers: NEWER_ON_PNPM,
-        calls: "pnpm view @repost/agent-terminal version\npnpm add -g @repost/agent-terminal@latest\n",
+        calls: "pnpm view @repost/agent-terminal version\npnpm add -g @repost/agent-terminal@latest\npnpm bin -g\n",
     },
     Installed {
         installer: "yarn",
@@ -146,8 +159,9 @@ const INSTALLS: &[Installed] = &[
         answers: &[
             ("info @repost/agent-terminal version --silent", "echo 9.9.9"),
             ("global add @repost/agent-terminal@latest", REINSTALL),
+            ("global bin", PRINT_BIN),
         ],
-        calls: "yarn info @repost/agent-terminal version --silent\nyarn global add @repost/agent-terminal@latest\n",
+        calls: "yarn info @repost/agent-terminal version --silent\nyarn global add @repost/agent-terminal@latest\nyarn global bin\n",
     },
     Installed {
         installer: "bun",
@@ -156,8 +170,9 @@ const INSTALLS: &[Installed] = &[
         answers: &[
             ("pm view @repost/agent-terminal version", "echo 9.9.9"),
             ("add -g @repost/agent-terminal@latest", REINSTALL),
+            ("pm bin -g", PRINT_BIN),
         ],
-        calls: "bun pm view @repost/agent-terminal version\nbun add -g @repost/agent-terminal@latest\n",
+        calls: "bun pm view @repost/agent-terminal version\nbun add -g @repost/agent-terminal@latest\nbun pm bin -g\n",
     },
     Installed {
         installer: "Homebrew",
@@ -170,8 +185,9 @@ const INSTALLS: &[Installed] = &[
                 r#"echo '{"formulae":[{"full_name":"repost-sh/tap/agent-terminal","versions":{"stable":"9.9.9","head":null,"bottle":true}}],"casks":[]}'"#,
             ),
             ("upgrade repost-sh/tap/agent-terminal", REINSTALL),
+            ("--prefix repost-sh/tap/agent-terminal", PRINT_PREFIX),
         ],
-        calls: "brew update\nbrew info --json=v2 repost-sh/tap/agent-terminal\nbrew upgrade repost-sh/tap/agent-terminal\n",
+        calls: "brew update\nbrew info --json=v2 repost-sh/tap/agent-terminal\nbrew upgrade repost-sh/tap/agent-terminal\nbrew --prefix repost-sh/tap/agent-terminal\n",
     },
 ];
 
@@ -296,6 +312,7 @@ fn global_listings(install: &Install, npm_lists: &str) {
             ("global list", "echo 'info \"@repost/agent-terminal@0.0.1\" has binaries:'\necho '   - agent-terminal'"),
             ("info @repost/agent-terminal version --silent", "echo 9.9.9"),
             ("global add @repost/agent-terminal@latest", REINSTALL),
+            ("global bin", PRINT_BIN),
         ],
     );
     install.answering(
@@ -312,7 +329,7 @@ fn upgrade_asks_each_installers_global_listing_when_the_path_does_not_tell() {
     assert_eq!(run.stdout(), format!("upgraded agent-terminal {VERSION} to 9.9.9 with yarn\n"));
     assert_eq!(
         install.calls(),
-        "npm ls -g --depth=0\npnpm ls -g --depth=0\nyarn global list\nbun pm ls -g\nyarn info @repost/agent-terminal version --silent\nyarn global add @repost/agent-terminal@latest\n"
+        "npm ls -g --depth=0\npnpm ls -g --depth=0\nyarn global list\nbun pm ls -g\nyarn info @repost/agent-terminal version --silent\nyarn global add @repost/agent-terminal@latest\nyarn global bin\n"
     );
 }
 
@@ -333,6 +350,31 @@ fn upgrade_cannot_tell_the_installer_when_two_global_listings_have_agent_termina
 }
 
 #[test]
+fn upgrade_cannot_tell_the_installer_when_a_global_listing_fails_or_cannot_run() {
+    let install = Install::new(RELOCATED_BINARY);
+    global_listings(&install, "corepack@0.29.4");
+    install.answering(
+        "pnpm",
+        &[(
+            "ls -g --depth=0",
+            "echo 'ERR_PNPM_NO_GLOBAL_BIN_DIR  Unable to find the global bin directory' >&2\nexit 1",
+        )],
+    );
+    std::fs::set_permissions(install.bin.join("bun"), std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let run = install.upgrade(&["upgrade"]);
+    assert_eq!((run.code(), run.stdout().as_str()), (1, ""));
+    assert_eq!(
+        run.stderr(),
+        format!(
+            "ERR_PNPM_NO_GLOBAL_BIN_DIR  Unable to find the global bin directory\nerror: cannot tell which installer put agent-terminal at {} (`pnpm ls -g --depth=0` failed (exit status: 1); cannot run `bun pm ls -g`: Permission denied (os error 13)), so upgrade cannot update it; run the command of the one you used:\n{EVERY_INSTALLER}\n",
+            install.binary.canonicalize().unwrap().display()
+        )
+    );
+    assert_eq!(install.calls(), "npm ls -g --depth=0\npnpm ls -g --depth=0\nyarn global list\n");
+}
+
+#[test]
 fn upgrade_refreshes_an_installed_skill_stub() {
     let install = Install::new(NPM_INSTALLED_BINARY);
     install.answering("npm", NEWER_ON_NPM);
@@ -345,7 +387,7 @@ fn upgrade_refreshes_an_installed_skill_stub() {
             install.stub().display()
         )
     );
-    let refreshed = install.at.run(&["skills", "get", "agent-terminal"]).success().stdout();
+    let refreshed = shipped("skills/agent-terminal/SKILL.md");
     assert_eq!(std::fs::read_to_string(install.stub()).unwrap(), refreshed);
 
     let install = Install::new(NPM_INSTALLED_BINARY);
@@ -398,6 +440,55 @@ fn upgrade_says_when_the_new_version_cannot_refresh_the_skill_stub() {
             "stub_refreshed": false,
             "stub_error": "write the stub: No space left on device",
         })
+    );
+    assert_eq!(std::fs::read_to_string(install.stub()).unwrap(), stub_of_version("0.0.1"));
+}
+
+fn npm_install_whose_global_folder_cannot_be_found() -> Install {
+    let install = Install::new(NPM_INSTALLED_BINARY);
+    install.answering(
+        "npm",
+        &[
+            ("view @repost/agent-terminal version", "echo 9.9.9"),
+            ("install -g @repost/agent-terminal@latest", REINSTALL),
+            ("prefix -g", "echo 'npm error code EACCES' >&2\nexit 1"),
+        ],
+    );
+    put_stub(&install.user, &stub_of_version("0.0.1"));
+    install
+}
+
+#[test]
+fn upgrade_says_when_it_cannot_find_the_new_version_through_the_installer() {
+    let reason = "`npm prefix -g` failed (exit status: 1); see its output above";
+
+    let install = npm_install_whose_global_folder_cannot_be_found();
+    let run = install.upgrade(&["upgrade"]).success();
+    assert_eq!(
+        run.stdout(),
+        format!(
+            "upgraded agent-terminal {VERSION} with npm, but cannot tell the version now installed ({reason}); run `agent-terminal version`\ncannot refresh the agent-terminal skill ({reason}); run `agent-terminal install --skills`\n"
+        )
+    );
+    assert_eq!(run.stderr(), "changed 1 package\nnpm error code EACCES\n");
+
+    let install = npm_install_whose_global_folder_cannot_be_found();
+    let upgraded = install.upgrade(&["--json", "upgrade"]).success().json();
+    assert_eq!(
+        upgraded,
+        serde_json::json!({
+            "installed_with": "npm",
+            "from": VERSION,
+            "latest": "9.9.9",
+            "to": null,
+            "version_unknown": reason,
+            "stub_refreshed": false,
+            "stub_error": reason,
+        })
+    );
+    assert_eq!(
+        install.calls(),
+        "npm view @repost/agent-terminal version\nnpm install -g @repost/agent-terminal@latest\nnpm prefix -g\n"
     );
     assert_eq!(std::fs::read_to_string(install.stub()).unwrap(), stub_of_version("0.0.1"));
 }

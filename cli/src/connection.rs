@@ -11,7 +11,7 @@ use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
 use crate::VERSION;
 use crate::output::count;
-use crate::protocol::{self, Call, ErrorBody, Reply, Request, Response};
+use crate::protocol::{self, Call, ErrorBody, OtherVersion, Reply, Request, Response};
 
 pub const READY: &str = "ready";
 const STOPS_WITHIN: Duration = Duration::from_secs(10);
@@ -50,6 +50,23 @@ pub fn running_version() -> Result<Option<String>> {
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e).with_context(|| format!("read the daemon's version from {}", path.display())),
     }
+}
+
+pub fn started_version() -> Result<Option<String>> {
+    let running = running_version()?;
+    if running.as_deref() == Some(VERSION) {
+        return Ok(running);
+    }
+    let _lock = start_lock(&home()?)?;
+    running_version()
+}
+
+pub fn daemon_stop_advice(cli_version: Option<&str>) -> String {
+    let next = match cli_version {
+        Some(version) => format!("a {version} daemon"),
+        None => "a daemon of the command's version".to_string(),
+    };
+    format!("`agent-terminal daemon stop` ends it and its terminals, and the next command starts {next}")
 }
 
 pub fn daemon_of(version: Option<&str>) -> String {
@@ -137,10 +154,16 @@ fn other_version(running: Option<&str>, terminals: Option<usize>) -> ErrorBody {
     ErrorBody {
         code: crate::exit::OTHER_VERSION,
         message: format!(
-            "the daemon is {}, not {VERSION} like this command, and {open}, so it was left running; `agent-terminal daemon stop` ends it and its terminals, and the next command starts a {VERSION} daemon",
-            daemon_of(running)
+            "the daemon is {}, not {VERSION} like this command, and {open}, so it was left running; {}",
+            daemon_of(running),
+            daemon_stop_advice(Some(VERSION))
         ),
         snapshot: None,
+        other_version: Some(OtherVersion {
+            cli_version: Some(VERSION.to_string()),
+            daemon_version: running.map(str::to_string),
+            terminals,
+        }),
     }
 }
 

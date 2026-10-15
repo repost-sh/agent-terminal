@@ -42,6 +42,10 @@ if (group === 'secret') {
     process.exit(0);
   }
   if (command === 'set') {
+    if (fs.existsSync(path.join(world, 'secret-set-refused'))) {
+      console.error('HTTP 403: Resource not accessible by personal access token (https://api.github.com/repos/' + repo + '/actions/secrets/public-key)');
+      process.exit(1);
+    }
     fs.writeFileSync(path.join(dir, args[2]), fs.readFileSync(0, 'utf8'));
     process.exit(0);
   }
@@ -226,6 +230,12 @@ test('a first run creates the tap, stores its token and sets up trusted publishi
   assert.ok(tap.includes('--public') && tap.includes('--add-readme'), tap.join(' '));
   const secret = path.join(env.world, 'secrets', encodeURIComponent('repost-sh/agent-terminal'), 'HOMEBREW_TAP_TOKEN');
   assert.equal(fs.readFileSync(secret, 'utf8'), TAP_TOKEN);
+  assert.deepEqual(
+    writes(result)
+      .filter((call) => call.args[0] === 'secret')
+      .map((call) => call.args),
+    [['secret', 'set', 'HOMEBREW_TAP_TOKEN', '-R', 'repost-sh/agent-terminal']],
+  );
 
   const packages = published(env);
   assert.deepEqual(Object.keys(packages).sort(), [...PACKAGES].sort());
@@ -248,6 +258,25 @@ test('a first run creates the tap, stores its token and sets up trusted publishi
 
   const check = run(env, ['--check'], []);
   assert.equal(check.status, 0, check.stdout + check.stderr);
+});
+
+test('a secret gh refuses to set is left to do by hand, with what gh said', (t) => {
+  const env = setup(t);
+  fs.writeFileSync(path.join(env.world, 'tap'), '[]');
+  fs.writeFileSync(path.join(env.world, 'secret-set-refused'), '');
+  for (const name of PACKAGES) onNpm(env, name, OIDC_PUBLISHER);
+
+  const result = run(env, [], ['', TAP_TOKEN]);
+
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(
+    result.stderr,
+    /^HTTP 403: Resource not accessible by personal access token \(https:\/\/api\.github\.com\/repos\/repost-sh\/agent-terminal\/actions\/secrets\/public-key\)$/m,
+  );
+  assert.match(result.stdout, /gh couldn't set the GitHub secret HOMEBREW_TAP_TOKEN; what it said is above/);
+  assert.match(result.stdout, /GitHub secret HOMEBREW_TAP_TOKEN \(set it by hand: gh secret set HOMEBREW_TAP_TOKEN -R repost-sh\/agent-terminal\)/);
+  assert.ok(!result.stdout.includes(TAP_TOKEN) && !result.stderr.includes(TAP_TOKEN), 'the token was printed');
+  assert.equal(fs.existsSync(path.join(env.world, 'secrets', encodeURIComponent('repost-sh/agent-terminal'), 'HOMEBREW_TAP_TOKEN')), false);
 });
 
 test('a second run finds everything done and changes nothing', (t) => {

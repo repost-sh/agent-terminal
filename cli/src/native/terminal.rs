@@ -175,10 +175,9 @@ impl State {
             return;
         }
         let prompt = commands.as_ref().map(Commands::prompt);
+        let moment = Moment::new(screen, *frame, *last_change, *last_output, exit.is_some(), prompt);
         for watch in watches.iter_mut().filter(|watch| watch.met.is_none()) {
-            let moment =
-                Moment::new(screen, *frame, *last_change, *last_output, exit.is_some(), prompt).by(watch.deadline);
-            if let Verdict::Met = watch.condition.judge(&moment) {
+            if let Verdict::Met = watch.condition.judge(&moment, watch.deadline) {
                 watch.met = Some(*frame);
             }
         }
@@ -643,8 +642,8 @@ impl Terminal {
             if let Some(frame) = state.watches.iter().find(|watch| watch.id == id).and_then(|watch| watch.met) {
                 break Settled::Met { frame };
             }
-            let moment = state.moment().by(deadline);
-            let wake = match condition.judge(&moment) {
+            let moment = state.moment();
+            let wake = match condition.judge(&moment, deadline) {
                 Verdict::Met => break Settled::Met { frame: state.frame },
                 Verdict::Never => break Settled::Exited,
                 Verdict::Pending(wake) => wake,

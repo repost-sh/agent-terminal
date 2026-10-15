@@ -1210,6 +1210,15 @@ pub struct ErrorBody {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot: Option<Box<Snapshot>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_version: Option<OtherVersion>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct OtherVersion {
+    pub cli_version: Option<String>,
+    pub daemon_version: Option<String>,
+    pub terminals: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

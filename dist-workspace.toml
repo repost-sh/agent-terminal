@@ -19,6 +19,7 @@ formula = "agent-terminal"
 local-artifacts-jobs = ["./preflight"]
 global-artifacts-jobs = ["./npm-packages"]
 github-attestations = true
+github-attestations-phase = "host"
 publish-jobs = ["homebrew", "./publish-npm"]
 install-path = "CARGO_HOME"
 include = ["licenses/"]

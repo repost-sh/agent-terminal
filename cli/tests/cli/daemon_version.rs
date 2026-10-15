@@ -5,9 +5,7 @@ use std::thread::JoinHandle;
 
 use serde_json::{Value, json};
 
-use crate::support::AgentTerminal;
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+use crate::support::{AgentTerminal, VERSION};
 
 const STOPPED: &str = r#"{"Ok":{"reply":"Stopped"}}"#;
 
@@ -100,7 +98,16 @@ fn a_daemon_of_another_version_with_open_terminals_is_left_running_and_the_comma
 
     let run = at.run(&["--json", "snapshot"]);
     assert_eq!(run.code(), 6);
-    assert_eq!(run.json(), json!({ "error": { "code": 6, "message": message } }));
+    assert_eq!(
+        run.json(),
+        json!({
+            "error": {
+                "code": 6,
+                "message": message,
+                "other_version": { "cli_version": VERSION, "daemon_version": "0.0.1", "terminals": 2 }
+            }
+        })
+    );
 
     at.run(&["daemon", "stop"]).success();
     at.run(&["open", "--size", "20x2", "cat"]).success();
@@ -112,14 +119,28 @@ fn a_daemon_of_another_version_with_open_terminals_is_left_running_and_the_comma
 fn a_daemon_that_records_no_version_and_cannot_stop_on_request_is_left_running() {
     let at = AgentTerminal::new();
     let other = stand_in(at.home(), None, None);
+    let message = format!(
+        "the daemon is an agent-terminal that does not record its version, not {VERSION} like this command, and it did not say how many terminals it has open, so it was left running; `agent-terminal daemon stop` ends it and its terminals, and the next command starts a {VERSION} daemon"
+    );
 
     let run = at.run(&["snapshot"]);
     assert_eq!((run.code(), run.stdout().as_str()), (6, ""));
+    assert_eq!(run.stderr(), format!("error: {message}\n"));
+    assert_eq!(other.join().unwrap(), [stop_if_no_terminals()]);
+
+    std::fs::remove_file(at.home().join("daemon.sock")).expect("let the next stand-in listen");
+    let other = stand_in(at.home(), None, None);
+    let run = at.run(&["--json", "snapshot"]);
+    assert_eq!(run.code(), 6);
     assert_eq!(
-        run.stderr(),
-        format!(
-            "error: the daemon is an agent-terminal that does not record its version, not {VERSION} like this command, and it did not say how many terminals it has open, so it was left running; `agent-terminal daemon stop` ends it and its terminals, and the next command starts a {VERSION} daemon\n"
-        )
+        run.json(),
+        json!({
+            "error": {
+                "code": 6,
+                "message": message,
+                "other_version": { "cli_version": VERSION, "daemon_version": null, "terminals": null }
+            }
+        })
     );
     assert_eq!(other.join().unwrap(), [stop_if_no_terminals()]);
 }
@@ -138,7 +159,8 @@ fn a_request_the_daemon_cannot_parse_gets_an_error_naming_the_daemons_version() 
                 "code": 6,
                 "message": format!(
                     "the daemon is agent-terminal {VERSION} and does not understand this request, so the command is another version; it has 1 open terminal: `agent-terminal daemon stop` ends it and its terminals, and the next command starts a daemon of the command's version"
-                )
+                ),
+                "other_version": { "cli_version": null, "daemon_version": VERSION, "terminals": 1 }
             }
         }))
     );

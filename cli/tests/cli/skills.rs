@@ -1,10 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use crate::support::AgentTerminal;
+use crate::support::{AgentTerminal, VERSION};
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-fn shipped(relative: &str) -> String {
+pub fn shipped(relative: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(relative);
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }

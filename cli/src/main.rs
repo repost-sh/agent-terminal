@@ -17,6 +17,10 @@ use std::fmt;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub fn this_version() -> semver::Version {
+    semver::Version::parse(VERSION).expect("the package version is semver")
+}
+
 pub mod exit {
     pub const ERROR: i32 = 1;
     pub const ASSERTION: i32 = 2;

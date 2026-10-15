@@ -77,11 +77,6 @@ impl<'a> Moment<'a> {
         Self { now: Instant::now(), screen, frame, last_change, last_output, exited, prompt, view: OnceCell::new() }
     }
 
-    pub fn by(mut self, deadline: Instant) -> Self {
-        self.now = self.now.min(deadline);
-        self
-    }
-
     fn view(&self) -> &ScreenView {
         self.view.get_or_init(|| self.screen.view())
     }
@@ -110,19 +105,20 @@ impl Condition {
         }
     }
 
-    pub fn judge(&self, moment: &Moment) -> Verdict {
+    pub fn judge(&self, moment: &Moment, deadline: Instant) -> Verdict {
+        let now = moment.now.min(deadline);
         match self {
             Condition::Text(pattern) => while_running(pattern.found(&moment.view().lines), moment),
             Condition::Gone(pattern) => while_running(!pattern.found(&moment.view().lines), moment),
-            Condition::Stable(quiet, since) => quiet_for(latest(moment.last_change, *since) + *quiet, moment),
-            Condition::Idle(quiet, since) => quiet_for(latest(moment.last_output, *since) + *quiet, moment),
+            Condition::Stable(quiet, since) => quiet_for(latest(moment.last_change, *since) + *quiet, now, moment),
+            Condition::Idle(quiet, since) => quiet_for(latest(moment.last_output, *since) + *quiet, now, moment),
             Condition::Exit => while_running(moment.exited, moment),
             Condition::Cursor(row, col) => {
                 let (line, column) = moment.view().cursor;
                 while_running((line + 1, column + 1) == (*row, *col), moment)
             }
             Condition::Frame(frame) => while_running(moment.frame >= *frame, moment),
-            Condition::Elapsed(until) if moment.now >= *until => Verdict::Met,
+            Condition::Elapsed(until) if now >= *until => Verdict::Met,
             Condition::Elapsed(until) => Verdict::Pending(Some(*until)),
             Condition::Command => while_running(moment.prompt.is_some_and(|prompt| prompt.ready), moment),
             Condition::PromptAfter(prompts) => {
@@ -146,6 +142,6 @@ fn latest(last: Instant, since: Option<Instant>) -> Instant {
     since.map_or(last, |since| since.max(last))
 }
 
-fn quiet_for(until: Instant, moment: &Moment) -> Verdict {
-    if moment.exited || moment.now >= until { Verdict::Met } else { Verdict::Pending(Some(until)) }
+fn quiet_for(until: Instant, now: Instant, moment: &Moment) -> Verdict {
+    if moment.exited || now >= until { Verdict::Met } else { Verdict::Pending(Some(until)) }
 }
