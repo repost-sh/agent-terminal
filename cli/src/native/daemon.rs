@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{Context, Result};
 use tokio::sync::watch;
 
-use crate::connection::{READY, home, socket_path};
+use crate::connection::{READY, home, socket_path, version_path};
 use crate::native::changes::Changes;
 use crate::native::clips;
 use crate::native::control::{Control, Handed, Hold};
@@ -22,13 +22,14 @@ use crate::output::{self, call_line};
 use crate::protocol::{
     self, Addressed, AttachEvent, AttachInput, Attached, BatchOutcome, BatchStep, Call, Checked, Closed, CommandOutput,
     CommandRecord, Dashboard, DashboardStopped, Delivered, ErrorBody, Expect, Export, History, HumanInput, Input,
-    Marked, Matches, Mirror, Printed, RecordingFile, Reply, Request, Response, RowRange, SavedRecording, Screenshot,
-    SessionInfo, Sessions, Shell, Shot, Size, Snapshot, SnapshotOptions, Style, TabId, TabRef, Target, TextMatch, Wait,
-    Waited,
+    KeptRunning, Marked, Matches, Mirror, Printed, RecordingFile, Reply, Request, Response, RowRange, SavedRecording,
+    Screenshot, SessionInfo, Sessions, Shell, Shot, Size, Snapshot, SnapshotOptions, Style, TabId, TabRef, Target,
+    TextMatch, Wait, Waited,
 };
 
 const CONTROL_HANDED_BACK: &str = "a human to hand back control";
 const KILLED_WITHIN: Duration = Duration::from_secs(5);
+const OTHER_CALLS_WITHIN: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
 struct Daemon {
@@ -101,6 +102,7 @@ pub fn run(idle_timeout: Duration) -> Result<()> {
         }
         Err(e) => return Err(e).with_context(|| format!("listen on {}", path.display())),
     };
+    record_version(&home)?;
 
     let mut stdout = std::io::stdout();
     writeln!(stdout, "{READY}").and_then(|()| stdout.flush()).context("tell the CLI the daemon is ready")?;
@@ -122,16 +124,27 @@ pub fn run(idle_timeout: Duration) -> Result<()> {
     Ok(())
 }
 
+fn record_version(home: &std::path::Path) -> Result<()> {
+    let path = version_path()?;
+    let written = home.join("daemon.version.new");
+    std::fs::write(&written, crate::VERSION).with_context(|| format!("write {}", written.display()))?;
+    std::fs::rename(&written, &path).with_context(|| format!("move {} to {}", written.display(), path.display()))
+}
+
 impl Daemon {
     fn serve(&self, mut stream: UnixStream) {
         let busy = self.busy();
-        let call: Call = match protocol::read(&mut stream) {
-            Ok(Some(call)) => call,
+        let body = match protocol::read_body(&mut stream) {
+            Ok(Some(body)) => body,
             Ok(None) => return,
             Err(e) => {
                 eprintln!("reading a request failed: {e:#}");
                 return;
             }
+        };
+        let call: Call = match serde_json::from_slice(&body) {
+            Ok(call) => call,
+            Err(e) => return self.not_understood(stream, &e),
         };
         let request = match call.request {
             Request::Attach { target, read_only } if busy.is_some() => {
@@ -139,7 +152,6 @@ impl Daemon {
             }
             request => request,
         };
-        let stop = matches!(request, Request::Stop);
         let logged = call.typed.and_then(|typed| self.about_to_handle(typed, &request));
         let handled = match &busy {
             Some(_) => self.handle(request, logged.as_ref().map(|logged| logged.typed.as_slice())),
@@ -155,8 +167,24 @@ impl Daemon {
         if let Err(e) = protocol::write(&mut stream, &response) {
             eprintln!("sending a reply failed: {e:#}");
         }
-        if stop {
+        if matches!(response, Response::Ok(Reply::Stopped)) {
             std::process::exit(0);
+        }
+    }
+
+    fn not_understood(&self, mut stream: UnixStream, error: &serde_json::Error) {
+        eprintln!("a request this daemon does not understand: {error}");
+        let response = Response::Err(ErrorBody {
+            code: crate::exit::OTHER_VERSION,
+            message: format!(
+                "the daemon is agent-terminal {} and does not understand this request, so the command is another version; it has {}: `agent-terminal daemon stop` ends it and its terminals, and the next command starts a daemon of the command's version",
+                crate::VERSION,
+                output::count(self.terminals(), "open terminal")
+            ),
+            snapshot: None,
+        });
+        if let Err(e) = protocol::write(&mut stream, &response) {
+            eprintln!("sending a reply failed: {e:#}");
         }
     }
 
@@ -318,6 +346,7 @@ impl Daemon {
                 self.shut_down();
                 Ok(Reply::Stopped)
             }
+            Request::StopIfNoTerminals => Ok(self.stop_if_no_terminals()),
             Request::Batch { steps, bail } => Ok(Reply::Batch(self.batch(steps, bail))),
             Request::DashboardStart { port, origins } => self.start_dashboard(port, origins).map(Reply::Dashboard),
             Request::DashboardStop => Ok(Reply::DashboardStopped(DashboardStopped { stopped: self.stop_dashboard() })),
@@ -365,7 +394,7 @@ impl Daemon {
     }
 
     fn batch_step(&self, args: &[String], request: Request) -> Response {
-        if matches!(request, Request::Stop) {
+        if matches!(request, Request::Stop | Request::StopIfNoTerminals) {
             return Response::Err(ErrorBody {
                 code: crate::exit::ERROR,
                 message: "stopping the daemon cannot be part of a batch".into(),
@@ -484,8 +513,36 @@ impl Daemon {
         std::process::exit(0);
     }
 
+    fn stop_if_no_terminals(&self) -> Reply {
+        let deadline = Instant::now() + OTHER_CALLS_WITHIN;
+        let mut activity = self.activity.lock().unwrap();
+        while activity.in_flight > 1 && self.terminals() == 0 {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            activity = self.quiet.wait_timeout(activity, left).unwrap().0;
+        }
+        let terminals = self.terminals();
+        if terminals > 0 {
+            return Reply::KeptRunning(KeptRunning { terminals });
+        }
+        activity.stopping = true;
+        drop(activity);
+        eprintln!("a command of another version stopped this daemon, which had no terminals");
+        self.shut_down();
+        Reply::Stopped
+    }
+
+    fn terminals(&self) -> usize {
+        self.sessions.lock().unwrap().values().map(|session| session.tabs.len()).sum()
+    }
+
     fn shut_down(&self) {
         self.stop_dashboard();
+        if let Err(e) = version_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
+            eprintln!("removing the version file failed: {e:#}");
+        }
         if let Err(e) = socket_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
             eprintln!("removing the socket failed: {e:#}");
         }

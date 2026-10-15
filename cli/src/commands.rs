@@ -231,7 +231,7 @@ enum Command {
     #[command(about = "MCP stdio server with the same commands as tools")]
     Mcp,
     #[command(
-        about = "Check PTY support, the built-in fonts, shell integration, the daemon socket and the installed skill stub's version, and say how to fix each problem"
+        about = "Check PTY support, the built-in fonts, shell integration, the daemon (its socket and version) and the installed skill stub's version, and say how to fix each problem"
     )]
     Doctor {
         #[arg(
