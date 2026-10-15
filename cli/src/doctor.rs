@@ -6,6 +6,7 @@ use serde::Serialize;
 use crate::connection;
 use crate::native::{pty, render, shell};
 use crate::protocol::Shell;
+use crate::skills::{self, Stub};
 
 #[derive(Serialize)]
 struct Check {
@@ -49,7 +50,7 @@ impl Check {
 }
 
 pub fn run(fix: bool, json: bool) -> i32 {
-    let checks = [pty(), fonts(), shell(fix), daemon(fix)];
+    let checks = [pty(), fonts(), shell(fix), daemon(fix), skill(fix)];
     let healthy = checks.iter().all(|check| check.status != Status::Problem);
     if json {
         println!("{}", serde_json::json!({ "ok": healthy, "checks": checks }));
@@ -175,6 +176,52 @@ fn daemon(fix: bool) -> Check {
             "daemon",
             format!("cannot reach the daemon socket {}: {e}", socket.display()),
             "set AGENT_TERMINAL_HOME to a short folder you own",
+        ),
+    }
+}
+
+fn skill(fix: bool) -> Check {
+    let installed = match skills::installed_stub(fix) {
+        Ok(installed) => installed,
+        Err(e) => {
+            return Check::problem(
+                "skill",
+                format!("{e:#}"),
+                "check that HOME is set and that you can read and write ~/.claude/skills/agent-terminal/SKILL.md",
+            );
+        }
+    };
+    let path = installed.path.display();
+    let version = env!("CARGO_PKG_VERSION");
+    if installed.rewritten {
+        return Check::fixed(
+            "skill",
+            format!("rewrote the agent-terminal skill at {path} as this version ({version})"),
+        );
+    }
+    let rewrite = "agent-terminal doctor --fix rewrites it";
+    match installed.stub {
+        Stub::Missing => Check::ok(
+            "skill",
+            format!(
+                "the agent-terminal skill is not installed at {path}; `agent-terminal install --skills` installs it"
+            ),
+        ),
+        Stub::Current => Check::ok("skill", format!("the agent-terminal skill at {path} is this version ({version})")),
+        Stub::Older(theirs) => Check::problem(
+            "skill",
+            format!("the agent-terminal skill at {path} is {theirs}, older than this version ({version})"),
+            rewrite,
+        ),
+        Stub::Unversioned => Check::problem(
+            "skill",
+            format!("the agent-terminal skill at {path} has no version, so it may not be this version ({version})"),
+            rewrite,
+        ),
+        Stub::Newer(theirs) => Check::problem(
+            "skill",
+            format!("the agent-terminal skill at {path} is {theirs}, newer than this version ({version})"),
+            "agent-terminal upgrade brings agent-terminal up to it (doctor --fix does not downgrade a skill)",
         ),
     }
 }
