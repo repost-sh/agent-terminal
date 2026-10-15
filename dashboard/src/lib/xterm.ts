@@ -3,9 +3,16 @@ import "@xterm/xterm/css/xterm.css";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type ITheme } from "@xterm/xterm";
 
+import { mirrorRows } from "./screen-rows";
+import { daemonWidths } from "./unicode";
+
 export const LARGEST_FONT_PX = 13;
 
-const FONT = '"JetBrains Mono", ui-monospace, monospace';
+const TEXT_FAMILY = "JetBrains Mono NL";
+
+const FALLBACK_FAMILIES = ["Symbols Nerd Font Mono", "Noto Emoji"];
+
+const FONT = [TEXT_FAMILY, ...FALLBACK_FAMILIES].map((family) => `"${family}"`).concat("monospace").join(", ");
 
 const PALETTE: ITheme = {
   background: "#111113",
@@ -31,10 +38,17 @@ const PALETTE: ITheme = {
   brightWhite: "#fafafa",
 };
 
+const FACES = [
+  ...["", "bold ", "italic ", "bold italic "].map((style) => `${style}${LARGEST_FONT_PX}px "${TEXT_FAMILY}"`),
+  ...FALLBACK_FAMILIES.map((family) => `${LARGEST_FONT_PX}px "${family}"`),
+];
+
+let fontsLoaded: Promise<unknown> | null = null;
+
 const fontsReady = () =>
-  Promise.all([document.fonts.load(`${LARGEST_FONT_PX}px ${FONT}`), document.fonts.load(`bold ${LARGEST_FONT_PX}px ${FONT}`)]).catch((error: unknown) =>
+  (fontsLoaded ??= Promise.all(FACES.map((face) => document.fonts.load(face))).catch((error: unknown) =>
     console.warn("agent-terminal: the terminal font did not load; using a fallback", error),
-  );
+  ));
 
 const drawWithWebgl = (terminal: Terminal) => {
   try {
@@ -48,6 +62,7 @@ const drawWithWebgl = (terminal: Terminal) => {
 
 export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () => void) => {
   let terminal: Terminal | null = null;
+  let unmirror = () => {};
   let release = () => {};
   let disposed = false;
   fontsReady().then(() => {
@@ -57,18 +72,22 @@ export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () 
       fontSize: LARGEST_FONT_PX,
       scrollback: 0,
       disableStdin: true,
-      screenReaderMode: true,
       cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches,
       cursorInactiveStyle: "block",
       theme: PALETTE,
+      allowProposedApi: true,
     });
+    terminal.unicode.register(daemonWidths);
+    terminal.unicode.activeVersion = daemonWidths.version;
     terminal.open(host);
+    unmirror = mirrorRows(terminal, host);
     drawWithWebgl(terminal);
     release = use(terminal);
   });
   return () => {
     disposed = true;
     release();
+    unmirror();
     terminal?.dispose();
   };
 };

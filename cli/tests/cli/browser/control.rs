@@ -2,9 +2,6 @@ use super::{Browser, Dashboard, js_string};
 use crate::support::{AgentTerminal, fixture};
 
 const REFUSED: &str = "A human has control of default t1. Run `agent-terminal wait --control`.";
-const CONTROL_BUTTON: &str = "#take-control-default-t1";
-const TIMELINE: &str = "main input[type=range][aria-label='Timeline of default t1']";
-const PAST: &str = "#viewport-region [aria-label*=', viewing frame ']";
 
 fn open_input_echo(at: &AgentTerminal) {
     at.run(&["open", "--size", "40x6", "--wait", "ready", &fixture("input-echo")]).success();
@@ -139,54 +136,4 @@ fn a_human_attached_from_a_terminal_shows_as_human_in_the_sidebar() {
         "[...document.querySelectorAll('nav a')].some((a) => a.innerText.includes('input-echo') && a.innerText.includes('human'))",
     );
     assert_eq!(control_button(&browser), "\"Take control\"");
-}
-
-#[test]
-fn keys_typed_while_viewing_the_past_do_not_reach_the_program_and_reach_it_again_once_live() {
-    let at = AgentTerminal::new();
-    open_input_echo(&at);
-    let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
-    take_control(&browser);
-    browser.run(&["press", "k"]);
-    at.run(&["wait", "k"]).success();
-    let frame = at.run(&["get", "frame"]).success().stdout().trim().to_string();
-    browser.wait_until(&format!(
-        "(() => {{ const range = document.querySelector({}); return !!range && !range.disabled && range.max === '{frame}'; }})()",
-        js_string(TIMELINE)
-    ));
-
-    browser.run(&["focus", TIMELINE]);
-    browser.run(&["press", "Home"]);
-    browser.wait_until(&format!(
-        "document.querySelector({})?.ariaLabel.endsWith(', viewing frame 1') ?? false",
-        js_string(PAST)
-    ));
-    browser.wait_for_screen_in(PAST, "ready");
-    browser.run(&["press", "Enter"]);
-    for target in [TIMELINE, PAST, "#viewport-region [aria-label*=', live frame ']", "#viewport-region", "body"] {
-        for key in ["j", "x", "Enter"] {
-            browser.run(&[
-                "eval",
-                &format!(
-                    "document.querySelector({}).dispatchEvent(new KeyboardEvent('keydown', {{ key: {}, bubbles: true, cancelable: true }}))",
-                    js_string(target),
-                    js_string(key)
-                ),
-            ]);
-        }
-    }
-    assert_eq!(
-        browser.eval(&format!("!!document.querySelector({})", js_string(PAST))),
-        "true",
-        "still viewing the past"
-    );
-
-    browser.click_button("Live");
-    browser.wait_until(&format!("!document.querySelector({})", js_string(PAST)));
-    browser.run(&["focus", CONTROL_BUTTON]);
-    browser.run(&["press", "Tab"]);
-    browser.run(&["press", "z"]);
-    at.run(&["wait", "z"]).success();
-    assert_eq!(at.received("default"), "kz");
 }

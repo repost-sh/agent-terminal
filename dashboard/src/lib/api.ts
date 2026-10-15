@@ -8,8 +8,6 @@ export const sessionsStreamUrl = () => socketUrl("/api/sessions/stream");
 
 export const tabStreamUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/stream`);
 
-export const timelineUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/timeline`);
-
 export const commandsStreamUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/commands/stream`);
 
 export const controlUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/control`);
@@ -56,18 +54,14 @@ export const restartTab = (session: string, tab: string) => post(`${tabPath(sess
 
 export const closeTab = (session: string, tab: string) => post(`${tabPath(session, tab)}/close`);
 
-export const takeScreenshot = (session: string, tab: string, frame: number | null) =>
-  post<{ path: string }>(`${tabPath(session, tab)}/screenshot`, frame === null ? undefined : { frame }).then(
+export const takeScreenshot = (session: string, tab: string) =>
+  post<{ path: string }>(`${tabPath(session, tab)}/screenshot`).then(
     (taken) => taken.path,
     (error: unknown) => {
       console.error(`Could not take a screenshot of ${session} ${tab}: ${reason(error)}`);
       return null;
     },
   );
-
-export const startRecording = async (session: string, tab: string) => (await post<{ path: string }>(`${tabPath(session, tab)}/record/start`)).path;
-
-export const stopRecording = async (session: string, tab: string) => (await post<{ path: string }>(`${tabPath(session, tab)}/record/stop`)).path;
 
 export const commandOutput = async (session: string, tab: string, id: number) => {
   const response = await fetch(`${tabPath(session, tab)}/commands/${id}`);

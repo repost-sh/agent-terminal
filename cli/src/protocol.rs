@@ -289,15 +289,6 @@ pub enum Request {
         target: Target,
         baseline: Option<Baseline>,
     },
-    RecordStart {
-        #[serde(flatten)]
-        target: Target,
-        path: Option<PathBuf>,
-    },
-    RecordStop {
-        #[serde(flatten)]
-        target: Target,
-    },
     TraceExport {
         session: String,
         path: PathBuf,
@@ -348,11 +339,6 @@ pub enum Request {
         shot: Shot,
         threshold: f64,
     },
-    Clip {
-        #[serde(flatten)]
-        target: Target,
-        clip: ClipSpec,
-    },
     WaitControl {
         #[serde(flatten)]
         target: Target,
@@ -395,14 +381,11 @@ impl Request {
             | Request::Mark { target, .. }
             | Request::Output { target, .. }
             | Request::DiffSnapshot { target, .. }
-            | Request::RecordStart { target, .. }
-            | Request::RecordStop { target }
             | Request::Exec { target, .. }
             | Request::History { target, .. }
             | Request::HistoryShow { target, .. }
             | Request::Screenshot { target, .. }
             | Request::DiffScreenshot { target, .. }
-            | Request::Clip { target, .. }
             | Request::WaitControl { target, .. } => Addressed::Tab(&target.session, target.tab),
         }
     }
@@ -585,65 +568,6 @@ pub struct Shot {
     pub look: Look,
     pub rows: Option<RowRange>,
     pub annotate: bool,
-    #[serde(default)]
-    pub frame: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum ClipFormat {
-    #[default]
-    Gif,
-    Mp4,
-}
-
-impl ClipFormat {
-    pub const ALL: [ClipFormat; 2] = [ClipFormat::Gif, ClipFormat::Mp4];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            ClipFormat::Gif => "gif",
-            ClipFormat::Mp4 => "mp4",
-        }
-    }
-}
-
-impl fmt::Display for ClipFormat {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.name())
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ClipSpec {
-    pub path: Option<PathBuf>,
-    pub dir: Option<PathBuf>,
-    pub format: ClipFormat,
-    pub range: ClipRange,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "range", rename_all = "kebab-case")]
-pub enum ClipRange {
-    Last { ms: u64 },
-    Between { from: ClipPoint, to: Option<ClipPoint> },
-    Command { id: u32 },
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub enum ClipPoint {
-    Mark(String),
-    Activity(usize),
-}
-
-impl fmt::Display for ClipPoint {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ClipPoint::Mark(name) => f.write_str(name),
-            ClipPoint::Activity(entry) => write!(f, "@activity:{entry}"),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -899,8 +823,6 @@ pub enum Reply {
     Marked(Marked),
     Printed(Printed),
     Diff(SnapshotDiff),
-    Recording(RecordingFile),
-    Saved(SavedRecording),
     Exported(Export),
     Dashboard(Dashboard),
     DashboardStopped(DashboardStopped),
@@ -908,20 +830,7 @@ pub enum Reply {
     Command(CommandOutput),
     Screenshot(Screenshot),
     ScreenshotDiff(ScreenshotDiff),
-    Clip(Clip),
     Attached(Attached),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Clip {
-    pub session: String,
-    pub tab: String,
-    pub path: PathBuf,
-    pub format: ClipFormat,
-    pub frames: usize,
-    pub duration_ms: u64,
-    pub width: u32,
-    pub height: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -999,22 +908,6 @@ pub struct Export {
     pub bytes: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub missing: Vec<PathBuf>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct RecordingFile {
-    pub session: String,
-    pub tab: String,
-    pub path: PathBuf,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SavedRecording {
-    pub session: String,
-    pub tab: String,
-    pub path: PathBuf,
-    pub duration_ms: u64,
-    pub bytes: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -1200,7 +1093,6 @@ pub struct TabInfo {
     pub rows: u16,
     pub exited: bool,
     pub exit_code: Option<i32>,
-    pub recording: Option<PathBuf>,
     pub control: Owner,
 }
 

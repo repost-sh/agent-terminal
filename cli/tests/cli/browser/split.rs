@@ -42,10 +42,6 @@ fn selected_in_sidebar(browser: &Browser) -> String {
     browser.eval("document.querySelector('nav [aria-current=page]')?.textContent ?? 'none'")
 }
 
-fn stream(dashboard: &Dashboard, tab: &str) -> String {
-    format!("ws://localhost:{}/api/session/{tab}/stream", dashboard.port)
-}
-
 fn cell(name: &str) -> String {
     format!("main section[aria-label={name:?}]")
 }
@@ -113,8 +109,7 @@ fn two_up_from_a_tab_shows_it_beside_the_tab_after_it_both_live() {
 
     let (_, frame) = snapshot_rows(&at, &["--session", "qa", "--tab", "t1"]);
     browser.wait_for_status(&format!("frame {frame}"));
-    assert_eq!(browser.status(), ["Live", &stream(&dashboard, "qa/t1"), "30 × 4", &format!("frame {frame}")]);
-    assert_eq!(browser.eval("document.querySelectorAll('main input[type=range], main [role=slider]').length"), "0");
+    assert_eq!(browser.status(), ["Live", &dashboard.stream("qa/t1"), "30 × 4", &format!("frame {frame}")]);
 }
 
 #[test]
@@ -221,7 +216,7 @@ fn removing_a_cell_offers_the_picker_and_picking_a_tab_fills_and_focuses_that_ce
     let (_, frame) = snapshot_rows(&at, &["--session", "web"]);
     browser.wait_for_status(&format!("frame {frame}"));
     browser.wait_for_screen_in(&cell("web t1 line-printer"), "line 3");
-    assert_eq!(browser.status(), ["Live", &stream(&dashboard, "web/t1"), "34 × 6", &format!("frame {frame}")]);
+    assert_eq!(browser.status(), ["Live", &dashboard.stream("web/t1"), "34 × 6", &format!("frame {frame}")]);
 
     browser.click_button("Remove web t1 from the grid");
     browser.wait_until("location.pathname === '/split/qa:t1,_'");
@@ -246,7 +241,7 @@ fn clicking_a_cell_focuses_it_and_a_tab_picked_in_the_sidebar_replaces_the_focus
     browser.wait_for_status("32 × 5");
     browser.wait_for_status(&format!("frame {frame}"));
     assert_eq!(focused(&browser), "\"qa t2 line-printer\"");
-    assert_eq!(browser.status(), ["Live", &stream(&dashboard, "qa/t2"), "32 × 5", &format!("frame {frame}")]);
+    assert_eq!(browser.status(), ["Live", &dashboard.stream("qa/t2"), "32 × 5", &format!("frame {frame}")]);
     assert_eq!(selected_in_sidebar(&browser), "\"line-printer, qa t2, running\"");
     assert_eq!(browser.eval("location.pathname"), "\"/split/qa:t1,qa:t2\"");
 

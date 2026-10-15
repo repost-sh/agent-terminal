@@ -4,11 +4,11 @@ mod commands;
 mod control;
 mod details;
 mod follow;
+mod fonts;
 mod guard;
 mod open;
 mod screenshots;
 mod stream;
-mod timeline;
 
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, Ipv6Addr, TcpListener};
@@ -55,6 +55,7 @@ impl Server {
         }
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_io()
+            .enable_time()
             .build()
             .context("start the dashboard's runtime")?;
         let app = router(guard::Pages { port, origins: origins.clone() }, backend);
@@ -140,7 +141,6 @@ fn router(pages: guard::Pages, backend: Arc<dyn Backend>) -> Router {
         .route("/api/sessions/stream", get(api::sessions_stream))
         .route("/api/sessions/close", post(api::close_all))
         .route("/api/session/{session}/{tab}/stream", get(stream::tab))
-        .route("/api/session/{session}/{tab}/timeline", get(timeline::tab))
         .route("/api/session/{session}/{tab}/activity", get(details::activity))
         .route("/api/session/{session}/{tab}/output", get(details::output))
         .route("/api/session/{session}/{tab}/info", get(details::info))
@@ -150,11 +150,10 @@ fn router(pages: guard::Pages, backend: Arc<dyn Backend>) -> Router {
         .route("/api/session/{session}/{tab}/restart", post(api::restart))
         .route("/api/session/{session}/{tab}/close", post(api::close))
         .route("/api/session/{session}/{tab}/screenshot", post(api::screenshot))
-        .route("/api/session/{session}/{tab}/record/start", post(api::record_start))
-        .route("/api/session/{session}/{tab}/record/stop", post(api::record_stop))
         .route("/api/session/{session}/{tab}/control", get(control::take))
         .route("/api/session/{session}/{tab}/commands/stream", get(commands::stream))
         .route("/api/session/{session}/{tab}/commands/{id}", get(commands::output))
+        .route("/fonts/{name}", get(fonts::serve))
         .fallback(assets::serve)
         .with_state(backend)
         .layer(axum::middleware::from_fn_with_state(Arc::new(pages), guard::same_origin))

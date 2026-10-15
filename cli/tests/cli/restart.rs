@@ -43,6 +43,33 @@ fn restart_runs_the_same_program_again_in_the_same_cwd_env_and_size() {
 }
 
 #[test]
+fn frame_numbers_go_on_after_a_restart() {
+    let at = AgentTerminal::new();
+    let work = workdir(&at);
+    at.run(&[
+        "open",
+        "--size",
+        "40x3",
+        "--cwd",
+        &work,
+        "--env",
+        "GREETING=hi",
+        "--wait",
+        "run 1",
+        "sh",
+        "-c",
+        COUNT_RUNS,
+    ])
+    .success();
+    let before = at.frame("default");
+
+    at.run(&["restart", "--wait", "run 2"]).success();
+
+    let after = at.frame("default");
+    assert!(after > before, "frame numbers go on after a restart: {after} after {before}");
+}
+
+#[test]
 fn restart_brings_back_a_program_that_exited() {
     let at = AgentTerminal::new();
     let work = workdir(&at);

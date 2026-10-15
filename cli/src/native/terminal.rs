@@ -1,5 +1,4 @@
 use std::io::{Read, Write};
-use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -13,9 +12,7 @@ use crate::native::keyboard;
 use crate::native::mouse::{self, Action};
 use crate::native::output_log::{Offsets, Output, OutputLog};
 use crate::native::pty::{self, Signaller, Spawned, Stopper};
-use crate::native::recording::Recording;
 use crate::native::refs::{self, Found, Grid};
-use crate::native::replay::Replay;
 use crate::native::screen::{Screen, ShellReport};
 use crate::native::store::CommandLog;
 use crate::native::wait::{self, Condition, Moment, Verdict};
@@ -32,7 +29,6 @@ pub struct Terminal {
     pid: Option<u32>,
     cwd: String,
     started: SystemTime,
-    run: Run,
     state: Mutex<State>,
     changed: Condvar,
     input_turn: Mutex<()>,
@@ -42,7 +38,6 @@ pub struct Terminal {
     signaller: Box<dyn Signaller>,
     command: pty::Command,
     shell: Option<Shell>,
-    recording: Arc<Recording>,
     command_log: CommandLog,
     frames: Changes,
     history: Changes,
@@ -59,31 +54,45 @@ pub struct Setup {
     pub exit: Option<Option<i32>>,
 }
 
-pub struct Picture {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Glance {
     pub frame: u64,
     pub size: Size,
-    pub rows: Vec<String>,
-    pub cursor: (u16, u16),
-    pub cursor_visible: bool,
     pub alt_screen: bool,
     pub mouse: Option<&'static str>,
     pub bracketed_paste: bool,
     pub exit: Option<Option<i32>>,
 }
 
-impl Picture {
-    pub fn of(screen: &Screen, frame: u64, exit: Option<Option<i32>>) -> Self {
-        let view = screen.view();
+impl Glance {
+    fn of(screen: &Screen, frame: u64, exit: Option<Option<i32>>) -> Self {
         Self {
             frame,
-            size: view.size,
-            rows: screen.rows(0..view.size.rows as i32, true),
-            cursor: (view.cursor.0 + 1, view.cursor.1 + 1),
-            cursor_visible: view.cursor_visible,
-            alt_screen: view.alt_screen,
-            mouse: view.mouse.map(|mouse| mouse.as_str()),
+            size: screen.size(),
+            alt_screen: screen.alt_screen(),
+            mouse: screen.mouse().map(|mouse| mouse.as_str()),
             bracketed_paste: screen.keyboard_modes().bracketed_paste,
             exit,
+        }
+    }
+}
+
+pub struct Picture {
+    pub glance: Glance,
+    pub rows: Vec<String>,
+    pub cursor: (u16, u16),
+    pub cursor_visible: bool,
+}
+
+impl Picture {
+    pub fn of(screen: &Screen, frame: u64, exit: Option<Option<i32>>) -> Self {
+        let glance = Glance::of(screen, frame, exit);
+        let (line, column) = screen.cursor();
+        Self {
+            rows: screen.rows(0..glance.size.rows as i32, true),
+            cursor: (line + 1, column + 1),
+            cursor_visible: screen.cursor_visible(),
+            glance,
         }
     }
 
@@ -94,30 +103,23 @@ impl Picture {
                 paint.push_str(&crate::paint::row(index, row));
             }
         }
-        paint.push_str(&crate::paint::cursor(self.cursor.0, self.cursor.1, self.cursor_visible && self.exit.is_none()));
+        paint.push_str(&crate::paint::cursor(
+            self.cursor.0,
+            self.cursor.1,
+            self.cursor_visible && self.glance.exit.is_none(),
+        ));
         paint
     }
 }
 
 pub struct Continued {
-    run: Run,
     frame: u64,
-    frame_ends: Vec<u64>,
     first_command: u32,
-}
-
-#[derive(Clone)]
-pub struct Run {
-    pub cast: PathBuf,
-    pub from: u64,
-    pub size: Size,
-    pub started: SystemTime,
 }
 
 struct State {
     screen: Screen,
     frame: u64,
-    frame_ends: Vec<u64>,
     look: u64,
     last_change: Instant,
     last_output: Instant,
@@ -154,17 +156,16 @@ impl State {
         Moment::new(&self.screen, self.frame, self.last_change, self.last_output, self.exit.is_some(), prompt)
     }
 
-    fn refresh(&mut self, now: Instant, recorded: u64) {
-        self.advance(now, recorded);
+    fn refresh(&mut self, now: Instant) {
+        self.advance(now);
         self.publish();
     }
 
-    fn advance(&mut self, now: Instant, recorded: u64) {
+    fn advance(&mut self, now: Instant) {
         let look = self.screen.fingerprint();
         if look != self.look {
             self.look = look;
             self.frame += 1;
-            self.frame_ends.push(recorded);
             self.last_change = now;
         }
     }
@@ -202,7 +203,6 @@ impl Terminal {
         command: pty::Command,
         shell: Option<Shell>,
         spawned: Spawned,
-        recording: Arc<Recording>,
         command_log: CommandLog,
         lifecycle: Changes,
         continued: Option<Continued>,
@@ -212,24 +212,17 @@ impl Terminal {
         let cwd = command.cwd.to_string_lossy().into_owned();
         let screen = Screen::new(size);
         let started = Instant::now();
-        let Continued { run, frame, frame_ends, first_command } = continued.unwrap_or_else(|| Continued {
-            run: Run { cast: recording.cast(), from: recording.length(), size, started: SystemTime::now() },
-            frame: 0,
-            frame_ends: Vec::new(),
-            first_command: 1,
-        });
+        let Continued { frame, first_command } = continued.unwrap_or(Continued { frame: 0, first_command: 1 });
         let commands = shell.map(|_| Commands::new(cwd.clone(), first_command));
         let terminal = Arc::new(Self {
             program,
             pid: spawned.pid,
             cwd,
             started: SystemTime::now(),
-            run,
             state: Mutex::new(State {
                 look: screen.fingerprint(),
                 screen,
                 frame,
-                frame_ends,
                 last_change: started,
                 last_output: started,
                 exit: None,
@@ -249,7 +242,6 @@ impl Terminal {
             signaller: spawned.signaller,
             command,
             shell,
-            recording,
             command_log,
             frames: Changes::default(),
             history: Changes::default(),
@@ -294,7 +286,6 @@ impl Terminal {
     fn output(&self, bytes: &[u8]) {
         let (replies, history_changed) = {
             let mut state = self.state.lock().unwrap();
-            let recorded = self.recording.output(bytes);
             let replies = state.screen.feed(bytes);
             let printed = state.screen.take_printed();
             let reports = state.screen.take_shell_reports();
@@ -303,7 +294,7 @@ impl Terminal {
             state.log.record(frame, bytes, printed.text.as_bytes(), printed.styled.as_bytes());
             let now = Instant::now();
             state.last_output = now;
-            state.advance(now, recorded);
+            state.advance(now);
             let shown = state.frame;
             let mut history_changed = false;
             let State { commands, log, .. } = &mut *state;
@@ -359,27 +350,6 @@ impl Terminal {
         Ok(Capture { grid, rows, frame: state.frame, refs })
     }
 
-    pub fn capture_at(&self, frame: u64, rows: Option<RowRange>) -> Result<Option<Capture>> {
-        let (run, ends, now) = {
-            let state = self.state.lock().unwrap();
-            (self.run.clone(), state.frame_ends.clone(), state.frame)
-        };
-        if frame == now {
-            return self.capture(rows, false).map(Some).map_err(anyhow::Error::msg);
-        }
-        let Some(passed) = ends.get(..frame as usize).filter(|_| frame > 0) else {
-            return Ok(None);
-        };
-        let mut replay = Replay::start(&run)?;
-        for end in passed {
-            replay.next_frame(*end)?;
-        }
-        let grid = replay.grid();
-        let size = Size { cols: grid.rows.first().map_or(0, Vec::len) as u16, rows: grid.rows.len() as u16 };
-        let rows = row_range(size, rows).map_err(anyhow::Error::msg)?;
-        Ok(Some(Capture { grid, rows, frame, refs: None }))
-    }
-
     pub fn text_rows(&self, rows: Option<RowRange>, ansi: bool) -> Result<(u64, Vec<String>), String> {
         let state = self.state.lock().unwrap();
         let rows = row_range(state.screen.size(), rows)?;
@@ -432,8 +402,7 @@ impl Terminal {
             return Err(self.exited(None).into());
         }
         state.screen.resize(size);
-        let recorded = self.recording.resize(size);
-        state.refresh(Instant::now(), recorded);
+        state.refresh(Instant::now());
         drop(state);
         self.changed.notify_all();
         self.frames.notify();
@@ -454,23 +423,14 @@ impl Terminal {
         Picture::of(&state.screen, state.frame, state.exit)
     }
 
-    pub fn run(&self) -> Run {
-        self.run.clone()
+    pub fn glance(&self) -> Glance {
+        let state = self.state.lock().unwrap();
+        Glance::of(&state.screen, state.frame, state.exit)
     }
 
     pub fn continued(&self) -> Continued {
         let state = self.state.lock().unwrap();
-        Continued {
-            run: self.run.clone(),
-            frame: state.frame,
-            frame_ends: state.frame_ends.clone(),
-            first_command: state.commands.as_ref().map_or(1, Commands::next_id),
-        }
-    }
-
-    pub fn frame_ends(&self, after: usize) -> Vec<u64> {
-        let state = self.state.lock().unwrap();
-        state.frame_ends.iter().skip(after).copied().collect()
+        Continued { frame: state.frame, first_command: state.commands.as_ref().map_or(1, Commands::next_id) }
     }
 
     pub fn setup(&self) -> Setup {
@@ -484,18 +444,6 @@ impl Terminal {
             started: self.started,
             exit: state.exit,
         }
-    }
-
-    pub fn save_recording(&self, path: &std::path::Path) -> Result<()> {
-        let state = self.state.lock().unwrap();
-        let picture = Picture::of(&state.screen, state.frame, state.exit);
-        let alt_screen = if picture.alt_screen { "\x1b[?1049h" } else { "" };
-        let blank = vec![String::new(); picture.rows.len()];
-        self.recording.save_to(path, picture.size, &format!("{alt_screen}{}", picture.paint(Some(&blank))))
-    }
-
-    pub fn recording(&self) -> Arc<Recording> {
-        Arc::clone(&self.recording)
     }
 
     pub fn command_log(&self) -> CommandLog {
@@ -549,7 +497,6 @@ impl Terminal {
             rows: size.rows,
             exited: state.exit.is_some(),
             exit_code: state.exit.flatten(),
-            recording: self.recording.saving_to(),
             control,
         }
     }
@@ -617,7 +564,6 @@ impl Terminal {
     pub fn mark(&self, name: String) -> u64 {
         let mut state = self.state.lock().unwrap();
         let frame = state.frame;
-        self.recording.mark(&name);
         state.log.mark(name, frame);
         frame
     }
@@ -830,7 +776,6 @@ impl Terminal {
         }
         let mut writer = self.writer.lock().unwrap();
         writer.write_all(bytes).and_then(|()| writer.flush()).with_context(|| format!("write to {}", self.program))?;
-        self.recording.input(bytes);
         Ok(())
     }
 

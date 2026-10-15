@@ -1,6 +1,6 @@
 mod boxes;
 mod diff;
-mod fonts;
+pub mod fonts;
 mod theme;
 mod vector;
 
@@ -29,10 +29,6 @@ impl Image {
 
     pub fn height(&self) -> u32 {
         self.pixmap.height()
-    }
-
-    pub fn rgba(&self) -> &[u8] {
-        self.pixmap.data()
     }
 
     pub fn png(&self) -> Result<Vec<u8>> {

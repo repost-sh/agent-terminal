@@ -14,7 +14,7 @@ struct Held {
 
 impl Held {
     fn new() -> Self {
-        let folder = tempfile::Builder::new().prefix("held-").tempdir_in("/tmp").expect("temp folder");
+        let folder = crate::support::scratch("held-");
         let fifo = folder.path().join("held");
         assert!(Command::new("mkfifo").arg(&fifo).status().expect("run mkfifo").success());
         let (released, gone) = mpsc::channel();

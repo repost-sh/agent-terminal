@@ -9,7 +9,6 @@ use tokio::sync::watch;
 
 use crate::connection::{READY, daemon_stop_advice, home, socket_path, version_path};
 use crate::native::changes::Changes;
-use crate::native::clips;
 use crate::native::control::{Control, Handed, Hold};
 use crate::native::dashboard::{self, Backend};
 use crate::native::pty;
@@ -22,9 +21,9 @@ use crate::output::{self, call_line};
 use crate::protocol::{
     self, Addressed, AttachEvent, AttachInput, Attached, BatchOutcome, BatchStep, Call, Checked, Closed, CommandOutput,
     CommandRecord, Dashboard, DashboardStopped, Delivered, ErrorBody, Expect, Export, History, HumanInput, Input,
-    KeptRunning, Marked, Matches, Mirror, OtherVersion, Printed, RecordingFile, Reply, Request, Response, RowRange,
-    SavedRecording, Screenshot, SessionInfo, Sessions, Shell, Shot, Size, Snapshot, SnapshotOptions, Style, TabId,
-    TabRef, Target, TextMatch, Wait, Waited,
+    KeptRunning, Marked, Matches, Mirror, OtherVersion, Printed, Reply, Request, Response, RowRange, Screenshot,
+    SessionInfo, Sessions, Shell, Shot, Size, Snapshot, SnapshotOptions, Style, TabId, TabRef, Target, TextMatch, Wait,
+    Waited,
 };
 
 const CONTROL_HANDED_BACK: &str = "a human to hand back control";
@@ -245,13 +244,6 @@ impl Daemon {
                     .map(Reply::ScreenshotDiff)
                     .map_err(error_body)
             }
-            Request::Clip { target, clip } => {
-                let (id, terminal) = self.target(&target)?;
-                let session = &target.session;
-                let folder = self.sessions.lock().unwrap().get(session).map(|entry| Arc::clone(&entry.folder));
-                let folder = folder.ok_or_else(|| no_terminal(session))?;
-                clips::cut(session, &id.to_string(), &terminal, &folder, &clip).map(Reply::Clip).map_err(error_body)
-            }
             Request::Wait { target, wait: Wait::Elapsed { ms }, timeout_ms, assert } => {
                 self.wait(target, &Wait::Elapsed { ms }, timeout_ms.max(ms), assert)
             }
@@ -279,33 +271,6 @@ impl Daemon {
             Request::DiffSnapshot { target, baseline } => {
                 let (_, terminal) = self.target(&target)?;
                 terminal.diff_snapshot(baseline).map(Reply::Diff).map_err(ErrorBody::failure)
-            }
-            Request::RecordStart { target, path } => {
-                let (id, terminal) = self.target(&target)?;
-                let Target { session, .. } = target;
-                let path = match path {
-                    Some(path) => path,
-                    None => home().map_err(error_body)?.join("recordings").join(format!(
-                        "{}-{id}-{}.cast",
-                        store::file_name(&session),
-                        terminal.frame()
-                    )),
-                };
-                terminal.save_recording(&path).map_err(error_body)?;
-                self.changes.notify();
-                Ok(Reply::Recording(RecordingFile { session, tab: id.to_string(), path }))
-            }
-            Request::RecordStop { target } => {
-                let (id, terminal) = self.target(&target)?;
-                let saved = terminal.recording().stop_saving().map_err(error_body)?;
-                self.changes.notify();
-                Ok(Reply::Saved(SavedRecording {
-                    session: target.session,
-                    tab: id.to_string(),
-                    path: saved.path,
-                    duration_ms: saved.duration.as_millis() as u64,
-                    bytes: saved.bytes,
-                }))
             }
             Request::TraceExport { session, path } => {
                 let exported = home().and_then(|home| store::export(&home, &session, &path)).map_err(error_body)?;
@@ -480,9 +445,6 @@ impl Daemon {
             Ok(Reply::Delivered(delivered)) => delivered.screenshot.iter().map(|shot| shot.path.clone()).collect(),
             Ok(_) | Err(_) => Vec::new(),
         };
-        if let Ok(Reply::Clip(clip)) = handled {
-            entry.clips = vec![clip.path.clone()];
-        }
         match logged.pending {
             Some(pending) => pending.log(&entry),
             None => folder.log(&entry),
@@ -601,9 +563,8 @@ impl Daemon {
             }
         };
         let tab = folder.next_tab();
-        let recording = folder.record(&tab.to_string(), &command);
         let command_log = folder.command_log(&tab.to_string());
-        let terminal = Terminal::start(command, shell, spawned, recording, command_log, self.changes.clone(), None);
+        let terminal = Terminal::start(command, shell, spawned, command_log, self.changes.clone(), None);
         {
             let mut sessions = self.sessions.lock().unwrap();
             let entry = sessions.entry(session.to_string()).or_insert_with(|| Session::new(Arc::clone(&folder)));
@@ -648,18 +609,9 @@ impl Daemon {
         }
         let command = old.rerun();
         let spawned = pty::spawn(command.clone()).map_err(error_body)?;
-        let recording = old.recording();
-        recording.restart();
         let continued = old.continued();
-        let terminal = Terminal::start(
-            command,
-            old.shell(),
-            spawned,
-            recording,
-            old.command_log(),
-            self.changes.clone(),
-            Some(continued),
-        );
+        let terminal =
+            Terminal::start(command, old.shell(), spawned, old.command_log(), self.changes.clone(), Some(continued));
         {
             let mut sessions = self.sessions.lock().unwrap();
             match sessions.get_mut(session).and_then(|s| s.tabs.get_mut(&tab)) {
@@ -836,7 +788,7 @@ impl Daemon {
                 };
                 frames.borrow_and_update();
                 let picture = terminal.picture();
-                let shown = (picture.frame, picture.exit, picture.size);
+                let shown = (picture.glance.frame, picture.glance.exit, picture.glance.size);
                 if sent != Some(shown) {
                     protocol::write(&mut writer, &AttachEvent::Screen(mirrored(&terminal.program, picture)))?;
                     sent = Some(shown);
@@ -1196,14 +1148,14 @@ fn human_has_control(session: &str, tab: &str) -> ErrorBody {
 fn mirrored(program: &str, picture: Picture) -> Mirror {
     Mirror {
         program: program.to_string(),
-        frame: picture.frame,
-        cols: picture.size.cols,
-        rows: picture.size.rows,
+        frame: picture.glance.frame,
+        cols: picture.glance.size.cols,
+        rows: picture.glance.size.rows,
         lines: picture.rows,
         cursor: [picture.cursor.0, picture.cursor.1],
         cursor_visible: picture.cursor_visible,
-        exited: picture.exit.is_some(),
-        exit_code: picture.exit.flatten(),
+        exited: picture.glance.exit.is_some(),
+        exit_code: picture.glance.exit.flatten(),
     }
 }
 

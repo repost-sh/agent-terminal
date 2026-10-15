@@ -7,7 +7,6 @@ import { clockMs, formatDuration } from "../lib/format";
 import type { PendingCall } from "../lib/protocol";
 import { fileName, useScreenshots } from "../lib/screenshots";
 import { tabKey, tabName } from "../lib/tabs";
-import { endOf, showMoment } from "../lib/timeline";
 import type { PanelProps } from "../panels";
 import { announce } from "./announcer";
 import { HEAD_TOGGLE, PanelHead } from "./panel-parts";
@@ -176,8 +175,6 @@ export const ActivityPanel = ({ session, tab }: PanelProps) => {
   const toggle = (index: number) => {
     setFollow(false);
     setExpanded(expanded === index ? null : index);
-    const entry = entries[index];
-    if (expanded !== index && entry?.frame !== undefined) showMoment(session, tab.tab, entry.frame, endOf(entry));
   };
 
   return (

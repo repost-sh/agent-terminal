@@ -3,21 +3,39 @@ mod close_all;
 mod commands;
 mod control;
 mod empty;
+mod fast_output;
+mod fonts;
 mod info;
 mod new_session;
 mod output;
+mod screen_rows;
 mod screenshots;
 mod sidebar;
 mod split;
 mod terminal;
-mod timeline;
 mod toolbar;
+mod widths;
 
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::support::AgentTerminal;
-pub use crate::support::snapshot_rows;
+
+pub fn snapshot_rows(at: &AgentTerminal, args: &[&str]) -> (Vec<String>, u64) {
+    let mut call = vec!["--json"];
+    call.extend_from_slice(args);
+    call.push("snapshot");
+    let snapshot = at.run(&call).success().json();
+    let mut rows: Vec<String> = snapshot["lines"]
+        .as_array()
+        .expect("snapshot lines")
+        .iter()
+        .map(|row| row.as_str().unwrap().to_string())
+        .collect();
+    let shown = rows.iter().rposition(|row| !row.is_empty()).map_or(0, |last| last + 1);
+    rows.truncate(shown);
+    (rows, snapshot["frame"].as_u64().expect("the frame number"))
+}
 
 pub struct Dashboard {
     pub port: u16,
@@ -25,12 +43,15 @@ pub struct Dashboard {
 
 impl Dashboard {
     pub fn start(at: &AgentTerminal) -> Self {
-        let started = at.run(&["--json", "dashboard", "start", "--port", "0"]).success().json();
-        Self { port: started["port"].as_u64().expect("the dashboard's port") as u16 }
+        Self { port: crate::support::dashboard(at) }
     }
 
     pub fn url(&self, path: &str) -> String {
         format!("http://localhost:{}{path}", self.port)
+    }
+
+    pub fn stream(&self, tab: &str) -> String {
+        format!("ws://localhost:{}/api/session/{tab}/stream", self.port)
     }
 }
 
@@ -43,7 +64,7 @@ static OPENED: AtomicUsize = AtomicUsize::new(0);
 impl Browser {
     pub fn open(url: &str) -> Self {
         let n = OPENED.fetch_add(1, Ordering::SeqCst);
-        let browser = Self { session: format!("agent-terminal-test-{}-{n}", std::process::id()) };
+        let browser = Self { session: format!("at-test-{}-{n}", std::process::id()) };
         browser.run(&["set", "viewport", "1440", "900"]);
         browser.run(&["set", "media", "reduced-motion"]);
         browser.run(&["open", url]);
@@ -99,7 +120,7 @@ impl Browser {
     pub fn wait_for_screen_in(&self, scope: &str, text: &str) {
         self.wait_until(&format!(
             "document.querySelector({})?.textContent.includes({})",
-            js_string(&format!("{scope} .xterm-accessibility-tree")),
+            js_string(&format!("{scope} [aria-label=\"Screen\"]")),
             js_string(text)
         ));
     }
@@ -135,6 +156,11 @@ impl Browser {
         self.wait_until(&format!("{tab}.ariaSelected === 'true'"));
     }
 
+    pub fn eval_json<T: serde::de::DeserializeOwned>(&self, script: &str) -> T {
+        let value = self.eval(script);
+        serde_json::from_str(&value).unwrap_or_else(|e| panic!("{script} gave {value}, not the JSON expected: {e}"))
+    }
+
     pub fn click_button(&self, name: &str) {
         self.run(&["find", "role", "button", "click", "--name", name, "--exact"]);
     }
@@ -166,13 +192,12 @@ impl Browser {
     }
 
     pub fn screen_in(&self, scope: &str) -> Vec<String> {
-        let mut rows: Vec<String> = Vec::new();
-        for line in self.snapshot(&format!("{scope} .xterm-accessibility-tree")).lines().map(str::trim) {
-            if line.starts_with("- listitem") {
-                rows.push(String::new());
-            } else if let (Some(row), Some(text)) = (rows.last_mut(), line.strip_prefix("- StaticText ")) {
-                *row = serde_json::from_str::<String>(text).expect("a quoted row").trim_end().to_string();
-            }
+        let mut rows: Vec<String> = self.eval_json(&format!(
+            "Array.from(document.querySelectorAll({})).map((row) => row.textContent)",
+            js_string(&format!("{scope} [aria-label=\"Screen\"] > *"))
+        ));
+        for row in &mut rows {
+            row.truncate(row.trim_end().len());
         }
         let shown = rows.iter().rposition(|row| !row.is_empty()).map_or(0, |last| last + 1);
         rows.truncate(shown);

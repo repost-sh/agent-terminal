@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use axum::extract::ws::WebSocket;
+use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use tokio::sync::watch;
+use tokio::time::Instant;
 
 use super::Backend;
 use super::stream::hung_up;
@@ -9,6 +10,18 @@ use crate::native::terminal::Terminal;
 use crate::protocol::TabId;
 
 type Lookup<T> = Box<dyn Fn() -> Option<Arc<T>> + Send + Sync>;
+
+pub enum Event {
+    Woke,
+    Received(Utf8Bytes),
+    HungUp,
+}
+
+pub enum Wake {
+    OnChange,
+    At(Instant),
+    OnMessage,
+}
 
 pub struct Follow<T> {
     lookup: Lookup<T>,
@@ -57,15 +70,42 @@ impl<T> Follow<T> {
     }
 
     pub async fn changed(&mut self, socket: &mut WebSocket) -> bool {
+        !matches!(self.event(socket, Wake::OnChange).await, Event::HungUp)
+    }
+
+    pub async fn event(&mut self, socket: &mut WebSocket, wake: Wake) -> Event {
         let Self { lifecycle, extra, watched, .. } = self;
-        let signal = changed_or_never(watched.as_mut().and_then(|(_, signal)| signal.as_mut()));
-        let extra = changed_or_never(extra.as_mut());
+        let listening = matches!(wake, Wake::OnChange);
+        let signal = changed_or_never(watched.as_mut().and_then(|(_, signal)| signal.as_mut()).filter(|_| listening));
+        let extra = changed_or_never(extra.as_mut().filter(|_| listening));
+        let deadline = match wake {
+            Wake::At(deadline) => Some(deadline),
+            Wake::OnChange | Wake::OnMessage => None,
+        };
         tokio::select! {
-            changed = lifecycle.changed() => changed.is_ok(),
-            changed = signal => changed.is_ok(),
-            changed = extra => changed.is_ok(),
-            received = socket.recv() => !hung_up(received),
+            changed = lifecycle.changed() => woke(changed),
+            changed = signal => woke(changed),
+            changed = extra => woke(changed),
+            received = socket.recv() => match received {
+                Some(Ok(Message::Text(text))) => Event::Received(text),
+                received => if hung_up(received) { Event::HungUp } else { Event::Woke },
+            },
+            () = sleep_until_or_never(deadline) => Event::Woke,
         }
+    }
+}
+
+fn woke(changed: Result<(), watch::error::RecvError>) -> Event {
+    match changed {
+        Ok(()) => Event::Woke,
+        Err(_) => Event::HungUp,
+    }
+}
+
+async fn sleep_until_or_never(deadline: Option<Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
     }
 }
 

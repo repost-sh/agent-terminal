@@ -1,14 +1,19 @@
 use std::sync::Arc;
+use std::time::Duration;
 
-use super::follow::Follow;
+use super::follow::{Event, Follow, Wake};
 use super::{Backend, tab_id};
-use crate::native::terminal::Picture;
-use crate::protocol::{Size, TabId};
+use crate::native::terminal::{Glance, Picture};
+use crate::protocol::TabId;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use tokio::time::Instant;
+
+const WINDOW: usize = 2;
+const INTERVAL: Duration = Duration::from_millis(33);
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -27,34 +32,15 @@ enum Update {
     Closed,
 }
 
-type Modes = (bool, Option<&'static str>, bool);
-
-pub struct Shown {
-    size: Size,
+struct Shown {
+    glance: Glance,
     rows: Vec<String>,
-    frame: u64,
-    modes: Modes,
-    exit: Option<Option<i32>>,
 }
 
 impl Shown {
-    pub fn of(picture: Picture) -> Self {
-        Self {
-            modes: modes(&picture),
-            size: picture.size,
-            rows: picture.rows,
-            frame: picture.frame,
-            exit: picture.exit,
-        }
+    fn of(picture: Picture) -> Self {
+        Self { glance: picture.glance, rows: picture.rows }
     }
-
-    pub fn size(&self) -> Size {
-        self.size
-    }
-}
-
-fn modes(picture: &Picture) -> Modes {
-    (picture.alt_screen, picture.mouse, picture.bracketed_paste)
 }
 
 pub async fn tab(
@@ -70,6 +56,8 @@ pub async fn tab(
 
 async fn follow_tab(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
     let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.frames()));
+    let mut in_flight = 0usize;
+    let mut last_sent: Option<Instant> = None;
     let mut shown: Option<Shown> = None;
     loop {
         let Some((terminal, replaced)) = follow.next() else {
@@ -79,44 +67,64 @@ async fn follow_tab(mut socket: WebSocket, backend: Arc<dyn Backend>, session: S
         if replaced {
             shown = None;
         }
-        let picture = terminal.picture();
-        if let Some(update) = update(&picture, shown.as_ref()) {
-            if !send(&mut socket, &update).await {
-                return;
+        let wake = if in_flight >= WINDOW {
+            Wake::OnMessage
+        } else if shown.as_ref().is_some_and(|shown| shown.glance == terminal.glance()) {
+            Wake::OnChange
+        } else {
+            match last_sent.map(|sent| sent + INTERVAL).filter(|due| *due > Instant::now()) {
+                Some(due) => Wake::At(due),
+                None => {
+                    let picture = terminal.picture();
+                    if !send(&mut socket, &update(&picture, shown.as_ref())).await {
+                        return;
+                    }
+                    shown = Some(Shown::of(picture));
+                    in_flight += 1;
+                    last_sent = Some(Instant::now());
+                    continue;
+                }
             }
-            shown = Some(Shown::of(picture));
-        }
-        if !follow.changed(&mut socket).await {
-            return;
+        };
+        match follow.event(&mut socket, wake).await {
+            Event::Woke => {}
+            Event::Received(text) => {
+                if acknowledges(&text) {
+                    in_flight = in_flight.saturating_sub(1);
+                }
+            }
+            Event::HungUp => return,
         }
     }
 }
 
-fn update(picture: &Picture, shown: Option<&Shown>) -> Option<Update> {
-    let unchanged = shown.is_some_and(|shown| {
-        shown.size == picture.size
-            && shown.frame == picture.frame
-            && shown.exit == picture.exit
-            && shown.modes == modes(picture)
-    });
-    if unchanged {
-        return None;
-    }
-    Some(Update::Frame {
-        frame: picture.frame,
-        cols: picture.size.cols,
-        rows: picture.size.rows,
+#[derive(Deserialize)]
+struct Received<'a> {
+    #[serde(rename = "type")]
+    kind: &'a str,
+}
+
+fn acknowledges(text: &str) -> bool {
+    serde_json::from_str::<Received>(text).is_ok_and(|received| received.kind == "shown")
+}
+
+fn update(picture: &Picture, shown: Option<&Shown>) -> Update {
+    let glance = picture.glance;
+    Update::Frame {
+        frame: glance.frame,
+        cols: glance.size.cols,
+        rows: glance.size.rows,
         paint: paint(picture, shown),
-        alt_screen: picture.alt_screen,
-        mouse: picture.mouse,
-        bracketed_paste: picture.bracketed_paste,
-        exited: picture.exit.is_some(),
-        exit_code: picture.exit.flatten(),
-    })
+        alt_screen: glance.alt_screen,
+        mouse: glance.mouse,
+        bracketed_paste: glance.bracketed_paste,
+        exited: glance.exit.is_some(),
+        exit_code: glance.exit.flatten(),
+    }
 }
 
-pub fn paint(picture: &Picture, shown: Option<&Shown>) -> String {
-    picture.paint(shown.filter(|shown| shown.size == picture.size).map(|shown| shown.rows.as_slice()))
+fn paint(picture: &Picture, shown: Option<&Shown>) -> String {
+    picture.paint(shown.filter(|shown| shown.glance.size == picture.glance.size).map(|shown| shown.rows.as_slice()))
 }
 
 pub async fn send(socket: &mut WebSocket, update: &impl Serialize) -> bool {

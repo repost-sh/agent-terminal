@@ -181,7 +181,7 @@ fn a_read_only_attach_leaves_control_with_the_agent_and_sends_no_keys() {
 #[test]
 fn exec_is_refused_while_a_human_has_control_of_the_shell() {
     let at = AgentTerminal::new();
-    let home = tempfile::Builder::new().prefix("home-").tempdir_in("/tmp").expect("temp home");
+    let home = crate::support::scratch("home-");
     let shell = at
         .command(&["--session", "app", "shell", "--shell", "bash", "--size", "40x6"])
         .env("HOME", home.path())

@@ -1,8 +1,12 @@
 @import "tailwindcss";
 @import "@fontsource-variable/geist/wght.css";
 @import "@fontsource-variable/geist-mono/wght.css";
-@import "@fontsource/jetbrains-mono/400.css";
-@import "@fontsource/jetbrains-mono/700.css";
+@font-face { font-family: "JetBrains Mono NL"; font-weight: 400; font-style: normal; font-display: block; src: url("/fonts/JetBrainsMonoNL-Regular.ttf") format("truetype"); }
+@font-face { font-family: "JetBrains Mono NL"; font-weight: 700; font-style: normal; font-display: block; src: url("/fonts/JetBrainsMonoNL-Bold.ttf") format("truetype"); }
+@font-face { font-family: "JetBrains Mono NL"; font-weight: 400; font-style: italic; font-display: block; src: url("/fonts/JetBrainsMonoNL-Italic.ttf") format("truetype"); }
+@font-face { font-family: "JetBrains Mono NL"; font-weight: 700; font-style: italic; font-display: block; src: url("/fonts/JetBrainsMonoNL-BoldItalic.ttf") format("truetype"); }
+@font-face { font-family: "Symbols Nerd Font Mono"; font-display: block; src: url("/fonts/SymbolsNerdFontMono-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Noto Emoji"; font-weight: 300 700; font-display: block; src: url("/fonts/NotoEmoji-VariableFont_wght.ttf") format("truetype"); }
 
 @custom-variant dark (&:is(.dark *));
 
@@ -175,43 +179,6 @@
 
 .term-frame .xterm .xterm-viewport {
   overflow-y: hidden;
-}
-
-.scrub {
-  -webkit-appearance: none;
-  appearance: none;
-  background: transparent;
-  height: 24px;
-  width: 100%;
-  margin: 0;
-}
-.scrub::-webkit-slider-runnable-track {
-  height: 2px;
-  background: var(--border);
-}
-.scrub::-moz-range-track {
-  height: 2px;
-  background: var(--border);
-}
-.scrub::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 10px;
-  height: 10px;
-  margin-top: -4px;
-  border-radius: 9999px;
-  background: var(--foreground);
-  border: 0;
-}
-.scrub::-moz-range-thumb {
-  width: 10px;
-  height: 10px;
-  border-radius: 9999px;
-  background: var(--foreground);
-  border: 0;
-}
-.scrub:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
 }
 
 .toaster {

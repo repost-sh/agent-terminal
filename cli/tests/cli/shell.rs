@@ -12,8 +12,8 @@ struct ShellTab {
 impl ShellTab {
     fn new(shell: &'static str) -> Self {
         assert!(installed(shell), "the shell tests run in zsh, bash and fish, and {shell} is not on PATH; install it");
-        let temp = |prefix: &str| tempfile::Builder::new().prefix(prefix).tempdir_in("/tmp").expect("temp folder");
-        Self { at: AgentTerminal::new(), shell, home: temp("home-"), work: temp("work-") }
+        let scratch = crate::support::scratch;
+        Self { at: AgentTerminal::new(), shell, home: scratch("home-"), work: scratch("work-") }
     }
 
     fn opened(shell: &'static str) -> Self {

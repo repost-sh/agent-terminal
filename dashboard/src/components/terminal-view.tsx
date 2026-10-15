@@ -33,8 +33,6 @@ type ExitActions = { onRestart: () => void; onClose: () => void };
 
 type Paint = (terminal: Terminal) => () => void;
 
-export type Past = { label: string; paint: Paint };
-
 export type HeldTerminal = {
   name: string;
   focus: string;
@@ -48,7 +46,6 @@ type ViewportProps = {
   shown: Shown | null;
   program: string;
   label: string;
-  past?: Past | null;
   held?: HeldTerminal | null;
   compact?: boolean;
   exit?: ExitActions;
@@ -74,7 +71,7 @@ const HeldRing = ({ held, compact, children }: { held: HeldTerminal | null; comp
   );
 
 export const Viewport = (props: ViewportProps) => {
-  const { paint, state, shown, program, label, past, held = null } = props;
+  const { paint, state, shown, program, label, held = null } = props;
   const box = useRef<HTMLDivElement>(null);
   const host = useCallback(
     (node: HTMLDivElement) =>
@@ -101,41 +98,11 @@ export const Viewport = (props: ViewportProps) => {
         </p>
       )}
       <HeldRing held={held} compact={Boolean(props.compact)}>
-        <div
-          role="group"
-          aria-label={label}
-          aria-hidden={past ? true : undefined}
-          inert={Boolean(past)}
-          className={cn("term-frame", dim && "is-dim", (loading || past) && "opacity-0")}
-        >
+        <div role="group" aria-label={label} className={cn("term-frame", dim && "is-dim", loading && "opacity-0")}>
           <div ref={host} />
         </div>
       </HeldRing>
-      {past && <PastView box={box} past={past} dim={Boolean(dim)} />}
-      {shown?.exited && !past && <ExitBar program={program} code={shown.exit_code} actions={props.exit ?? null} />}
-    </div>
-  );
-};
-
-const PastView = ({ box, past, dim }: { box: RefObject<HTMLDivElement | null>; past: Past; dim: boolean }) => {
-  const { paint } = past;
-  const host = useCallback(
-    (node: HTMLDivElement) =>
-      openTerminal(node, (terminal) => {
-        const stopFitting = fitFont(terminal, box);
-        const stopPainting = paint(terminal);
-        return () => {
-          stopPainting();
-          stopFitting();
-        };
-      }),
-    [box, paint],
-  );
-  return (
-    <div className="absolute inset-0 flex items-center justify-center">
-      <div role="group" aria-label={past.label} className={cn("term-frame", dim && "is-dim")}>
-        <div ref={host} />
-      </div>
+      {shown?.exited && <ExitBar program={program} code={shown.exit_code} actions={props.exit ?? null} />}
     </div>
   );
 };

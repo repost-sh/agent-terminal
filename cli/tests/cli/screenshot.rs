@@ -120,7 +120,7 @@ struct Screen {
 
 impl Screen {
     fn open(at: &AgentTerminal, size: &str, bytes: &str, wait: &str) -> Self {
-        let dir = tempfile::Builder::new().prefix("screen-").tempdir_in("/tmp").expect("temp screen folder");
+        let dir = crate::support::scratch("screen-");
         let path = dir.path().join("screen");
         std::fs::write(&path, bytes).expect("write the screen");
         let path = path.to_string_lossy().into_owned();
@@ -141,10 +141,6 @@ const EVERYTHING: &str = "\x1b[?25l\
 \x1b[31mred\x1b[0m \x1b[32mgreen\x1b[0m \x1b[1;33mbold\x1b[0m \x1b[44;37m blue \x1b[0m \x1b[38;5;208m256\x1b[0m \x1b[38;2;255;0;255mrgb\x1b[0m \x1b[3mitalic\x1b[0m \x1b[4munder\x1b[0m\n\
 漢字 wide · 😀 🚀 emoji · \u{f07b} \u{e0b0} nerd\n\
 ▁▂▃▄▅▆▇█ ░▒▓ ▖▗▘▝ ┼╋╬ ╱╲ end";
-
-fn frame(at: &AgentTerminal) -> u64 {
-    at.run(&["get", "frame"]).success().stdout().trim().parse().expect("a frame number")
-}
 
 #[test]
 fn a_screenshot_draws_colors_box_drawing_blocks_emoji_and_symbols_in_their_cells() {
@@ -216,7 +212,7 @@ fn a_screenshot_draws_colors_box_drawing_blocks_emoji_and_symbols_in_their_cells
 fn screenshot_saves_a_png_of_the_screen_named_after_session_tab_and_frame() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
-    let frame = frame(&at);
+    let frame = at.frame("default");
 
     let run = at.run(&["screenshot"]).success();
 
@@ -229,7 +225,7 @@ fn screenshot_saves_a_png_of_the_screen_named_after_session_tab_and_frame() {
 fn screenshots_of_the_same_frame_taken_at_once_all_succeed_and_leave_one_whole_file() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
-    let frame = frame(&at);
+    let frame = at.frame("default");
 
     let codes: Vec<i32> = std::thread::scope(|scope| {
         let shots: Vec<_> = (0..6).map(|_| scope.spawn(|| at.run(&["screenshot"]).code())).collect();
@@ -250,7 +246,7 @@ fn screenshots_of_the_same_frame_taken_at_once_all_succeed_and_leave_one_whole_f
 fn screenshots_go_to_the_screenshot_dir_its_variable_or_the_path_given() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
-    let frame = frame(&at);
+    let frame = at.frame("default");
     let work = at.work_folder();
     let name = format!("default-t1-{frame}.png");
 
@@ -392,7 +388,7 @@ fn diff_screenshot_passes_when_the_screen_still_looks_like_the_baseline() {
     at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
     let work = at.work_folder();
     at.run_in(&work, &["screenshot", "before.png"]).success();
-    let frame = frame(&at);
+    let frame = at.frame("default");
 
     let run = at.run_in(&work, &["diff", "screenshot", "--baseline", "before.png"]).success();
 
@@ -453,9 +449,9 @@ fn an_input_command_saves_a_screenshot_once_its_wait_is_over() {
     let given = work.join("beta.png");
 
     let pressed = at.run(&["press", "j", "--wait", "Selected: beta.txt", "--screenshot", given.to_str().unwrap()]);
-    let beta = frame(&at);
+    let beta = at.frame("default");
     let json = at.run(&["--json", "press", "k", "--wait", "Selected: alpha.txt", "--screenshot"]).success().json();
-    let alpha = frame(&at);
+    let alpha = at.frame("default");
 
     let expected = format!("pressed 1 key in default t1\nsaved {} (default t1, frame {beta})\n", given.display());
     assert_eq!(pressed.success().stdout(), expected);

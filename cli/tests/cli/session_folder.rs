@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::{Value, json};
 
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, DashboardSocket, dashboard, fixture, open_redraw};
 
 fn names_in(folder: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(folder)
@@ -14,8 +14,11 @@ fn names_in(folder: &Path) -> Vec<String> {
     names
 }
 
-fn casts_in(folder: &Path) -> Vec<String> {
-    names_in(folder).into_iter().filter(|name| name.ends_with(".cast")).collect()
+fn bytes_in(folder: &Path) -> u64 {
+    std::fs::read_dir(folder)
+        .unwrap_or_else(|e| panic!("read {}: {e}", folder.display()))
+        .map(|entry| entry.unwrap().metadata().expect("a file's size").len())
+        .sum()
 }
 
 fn open_printer(at: &AgentTerminal, session: &str, command: &str) {
@@ -23,27 +26,29 @@ fn open_printer(at: &AgentTerminal, session: &str, command: &str) {
 }
 
 #[test]
-fn every_tab_of_a_session_records_into_the_session_folder() {
+fn no_tab_of_a_session_leaves_a_file_of_its_own_in_the_session_folder() {
     let at = AgentTerminal::new();
     let folder = at.home().join("sessions").join("qa");
     open_printer(&at, "qa", "open");
     at.run(&["--session", "qa", "tab", "new", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     at.run(&["--session", "qa", "tab", "close", "t1"]).success();
     at.run(&["--session", "qa", "tab", "new", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
-    assert_eq!(casts_in(&folder), ["t1.cast", "t2.cast", "t3.cast"]);
+    assert_eq!(names_in(&folder), ["activity.jsonl"]);
 }
 
 #[test]
 fn a_session_that_starts_again_starts_a_fresh_folder() {
     let at = AgentTerminal::new();
     let folder = at.home().join("sessions").join("qa");
+    let shot = at.work_folder().join("first-run.png").to_string_lossy().into_owned();
     open_printer(&at, "qa", "open");
-    at.run(&["--session", "qa", "tab", "new", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    at.run(&["--session", "qa", "screenshot", &shot]).success();
     at.run(&["close", "--all"]).success();
-    assert_eq!(casts_in(&folder), ["t1.cast", "t2.cast"]);
+    assert_eq!(names_in(&folder), ["activity.jsonl", "screenshots.jsonl"]);
 
     open_printer(&at, "qa", "open");
-    assert_eq!(casts_in(&folder), ["t1.cast"]);
+    assert_eq!(names_in(&folder), ["activity.jsonl"]);
+    assert_eq!(at.activity("qa").len(), 1);
 }
 
 #[test]
@@ -55,7 +60,8 @@ fn simultaneous_opens_in_a_new_session_share_one_folder() {
             scope.spawn(|| open_printer(&at, "qa", "open"));
         }
     });
-    assert_eq!(casts_in(&at.home().join("sessions").join("qa")), ["t1.cast", "t2.cast", "t3.cast", "t4.cast"]);
+    assert_eq!(names_in(&at.home().join("sessions").join("qa")), ["activity.jsonl"]);
+    assert_eq!(at.activity("qa").len(), 4);
 }
 
 #[test]
@@ -72,7 +78,60 @@ fn a_session_with_an_empty_name_gets_a_folder_of_its_own() {
     open_printer(&at, "qa", "open");
     open_printer(&at, "", "open");
     assert_eq!(names_in(&at.home().join("sessions")), ["%", "qa"]);
-    assert_eq!(casts_in(&at.home().join("sessions").join("qa")), ["t1.cast"]);
+    assert_eq!(at.activity("qa").len(), 1);
+}
+
+#[test]
+fn a_program_repainting_fast_adds_nothing_to_the_session_folder() {
+    let at = AgentTerminal::new();
+    let folder = at.home().join("sessions").join("qa");
+    let shot = at.work_folder().join("fast.png").to_string_lossy().into_owned();
+    open_redraw(&at, "qa", "60", "--full");
+    let opened = at.frame("qa");
+    at.run(&["--session", "qa", "wait", "--frame", &(opened + 120).to_string()]).success();
+    at.run(&["--session", "qa", "screenshot", &shot]).success();
+    assert_eq!(names_in(&folder), ["activity.jsonl", "screenshots.jsonl"]);
+
+    let port = dashboard(&at);
+    let mut viewer = DashboardSocket::open(port, "/api/session/qa/t1/stream");
+    let before = bytes_in(&folder);
+    let from = viewer.acknowledge_next();
+    while viewer.acknowledge_next() < from + 120 {}
+    assert_eq!(bytes_in(&folder), before, "the session folder grew while the program ran: {:?}", names_in(&folder));
+}
+
+#[test]
+fn an_unwatched_terminal_answers_screenshot_snapshot_wait_frame_and_output_since_a_mark() {
+    let at = AgentTerminal::new();
+    let shot = at.work_folder().join("unwatched.png");
+    open_redraw(&at, "qa", "60", "--partial");
+    let marked = at.run(&["--session", "qa", "--json", "mark", "running"]).success().json()["frame"]
+        .as_u64()
+        .expect("the frame of the mark");
+    let waited = at.run(&["--session", "qa", "--json", "wait", "--frame", &(marked + 30).to_string()]).success().json();
+    assert!(waited["frame"].as_u64().is_some_and(|reached| reached >= marked + 30), "{waited}");
+
+    let snapshot = at.run(&["--session", "qa", "--json", "snapshot"]).success().json();
+    assert!(snapshot["frame"].as_u64().is_some_and(|shown| shown >= marked + 30), "{snapshot}");
+    assert!(snapshot["lines"].as_array().unwrap().iter().any(|line| line.as_str().unwrap().contains("forwarding")));
+    at.run(&["--session", "qa", "screenshot", &shot.to_string_lossy()]).success();
+    assert!(std::fs::read(&shot).expect("the screenshot").starts_with(b"\x89PNG\r\n\x1a\n"));
+    let printed = at.run(&["--session", "qa", "output", "--since", "running"]).success().stdout();
+    assert!(printed.contains("forwarding"), "{printed}");
+}
+
+#[test]
+fn restart_and_close_add_no_file_to_the_session_folder() {
+    let at = AgentTerminal::new();
+    let folder = at.home().join("sessions").join("qa");
+    open_printer(&at, "qa", "open");
+    assert_eq!(names_in(&folder), ["activity.jsonl"]);
+
+    at.run(&["--session", "qa", "restart", "--wait", "line 3"]).success();
+    assert_eq!(names_in(&folder), ["activity.jsonl"]);
+
+    at.run(&["--session", "qa", "close"]).success();
+    assert_eq!(names_in(&folder), ["activity.jsonl"]);
 }
 
 fn screenshots_listed(at: &AgentTerminal, session: &str) -> Vec<Value> {
@@ -82,10 +141,6 @@ fn screenshots_listed(at: &AgentTerminal, session: &str) -> Vec<Value> {
         .lines()
         .map(|line| serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}")))
         .collect()
-}
-
-fn frame(at: &AgentTerminal) -> u64 {
-    at.run(&["get", "frame"]).success().stdout().trim().parse().expect("a frame number")
 }
 
 #[track_caller]
@@ -108,9 +163,9 @@ fn every_png_screenshot_is_listed_in_the_session_folder_with_the_call_that_took_
     let began = SystemTime::now() - Duration::from_secs(1);
     at.run(&["open", "--size", "20x4", "--wait", "line 3", &printer, "--hold"]).success();
     at.run(&["screenshot", &first]).success();
-    let first_frame = frame(&at);
+    let first_frame = at.frame("default");
     at.run(&["type", "x", "--wait", "x", "--screenshot"]).success();
-    let typed_frame = frame(&at);
+    let typed_frame = at.frame("default");
     at.run(&["screenshot", "--scale", "2", "--rows", "2:3", &crop]).success();
     at.run(&["screenshot", &text]).success();
     assert_eq!(at.run(&["diff", "screenshot", "--baseline", &first, "--output", &diff]).code(), 2);

@@ -18,7 +18,7 @@ fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
 }
 
 #[test]
-fn info_shows_the_setup_modes_recording_and_the_environment_with_secrets_masked_by_the_daemon() {
+fn info_shows_the_setup_modes_and_the_environment_with_secrets_masked_by_the_daemon() {
     let at = AgentTerminal::new();
     let cue = Cue::new();
     let printer = fixture("line-printer");
@@ -52,7 +52,7 @@ fn info_shows_the_setup_modes_recording_and_the_environment_with_secrets_masked_
 
     let shown = lists(&browser);
     let args = format!("--lines 1 --cue {}", cue.path());
-    let started = shown[0][8].1.clone();
+    let started = shown[0][7].1.clone();
     assert_eq!(
         shown[0],
         pairs(&[
@@ -63,7 +63,6 @@ fn info_shows_the_setup_modes_recording_and_the_environment_with_secrets_masked_
             ("TERM", "xterm-256color"),
             ("size", "40 × 6"),
             ("shell integration", "not a shell"),
-            ("recording", "off"),
             ("started", &started),
         ])
     );
@@ -97,11 +96,6 @@ fn info_shows_the_setup_modes_recording_and_the_environment_with_secrets_masked_
         ])
     );
 
-    let cast = at.home().join("evidence.cast");
-    at.run(&["record", "start", &cast.to_string_lossy()]).success();
-    browser.wait_for_text(&cast.to_string_lossy());
-    at.run(&["record", "stop"]).success();
-    browser.wait_until("[...document.querySelectorAll('#ppanel-info dt')].find((term) => term.textContent === 'recording').nextElementSibling.textContent === 'off'");
     at.run(&["resize", "50x8"]).success();
     browser.wait_until(
         "[...document.querySelectorAll('#ppanel-info dt')].find((term) => term.textContent === 'size').nextElementSibling.textContent === '50 × 8'",

@@ -1,8 +1,14 @@
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
+use std::net::TcpStream;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
+
+use tungstenite::{Message, WebSocket};
+
+const READ_TIMEOUT: Duration = Duration::from_secs(25);
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -12,7 +18,7 @@ pub struct AgentTerminal {
 
 impl AgentTerminal {
     pub fn new() -> Self {
-        let home = tempfile::Builder::new().prefix("at-").tempdir_in("/tmp").expect("temp home");
+        let home = scratch("at-");
         Self { home }
     }
 
@@ -59,6 +65,10 @@ impl AgentTerminal {
 
     pub fn home(&self) -> &std::path::Path {
         self.home.path()
+    }
+
+    pub fn frame(&self, session: &str) -> u64 {
+        self.run(&["--session", session, "get", "frame"]).success().stdout().trim().parse().expect("a frame number")
     }
 
     pub fn work_folder(&self) -> PathBuf {
@@ -146,7 +156,7 @@ pub struct Cue {
 
 impl Cue {
     pub fn new() -> Self {
-        let dir = tempfile::Builder::new().prefix("cue-").tempdir_in("/tmp").expect("temp cue folder");
+        let dir = scratch("cue-");
         let listener = UnixListener::bind(dir.path().join("cue")).expect("listen for the fixture's cue connection");
         Self { dir, listener, fixture: Mutex::new(None) }
     }
@@ -166,10 +176,6 @@ impl Cue {
         assert_eq!(&ack, b"\n");
     }
 
-    pub fn restarted(&self) {
-        self.fixture.lock().unwrap().take();
-    }
-
     pub fn open_line_printer(&self, at: &AgentTerminal, options: &[&str]) {
         let printer = fixture("line-printer");
         let path = self.path();
@@ -179,6 +185,81 @@ impl Cue {
         at.run(&args).success();
         self.print("");
     }
+}
+
+pub struct DashboardSocket {
+    socket: WebSocket<TcpStream>,
+}
+
+impl DashboardSocket {
+    pub fn open(port: u16, path: &str) -> Self {
+        let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to the dashboard");
+        stream.set_read_timeout(Some(READ_TIMEOUT)).expect("bound every read");
+        let url = format!("ws://localhost:{port}{path}");
+        let (socket, _) = tungstenite::client(url.as_str(), stream).unwrap_or_else(|e| panic!("open {url}: {e}"));
+        Self { socket }
+    }
+
+    pub fn next(&mut self) -> serde_json::Value {
+        match self.socket.read().expect("a dashboard message") {
+            Message::Text(text) => serde_json::from_str(&text).expect("a JSON message"),
+            other => panic!("expected a text message, got {other:?}"),
+        }
+    }
+
+    pub fn try_next(&mut self, within: Duration) -> Option<serde_json::Value> {
+        self.socket.get_ref().set_read_timeout(Some(within)).expect("bound the read");
+        let read = self.socket.read();
+        self.socket.get_ref().set_read_timeout(Some(READ_TIMEOUT)).expect("bound every read");
+        match read {
+            Ok(Message::Text(text)) => Some(serde_json::from_str(&text).expect("a JSON message")),
+            Ok(other) => panic!("expected a text message, got {other:?}"),
+            Err(tungstenite::Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => None,
+            Err(e) => panic!("reading a dashboard message failed: {e}"),
+        }
+    }
+
+    pub fn send(&mut self, message: &serde_json::Value) {
+        self.socket.send(Message::text(message.to_string())).expect("send a dashboard message");
+    }
+
+    pub fn acknowledge(&mut self, message: &serde_json::Value) -> u64 {
+        let frame = frame_number(message);
+        self.send(&serde_json::json!({ "type": "shown" }));
+        frame
+    }
+
+    pub fn acknowledge_next(&mut self) -> u64 {
+        let message = self.next();
+        self.acknowledge(&message)
+    }
+}
+
+pub fn frame_number(message: &serde_json::Value) -> u64 {
+    assert_eq!(message["type"], "frame", "{message}");
+    message["frame"].as_u64().expect("a frame number")
+}
+
+pub fn open_redraw(at: &AgentTerminal, session: &str, hz: &str, repaint: &str) {
+    at.run(&[
+        "--session",
+        session,
+        "open",
+        "--size",
+        "120x40",
+        "--wait",
+        "ready",
+        &fixture("redraw"),
+        "--hz",
+        hz,
+        repaint,
+    ])
+    .success();
+}
+
+pub fn dashboard(at: &AgentTerminal) -> u16 {
+    let started = at.run(&["--json", "dashboard", "start", "--port", "0"]).success().json();
+    started["port"].as_u64().expect("the dashboard's port") as u16
 }
 
 pub fn fixture(name: &str) -> String {
@@ -194,18 +275,6 @@ pub fn fixture(name: &str) -> String {
     dir.join(name).to_string_lossy().into_owned()
 }
 
-pub fn snapshot_rows(at: &AgentTerminal, args: &[&str]) -> (Vec<String>, u64) {
-    let mut call = vec!["--json"];
-    call.extend_from_slice(args);
-    call.push("snapshot");
-    let snapshot = at.run(&call).success().json();
-    let mut rows: Vec<String> = snapshot["lines"]
-        .as_array()
-        .expect("snapshot lines")
-        .iter()
-        .map(|row| row.as_str().unwrap().to_string())
-        .collect();
-    let shown = rows.iter().rposition(|row| !row.is_empty()).map_or(0, |last| last + 1);
-    rows.truncate(shown);
-    (rows, snapshot["frame"].as_u64().expect("the frame number"))
+pub fn scratch(prefix: &str) -> tempfile::TempDir {
+    tempfile::Builder::new().prefix(prefix).tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("scratch folder")
 }

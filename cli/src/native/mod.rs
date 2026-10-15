@@ -1,6 +1,4 @@
-pub mod cast;
 pub mod changes;
-pub mod clips;
 pub mod commands;
 pub mod control;
 pub mod daemon;
@@ -9,10 +7,8 @@ pub mod keyboard;
 pub mod mouse;
 pub mod output_log;
 pub mod pty;
-pub mod recording;
 pub mod refs;
 pub mod render;
-pub mod replay;
 pub mod screen;
 pub mod screenshots;
 pub mod shell;

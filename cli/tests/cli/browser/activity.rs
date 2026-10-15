@@ -189,6 +189,21 @@ fn in_a_split_activity_shows_the_calls_to_the_focused_terminal() {
 }
 
 #[test]
+fn clicking_an_activity_thumbnail_opens_the_lightbox_on_that_screenshot() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "40x6", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    at.run(&["screenshot", &at.home().join("shots").join("evidence.png").to_string_lossy()]).success();
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+
+    browser.wait_until(
+        "[...document.querySelectorAll(\"[aria-label='Calls to default t1'] button\")].some((thumbnail) => thumbnail.innerText.trim() === 'Open screenshot evidence.png')",
+    );
+    browser.click_button("Open screenshot evidence.png");
+    browser.wait_until("document.querySelector('[role=dialog] h2')?.innerText === 'evidence.png'");
+}
+
+#[test]
 fn a_screenshot_call_shows_the_picture_it_saved_as_a_thumbnail() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "40x6", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
