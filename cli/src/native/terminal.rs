@@ -427,10 +427,16 @@ impl Terminal {
         TabInfo {
             tab: tab.to_string(),
             program: self.program.clone(),
+            command: match self.shell {
+                Some(_) => crate::output::call_line(std::slice::from_ref(&self.command.program)),
+                None => self.command.line(),
+            },
+            cwd: self.cwd.clone(),
             cols: size.cols,
             rows: size.rows,
             exited: state.exit.is_some(),
             exit_code: state.exit.flatten(),
+            recording: self.recording.saving_to(),
         }
     }
 
@@ -493,6 +499,7 @@ impl Terminal {
     pub fn mark(&self, name: String) -> u64 {
         let mut state = self.state.lock().unwrap();
         let frame = state.frame;
+        self.recording.mark(&name);
         state.log.mark(name, frame);
         frame
     }

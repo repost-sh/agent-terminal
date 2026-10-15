@@ -5,11 +5,12 @@ mod theme;
 mod vector;
 
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 use crate::native::refs::{Glyph, Grid};
 use crate::protocol::{Look, Ref, RowRange};
-pub use diff::compare;
+pub use diff::{CellBox, changed_cells, compare};
 use fonts::{CellSize, Face, GLYPHS, Glyphs, Mask};
 use theme::{Palette, Rgb};
 pub use vector::{html, svg};
@@ -28,6 +29,10 @@ impl Image {
 
     pub fn height(&self) -> u32 {
         self.pixmap.height()
+    }
+
+    pub fn rgba(&self) -> &[u8] {
+        self.pixmap.data()
     }
 
     pub fn png(&self) -> Result<Vec<u8>> {
@@ -103,6 +108,22 @@ impl Layout {
 
     fn shows(&self, r: &Ref) -> bool {
         r.rows[1] as usize > self.first && (r.rows[0] as usize) <= self.last
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cells {
+    pub scale: u8,
+    pub cols: u16,
+    pub rows: RowRange,
+}
+
+pub fn cells(grid: &Grid, rows: RowRange, look: &Look) -> Cells {
+    let layout = Layout::new(grid, rows, look.scale);
+    Cells {
+        scale: look.scale.max(1),
+        cols: layout.cols as u16,
+        rows: RowRange { first: layout.first as u16 + 1, last: layout.last as u16 },
     }
 }
 

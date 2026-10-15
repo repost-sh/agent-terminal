@@ -11,9 +11,9 @@ use crate::mcp;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::{
-    Baseline, BatchStep, Call, ClickTarget, DashboardStopped, Direction, Expect, Get, Input, Look, MouseButton,
-    MouseEvent, Reply, Request, Response, RowRange, ScreenshotFormat, Scrollback, SessionInfo, Sessions, Shell, Shot,
-    Signal, Size, SnapshotOptions, Style, TextMatch, Theme, Wait,
+    Baseline, BatchStep, Call, ClickTarget, ClipFormat, ClipPoint, ClipRange, ClipSpec, DashboardStopped, Direction,
+    Expect, Get, Input, Look, MouseButton, MouseEvent, Reply, Request, Response, RowRange, ScreenshotFormat,
+    Scrollback, SessionInfo, Sessions, Shell, Shot, Signal, Size, SnapshotOptions, Style, TextMatch, Theme, Wait,
 };
 use crate::session_id;
 use crate::skills;
@@ -53,7 +53,7 @@ struct Cli {
     #[arg(
         long,
         global = true,
-        help = "Where screenshots go when the command names no file (default: ~/.agent-terminal/screenshots)",
+        help = "Where screenshots and clips go when the command names no file (default: ~/.agent-terminal/screenshots)",
         env = "AGENT_TERMINAL_SCREENSHOT_DIR",
         value_name = "PATH"
     )]
@@ -123,6 +123,8 @@ enum Command {
     },
     #[command(about = "Save the screen as a PNG drawn with bundled fonts (or SVG, HTML, text or ANSI)")]
     Screenshot(ScreenshotArgs),
+    #[command(about = "GIF or MP4 of what the tab showed: the last 10 seconds unless told otherwise")]
+    Clip(ClipArgs),
     #[command(about = "Where the text is on screen (row,col)")]
     Find {
         #[arg(help = "Text to look for")]
@@ -426,6 +428,89 @@ impl ScreenshotArgs {
             annotate: self.annotate,
         })
     }
+}
+
+#[derive(Args)]
+struct ClipArgs {
+    #[arg(
+        help = "Where to save it, a .gif or .mp4 file (default: <screenshot dir>/<session>-<tab>-<frame>.gif)",
+        value_name = "PATH"
+    )]
+    path: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "The last TIME of the recording: 10s, 2m or raw ms",
+        value_name = "TIME",
+        default_value = "10s",
+        value_parser = parse_duration,
+        conflicts_with = "from"
+    )]
+    last: Duration,
+
+    #[arg(
+        long,
+        help = "Start at this mark, or when the Nth call in the session's activity log began (@activity:N)",
+        value_name = "MARK|@activity:N",
+        value_parser = parse_clip_point
+    )]
+    from: Option<ClipPoint>,
+
+    #[arg(
+        long,
+        help = "End at this mark, or when the Nth call in the activity log ended (default: now)",
+        value_name = "MARK|@activity:N",
+        value_parser = parse_clip_point,
+        requires = "from"
+    )]
+    to: Option<ClipPoint>,
+
+    #[arg(
+        long,
+        help = "One shell command, from its start to its end, by its id in history",
+        value_name = "ID",
+        conflicts_with_all = ["last", "from"]
+    )]
+    command: Option<u32>,
+}
+
+impl ClipArgs {
+    fn spec(self, dir: Option<PathBuf>) -> Result<ClipSpec, String> {
+        let format = match &self.path {
+            None => ClipFormat::default(),
+            Some(path) => clip_format_of(path)?,
+        };
+        Ok(ClipSpec {
+            path: self.path.map(|path| absolute(&path)).transpose()?,
+            dir: dir.map(|dir| absolute(&dir)).transpose()?,
+            format,
+            range: match (self.command, self.from) {
+                (Some(id), _) => ClipRange::Command { id },
+                (None, Some(from)) => ClipRange::Between { from, to: self.to },
+                (None, None) => ClipRange::Last { ms: self.last.as_millis() as u64 },
+            },
+        })
+    }
+}
+
+fn clip_format_of(path: &std::path::Path) -> Result<ClipFormat, String> {
+    let extension = path.extension().and_then(|extension| extension.to_str()).unwrap_or_default().to_ascii_lowercase();
+    ClipFormat::ALL
+        .into_iter()
+        .find(|format| format.name() == extension)
+        .ok_or_else(|| format!("a clip is a .gif or .mp4 file; {} is neither", path.display()))
+}
+
+fn parse_clip_point(value: &str) -> Result<ClipPoint, String> {
+    let Some(entry) = value.strip_prefix("@activity:") else {
+        return Ok(ClipPoint::Mark(value.to_string()));
+    };
+    entry
+        .parse()
+        .ok()
+        .filter(|entry| *entry > 0)
+        .map(ClipPoint::Activity)
+        .ok_or_else(|| format!("{value} is not an activity entry; count them from 1, e.g. @activity:3"))
 }
 
 fn format_of(path: Option<&std::path::Path>) -> Option<ScreenshotFormat> {
@@ -1105,6 +1190,7 @@ fn request(cli: Cli) -> Result<Request, String> {
             Request::TraceExport { session, path: absolute(&path)? }
         }
         Command::Screenshot(args) => Request::Screenshot { session, tab: cli.tab, shot: args.shot(dir)? },
+        Command::Clip(args) => Request::Clip { session, tab: cli.tab, clip: args.spec(dir)? },
         Command::Type(args) => {
             let typed = Input::Type { text: args.text, delay_ms: args.delay };
             input(session, cli.tab, typed, args.after, dir, cli.timeout)?
@@ -1306,10 +1392,7 @@ fn parse_size(value: &str) -> Result<Size, String> {
     let (cols, rows) = value.split_once('x').ok_or("expected COLSxROWS, e.g. 120x40")?;
     let cols: u16 = cols.parse().map_err(|_| format!("invalid column count: {cols}"))?;
     let rows: u16 = rows.parse().map_err(|_| format!("invalid row count: {rows}"))?;
-    if !(2..=1000).contains(&cols) || !(2..=1000).contains(&rows) {
-        return Err("columns and rows must be between 2 and 1000".into());
-    }
-    Ok(Size { cols, rows })
+    Size::new(cols, rows)
 }
 
 fn read_baseline(path: &std::path::Path) -> Result<Baseline, String> {

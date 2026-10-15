@@ -3,6 +3,8 @@ mod assets;
 mod commands;
 mod details;
 mod guard;
+mod open;
+mod screenshots;
 mod stream;
 
 use std::io::ErrorKind;
@@ -122,15 +124,21 @@ async fn serve(app: Router, v4: TcpListener, v6: Option<TcpListener>, stopped: o
 
 fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
     Router::new()
-        .route("/api/sessions", get(api::sessions))
+        .route("/api/sessions", get(api::sessions).post(open::open))
         .route("/api/sessions/stream", get(api::sessions_stream))
+        .route("/api/sessions/close", post(api::close_all))
         .route("/api/session/{session}/{tab}/stream", get(stream::tab))
         .route("/api/session/{session}/{tab}/activity", get(details::activity))
         .route("/api/session/{session}/{tab}/output", get(details::output))
         .route("/api/session/{session}/{tab}/info", get(details::info))
         .route("/api/session/{session}/screenshots/{path}", get(details::screenshot))
+        .route("/api/session/{session}/screenshots/stream", get(screenshots::stream))
+        .route("/api/session/{session}/screenshots/compare", post(screenshots::compare))
         .route("/api/session/{session}/{tab}/restart", post(api::restart))
         .route("/api/session/{session}/{tab}/close", post(api::close))
+        .route("/api/session/{session}/{tab}/screenshot", post(api::screenshot))
+        .route("/api/session/{session}/{tab}/record/start", post(api::record_start))
+        .route("/api/session/{session}/{tab}/record/stop", post(api::record_stop))
         .route("/api/session/{session}/{tab}/commands/stream", get(commands::stream))
         .route("/api/session/{session}/{tab}/commands/{id}", get(commands::output))
         .fallback(assets::serve)

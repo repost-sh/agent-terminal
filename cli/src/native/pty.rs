@@ -18,6 +18,13 @@ pub struct Command {
     pub size: Size,
 }
 
+impl Command {
+    pub fn line(&self) -> String {
+        let typed: Vec<String> = std::iter::once(&self.program).chain(&self.args).cloned().collect();
+        crate::output::call_line(&typed)
+    }
+}
+
 pub struct Spawned {
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,

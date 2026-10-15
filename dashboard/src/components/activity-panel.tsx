@@ -5,10 +5,12 @@ import { resultOf, useActivity } from "../lib/activity";
 import { screenshotUrl } from "../lib/api";
 import { clockMs, formatDuration } from "../lib/format";
 import type { ActivityEntry } from "../lib/protocol";
+import { fileName, useScreenshots } from "../lib/screenshots";
 import { tabName } from "../lib/tabs";
 import type { PanelProps } from "../panels";
 import { announce } from "./announcer";
 import { HEAD_TOGGLE, PanelHead } from "./panel-parts";
+import { openLightbox } from "./screenshot-lightbox";
 import { cn } from "./ui";
 
 const FOLLOWING_WITHIN_PX = 40;
@@ -33,30 +35,43 @@ const stickToLatest = (list: HTMLOListElement | null) => {
   return () => watcher.disconnect();
 };
 
-const fileName = (path: string) => path.split("/").pop() ?? path;
+const THUMBNAIL =
+  "block w-40 max-w-full overflow-hidden rounded-sm ring-1 ring-border outline-none hover:ring-ring focus-visible:ring-2 focus-visible:ring-ring";
 
-const Thumbnails = ({ session, paths }: { session: string; paths: string[] }) => (
-  <>
-    {paths
-      .filter((path) => path.toLowerCase().endsWith(".png"))
-      .map((path) => (
-        <div key={path} className="mb-1.5 flex gap-2">
-          <span className="invisible shrink-0 font-mono text-xs" aria-hidden="true">
-            00:00:00.000
-          </span>
-          <a
-            href={screenshotUrl(session, path)}
-            target="_blank"
-            rel="noreferrer"
-            className="block w-40 max-w-full overflow-hidden rounded-sm ring-1 ring-border outline-none hover:ring-ring focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <span className="sr-only">Open screenshot {fileName(path)}</span>
-            <img src={screenshotUrl(session, path)} alt="" className="block w-full" />
-          </a>
-        </div>
-      ))}
-  </>
-);
+const Thumbnails = ({ session, paths }: { session: string; paths: string[] }) => {
+  const shots = useScreenshots(session).value;
+  return (
+    <>
+      {paths
+        .filter((path) => path.toLowerCase().endsWith(".png"))
+        .map((path) => {
+          const shot = shots.find((listed) => listed.path === path);
+          const picture = (
+            <>
+              <span className="sr-only">Open screenshot {fileName(path)}</span>
+              <img src={screenshotUrl(session, path)} alt="" className="block w-full" />
+            </>
+          );
+          return (
+            <div key={path} className="mb-1.5 flex gap-2">
+              <span className="invisible shrink-0 font-mono text-xs" aria-hidden="true">
+                00:00:00.000
+              </span>
+              {shot ? (
+                <button type="button" onClick={() => openLightbox(session, shot)} className={THUMBNAIL}>
+                  {picture}
+                </button>
+              ) : (
+                <a href={screenshotUrl(session, path)} target="_blank" rel="noreferrer" className={THUMBNAIL}>
+                  {picture}
+                </a>
+              )}
+            </div>
+          );
+        })}
+    </>
+  );
+};
 
 type RowProps = { session: string; entry: ActivityEntry; expanded: boolean; onToggle: () => void };
 

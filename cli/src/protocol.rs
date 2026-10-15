@@ -15,6 +15,15 @@ pub struct Size {
     pub rows: u16,
 }
 
+impl Size {
+    pub fn new(cols: u16, rows: u16) -> Result<Self, String> {
+        if !(2..=1000).contains(&cols) || !(2..=1000).contains(&rows) {
+            return Err("columns and rows must be between 2 and 1000".into());
+        }
+        Ok(Self { cols, rows })
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "until", rename_all = "kebab-case")]
 pub enum Wait {
@@ -276,6 +285,11 @@ pub enum Request {
         shot: Shot,
         threshold: f64,
     },
+    Clip {
+        session: String,
+        tab: Option<u32>,
+        clip: ClipSpec,
+    },
 }
 
 impl Request {
@@ -310,7 +324,8 @@ impl Request {
             | Request::History { session, tab, .. }
             | Request::HistoryShow { session, tab, .. }
             | Request::Screenshot { session, tab, .. }
-            | Request::DiffScreenshot { session, tab, .. } => Addressed::Tab(session, *tab),
+            | Request::DiffScreenshot { session, tab, .. }
+            | Request::Clip { session, tab, .. } => Addressed::Tab(session, *tab),
         }
     }
 }
@@ -431,6 +446,63 @@ pub struct Shot {
     pub look: Look,
     pub rows: Option<RowRange>,
     pub annotate: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClipFormat {
+    #[default]
+    Gif,
+    Mp4,
+}
+
+impl ClipFormat {
+    pub const ALL: [ClipFormat; 2] = [ClipFormat::Gif, ClipFormat::Mp4];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ClipFormat::Gif => "gif",
+            ClipFormat::Mp4 => "mp4",
+        }
+    }
+}
+
+impl fmt::Display for ClipFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ClipSpec {
+    pub path: Option<PathBuf>,
+    pub dir: Option<PathBuf>,
+    pub format: ClipFormat,
+    pub range: ClipRange,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "range", rename_all = "kebab-case")]
+pub enum ClipRange {
+    Last { ms: u64 },
+    Between { from: ClipPoint, to: Option<ClipPoint> },
+    Command { id: u32 },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClipPoint {
+    Mark(String),
+    Activity(usize),
+}
+
+impl fmt::Display for ClipPoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ClipPoint::Mark(name) => f.write_str(name),
+            ClipPoint::Activity(entry) => write!(f, "@activity:{entry}"),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -694,6 +766,19 @@ pub enum Reply {
     Command(CommandOutput),
     Screenshot(Screenshot),
     ScreenshotDiff(ScreenshotDiff),
+    Clip(Clip),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Clip {
+    pub session: String,
+    pub tab: String,
+    pub path: PathBuf,
+    pub format: ClipFormat,
+    pub frames: usize,
+    pub duration_ms: u64,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -951,10 +1036,13 @@ impl SessionInfo {
 pub struct TabInfo {
     pub tab: String,
     pub program: String,
+    pub command: String,
+    pub cwd: String,
     pub cols: u16,
     pub rows: u16,
     pub exited: bool,
     pub exit_code: Option<i32>,
+    pub recording: Option<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
