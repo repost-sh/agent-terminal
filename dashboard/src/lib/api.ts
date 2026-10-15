@@ -1,4 +1,4 @@
-import type { CommandOutput, ErrorBody } from "./protocol";
+import type { CommandOutput, Compared, ErrorBody } from "./protocol";
 
 const tabPath = (session: string, tab: string) => `/api/session/${encodeURIComponent(session)}/${encodeURIComponent(tab)}`;
 
@@ -12,6 +12,8 @@ export const commandsStreamUrl = (session: string, tab: string) => socketUrl(`${
 
 export const screenshotUrl = (session: string, path: string) =>
   `/api/session/${encodeURIComponent(session)}/screenshots/${encodeURIComponent(path)}`;
+
+export const screenshotsFeedPath = (session: string) => `/api/session/${encodeURIComponent(session)}/screenshots/stream`;
 
 export const tabFeedPath = (session: string, tab: string, feed: "activity" | "output" | "info") => `${tabPath(session, tab)}/${feed}`;
 
@@ -61,4 +63,15 @@ export const commandOutput = async (session: string, tab: string, id: number) =>
   const text = await response.text();
   if (!response.ok) throw new Error(refusal(text, response));
   return (JSON.parse(text) as CommandOutput).output;
+};
+
+export const compareScreenshots = async (session: string, older: string, newer: string) => {
+  const response = await fetch(`/api/session/${encodeURIComponent(session)}/screenshots/compare`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ paths: [older, newer] }),
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(refusal(text, response));
+  return JSON.parse(text) as Compared;
 };

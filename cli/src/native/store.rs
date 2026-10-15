@@ -6,13 +6,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use zip::write::SimpleFileOptions;
 
 use crate::native::changes::Changes;
 use crate::native::pty;
 use crate::native::recording::Recording;
+use crate::native::render::Cells;
 use crate::output::call_line;
 use crate::protocol::CommandRecord;
 
@@ -22,6 +23,8 @@ pub struct SessionFolder {
     last_tab: AtomicU32,
     activity: Mutex<()>,
     logged: Changes,
+    screenshots: Mutex<()>,
+    screenshots_listed: Changes,
 }
 
 #[derive(Serialize)]
@@ -44,6 +47,19 @@ pub struct ActivityEntry {
 }
 
 const KEPT_OUTPUT_BYTES: usize = 64 * 1024;
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ScreenshotEntry {
+    pub time: String,
+    pub tab: String,
+    pub frame: u64,
+    pub path: PathBuf,
+    pub by: Option<String>,
+    pub width: u32,
+    pub height: u32,
+    #[serde(flatten)]
+    pub cells: Cells,
+}
 
 impl ActivityEntry {
     pub fn at(time: SystemTime, typed: &[String], duration: Duration) -> Self {
@@ -87,6 +103,8 @@ impl SessionFolder {
             last_tab: AtomicU32::new(0),
             activity: Mutex::new(()),
             logged: Changes::default(),
+            screenshots: Mutex::new(()),
+            screenshots_listed: Changes::default(),
         })
     }
 
@@ -104,6 +122,24 @@ impl SessionFolder {
             Ok(()) => self.logged.notify(),
             Err(e) => eprintln!("adding `{}` to the activity log {} failed: {e:#}", entry.command, path.display()),
         }
+    }
+
+    pub fn keep_screenshot(&self, entry: &ScreenshotEntry) {
+        let path = self.path.join("screenshots.jsonl");
+        let appended = serde_json::to_string(entry).map_err(anyhow::Error::from).and_then(|line| {
+            let _turn = self.screenshots.lock().unwrap();
+            append_line(&path, &line)
+        });
+        match appended {
+            Ok(()) => self.screenshots_listed.notify(),
+            Err(e) => {
+                eprintln!("adding {} to the screenshot list {} failed: {e:#}", entry.path.display(), path.display())
+            }
+        }
+    }
+
+    pub fn screenshots_listed(&self) -> watch::Receiver<u64> {
+        self.screenshots_listed.subscribe()
     }
 
     pub fn logged(&self) -> watch::Receiver<u64> {
@@ -129,6 +165,24 @@ impl SessionFolder {
             .collect::<Result<Vec<_>, _>>()
             .with_context(|| format!("read {}", path.display()))?;
         Ok((entries, offset + complete as u64))
+    }
+
+    pub fn screenshots(&self) -> Result<Vec<ScreenshotEntry>> {
+        let path = self.path.join("screenshots.jsonl");
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+        };
+        let complete = text.rfind('\n').map_or(0, |end| end + 1);
+        let mut kept: Vec<ScreenshotEntry> = Vec::new();
+        for line in text[..complete].lines() {
+            let entry: ScreenshotEntry =
+                serde_json::from_str(line).with_context(|| format!("read {}: {line}", path.display()))?;
+            kept.retain(|earlier| earlier.path != entry.path);
+            kept.push(entry);
+        }
+        Ok(kept)
     }
 
     pub fn record(&self, tab: &str, command: &pty::Command) -> Arc<Recording> {

@@ -164,6 +164,15 @@
   opacity: 0.45;
 }
 
+.term-box {
+  container-type: size;
+}
+
+.shot-changed {
+  background: rgb(245 158 11 / 0.35);
+  box-shadow: inset 0 -2px 0 #f59e0b;
+}
+
 .term-frame .xterm .xterm-viewport {
   overflow-y: hidden;
 }

@@ -22,6 +22,7 @@ const BUTTON_SIZE = {
 };
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  ref?: Ref<HTMLButtonElement>;
   variant?: keyof typeof BUTTON_VARIANT;
   size?: keyof typeof BUTTON_SIZE;
   icon?: LucideIcon;

@@ -4,6 +4,7 @@ mod commands;
 mod details;
 mod guard;
 mod open;
+mod screenshots;
 mod stream;
 
 use std::io::ErrorKind;
@@ -131,6 +132,8 @@ fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
         .route("/api/session/{session}/{tab}/output", get(details::output))
         .route("/api/session/{session}/{tab}/info", get(details::info))
         .route("/api/session/{session}/screenshots/{path}", get(details::screenshot))
+        .route("/api/session/{session}/screenshots/stream", get(screenshots::stream))
+        .route("/api/session/{session}/screenshots/compare", post(screenshots::compare))
         .route("/api/session/{session}/{tab}/restart", post(api::restart))
         .route("/api/session/{session}/{tab}/close", post(api::close))
         .route("/api/session/{session}/{tab}/screenshot", post(api::screenshot))

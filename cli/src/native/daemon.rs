@@ -17,11 +17,11 @@ use crate::native::shell;
 use crate::native::store::{self, ActivityEntry, SessionFolder};
 use crate::native::terminal::{Settled, Terminal};
 use crate::native::wait::{Condition, Pattern};
-use crate::output;
+use crate::output::{self, call_line};
 use crate::protocol::{
     self, Addressed, BatchOutcome, BatchStep, Call, Checked, Closed, CommandOutput, CommandRecord, Dashboard,
     DashboardStopped, Delivered, ErrorBody, Expect, Export, History, Input, Marked, Matches, Printed, RecordingFile,
-    Reply, Request, Response, RowRange, SavedRecording, SessionInfo, Sessions, Shell, Shot, Size, Snapshot,
+    Reply, Request, Response, RowRange, SavedRecording, Screenshot, SessionInfo, Sessions, Shell, Shot, Size, Snapshot,
     SnapshotOptions, Style, TabRef, TextMatch, Wait, Waited,
 };
 
@@ -123,7 +123,7 @@ impl Daemon {
         let stop = matches!(call.request, Request::Stop);
         let logged = call.typed.and_then(|typed| self.about_to_handle(typed, &call.request));
         let handled = match &busy {
-            Some(_) => self.handle(call.request),
+            Some(_) => self.handle(call.request, logged.as_ref().map(|logged| logged.typed.as_slice())),
             None => Err(stopping()),
         };
         if let Some(logged) = logged {
@@ -141,7 +141,7 @@ impl Daemon {
         }
     }
 
-    fn handle(&self, request: Request) -> Result<Reply, ErrorBody> {
+    fn handle(&self, request: Request, typed: Option<&[String]>) -> Result<Reply, ErrorBody> {
         match request {
             Request::Open { session, program, args, size, cwd, env, wait, timeout_ms } => {
                 self.open(session, pty::Command { program, args, cwd, env, size }, wait.as_ref(), timeout_ms)
@@ -176,11 +176,11 @@ impl Daemon {
             }
             Request::Input { session, tab, input, wait, snapshot, screenshot, timeout_ms } => {
                 let after = After { wait: wait.as_ref(), snapshot, screenshot: screenshot.as_ref() };
-                self.input(session, tab, &input, after, timeout_ms)
+                self.input(session, tab, &input, after, timeout_ms, typed)
             }
             Request::Screenshot { session, tab, shot } => {
                 let (id, terminal) = self.target(&session, tab)?;
-                screenshots::take(&session, &tab_name(id), &terminal, &shot).map(Reply::Screenshot).map_err(error_body)
+                self.screenshot(&session, &tab_name(id), &terminal, &shot, typed).map(Reply::Screenshot)
             }
             Request::DiffScreenshot { session, tab, baseline, shot, threshold } => {
                 let (id, terminal) = self.target(&session, tab)?;
@@ -346,7 +346,7 @@ impl Daemon {
             });
         }
         let logged = self.about_to_handle(args.to_vec(), &request);
-        let handled = self.handle(request);
+        let handled = self.handle(request, Some(args));
         if let Some(logged) = logged {
             self.log(logged, &handled);
         }
@@ -583,6 +583,7 @@ impl Daemon {
         input: &Input,
         after: After<'_>,
         timeout_ms: u64,
+        typed: Option<&[String]>,
     ) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&session, tab)?;
         let tab = tab_name(id);
@@ -593,11 +594,27 @@ impl Daemon {
         }
         let screenshot = after
             .screenshot
-            .map(|shot| screenshots::take(&session, &tab, &terminal, shot).map_err(error_body))
+            .map(|shot| self.screenshot(&session, &tab, &terminal, shot, typed))
             .transpose()?
             .map(Box::new);
         let snapshot = after.snapshot.then(|| Box::new(terminal.snapshot(&session, &tab)));
         Ok(Reply::Delivered(Delivered { session, tab, delivery, screenshot, snapshot }))
+    }
+
+    fn screenshot(
+        &self,
+        session: &str,
+        tab: &str,
+        terminal: &Terminal,
+        shot: &Shot,
+        typed: Option<&[String]>,
+    ) -> Result<Screenshot, ErrorBody> {
+        let taken = screenshots::take(session, tab, terminal, shot, typed.map(call_line)).map_err(error_body)?;
+        let folder = self.sessions.lock().unwrap().get(session).map(|entry| Arc::clone(&entry.folder));
+        if let Some((entry, folder)) = taken.listed.zip(folder) {
+            folder.keep_screenshot(&entry);
+        }
+        Ok(taken.screenshot)
     }
 
     fn wait(&self, session: String, tab: Option<u32>, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
@@ -769,7 +786,7 @@ impl Daemon {
 impl Backend for Daemon {
     fn call(&self, request: Request) -> Result<Reply, ErrorBody> {
         match self.busy() {
-            Some(_busy) => self.handle(request),
+            Some(_busy) => self.handle(request, None),
             None => Err(stopping()),
         }
     }

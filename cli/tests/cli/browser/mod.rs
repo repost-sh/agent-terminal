@@ -5,6 +5,7 @@ mod empty;
 mod info;
 mod new_session;
 mod output;
+mod screenshots;
 mod sidebar;
 mod split;
 mod terminal;
