@@ -30,6 +30,11 @@ const BANNED: &[(&str, &str, Scope)] = &[
     ("#[expect(", "silenced lint", Scope::Everywhere),
     ("#![expect(", "silenced lint", Scope::Everywhere),
     ("#[ignore", "skipped test", Scope::Everywhere),
+    ("coverage(off)", "code hidden from coverage", Scope::Everywhere),
+    ("cfg(coverage", "code that differs under coverage", Scope::Everywhere),
+    ("cfg(not(coverage", "code that differs under coverage", Scope::Everywhere),
+    ("cfg_attr(coverage", "code that differs under coverage", Scope::Everywhere),
+    ("mutants::skip", "code hidden from mutation testing", Scope::Everywhere),
     ("thread::sleep", "sleep used as synchronization; wait on the event instead", Scope::ProductCode),
     ("let _ =", "dropped result; return it or log why it can fail", Scope::ProductCode),
     ("alacritty_terminal", "the screen engine belongs in src/native/screen/", Scope::OutsideOf("src/native/screen/")),
@@ -53,6 +58,12 @@ const BANNED: &[(&str, &str, Scope)] = &[
         "toml",
         "the TOML reader belongs in tests/static_checks/lint_table.rs",
         Scope::OutsideOf("tests/static_checks/lint_table.rs"),
+    ),
+    ("syn", "the Rust parser belongs in gauntlet/src/functions.rs", Scope::OutsideOf("gauntlet/src/functions.rs")),
+    (
+        "proc_macro2",
+        "the Rust parser belongs in gauntlet/src/functions.rs",
+        Scope::OutsideOf("gauntlet/src/functions.rs"),
     ),
 ];
 
@@ -101,11 +112,19 @@ fn contains_token(line: &str, pattern: &str) -> bool {
 
 #[test]
 fn banned_tokens_match_whole_words_only() {
-    assert!(contains_token("    unsafe { x }", "unsafe"));
-    assert!(!contains_token("let not_unsafe = 1;", "unsafe"));
-    assert!(contains_token("#[allow(dead_code)]", "#[allow("));
-    assert!(contains_token("        let _ = writer.flush();", "let _ ="));
-    assert!(contains_token("use portable_pty::CommandBuilder;", "portable_pty"));
+    let cases = [
+        ("    unsafe { x }", "unsafe", true),
+        ("let not_unsafe = 1;", "unsafe", false),
+        ("#[allow(dead_code)]", "#[allow(", true),
+        ("        let _ = writer.flush();", "let _ =", true),
+        ("use portable_pty::CommandBuilder;", "portable_pty", true),
+        ("#[cfg_attr(coverage_nightly, coverage(off))]", "coverage(off)", true),
+        ("#[mutants::skip]", "mutants::skip", true),
+        ("use syn::visit::Visit;", "syn", true),
+        ("async fn run() {}", "syn", false),
+    ];
+    let wrong: Vec<_> = cases.iter().filter(|(line, pattern, found)| contains_token(line, pattern) != *found).collect();
+    assert_eq!(wrong, Vec::<&(&str, &str, bool)>::new());
 }
 
 #[test]
