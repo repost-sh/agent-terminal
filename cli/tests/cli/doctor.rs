@@ -4,8 +4,23 @@ const FONTS: &str = "ok       fonts    JetBrains Mono, Symbols Nerd Font Mono an
 
 const NO_SCRIPTS_YET: &str = "ok       shell    zsh (your SHELL) has shell integration; `agent-terminal shell` writes its scripts when it first runs\n";
 
+fn user(at: &AgentTerminal) -> std::path::PathBuf {
+    at.home().join("user")
+}
+
+fn stub(at: &AgentTerminal) -> std::path::PathBuf {
+    user(at).join(".claude/skills/agent-terminal/SKILL.md")
+}
+
+fn no_skill(at: &AgentTerminal) -> String {
+    format!(
+        "ok       skill    the agent-terminal skill is not installed at {}; `agent-terminal install --skills` installs it\n",
+        stub(at).display()
+    )
+}
+
 fn doctor(at: &AgentTerminal, args: &[&str]) -> Run {
-    at.run_with(args, "", &[("SHELL", "/bin/zsh")])
+    at.run_with(args, "", &[("SHELL", "/bin/zsh"), ("HOME", &user(at).to_string_lossy())])
 }
 
 #[test]
@@ -16,7 +31,8 @@ fn doctor_checks_the_pty_the_fonts_and_the_daemon_without_starting_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}ok       daemon   not running; the next command starts it\n"
+            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}ok       daemon   not running; the next command starts it\n{}",
+            no_skill(&at)
         )
     );
     assert!(!socket.exists(), "doctor must not start the daemon");
@@ -26,8 +42,9 @@ fn doctor_checks_the_pty_the_fonts_and_the_daemon_without_starting_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}ok       daemon   running, listening on {}\n",
-            socket.display()
+            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}ok       daemon   running, listening on {}\n{}",
+            socket.display(),
+            no_skill(&at)
         )
     );
 }
@@ -87,6 +104,7 @@ fn doctor_says_when_your_shell_has_no_integration() {
         (None, "SHELL is not set, so `agent-terminal shell` does not know which shell to open"),
     ] {
         let mut command = at.command(&["doctor"]);
+        command.env("HOME", user(&at));
         match env {
             Some(shell) => command.env("SHELL", shell),
             None => command.env_remove("SHELL"),
@@ -114,8 +132,9 @@ fn doctor_reports_a_stale_socket_and_fix_removes_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}problem  daemon   stale socket {}: no daemon is listening on it\n                  fix: agent-terminal doctor --fix removes it\n",
-            socket.display()
+            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}problem  daemon   stale socket {}: no daemon is listening on it\n                  fix: agent-terminal doctor --fix removes it\n{}",
+            socket.display(),
+            no_skill(&at)
         )
     );
     assert!(socket.exists(), "doctor without --fix must not change anything");
@@ -124,8 +143,9 @@ fn doctor_reports_a_stale_socket_and_fix_removes_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}fixed    daemon   removed the stale socket {}\n",
-            socket.display()
+            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}fixed    daemon   removed the stale socket {}\n{}",
+            socket.display(),
+            no_skill(&at)
         )
     );
     assert!(!socket.exists());
@@ -155,11 +175,19 @@ fn doctor_says_how_to_fix_a_socket_path_the_system_cannot_use() {
     let at = AgentTerminal::new();
     let home = at.home().join("x".repeat(120));
     let socket = home.join("daemon.sock");
-    let run = at.run_with(&["doctor"], "", &[("AGENT_TERMINAL_HOME", &home.to_string_lossy()), ("SHELL", "/bin/zsh")]);
+    let run = at.run_with(
+        &["doctor"],
+        "",
+        &[
+            ("AGENT_TERMINAL_HOME", &home.to_string_lossy()),
+            ("SHELL", "/bin/zsh"),
+            ("HOME", &user(&at).to_string_lossy()),
+        ],
+    );
     assert_eq!(run.code(), 1);
     let stdout = run.stdout();
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 5, "{stdout}");
+    assert_eq!(lines.len(), 6, "{stdout}");
     assert!(
         lines[3].starts_with(&format!("problem  daemon   cannot reach the daemon socket {}: ", socket.display())),
         "{stdout}"
@@ -187,7 +215,15 @@ fn doctor_json_lists_every_check() {
                     "status": "ok",
                     "message": "zsh (your SHELL) has shell integration; `agent-terminal shell` writes its scripts when it first runs"
                 },
-                { "name": "daemon", "status": "ok", "message": "not running; the next command starts it" }
+                { "name": "daemon", "status": "ok", "message": "not running; the next command starts it" },
+                {
+                    "name": "skill",
+                    "status": "ok",
+                    "message": format!(
+                        "the agent-terminal skill is not installed at {}; `agent-terminal install --skills` installs it",
+                        stub(&at).display()
+                    )
+                }
             ]
         })
     );
@@ -206,4 +242,132 @@ fn doctor_json_lists_every_check() {
         })
     );
     assert_eq!(run.json()["ok"], false);
+}
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn skill_lines(run: &Run) -> Vec<String> {
+    run.stdout().lines().skip(4).map(str::to_string).collect()
+}
+
+#[test]
+fn doctor_says_the_installed_skill_is_this_version() {
+    let at = AgentTerminal::new();
+    at.run_with_env(&["install", "--skills"], &[("HOME", &user(&at))]).success();
+    let message = format!("the agent-terminal skill at {} is this version ({VERSION})", stub(&at).display());
+
+    let run = doctor(&at, &["doctor"]).success();
+    assert_eq!(skill_lines(&run), [format!("ok       skill    {message}")]);
+
+    let json = doctor(&at, &["doctor", "--json"]).success().json();
+    assert_eq!(json["checks"][4], serde_json::json!({ "name": "skill", "status": "ok", "message": message }));
+    assert_eq!(json["ok"], true);
+}
+
+fn stub_of_version(version: &str) -> String {
+    format!(
+        "---\nname: agent-terminal\ndescription: The stub of agent-terminal {version}\nmetadata:\n  version: \"{version}\"\n---\n\n# agent-terminal {version}\n"
+    )
+}
+
+fn put_stub(at: &AgentTerminal, contents: &str) {
+    std::fs::create_dir_all(stub(at).parent().unwrap()).unwrap();
+    std::fs::write(stub(at), contents).unwrap();
+}
+
+fn installed(at: &AgentTerminal) -> String {
+    std::fs::read_to_string(stub(at)).unwrap()
+}
+
+fn a_stale_skill_is_a_problem_and_fix_rewrites_it(stale: &str, state: &str) {
+    let at = AgentTerminal::new();
+    let current = at.run(&["skills", "get", "agent-terminal"]).success().stdout();
+    let problem = format!("the agent-terminal skill at {} {state}", stub(&at).display());
+    let fix = "agent-terminal doctor --fix rewrites it";
+    let fixed = format!("rewrote the agent-terminal skill at {} as this version ({VERSION})", stub(&at).display());
+    put_stub(&at, stale);
+
+    let run = doctor(&at, &["doctor"]);
+    assert_eq!(run.code(), 1);
+    assert_eq!(skill_lines(&run), [format!("problem  skill    {problem}"), format!("                  fix: {fix}")]);
+    let run = doctor(&at, &["doctor", "--json"]);
+    assert_eq!(run.code(), 1);
+    assert_eq!(
+        run.json()["checks"][4],
+        serde_json::json!({ "name": "skill", "status": "problem", "message": problem, "fix": fix })
+    );
+    assert_eq!(run.json()["ok"], false);
+    assert_eq!(installed(&at), stale, "doctor without --fix changes nothing");
+
+    let run = doctor(&at, &["doctor", "--fix"]).success();
+    assert_eq!(skill_lines(&run), [format!("fixed    skill    {fixed}")]);
+    assert_eq!(installed(&at), current);
+
+    put_stub(&at, stale);
+    let json = doctor(&at, &["doctor", "--fix", "--json"]).success().json();
+    assert_eq!(json["checks"][4], serde_json::json!({ "name": "skill", "status": "fixed", "message": fixed }));
+    assert_eq!(json["ok"], true);
+    assert_eq!(installed(&at), current);
+
+    assert_eq!(
+        skill_lines(&doctor(&at, &["doctor"]).success()),
+        [format!("ok       skill    the agent-terminal skill at {} is this version ({VERSION})", stub(&at).display())]
+    );
+}
+
+#[test]
+fn doctor_reports_an_older_skill_and_fix_rewrites_it() {
+    a_stale_skill_is_a_problem_and_fix_rewrites_it(
+        &stub_of_version("0.0.1"),
+        &format!("is 0.0.1, older than this version ({VERSION})"),
+    );
+}
+
+#[test]
+fn doctor_reports_an_unversioned_skill_and_fix_rewrites_it() {
+    a_stale_skill_is_a_problem_and_fix_rewrites_it(
+        "# my notes\n",
+        &format!("has no version, so it may not be this version ({VERSION})"),
+    );
+}
+
+#[test]
+fn doctor_reports_a_newer_skill_and_fix_leaves_it() {
+    let at = AgentTerminal::new();
+    let newer = stub_of_version("999.0.0");
+    put_stub(&at, &newer);
+    let problem =
+        format!("the agent-terminal skill at {} is 999.0.0, newer than this version ({VERSION})", stub(&at).display());
+    let fix = "agent-terminal upgrade brings agent-terminal up to it (doctor --fix does not downgrade a skill)";
+
+    for args in [&["doctor"][..], &["doctor", "--fix"]] {
+        let run = doctor(&at, args);
+        assert_eq!(run.code(), 1, "{args:?}");
+        assert_eq!(
+            skill_lines(&run),
+            [format!("problem  skill    {problem}"), format!("                  fix: {fix}")]
+        );
+        let run = doctor(&at, &[args, &["--json"]].concat());
+        assert_eq!(run.code(), 1, "{args:?}");
+        assert_eq!(
+            run.json()["checks"][4],
+            serde_json::json!({ "name": "skill", "status": "problem", "message": problem, "fix": fix })
+        );
+        assert_eq!(run.json()["ok"], false);
+        assert_eq!(installed(&at), newer, "{args:?} must leave a newer skill alone");
+    }
+}
+
+#[test]
+fn doctor_says_it_cannot_find_the_skill_without_home() {
+    let at = AgentTerminal::new();
+    let run = Run(at.command(&["doctor"]).env("SHELL", "/bin/zsh").env_remove("HOME").output().expect("run doctor"));
+    assert_eq!(run.code(), 1);
+    assert_eq!(
+        skill_lines(&run),
+        [
+            "problem  skill    HOME is not set; it locates the agent skills folder ~/.claude/skills",
+            "                  fix: check that HOME is set and that you can read and write ~/.claude/skills/agent-terminal/SKILL.md",
+        ]
+    );
 }
