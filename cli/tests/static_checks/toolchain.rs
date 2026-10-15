@@ -7,7 +7,7 @@ use crate::rust_source::scan;
 const LINT_FLAGS: &[&str] =
     &["RUSTFLAGS", "cap-lints", "CLIPPY_CONF_DIR", "-A clippy", "-Aclippy", "-A warnings", "-Awarnings", "--no-verify"];
 
-const TEST_ROOTS: &[&str] = &["tests/cli/main.rs", "tests/static_checks/main.rs"];
+const TEST_ROOTS: &[&str] = &["tests/cli/main.rs", "tests/static_checks/main.rs", "perf/tests/perf/main.rs"];
 
 fn sealed() -> Offenses {
     Offenses::of(Rule {
@@ -73,7 +73,7 @@ fn cfg_test_offenses(relative: &str, code: &str) -> Vec<String> {
 }
 
 #[test]
-fn cfg_test_only_marks_the_modules_of_the_two_test_crate_roots() {
+fn cfg_test_only_marks_the_modules_of_the_test_crate_roots() {
     let mut offenses = sealed();
     for file in rust_files() {
         let relative = relative(&file, cli());
