@@ -1,16 +1,10 @@
-use crate::native::screen::COLOR_NAMES;
+use crate::native::screen::Colour;
 use crate::protocol::Theme;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rgb(pub u8, pub u8, pub u8);
 
 impl Rgb {
-    fn hex(text: &str) -> Option<Self> {
-        let digits = text.strip_prefix('#').filter(|digits| digits.len() == 6)?;
-        let channel = |at: usize| u8::from_str_radix(&digits[at..at + 2], 16).ok();
-        Some(Rgb(channel(0)?, channel(2)?, channel(4)?))
-    }
-
     pub fn mix(self, other: Rgb, amount: f32) -> Rgb {
         let blend = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * amount).round() as u8;
         Rgb(blend(self.0, other.0), blend(self.1, other.1), blend(self.2, other.2))
@@ -106,14 +100,12 @@ pub fn palette(theme: Theme) -> &'static Palette {
 }
 
 impl Palette {
-    pub fn color(&self, name: &str, default: Rgb) -> Rgb {
-        if let Some(index) = COLOR_NAMES.iter().position(|known| *known == name) {
-            return self.ansi[index];
+    pub fn color(&self, colour: Colour, default: Rgb) -> Rgb {
+        match colour {
+            Colour::Default => default,
+            Colour::Indexed(index) => self.indexed(index),
+            Colour::Rgb(red, green, blue) => Rgb(red, green, blue),
         }
-        if let Ok(index) = name.parse::<u8>() {
-            return self.indexed(index);
-        }
-        Rgb::hex(name).unwrap_or(default)
     }
 
     fn indexed(&self, index: u8) -> Rgb {

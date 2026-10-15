@@ -59,7 +59,7 @@ fn new_session_writes_the_cli_line_as_the_form_fills_then_opens_the_tab_and_goes
 
     browser.fill("Session name", "qa");
     assert_eq!(cli_line(&browser), "agent-terminal --session qa open <program> --size 120x40");
-    let command = format!("{} --lines 0 --cue {}", fixture("line-printer"), cue.dir());
+    let command = format!("{} --lines 0 --cue {}", fixture("line-printer"), cue.path());
     browser.fill("Command", &command);
     assert_eq!(cli_line(&browser), format!("agent-terminal --session qa open {command} --size 120x40"));
     browser.fill("Working directory", &cwd);
@@ -82,8 +82,10 @@ fn new_session_writes_the_cli_line_as_the_form_fills_then_opens_the_tab_and_goes
     let enabled =
         |tooltip: &str| browser.run(&["is", "enabled", &format!("button[data-tooltip='{tooltip}']")]).trim() == "true";
     assert!(!enabled("Restart") && !enabled("Screenshot"), "restart and screenshot wait for the first frame");
+    assert_ne!(browser.eval("document.querySelector('.sr-only[aria-live=polite]').textContent"), "\"qa t1 is live\"");
     cue.print("first\n");
     browser.wait_for_status("Live");
+    browser.wait_for_announcement("qa t1 is live");
     assert!(enabled("Restart") && enabled("Screenshot"));
     browser.wait_for_screen("first");
     assert!(!browser.text("main").contains("Waiting for first frame..."));

@@ -61,6 +61,28 @@ fn a_wait_that_times_out_exits_3_and_prints_the_last_screen() {
 }
 
 #[test]
+fn wait_assert_exits_2_when_the_condition_is_not_met_in_time() {
+    let at = AgentTerminal::new();
+    open_line_printer(&at, &["--lines", "2", "--hold"]);
+    at.run(&["wait", "line 2"]).success();
+
+    let asserted = at.run(&["--timeout", "300", "wait", "never shown", "--assert"]);
+    assert_eq!(asserted.code(), 2, "{}", asserted.stderr());
+    assert_eq!(asserted.stdout(), "");
+    let stderr = asserted.stderr();
+    assert!(stderr.starts_with("error: \"never shown\" did not appear within 300 ms in default t1\n"), "{stderr}");
+    assert!(stderr.contains("1│line 1\n2│line 2\n"), "{stderr}");
+
+    let stable = at.run(&["--timeout", "300", "--json", "wait", "--gone", "line 1", "--assert"]);
+    assert_eq!(stable.code(), 2, "{}", stable.stdout());
+    assert_eq!(stable.json()["error"]["code"], 2);
+    assert_eq!(stable.json()["error"]["message"], "\"line 1\" did not disappear within 300 ms in default t1");
+
+    let met = at.run(&["wait", "line 1", "--assert"]).success();
+    assert_eq!(numbers_as_n(&met.stdout()), "waited N ms for \"line N\" to appear in default tN\n");
+}
+
+#[test]
 fn wait_regex_matches_a_pattern() {
     let at = AgentTerminal::new();
     open_line_printer(&at, &["--lines", "3", "--delay-ms", "100", "--hold"]);
@@ -310,11 +332,15 @@ fn input_wait_gone_returns_once_the_text_has_left_the_screen() {
 }
 
 #[test]
-fn input_wait_stable_returns_once_the_screen_settles() {
+fn input_wait_stable_returns_once_the_screen_has_settled_after_the_input() {
     let at = AgentTerminal::new();
     open_tui(&at);
-    assert_eq!(at.run(&["press", "j", "--wait-stable"]).success().stdout(), "pressed 1 key in default t1\n");
-    assert_eq!(at.run(&["press", "k", "--wait-stable", "100"]).success().stdout(), "pressed 1 key in default t1\n");
+    at.run(&["wait", "--stable", "100"]).success();
+    for (key, selected) in [("j", "beta.txt"), ("j", "gamma.txt"), ("k", "beta.txt")] {
+        let pressed = at.run(&["--json", "press", key, "--wait-stable", "100", "--snapshot"]).success().json();
+        assert_eq!(pressed["snapshot"]["lines"][1], format!("│alpha.txt         ││Selected: {selected:<18}│"));
+        assert_eq!(pressed["snapshot"]["frame"], at.run(&["--json", "get", "frame"]).success().json()["frame"]);
+    }
 }
 
 #[test]

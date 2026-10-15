@@ -13,7 +13,7 @@ import { TooltipLayer } from "./components/tooltip";
 import { useDaemon } from "./lib/daemon";
 import { navigate, parseRoute, splitRoute, usePath } from "./lib/route";
 import { fillCells, focusedAt, shownCells, withCell } from "./lib/split";
-import { findTab, tabName } from "./lib/tabs";
+import { findTab, tabKey, tabName } from "./lib/tabs";
 import { useTheme } from "./lib/theme";
 
 type Screen = { title: string | null; heading?: string; center: ReactNode; right?: ReactNode; selected?: Selected; routeOf?: RouteOf };
@@ -46,7 +46,7 @@ export const App = () => {
         title: `Split · ${cells.length} terminals`,
         heading: `Split view, ${cells.length} terminals`,
         center: <SplitView cells={cells} sessions={sessions} focus={at} onFocus={setSplitFocus} />,
-        right: focused && <SidePanel key={`${focused.cell.session}/${focused.cell.tab}`} session={focused.cell.session} tab={focused.tab} />,
+        right: focused && <SidePanel key={tabKey(focused.cell.session, focused.cell.tab)} session={focused.cell.session} tab={focused.tab} />,
         selected: focused?.cell,
         routeOf: (session, tab) => splitRoute(withCell(cells, at, { session, tab })),
       };
@@ -58,7 +58,7 @@ export const App = () => {
       title: `${name} · ${tab.program}`,
       center: (
         <TabScreen
-          key={`${route.session}/${route.tab}`}
+          key={tabKey(route.session, route.tab)}
           session={route.session}
           tab={tab}
           sessions={sessions}
@@ -68,7 +68,7 @@ export const App = () => {
           }}
         />
       ),
-      right: <SidePanel key={`${route.session}/${route.tab}`} session={route.session} tab={tab} />,
+      right: <SidePanel key={tabKey(route.session, route.tab)} session={route.session} tab={tab} />,
       selected: { session: route.session, tab: route.tab },
     };
   })();

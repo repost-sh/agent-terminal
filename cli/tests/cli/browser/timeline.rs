@@ -16,7 +16,7 @@ fn open_printer(at: &AgentTerminal, cue: &Cue) {
         "--lines",
         "1",
         "--cue",
-        &cue.dir(),
+        &cue.path(),
     ])
     .success();
 }
@@ -144,7 +144,7 @@ fn the_keyboard_and_a_drag_show_past_frames_exactly_as_snapshot_showed_them_and_
 }
 
 #[test]
-fn clicking_an_activity_row_shows_its_frame_and_viewing_the_past_pauses_following() {
+fn clicking_an_activity_row_shows_its_frame_and_stops_following_and_follow_does_not_go_live() {
     let at = AgentTerminal::new();
     let cue = Cue::new();
     open_printer(&at, &cue);
@@ -166,21 +166,21 @@ fn clicking_an_activity_row_shows_its_frame_and_viewing_the_past_pauses_followin
     browser.run(&["focus", TIMELINE]);
     browser.run(&["press", "Home"]);
     wait_for_past(&browser, 1, &["line 1".to_string()]);
-    assert!(!follow_pressed(&browser));
-    assert_eq!(browser.eval(&format!("document.querySelector(\"{CALLS}\").dataset.follow")), "\"false\"");
+    assert!(follow_pressed(&browser), "scrubbing leaves Follow as it was");
     browser.run(&["press", "End"]);
     wait_for_live(&browser, third.1, &third.0);
     assert!(follow_pressed(&browser));
 
-    browser.run(&["click", &format!("{CALLS} > li:not([aria-busy]):nth-child(2) button")]);
+    let second_row = format!("{CALLS} > li:not([aria-busy]):nth-child(2) button");
+    browser.run(&["click", &second_row]);
     wait_for_past(&browser, second.1, &second.0);
     assert_viewing(&browser, &dashboard, second.1);
-    assert_eq!(
-        browser.eval(&format!(
-            "document.querySelector(\"{CALLS} > li:not([aria-busy]):nth-child(2) button\").ariaExpanded"
-        )),
-        "\"true\""
-    );
+    assert!(!follow_pressed(&browser), "opening a row stops following");
+    assert_eq!(browser.eval(&format!("document.querySelector(\"{second_row}\").ariaExpanded")), "\"true\"");
+
+    browser.click_button("Follow");
+    assert!(follow_pressed(&browser));
+    assert_viewing(&browser, &dashboard, second.1);
 
     browser.run(&["click", &format!("{CALLS} > li:not([aria-busy]):nth-child(4) button")]);
     wait_for_live(&browser, third.1, &third.0);
@@ -228,4 +228,37 @@ fn clicking_a_command_shows_the_terminal_where_it_started_and_split_view_has_no_
     browser.wait_until("!!document.querySelector('.split-grid .xterm-accessibility-tree')");
     assert_eq!(browser.eval("document.querySelectorAll('main input[type=range]').length"), "0");
     assert_eq!(browser.eval(&format!("document.querySelector({}) === null", js_string(PAST))), "true");
+}
+
+#[test]
+fn a_toolbar_screenshot_saves_the_frame_on_view_and_ticks_the_timeline_and_human_keys_tick_nothing() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "40x6", "--wait", "ready", &fixture("input-echo")]).success();
+    at.run(&["send", "a", "--wait", "a"]).success();
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    browser.wait_for_status("Live");
+    wait_for_timeline(&browser, 2);
+    browser.wait_until("document.querySelectorAll('main [data-tick=call]').length === 2");
+
+    browser.click_button("Take control");
+    browser
+        .wait_until("document.activeElement?.getAttribute('aria-label') === 'Terminal default t1, you have control'");
+    browser.run(&["press", "b"]);
+    at.run(&["wait", "ab"]).success();
+    browser.wait_until(&format!("document.querySelectorAll(\"{CALLS} > li:not([aria-busy])\").length === 4"));
+    wait_for_timeline(&browser, 3);
+    assert_eq!(ticks(&browser, "call"), 3, "open, send and wait are calls, the human key is not");
+    browser.click_button("Release control");
+
+    browser.run(&["focus", TIMELINE]);
+    browser.run(&["press", "Home"]);
+    wait_for_past(&browser, 1, &["ready".to_string()]);
+    browser.click_button("Take a screenshot");
+    browser.wait_until("document.querySelectorAll('main [data-tick=shot]').length === 1");
+    let listed =
+        std::fs::read_to_string(at.home().join("sessions/default/screenshots.jsonl")).expect("the screenshot list");
+    let shot: serde_json::Value = serde_json::from_str(listed.lines().last().expect("a listed screenshot")).unwrap();
+    assert_eq!((&shot["frame"], &shot["by"]), (&serde_json::json!(1), &serde_json::Value::Null));
+    assert_eq!(shot["path"], at.home().join("screenshots/default-t1-1.png").to_string_lossy().as_ref());
 }

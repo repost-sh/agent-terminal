@@ -7,7 +7,9 @@ use rustix::termios::{self, OptionalActions, Termios};
 use crate::connection::{self, Launch};
 use crate::key::{Key, KeyCode, Mods};
 use crate::output;
-use crate::protocol::{self, AttachEvent, AttachInput, Attached, Call, HumanInput, Mirror, Reply, Request, Response};
+use crate::protocol::{
+    self, AttachEvent, AttachInput, Attached, Call, HumanInput, Mirror, Reply, Request, Response, Target,
+};
 
 const DETACH: [u8; 2] = [0x10, 0x11];
 const PASTE_START: &[u8] = b"\x1b[200~";
@@ -20,23 +22,23 @@ enum End {
     Closed,
 }
 
-pub fn run(session: String, tab: Option<u32>, read_only: bool, json: bool, launch: Launch) -> i32 {
+pub fn run(target: Target, read_only: bool, json: bool, launch: Launch) -> i32 {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        return output::fail(
+        return output::refuse(
             "attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead",
-            crate::exit::ERROR,
+            json,
         );
     }
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
-    let call = Call { typed: Some(typed), request: Request::Attach { session, tab, read_only } };
+    let call = Call { typed: Some(typed), request: Request::Attach { target, read_only } };
     let (response, stream) = match connection::keep_open(&call, &launch) {
         Ok(opened) => opened,
-        Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
+        Err(e) => return output::refuse(&format!("{e:#}"), json),
     };
     let attached = match response {
         Response::Ok(Reply::Attached(attached)) => attached,
         Response::Ok(other) => {
-            return output::fail(&format!("the daemon answered attach with {other:?}"), crate::exit::ERROR);
+            return output::refuse(&format!("the daemon answered attach with {other:?}"), json);
         }
         Response::Err(error) => return output::error(&error, json),
     };
@@ -45,7 +47,7 @@ pub fn run(session: String, tab: Option<u32>, read_only: bool, json: bool, launc
             report(&attached, &end, json);
             0
         }
-        Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
+        Err(e) => output::refuse(&format!("{e:#}"), json),
     }
 }
 
@@ -62,13 +64,28 @@ fn report(attached: &Attached, end: &End, json: bool) {
 }
 
 fn watch(attached: &Attached, stream: UnixStream) -> Result<End> {
-    let keys = stream.try_clone().context("share the connection to the daemon")?;
+    let mut keys = stream.try_clone().context("share the connection to the daemon")?;
     let takeover = Takeover::start()?;
     let read_only = attached.read_only;
-    std::thread::spawn(move || forward_keys(keys, read_only));
+    let (forwarded, outcome) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let sent = forward_keys(&mut keys, read_only);
+        let failed = sent.is_err();
+        if let Err(unheard) = forwarded.send(sent)
+            && let Err(e) = unheard.0
+        {
+            eprintln!("error: {e:#}");
+        }
+        if failed && let Err(e) = keys.shutdown(std::net::Shutdown::Both) {
+            eprintln!("error: closing the connection to the daemon failed: {e}");
+        }
+    });
     let ended = mirror(attached, stream);
     drop(takeover);
-    ended
+    match outcome.try_recv() {
+        Ok(Err(e)) => Err(e),
+        Ok(Ok(())) | Err(_) => ended,
+    }
 }
 
 fn mirror(attached: &Attached, mut stream: UnixStream) -> Result<End> {
@@ -83,39 +100,32 @@ fn mirror(attached: &Attached, mut stream: UnixStream) -> Result<End> {
     }
 }
 
-fn forward_keys(mut daemon: UnixStream, read_only: bool) {
+fn forward_keys(daemon: &mut UnixStream, read_only: bool) -> Result<()> {
     let mut stdin = std::io::stdin().lock();
     let mut keys = Keys::default();
     let mut buffer = [0u8; 4096];
     loop {
         let read = match stdin.read(&mut buffer) {
-            Ok(0) => break,
+            Ok(0) => return send(daemon, &AttachInput::Detach),
             Ok(read) => read,
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             Err(e) => {
-                eprintln!("error: reading your keys failed: {e}");
-                break;
+                send(daemon, &AttachInput::Detach)?;
+                return Err(anyhow::Error::new(e).context("read your keys"));
             }
         };
         for pressed in keys.feed(&buffer[..read]) {
-            let sent = match pressed {
-                Pressed::Detach => {
-                    send(&mut daemon, &AttachInput::Detach);
-                    return;
-                }
-                Pressed::Human(_) if read_only => true,
-                Pressed::Human(input) => send(&mut daemon, &AttachInput::Human(input)),
-            };
-            if !sent {
-                return;
+            match pressed {
+                Pressed::Detach => return send(daemon, &AttachInput::Detach),
+                Pressed::Human(_) if read_only => {}
+                Pressed::Human(input) => send(daemon, &AttachInput::Human(input))?,
             }
         }
     }
-    send(&mut daemon, &AttachInput::Detach);
 }
 
-fn send(daemon: &mut UnixStream, input: &AttachInput) -> bool {
-    protocol::write(daemon, input).is_ok()
+fn send(daemon: &mut UnixStream, input: &AttachInput) -> Result<()> {
+    protocol::write(daemon, input).context("send your keys to the daemon")
 }
 
 struct Takeover {
@@ -183,21 +193,20 @@ impl Painter {
         let visible = usize::from(screen.rows.min(window.ws_row)).min(screen.lines.len());
         for (index, line) in screen.lines[..visible].iter().enumerate() {
             if self.shown.get(index) != Some(line) {
-                paint.push_str(&format!("\x1b[{};1H\x1b[0m\x1b[2K{line}", index + 1));
+                paint.push_str(&crate::paint::row(index, line));
             }
         }
         self.shown = screen.lines[..visible].to_vec();
         if window.ws_row > screen.rows {
             let hint: String = self.hint_for(screen).chars().take(usize::from(window.ws_col)).collect();
             if hint != self.hint {
-                paint.push_str(&format!("\x1b[{};1H\x1b[0m\x1b[2K\x1b[2m{hint}\x1b[0m", screen.rows + 1));
+                paint.push_str(&crate::paint::row(usize::from(screen.rows), &format!("\x1b[2m{hint}\x1b[0m")));
                 self.hint = hint;
             }
         }
         let [row, col] = screen.cursor;
         let on_screen = row <= window.ws_row && col <= window.ws_col;
-        let visibility = if screen.cursor_visible && !screen.exited && on_screen { 'h' } else { 'l' };
-        paint.push_str(&format!("\x1b[0m\x1b[{row};{col}H\x1b[?25{visibility}"));
+        paint.push_str(&crate::paint::cursor(row, col, screen.cursor_visible && !screen.exited && on_screen));
         show(&paint)
     }
 

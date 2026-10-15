@@ -1,18 +1,14 @@
 import type { Terminal } from "@xterm/xterm";
 import { useSyncExternalStore } from "react";
 
-import { toast } from "../components/toaster";
 import { timelineUrl } from "./api";
 import type { ActivityEntry, TimelineFrame, TimelineUpdate } from "./protocol";
-import { tabName } from "./tabs";
+import { followSocket } from "./socket";
+import { tabKey } from "./tabs";
 
-const RECONNECT_AFTER_MS = (failures: number) => Math.min(500 * 2 ** failures, 5000);
+export type TimelineState = { started: number | null; count: number; failed: boolean };
 
-export type TimelineState = { started: number | null; count: number };
-
-const EMPTY: TimelineState = { started: null, count: 0 };
-
-const keyOf = (session: string, tab: string) => JSON.stringify([session, tab]);
+const EMPTY: TimelineState = { started: null, count: 0, failed: false };
 
 const viewed = new Map<string, number>();
 const viewListeners = new Set<() => void>();
@@ -41,17 +37,22 @@ type Timeline = {
 const timelines = new Map<string, Timeline>();
 
 const createTimeline = (session: string, tab: string): Timeline => {
-  const key = keyOf(session, tab);
+  const key = tabKey(session, tab);
   const listeners = new Set<() => void>();
   let state = EMPTY;
   let frames: TimelineFrame[] = [];
-  let socket: WebSocket | null = null;
-  let timer: number | undefined;
-  let failures = 0;
+  let stop = () => {};
+
+  const publish = (next: TimelineState) => {
+    state = next;
+    listeners.forEach((listener) => listener());
+  };
 
   const receive = (update: Exclude<TimelineUpdate, { type: "closed" }>) => {
     if (update.type === "failed") {
-      toast("error", `Could not load the timeline of ${tabName(session, tab)}`, update.message);
+      frames = [];
+      setViewed(key, null);
+      publish({ started: null, count: 0, failed: true });
       return;
     }
     if (update.reset) {
@@ -59,39 +60,16 @@ const createTimeline = (session: string, tab: string): Timeline => {
       if (state.started !== null && state.started !== update.started_ms) setViewed(key, null);
     }
     frames.push(...update.frames);
-    state = { started: update.started_ms, count: frames.length };
-    listeners.forEach((listener) => listener());
-  };
-
-  const connect = () => {
-    const opening = new WebSocket(timelineUrl(session, tab));
-    socket = opening;
-    opening.onopen = () => {
-      failures = 0;
-    };
-    opening.onmessage = (event: MessageEvent<string>) => {
-      if (socket !== opening) return;
-      const update = JSON.parse(event.data) as TimelineUpdate;
-      if (update.type === "closed") socket = null;
-      else receive(update);
-    };
-    opening.onclose = () => {
-      if (socket !== opening) return;
-      timer = window.setTimeout(connect, RECONNECT_AFTER_MS(failures));
-      failures += 1;
-    };
+    publish({ started: update.started_ms, count: frames.length, failed: false });
   };
 
   const subscribe = (listener: () => void) => {
     listeners.add(listener);
-    if (listeners.size === 1) connect();
+    if (listeners.size === 1) stop = followSocket<TimelineUpdate>(timelineUrl(session, tab), { message: receive });
     return () => {
       listeners.delete(listener);
       if (listeners.size) return;
-      window.clearTimeout(timer);
-      const open = socket;
-      socket = null;
-      open?.close();
+      stop();
       frames = [];
       state = EMPTY;
       setViewed(key, null);
@@ -129,7 +107,7 @@ const createTimeline = (session: string, tab: string): Timeline => {
 };
 
 const timelineOf = (session: string, tab: string) => {
-  const key = keyOf(session, tab);
+  const key = tabKey(session, tab);
   const known = timelines.get(key);
   if (known) return known;
   const created = createTimeline(session, tab);
@@ -144,26 +122,23 @@ export const useTimeline = (session: string, tab: string) => {
 };
 
 export const useViewedFrame = (session: string, tab: string) => {
-  const key = keyOf(session, tab);
+  const key = tabKey(session, tab);
   return useSyncExternalStore(subscribeViews, () => viewed.get(key) ?? null);
 };
 
-export const useViewingPast = (session: string, tab: string) => useViewedFrame(session, tab) !== null;
-
-export const viewingPast = (session: string, tab: string) => viewed.has(keyOf(session, tab));
 
 export const viewFrame = (session: string, tab: string, frame: number) => {
-  const { count } = timelines.get(keyOf(session, tab))?.read() ?? EMPTY;
+  const { count } = timelines.get(tabKey(session, tab))?.read() ?? EMPTY;
   if (count === 0) return;
-  setViewed(keyOf(session, tab), frame >= count ? null : Math.max(1, frame));
+  setViewed(tabKey(session, tab), frame >= count ? null : Math.max(1, frame));
 };
 
 export const showMoment = (session: string, tab: string, frame: number, at: number) => {
-  const { started } = timelines.get(keyOf(session, tab))?.read() ?? EMPTY;
+  const { started } = timelines.get(tabKey(session, tab))?.read() ?? EMPTY;
   if (started === null || at < started) return;
   viewFrame(session, tab, frame);
 };
 
-export const goLive = (session: string, tab: string) => setViewed(keyOf(session, tab), null);
+export const goLive = (session: string, tab: string) => setViewed(tabKey(session, tab), null);
 
 export const endOf = (entry: ActivityEntry) => Date.parse(entry.time) + entry.duration_ms;

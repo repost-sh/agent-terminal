@@ -76,8 +76,7 @@ fn session_list_shows_every_tab_with_its_program_size_and_status() {
         "open",
         "--size",
         "20x3",
-        "--wait-stable",
-        "5000",
+        "--no-wait",
         &fixture("line-printer"),
         "--lines",
         "1",
@@ -85,6 +84,7 @@ fn session_list_shows_every_tab_with_its_program_size_and_status() {
         "4",
     ])
     .success();
+    at.run(&["--session", "a", "wait", "--exit"]).success();
     at.run(&["--session", "b", "open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
 
     assert_eq!(

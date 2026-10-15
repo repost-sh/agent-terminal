@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 
+import { announce } from "../components/announcer";
 import { sessionsStreamUrl } from "./api";
 import type { SessionInfo, Sessions } from "./protocol";
 import { leadHomeTo, tabRoute } from "./route";
@@ -16,6 +17,7 @@ let daemon: Daemon = { connection: "connecting", sessions: null };
 let socket: WebSocket | null = null;
 let timer: number | undefined;
 let failures = 0;
+let retried = false;
 
 const publish = (next: Daemon) => {
   daemon = next;
@@ -30,6 +32,8 @@ const connect = () => {
   opening.onmessage = (event: MessageEvent<string>) => {
     failures = 0;
     publish({ connection: "connected", sessions: (JSON.parse(event.data) as Sessions).sessions });
+    if (retried) announce("Connected");
+    retried = false;
   };
   opening.onclose = () => {
     if (socket !== opening) return;
@@ -64,6 +68,7 @@ const subscribe = (listener: () => void) => {
 };
 
 const retry = () => {
+  retried = true;
   window.clearTimeout(timer);
   failures = RECONNECT_AFTER_MS.length;
   connect();

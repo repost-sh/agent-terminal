@@ -116,6 +116,64 @@ impl fmt::Display for Style {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(try_from = "String", into = "String")]
+pub struct TabId(u32);
+
+impl TabId {
+    pub const FIRST: TabId = TabId(1);
+
+    pub fn next(self) -> TabId {
+        TabId(self.0 + 1)
+    }
+}
+
+impl FromStr for TabId {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, String> {
+        text.strip_prefix('t')
+            .unwrap_or(text)
+            .parse()
+            .ok()
+            .filter(|id| *id > 0)
+            .map(TabId)
+            .ok_or_else(|| format!("invalid tab id: {text} (expected t1, t2, ...)"))
+    }
+}
+
+impl fmt::Display for TabId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "t{}", self.0)
+    }
+}
+
+impl TryFrom<String> for TabId {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, String> {
+        text.parse()
+    }
+}
+
+impl From<TabId> for String {
+    fn from(id: TabId) -> String {
+        id.to_string()
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct Target {
+    pub session: String,
+    pub tab: Option<TabId>,
+}
+
+impl Target {
+    pub fn tab(session: &str, tab: TabId) -> Self {
+        Self { session: session.to_string(), tab: Some(tab) }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Call {
     pub typed: Option<Vec<String>>,
@@ -125,7 +183,7 @@ pub struct Call {
 pub enum Addressed<'a> {
     Nothing,
     Session(&'a str),
-    Tab(&'a str, Option<u32>),
+    Tab(&'a str, Option<TabId>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -142,26 +200,26 @@ pub enum Request {
         timeout_ms: u64,
     },
     Snapshot {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         #[serde(default)]
         options: SnapshotOptions,
     },
     Close {
-        session: String,
+        #[serde(flatten)]
+        target: Target,
         all: bool,
-        tab: Option<u32>,
     },
     Resize {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         size: Size,
         wait: Wait,
         timeout_ms: u64,
     },
     Restart {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         wait: Wait,
         timeout_ms: u64,
     },
@@ -171,11 +229,11 @@ pub enum Request {
     },
     SwitchTab {
         session: String,
-        tab: u32,
+        tab: TabId,
     },
     Input {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         input: Input,
         wait: Option<Wait>,
         #[serde(default)]
@@ -185,14 +243,16 @@ pub enum Request {
         timeout_ms: u64,
     },
     Wait {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         wait: Wait,
         timeout_ms: u64,
+        #[serde(default)]
+        assert: bool,
     },
     Expect {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         expect: Expect,
     },
     Stop,
@@ -201,41 +261,41 @@ pub enum Request {
         bail: bool,
     },
     Get {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         what: Get,
     },
     Find {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         text: String,
         regex: bool,
         all: bool,
     },
     Mark {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         name: String,
     },
     Output {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         since: Option<String>,
         raw: bool,
     },
     DiffSnapshot {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         baseline: Option<Baseline>,
     },
     RecordStart {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         path: Option<PathBuf>,
     },
     RecordStop {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
     },
     TraceExport {
         session: String,
@@ -243,6 +303,8 @@ pub enum Request {
     },
     DashboardStart {
         port: u16,
+        #[serde(default)]
+        origins: Vec<String>,
     },
     DashboardStop,
     Shell {
@@ -256,48 +318,50 @@ pub enum Request {
         timeout_ms: u64,
     },
     Exec {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         line: String,
         check: bool,
         timeout_ms: u64,
     },
     History {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         last: Option<usize>,
         failed: bool,
     },
     HistoryShow {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         id: u32,
     },
     Screenshot {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         shot: Shot,
     },
     DiffScreenshot {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         baseline: PathBuf,
         shot: Shot,
         threshold: f64,
     },
     Clip {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         clip: ClipSpec,
     },
     WaitControl {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         timeout_ms: u64,
+        #[serde(default)]
+        assert: bool,
     },
     Attach {
-        session: String,
-        tab: Option<u32>,
+        #[serde(flatten)]
+        target: Target,
         read_only: bool,
     },
 }
@@ -314,30 +378,30 @@ impl Request {
             Request::Open { session, .. }
             | Request::Shell { session, .. }
             | Request::Tabs { session }
-            | Request::Close { session, all: true, .. }
+            | Request::Close { target: Target { session, .. }, all: true }
             | Request::TraceExport { session, .. } => Addressed::Session(session),
             Request::SwitchTab { session, tab } => Addressed::Tab(session, Some(*tab)),
-            Request::Snapshot { session, tab, .. }
-            | Request::Close { session, tab, .. }
-            | Request::Resize { session, tab, .. }
-            | Request::Restart { session, tab, .. }
-            | Request::Input { session, tab, .. }
-            | Request::Wait { session, tab, .. }
-            | Request::Expect { session, tab, .. }
-            | Request::Get { session, tab, .. }
-            | Request::Find { session, tab, .. }
-            | Request::Mark { session, tab, .. }
-            | Request::Output { session, tab, .. }
-            | Request::DiffSnapshot { session, tab, .. }
-            | Request::RecordStart { session, tab, .. }
-            | Request::RecordStop { session, tab }
-            | Request::Exec { session, tab, .. }
-            | Request::History { session, tab, .. }
-            | Request::HistoryShow { session, tab, .. }
-            | Request::Screenshot { session, tab, .. }
-            | Request::DiffScreenshot { session, tab, .. }
-            | Request::Clip { session, tab, .. }
-            | Request::WaitControl { session, tab, .. } => Addressed::Tab(session, *tab),
+            Request::Snapshot { target, .. }
+            | Request::Close { target, .. }
+            | Request::Resize { target, .. }
+            | Request::Restart { target, .. }
+            | Request::Input { target, .. }
+            | Request::Wait { target, .. }
+            | Request::Expect { target, .. }
+            | Request::Get { target, .. }
+            | Request::Find { target, .. }
+            | Request::Mark { target, .. }
+            | Request::Output { target, .. }
+            | Request::DiffSnapshot { target, .. }
+            | Request::RecordStart { target, .. }
+            | Request::RecordStop { target }
+            | Request::Exec { target, .. }
+            | Request::History { target, .. }
+            | Request::HistoryShow { target, .. }
+            | Request::Screenshot { target, .. }
+            | Request::DiffScreenshot { target, .. }
+            | Request::Clip { target, .. }
+            | Request::WaitControl { target, .. } => Addressed::Tab(&target.session, target.tab),
         }
     }
 }
@@ -519,6 +583,8 @@ pub struct Shot {
     pub look: Look,
     pub rows: Option<RowRange>,
     pub annotate: bool,
+    #[serde(default)]
+    pub frame: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -923,6 +989,8 @@ pub struct Export {
     pub path: PathBuf,
     pub files: usize,
     pub bytes: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

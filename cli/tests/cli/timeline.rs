@@ -114,7 +114,7 @@ fn the_timeline_serves_keyframes_and_every_frame_after_them_redrawing_what_snaps
         "--lines",
         "1",
         "--cue",
-        &cue.dir(),
+        &cue.path(),
     ])
     .success();
     let mut snapshots = vec![snapshot_rows(&at, &[])];
@@ -169,7 +169,7 @@ fn a_resize_draws_a_keyframe_at_the_new_size() {
         "--lines",
         "3",
         "--cue",
-        &cue.dir(),
+        &cue.path(),
     ])
     .success();
     let narrow = snapshot_rows(&at, &[]);
@@ -192,7 +192,7 @@ fn a_resize_draws_a_keyframe_at_the_new_size() {
 }
 
 #[test]
-fn after_a_restart_the_timeline_starts_again_with_the_new_run_and_closes_with_the_tab() {
+fn after_a_restart_the_timeline_goes_on_with_the_new_run_and_closes_with_the_tab() {
     let at = AgentTerminal::new();
     let cue = Cue::new();
     at.run(&[
@@ -205,7 +205,7 @@ fn after_a_restart_the_timeline_starts_again_with_the_new_run_and_closes_with_th
         "--lines",
         "2",
         "--cue",
-        &cue.dir(),
+        &cue.path(),
     ])
     .success();
     cue.print("before\n");
@@ -215,12 +215,15 @@ fn after_a_restart_the_timeline_starts_again_with_the_new_run_and_closes_with_th
     assert_eq!(rows_at(&first.frames, last), ["line 2", "before"]);
 
     at.run(&["restart", "--wait", "line 2"]).success();
+    cue.restarted();
     cue.print("after\n");
     let (rows, frame) = snapshot_rows(&at, &[]);
     assert_eq!(rows, ["line 2", "after"]);
     let second = timeline.run_through(frame);
-    assert!(second.started_ms >= first.started_ms, "{} < {}", second.started_ms, first.started_ms);
+    assert!(frame > last, "frame numbers go on after a restart: {frame} after {last}");
+    assert_eq!(second.started_ms, first.started_ms);
     assert_eq!(second.frames.iter().map(number).collect::<Vec<_>>(), (1..=frame).collect::<Vec<_>>());
+    assert_eq!(rows_at(&second.frames, last), ["line 2", "before"], "the first run stays on the timeline");
     assert_eq!(rows_at(&second.frames, frame), rows);
 
     at.run(&["close"]).success();

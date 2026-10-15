@@ -1,6 +1,16 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
+use super::follow::Follow;
+use super::stream::send;
+use super::{Backend, tab_id};
+use crate::native::output_log::{Marked, Output, Slice};
+use crate::native::pty;
+use crate::native::recording;
+use crate::native::store::PendingCall;
+use crate::native::terminal::Terminal;
+use crate::output::call_line;
+use crate::protocol::{Modes, Shell, TabId};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -8,17 +18,6 @@ use axum::http::header::{CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::watch;
-
-use super::stream::{hung_up, send};
-use super::{Backend, tab_id};
-use crate::native::output_log::{Marked, Output, Slice};
-use crate::native::pty;
-use crate::native::recording;
-use crate::native::store::{PendingCall, SessionFolder};
-use crate::native::terminal::Terminal;
-use crate::output::call_line;
-use crate::protocol::{Modes, Shell};
 
 const SECRET_NAME_PARTS: [&str; 6] = ["TOKEN", "SECRET", "KEY", "PASSWORD", "PASSWD", "CREDENTIAL"];
 
@@ -74,86 +73,27 @@ struct EnvVar {
     value: Option<String>,
 }
 
-struct Follow {
-    backend: Arc<dyn Backend>,
-    session: String,
-    id: u32,
-    lifecycle: watch::Receiver<u64>,
-    folder: Weak<SessionFolder>,
-    logged: Option<watch::Receiver<u64>>,
-    watched: Option<(Arc<Terminal>, watch::Receiver<u64>)>,
-}
-
-impl Follow {
-    fn new(backend: Arc<dyn Backend>, session: String, id: u32) -> Self {
-        let folder = backend.folder(&session);
-        Self {
-            lifecycle: backend.changes(),
-            logged: folder.as_ref().map(|folder| folder.logged()),
-            folder: folder.as_ref().map_or_else(Weak::new, Arc::downgrade),
-            backend,
-            session,
-            id,
-            watched: None,
-        }
-    }
-
-    fn tab(&self) -> String {
-        format!("t{}", self.id)
-    }
-
-    fn terminal(&mut self) -> Option<(Arc<Terminal>, bool)> {
-        self.lifecycle.borrow_and_update();
-        if let Some(logged) = &mut self.logged {
-            logged.borrow_and_update();
-        }
-        let terminal = self.backend.terminal(&self.session, self.id)?;
-        let replaced = !self.watched.as_ref().is_some_and(|(watching, _)| Arc::ptr_eq(watching, &terminal));
-        let (_, frames) = match &mut self.watched {
-            Some(watched) if !replaced => watched,
-            watched => watched.insert((Arc::clone(&terminal), terminal.frames())),
-        };
-        frames.borrow_and_update();
-        Some((terminal, replaced))
-    }
-
-    async fn changed(&mut self, socket: &mut WebSocket) -> bool {
-        let Self { lifecycle, logged, watched, .. } = self;
-        let frames = changed_or_never(watched.as_mut().map(|(_, frames)| frames));
-        let logged = changed_or_never(logged.as_mut());
-        tokio::select! {
-            changed = lifecycle.changed() => changed.is_ok(),
-            changed = frames => changed.is_ok(),
-            changed = logged => changed.is_ok(),
-            received = socket.recv() => !hung_up(received),
-        }
-    }
-}
-
-async fn changed_or_never(receiver: Option<&mut watch::Receiver<u64>>) -> Result<(), watch::error::RecvError> {
-    match receiver {
-        Some(receiver) => receiver.changed().await,
-        None => std::future::pending().await,
-    }
-}
-
 pub async fn activity(
     ws: WebSocketUpgrade,
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
     match tab_id(&tab) {
-        Some(id) => ws.on_upgrade(move |socket| follow_activity(socket, Follow::new(backend, session, id))),
+        Some(id) => ws.on_upgrade(move |socket| follow_activity(socket, backend, session, id)),
         None => not_a_tab(&tab),
     }
 }
 
-async fn follow_activity(mut socket: WebSocket, mut follow: Follow) {
-    let tab = follow.tab();
+async fn follow_activity(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
+    let tab = id.to_string();
+    let folder = backend.folder(&session);
+    let logged = folder.as_ref().map(|folder| folder.logged());
+    let folder = folder.as_ref().map_or_else(Weak::new, Arc::downgrade);
+    let mut follow = Follow::tab(&backend, session.clone(), id, |_| None).and(logged);
     let mut offset = 0;
     let mut sent: Option<Vec<PendingCall>> = None;
     loop {
-        let (Some(_), Some(folder)) = (follow.terminal(), follow.folder.upgrade()) else {
+        let (Some(_), Some(folder)) = (follow.next(), folder.upgrade()) else {
             send(&mut socket, &ActivityUpdate::Closed).await;
             return;
         };
@@ -170,7 +110,7 @@ async fn follow_activity(mut socket: WebSocket, mut follow: Follow) {
                 (entries.into_iter().filter(mine).collect::<Vec<_>>(), pending)
             }
             Err(e) => {
-                eprintln!("dashboard: reading the activity of {} {tab} failed: {e:#}", follow.session);
+                eprintln!("dashboard: reading the activity of {session} {tab} failed: {e:#}");
                 return;
             }
         };
@@ -192,7 +132,7 @@ pub async fn output(
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
     match tab_id(&tab) {
-        Some(id) => ws.on_upgrade(move |socket| follow_output(socket, Follow::new(backend, session, id))),
+        Some(id) => ws.on_upgrade(move |socket| follow_output(socket, backend, session, id)),
         None => not_a_tab(&tab),
     }
 }
@@ -244,10 +184,11 @@ impl Streamed {
     }
 }
 
-async fn follow_output(mut socket: WebSocket, mut follow: Follow) {
+async fn follow_output(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
+    let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.frames()));
     let mut streamed: Option<Streamed> = None;
     loop {
-        let Some((terminal, replaced)) = follow.terminal() else {
+        let Some((terminal, replaced)) = follow.next() else {
             send(&mut socket, &OutputUpdate::Closed).await;
             return;
         };
@@ -293,22 +234,23 @@ pub async fn info(
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
     match tab_id(&tab) {
-        Some(id) => ws.on_upgrade(move |socket| follow_info(socket, Follow::new(backend, session, id))),
+        Some(id) => ws.on_upgrade(move |socket| follow_info(socket, backend, session, id)),
         None => not_a_tab(&tab),
     }
 }
 
-async fn follow_info(mut socket: WebSocket, mut follow: Follow) {
+async fn follow_info(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
+    let mut follow = Follow::tab(&backend, session.clone(), id, |terminal| Some(terminal.frames()));
     let mut sent = String::new();
     loop {
-        let Some((terminal, _)) = follow.terminal() else {
+        let Some((terminal, _)) = follow.next() else {
             send(&mut socket, &InfoUpdate::Closed).await;
             return;
         };
         let info = match serde_json::to_string(&InfoUpdate::Info(Box::new(info_of(&terminal)))) {
             Ok(info) => info,
             Err(e) => {
-                eprintln!("dashboard: encoding the info of {} {} failed: {e}", follow.session, follow.tab());
+                eprintln!("dashboard: encoding the info of {session} {id} failed: {e}");
                 return;
             }
         };

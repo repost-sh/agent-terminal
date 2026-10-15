@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use serde::Deserialize;
 
 use super::{Backend, tab_id};
-use crate::protocol::{ErrorBody, Request, Sessions, Shot, Wait};
+use crate::protocol::{ErrorBody, Request, Sessions, Shot, Target, Wait};
 
 const RESTART_SETTLES_AFTER_MS: u64 = 300;
 const RESTART_TIMEOUT_MS: u64 = 25_000;
@@ -51,24 +53,38 @@ pub async fn restart(
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
     let wait = Wait::Stable { quiet_ms: RESTART_SETTLES_AFTER_MS };
-    call(backend, Request::Restart { session, tab: Some(id), wait, timeout_ms: RESTART_TIMEOUT_MS }).await
+    call(backend, Request::Restart { target: Target::tab(&session, id), wait, timeout_ms: RESTART_TIMEOUT_MS }).await
 }
 
 pub async fn close(State(backend): State<Arc<dyn Backend>>, Path((session, tab)): Path<(String, String)>) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Close { session, all: false, tab: Some(id) }).await
+    call(backend, Request::Close { target: Target::tab(&session, id), all: false }).await
 }
 
 pub async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
-    call(backend, Request::Close { session: String::new(), all: true, tab: None }).await
+    call(backend, Request::Close { target: Target { session: String::new(), tab: None }, all: true }).await
+}
+
+#[derive(Deserialize, Default)]
+pub struct Shown {
+    frame: Option<u64>,
 }
 
 pub async fn screenshot(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
+    body: Bytes,
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Screenshot { session, tab: Some(id), shot: Shot::default() }).await
+    let shown = match body.is_empty() {
+        true => Shown::default(),
+        false => match serde_json::from_slice::<Shown>(&body) {
+            Ok(shown) => shown,
+            Err(e) => return refused(format!("the screenshot request is not {{\"frame\": <n>}}: {e}")),
+        },
+    };
+    let shot = Shot { frame: shown.frame, ..Shot::default() };
+    call(backend, Request::Screenshot { target: Target::tab(&session, id), shot }).await
 }
 
 pub async fn record_start(
@@ -76,7 +92,7 @@ pub async fn record_start(
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::RecordStart { session, tab: Some(id), path: None }).await
+    call(backend, Request::RecordStart { target: Target::tab(&session, id), path: None }).await
 }
 
 pub async fn record_stop(
@@ -84,13 +100,17 @@ pub async fn record_stop(
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::RecordStop { session, tab: Some(id) }).await
+    call(backend, Request::RecordStop { target: Target::tab(&session, id) }).await
 }
 
 pub async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
+    let asked = serde_json::to_value(&request).map_or_else(|e| e.to_string(), |asked| asked["command"].to_string());
     match tokio::task::spawn_blocking(move || backend.call(request)).await {
         Ok(Ok(reply)) => Json(reply).into_response(),
-        Ok(Err(error)) => refusal(error),
+        Ok(Err(error)) => {
+            eprintln!("dashboard: {asked} from the dashboard failed: {}", error.message);
+            refusal(error)
+        }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("the daemon call failed: {e}")).into_response(),
     }
 }

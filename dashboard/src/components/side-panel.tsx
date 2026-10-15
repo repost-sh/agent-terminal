@@ -1,6 +1,7 @@
-import { useState, type KeyboardEvent } from "react";
+import type { KeyboardEvent } from "react";
 
 import type { TabInfo } from "../lib/protocol";
+import { resizePanel, showPanel, useSidePanel } from "../lib/side-panel";
 import { tabName } from "../lib/tabs";
 import { PANELS } from "../panels";
 import { ResizeHandle } from "./resize-handle";
@@ -11,8 +12,7 @@ const TAB_TRIGGER =
 type SidePanelProps = { session: string; tab: TabInfo };
 
 export const SidePanel = ({ session, tab }: SidePanelProps) => {
-  const [active, setActive] = useState(PANELS[0]?.id);
-  const [width, setWidth] = useState(30);
+  const { panel: active, width } = useSidePanel();
   const panel = PANELS.find((entry) => entry.id === active) ?? PANELS[0];
   if (!panel) return null;
 
@@ -24,13 +24,13 @@ export const SidePanel = ({ session, tab }: SidePanelProps) => {
     event.preventDefault();
     const next = PANELS[(to + PANELS.length) % PANELS.length];
     if (!next) return;
-    setActive(next.id);
+    showPanel(next.id);
     document.getElementById(`ptab-${next.id}`)?.focus();
   };
 
   return (
     <>
-      <ResizeHandle side="right" pct={width} label="Resize the side panel" onResize={setWidth} />
+      <ResizeHandle side="right" pct={width} label="Resize the side panel" onResize={resizePanel} />
       <section
         aria-label={`Details of ${tabName(session, tab.tab)}`}
         className="col-right flex min-h-0 shrink-0 flex-col gap-2"
@@ -47,7 +47,7 @@ export const SidePanel = ({ session, tab }: SidePanelProps) => {
                 aria-controls={`ppanel-${entry.id}`}
                 aria-selected={entry.id === panel.id}
                 tabIndex={entry.id === panel.id ? 0 : -1}
-                onClick={() => setActive(entry.id)}
+                onClick={() => showPanel(entry.id)}
                 className={TAB_TRIGGER}
               >
                 {entry.label}

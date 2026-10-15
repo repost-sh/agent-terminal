@@ -107,23 +107,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: cli
-      - name: Install fish for the shell tests
+      - name: Install zsh and fish for the shell tests
         if: runner.os == 'Linux'
         run: |
           sudo add-apt-repository --yes ppa:fish-shell/release-4
           sudo apt-get update
-          sudo apt-get install --yes fish
+          sudo apt-get install --yes zsh fish
+          zsh --version
           fish --version
       - name: Install fish for the shell tests
         if: runner.os == 'macOS'
         run: |
           brew install fish
+          zsh --version
           fish --version
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - name: Rerun the CLI tests to surface timing flakes
-        run: for run in 1 2 3 4; do cargo test --quiet --test cli || exit 1; done
+        run: for run in 1 2 3 4; do echo "rerun $run of 4"; cargo test --quiet --test cli || exit 1; done
 
   performance:
     name: Speed and memory (${{ matrix.os }})

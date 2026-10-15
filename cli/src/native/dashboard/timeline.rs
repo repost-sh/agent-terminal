@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
+use super::follow::Follow;
+use super::stream::{Shown, paint, send};
+use super::{Backend, tab_id};
+use crate::native::commands::epoch_ms;
+use crate::native::replay::Replay;
+use crate::native::terminal::{Run, Terminal};
+use crate::protocol::TabId;
 use anyhow::Result;
 use axum::extract::ws::{WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
-use tokio::sync::watch;
-
-use super::stream::{Shown, hung_up, paint, send};
-use super::{Backend, tab_id};
-use crate::native::commands::epoch_ms;
-use crate::native::replay::Replay;
-use crate::native::terminal::{Run, Terminal};
 
 const KEYFRAME_EVERY: u64 = 32;
 const FRAMES_PER_MESSAGE: usize = 256;
@@ -75,7 +75,6 @@ impl Cursor {
 
 struct Following {
     terminal: Arc<Terminal>,
-    frames: watch::Receiver<u64>,
     run: Run,
     cursor: Option<Cursor>,
     sent: usize,
@@ -90,15 +89,7 @@ struct CaughtUp {
 
 impl Following {
     fn new(terminal: Arc<Terminal>) -> Self {
-        Self {
-            frames: terminal.frames(),
-            run: terminal.run(),
-            terminal,
-            cursor: None,
-            sent: 0,
-            reset: true,
-            failed: false,
-        }
+        Self { run: terminal.run(), terminal, cursor: None, sent: 0, reset: true, failed: false }
     }
 
     async fn catch_up(&mut self, name: &str) -> CaughtUp {
@@ -151,34 +142,26 @@ pub async fn tab(
     }
 }
 
-async fn follow_timeline(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: u32) {
-    let name = format!("{session} t{id}");
-    let mut lifecycle = backend.changes();
+async fn follow_timeline(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
+    let name = format!("{session} {id}");
+    let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.frames()));
     let mut following: Option<Following> = None;
     loop {
-        lifecycle.borrow_and_update();
-        let Some(terminal) = backend.terminal(&session, id) else {
+        let Some((terminal, replaced)) = follow.next() else {
             send(&mut socket, &Update::Closed).await;
             return;
         };
-        if following.as_ref().is_some_and(|follow| !Arc::ptr_eq(&follow.terminal, &terminal)) {
+        if replaced {
             following = None;
         }
-        let follow = following.get_or_insert_with(|| Following::new(terminal));
-        follow.frames.borrow_and_update();
-        let caught_up = follow.catch_up(&name).await;
+        let caught_up = following.get_or_insert_with(|| Following::new(terminal)).catch_up(&name).await;
         if let Some(update) = caught_up.update
             && !send(&mut socket, &update).await
         {
             return;
         }
-        if caught_up.more {
-            continue;
-        }
-        tokio::select! {
-            changed = lifecycle.changed() => if changed.is_err() { return },
-            changed = follow.frames.changed() => if changed.is_err() { return },
-            received = socket.recv() => if hung_up(received) { return },
+        if !caught_up.more && !follow.changed(&mut socket).await {
+            return;
         }
     }
 }

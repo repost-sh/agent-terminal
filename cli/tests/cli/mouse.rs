@@ -1,4 +1,5 @@
-use crate::input::received;
+use serde_json::json;
+
 use crate::support::{AgentTerminal, fixture};
 
 const NO_MOUSE: &str = "this app has no mouse support; use keys";
@@ -16,7 +17,7 @@ fn click_sends_a_press_and_a_release_in_the_sgr_encoding() {
     open_echo(&at, "100x4", &["--mouse", "click", "--mouse-encoding", "sgr"]);
     let clicked = at.run(&["click", "2,5", "--wait", r"\e[<0;5;2M\e[<0;5;2m"]).success();
     assert_eq!(clicked.stdout(), "clicked 2,5 in default t1\n");
-    assert_eq!(received(&at), r"\e[<0;5;2M\e[<0;5;2m");
+    assert_eq!(at.received("default"), r"\e[<0;5;2M\e[<0;5;2m");
 }
 
 #[test]
@@ -26,7 +27,7 @@ fn click_right_and_double_send_the_right_button_twice() {
     let expected = r"\e[<2;7;3M\e[<2;7;3m\e[<2;7;3M\e[<2;7;3m";
     let clicked = at.run(&["click", "3,7", "--right", "--double", "--wait", expected]).success();
     assert_eq!(clicked.stdout(), "clicked 3,7 in default t1 (right button, double click)\n");
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -34,7 +35,7 @@ fn click_uses_the_x10_encoding_when_the_app_asks_for_no_other() {
     let at = AgentTerminal::new();
     open_echo(&at, "100x4", &["--mouse", "click"]);
     at.run(&["click", "2,5", "--wait", r#"\e[M %"\e[M#%""#]).success();
-    assert_eq!(received(&at), r#"\e[M %"\e[M#%""#);
+    assert_eq!(at.received("default"), r#"\e[M %"\e[M#%""#);
 }
 
 #[test]
@@ -43,7 +44,7 @@ fn click_uses_the_utf8_encoding_for_columns_past_95() {
     open_echo(&at, "120x4", &["--mouse", "click", "--mouse-encoding", "utf8"]);
     let expected = r#"\e[M \xc2\x84"\e[M#\xc2\x84""#;
     at.run(&["click", "2,100", "--wait", expected]).success();
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -57,7 +58,7 @@ fn click_without_mouse_tracking_exits_1_and_sends_nothing() {
         format!("error: default t1: {NO_MOUSE} instead (`agent-terminal snapshot -i` lists the key hints on screen)\n")
     );
     at.run(&["press", "x", "--wait", "x"]).success();
-    assert_eq!(received(&at), "x");
+    assert_eq!(at.received("default"), "x");
 }
 
 #[test]
@@ -112,7 +113,26 @@ fn click_on_a_ref_whose_cells_changed_asks_for_a_new_snapshot() {
             "error: default t1: @t1 is from frame {frame}, and that part of the screen has changed since; take a new `agent-terminal snapshot -i` and use its refs\n"
         )
     );
-    assert_eq!(received(&at), "x");
+    assert_eq!(at.received("default"), "x");
+}
+
+#[test]
+fn click_on_a_panel_whose_inside_changed_asks_for_a_new_snapshot() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui"), "--mouse"]).success();
+    let listed = at.run(&["--json", "snapshot", "-i"]).success().json();
+    assert_eq!((&listed["refs"][0]["kind"], &listed["refs"][0]["label"]), (&json!("panel"), &json!("Files")));
+    let frame = listed["frame"].as_u64().expect("a frame");
+
+    at.run(&["press", "j", "--wait", "Selected: beta.txt"]).success();
+    let clicked = at.run(&["click", "@t1"]);
+    assert_eq!(clicked.code(), 1, "{}", clicked.stdout());
+    assert_eq!(
+        clicked.stderr(),
+        format!(
+            "error: default t1: @t1 is from frame {frame}, and that part of the screen has changed since; take a new `agent-terminal snapshot -i` and use its refs\n"
+        )
+    );
 }
 
 #[test]
@@ -141,7 +161,7 @@ fn mouse_events_follow_motion_tracking() {
     assert_eq!(at.run(&["mouse", "wheel", "up", "3,6"]).success().stdout(), "mouse wheel up at 3,6 in default t1\n");
     let expected = r"\e[<35;4;3M\e[<0;4;3M\e[<32;6;3M\e[<0;6;3m\e[<64;6;3M\e[<65;6;3M";
     at.run(&["mouse", "wheel", "down", "3,6", "--wait", expected]).success();
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -156,7 +176,7 @@ fn mouse_motion_is_sent_only_when_the_tracking_reports_it() {
     at.run(&["mouse", "move", "3,5"]).success();
     let expected = r"\e[<2;4;3M\e[<34;5;3M\e[<2;5;3m";
     at.run(&["mouse", "up", "3,5", "--right", "--wait", expected]).success();
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -168,7 +188,7 @@ fn mouse_with_click_tracking_sends_no_motion() {
     assert_eq!(moved["bytes"], 0);
     let expected = r"\e[<1;4;3M\e[<1;5;3m";
     at.run(&["mouse", "up", "3,5", "--middle", "--wait", expected]).success();
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -191,7 +211,7 @@ fn scroll_uses_the_wheel_in_the_middle_of_the_screen_when_the_app_tracks_the_mou
         at.run(&["scroll", "up", "--wait", expected]).success().stdout(),
         "scrolled up 1 in default t1 with the mouse wheel\n"
     );
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -205,7 +225,7 @@ fn scroll_presses_page_keys_when_the_app_does_not_track_the_mouse() {
         at.run(&["scroll", "up", "--wait", expected]).success().stdout(),
         "scrolled up 1 in default t1 with PageUp\n"
     );
-    assert_eq!(received(&at), expected);
+    assert_eq!(at.received("default"), expected);
 }
 
 #[test]
@@ -219,7 +239,7 @@ fn scroll_keys_presses_page_keys_even_when_the_app_tracks_the_mouse() {
             "session": "default", "tab": "t1", "input": "scroll", "direction": "down", "count": 1, "by": "keys", "bytes": 4
         })
     );
-    assert_eq!(received(&at), r"\e[6~");
+    assert_eq!(at.received("default"), r"\e[6~");
 }
 
 fn open_tui(at: &AgentTerminal, flags: &[&str]) {
@@ -299,10 +319,12 @@ fn a_ref_of_the_fixture_tui_works_while_its_cells_are_unchanged() {
     open_tui(&at, &["--mouse"]);
     at.run(&["snapshot", "-i"]).success();
     at.run(&["press", "j", "--wait", "Selected: beta.txt"]).success();
-    let stale = at.run(&["click", "@t3"]);
-    assert_eq!(stale.code(), 1, "{}", stale.stderr());
-    assert!(stale.stderr().contains("take a new `agent-terminal snapshot -i`"), "{}", stale.stderr());
-    let clicked = at.run(&["click", "@t1", "--wait", "Mouse: left 1,2"]).success();
-    assert_eq!(clicked.stdout(), "clicked @t1 at 1,2 in default t1\n");
+    for changed in ["@t1", "@t2", "@t3"] {
+        let stale = at.run(&["click", changed]);
+        assert_eq!(stale.code(), 1, "{changed}: {}", stale.stderr());
+        assert!(stale.stderr().contains("take a new `agent-terminal snapshot -i`"), "{}", stale.stderr());
+    }
+    let clicked = at.run(&["click", "@t4", "--wait", "Mouse: left 8,1"]).success();
+    assert_eq!(clicked.stdout(), "clicked @t4 at 8,1 in default t1\n");
     at.run(&["expect", "Selected: beta.txt"]).success();
 }

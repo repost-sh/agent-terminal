@@ -4,15 +4,6 @@ use serde_json::{Value, json};
 
 use crate::support::{AgentTerminal, fixture};
 
-fn activity(at: &AgentTerminal, session: &str) -> Vec<Value> {
-    let path = at.home().join("sessions").join(session).join("activity.jsonl");
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}")))
-        .collect()
-}
-
 fn field(log: &[Value], name: &str) -> Value {
     log.iter().map(|entry| entry[name].clone()).collect()
 }
@@ -37,7 +28,7 @@ fn every_call_is_logged_with_its_command_duration_and_result() {
     at.run(&["close"]).success();
     let ended = SystemTime::now() + Duration::from_secs(1);
 
-    let log = activity(&at, "default");
+    let log = at.activity("default");
     assert_eq!(
         field(&log, "command"),
         json!([
@@ -63,6 +54,28 @@ fn every_call_is_logged_with_its_command_duration_and_result() {
 }
 
 #[test]
+fn raw_bytes_sent_with_send_are_flagged_raw_in_the_activity_log() {
+    let at = AgentTerminal::new();
+    let echo = fixture("input-echo");
+    at.run(&["open", "--size", "40x4", "--wait", "ready", &echo]).success();
+    at.run(&["send", r"\e[A", "--wait", r"\e[A"]).success();
+    at.run(&["press", "Up"]).success();
+    at.run(&["--json", "batch", r"send 'x\x01'"]).success();
+
+    let log = at.activity("default");
+    assert_eq!(
+        field(&log, "command"),
+        json!([
+            format!("open --size 40x4 --wait ready {echo}"),
+            r#"send "\\e[A" --wait "\\e[A""#,
+            "press Up",
+            r#"send "x\\x01""#
+        ])
+    );
+    assert_eq!(field(&log, "raw"), json!([null, true, null, true]));
+}
+
+#[test]
 fn each_session_logs_its_own_calls_and_the_tab_they_acted_on() {
     let at = AgentTerminal::new();
     let printer = fixture("line-printer");
@@ -73,9 +86,9 @@ fn each_session_logs_its_own_calls_and_the_tab_they_acted_on() {
     at.run(&["--session", "qa", "tab", "close", "t1"]).success();
     at.run(&["--session", "qa", "tab"]).success();
 
-    let log = activity(&at, "qa");
+    let log = at.activity("qa");
     assert_eq!(field(&log, "tab"), json!(["t1", "t2", "t1", "t1", null]));
-    assert_eq!(activity(&at, "other").len(), 1);
+    assert_eq!(at.activity("other").len(), 1);
 }
 
 #[test]
@@ -85,7 +98,7 @@ fn a_batch_logs_each_command_it_ran() {
     at.run(&["open", "--wait", "line 3", &printer, "--hold"]).success();
     assert_eq!(at.run(&["batch", "--bail", "mark before", "get cell 99 1", "get frame"]).code(), 1);
 
-    let log = activity(&at, "default");
+    let log = at.activity("default");
     assert_eq!(
         field(&log, "command"),
         json!([format!("open --wait 'line 3' {printer} --hold"), "mark before", "get cell 99 1"])
@@ -103,7 +116,7 @@ fn each_entry_keeps_what_the_call_printed() {
     let timed_out = at.run(&["--timeout", "300", "wait", "never shown"]);
     assert_eq!(timed_out.code(), 3);
 
-    let log = activity(&at, "default");
+    let log = at.activity("default");
     assert_eq!(
         opened.screen(),
         "default t1 · line-printer · 40x6 · cursor 4,1 · frame N\n1│line 1\n2│line 2\n3│line 3\n…│ (rows 4-6 blank)\n"
@@ -127,7 +140,7 @@ fn an_entry_keeps_the_first_64_kib_of_a_long_output() {
     let printed = at.run(&["output"]).success().stdout();
     assert!(printed.len() > 128 * 1024, "{} bytes", printed.len());
 
-    let output = activity(&at, "default")[1]["output"].as_str().unwrap().to_string();
+    let output = at.activity("default")[1]["output"].as_str().unwrap().to_string();
     let (kept, note) = output.split_at(64 * 1024);
     assert_eq!(kept, &printed[..64 * 1024]);
     assert_eq!(note, format!("\n… {} more bytes not kept\n", printed.len() - 64 * 1024));
@@ -147,7 +160,7 @@ fn every_screenshot_a_call_saves_is_linked_from_its_entry() {
     at.run(&["get", "frame"]).success();
 
     assert_eq!(failed.code(), 2);
-    let log = activity(&at, "default");
+    let log = at.activity("default");
     assert_eq!(
         field(&log, "screenshots"),
         json!([null, [first.to_string_lossy()], [second.to_string_lossy()], [diff.to_string_lossy()], null])

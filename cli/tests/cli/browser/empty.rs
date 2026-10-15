@@ -59,6 +59,7 @@ fn losing_the_daemon_shows_reconnecting_then_disconnected_and_retry_reconnects()
     at.run(&["dashboard", "start", "--port", &port.to_string()]).success();
     browser.click_button("Retry");
     browser.wait_for_text("No active sessions");
+    browser.wait_for_announcement("Connected");
 }
 
 #[test]

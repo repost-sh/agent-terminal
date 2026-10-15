@@ -7,15 +7,11 @@ fn open_app(at: &AgentTerminal) {
 }
 
 fn attach(at: &AgentTerminal, from: &str, extra: &[&str], ready: &str) -> Run {
-    let mut args = vec!["--session", from, "open", "--size", "70x10", "--wait", ready, BINARY, "--session", "app"];
+    let mut args =
+        vec!["--session", from, "open", "--size", "70x10", "--wait", ready, BINARY, "--", "--session", "app"];
     args.push("attach");
     args.extend_from_slice(extra);
     at.run(&args)
-}
-
-fn received(at: &AgentTerminal) -> String {
-    let snapshot = at.run(&["--session", "app", "--json", "snapshot"]).success().json();
-    snapshot["lines"][1].as_str().expect("the second row").to_string()
 }
 
 #[test]
@@ -44,6 +40,9 @@ fn while_a_human_is_attached_input_exits_4_and_wait_control_resumes_once_they_de
         held.stderr(),
         "error: timed out after 300 ms waiting for a human to hand back control of app t1; wait longer with --timeout <ms>\n"
     );
+    let asserted = at.run(&["--session", "app", "--timeout", "300", "wait", "--control", "--assert"]);
+    assert_eq!(asserted.code(), 2);
+    assert_eq!(asserted.stderr(), "error: a human did not hand back control of app t1 within 300 ms\n");
 
     std::thread::scope(|scope| {
         let waiting = scope.spawn(|| at.run(&["--session", "app", "--json", "wait", "--control"]));
@@ -57,23 +56,15 @@ fn while_a_human_is_attached_input_exits_4_and_wait_control_resumes_once_they_de
     let detached = at.run(&["--session", "human", "get", "text"]).success().stdout();
     assert!(detached.contains("detached from app t1"), "{detached}");
     at.run(&["--session", "app", "press", "j", "--wait", "j"]).success();
-    assert_eq!(received(&at), "j");
+    assert_eq!(at.received("app"), "j");
 
-    let refusals: Vec<serde_json::Value> = activity(&at).into_iter().filter(|entry| entry["exit"] == 4).collect();
+    let refusals: Vec<serde_json::Value> = at.activity("app").into_iter().filter(|entry| entry["exit"] == 4).collect();
     let commands: Vec<&serde_json::Value> = refusals.iter().map(|entry| &entry["command"]).collect();
     assert_eq!(commands, ["--session app press j", "--session app --json type x", "--session app signal INT"]);
     for refusal in &refusals {
         assert_eq!(refusal["tab"], "t1");
         assert_eq!(refusal["error"], "A human has control of app t1. Run `agent-terminal wait --control`.");
     }
-}
-
-fn activity(at: &AgentTerminal) -> Vec<serde_json::Value> {
-    std::fs::read_to_string(at.home().join("sessions/app/activity.jsonl"))
-        .expect("the activity log of app")
-        .lines()
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("an activity entry"))
-        .collect()
 }
 
 #[test]
@@ -112,7 +103,7 @@ fn closing_the_tab_ends_the_attach() {
 }
 
 fn human_entries(at: &AgentTerminal) -> Vec<serde_json::Value> {
-    activity(at).into_iter().filter(|entry| entry.get("human").is_some()).collect()
+    at.activity("app").into_iter().filter(|entry| entry.get("human").is_some()).collect()
 }
 
 #[test]
@@ -128,7 +119,7 @@ fn an_attached_human_types_with_keys_encoded_for_the_program_and_each_key_is_log
     press.extend(keys);
     at.run(&press).success();
     at.run(&["--session", "app", "wait", r"h\xc3\xa9\eOA\r\x03\e[Z\ex\e[15~\x10\eOB"]).success();
-    assert_eq!(received(&at), r"h\xc3\xa9\eOA\r\x03\e[Z\ex\e[15~\x10\eOB");
+    assert_eq!(at.received("app"), r"h\xc3\xa9\eOA\r\x03\e[Z\ex\e[15~\x10\eOB");
 
     let entries = human_entries(&at);
     let mut typed = String::new();
@@ -183,7 +174,7 @@ fn a_read_only_attach_leaves_control_with_the_agent_and_sends_no_keys() {
     at.run(&["--session", "watcher", "type", "y"]).success();
     at.run(&["--session", "watcher", "press", "Ctrl+p", "Ctrl+q"]).success();
     at.run(&["--session", "watcher", "wait", "--exit"]).success();
-    assert_eq!(received(&at), "x");
+    assert_eq!(at.received("app"), "x");
     assert!(human_entries(&at).is_empty());
 }
 

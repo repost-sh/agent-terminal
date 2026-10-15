@@ -10,11 +10,6 @@ fn open_input_echo(at: &AgentTerminal) {
     at.run(&["open", "--size", "40x6", "--wait", "ready", &fixture("input-echo")]).success();
 }
 
-fn received(at: &AgentTerminal) -> String {
-    let snapshot = at.run(&["--json", "snapshot"]).success().json();
-    snapshot["lines"][1].as_str().expect("the second row").to_string()
-}
-
 fn take_control(browser: &Browser) {
     browser.wait_for_status("Live");
     browser.click_button("Take control");
@@ -66,13 +61,18 @@ fn taking_control_refuses_the_agent_with_exit_4_until_the_human_releases_it() {
     );
     assert_eq!(at.run(&["--json", "tab"]).success().json()["tabs"][0]["control"], "human");
 
-    let refused = at.run(&["press", "j"]);
+    let refused = at.run(&["--session", "default", "--timeout", "500", "press", "j"]);
     assert_eq!(refused.code(), 4, "{}", refused.stderr());
     assert_eq!(refused.stderr(), format!("error: {REFUSED}\n"));
-    wait_for_row(&browser, ":not([aria-busy])", "press j ", "| refused: human has control");
+    wait_for_row(
+        &browser,
+        ":not([aria-busy])",
+        "--session default --timeout 500 press j ",
+        "| refused: human has control",
+    );
     browser.wait_for_text("The agent is waiting for control");
     let notice = browser.text(".toaster");
-    assert!(notice.contains("press j refused · exit 4 · now: wait --control"), "{notice}");
+    assert!(notice.lines().any(|line| line.trim() == "press j refused · exit 4 · now: wait --control"), "{notice}");
 
     std::thread::scope(|scope| {
         let waiting = scope.spawn(|| at.run(&["wait", "--control"]));
@@ -119,7 +119,7 @@ fn keys_typed_in_the_dashboard_reach_the_program_and_show_in_activity_as_human_r
     browser.run(&["focus", "[role=application]"]);
     browser.run(&["press", "z"]);
     at.run(&["wait", r"\e[Az"]).success();
-    assert_eq!(received(&at), r"hi\t\e\x03\e[Az");
+    assert_eq!(at.received("default"), r"hi\t\e\x03\e[Az");
 }
 
 #[test]
@@ -131,7 +131,8 @@ fn a_human_attached_from_a_terminal_shows_as_human_in_the_sidebar() {
     browser.wait_for_status("Live");
     let binary = env!("CARGO_BIN_EXE_agent-terminal");
     let attach = ["--session", "default", "attach"];
-    let mut args = vec!["--session", "human", "open", "--size", "70x10", "--wait", "ctrl-p ctrl-q detaches", binary];
+    let mut args =
+        vec!["--session", "human", "open", "--size", "70x10", "--wait", "ctrl-p ctrl-q detaches", binary, "--"];
     args.extend(attach);
     at.run(&args).success();
     browser.wait_until(
@@ -162,9 +163,24 @@ fn keys_typed_while_viewing_the_past_do_not_reach_the_program_and_reach_it_again
         js_string(PAST)
     ));
     browser.wait_for_screen_in(PAST, "ready");
-    browser.run(&["focus", CONTROL_BUTTON]);
-    browser.run(&["press", "Tab"]);
     browser.run(&["press", "Enter"]);
+    for target in [TIMELINE, PAST, "#viewport-region [aria-label*=', live frame ']", "#viewport-region", "body"] {
+        for key in ["j", "x", "Enter"] {
+            browser.run(&[
+                "eval",
+                &format!(
+                    "document.querySelector({}).dispatchEvent(new KeyboardEvent('keydown', {{ key: {}, bubbles: true, cancelable: true }}))",
+                    js_string(target),
+                    js_string(key)
+                ),
+            ]);
+        }
+    }
+    assert_eq!(
+        browser.eval(&format!("!!document.querySelector({})", js_string(PAST))),
+        "true",
+        "still viewing the past"
+    );
 
     browser.click_button("Live");
     browser.wait_until(&format!("!document.querySelector({})", js_string(PAST)));
@@ -172,5 +188,5 @@ fn keys_typed_while_viewing_the_past_do_not_reach_the_program_and_reach_it_again
     browser.run(&["press", "Tab"]);
     browser.run(&["press", "z"]);
     at.run(&["wait", "z"]).success();
-    assert_eq!(received(&at), "kz");
+    assert_eq!(at.received("default"), "kz");
 }

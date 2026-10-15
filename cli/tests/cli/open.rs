@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -18,6 +19,33 @@ fn open_prints_the_programs_first_stable_screen() {
      3│line 3
      …│ (rows 4-10 blank)
     ");
+}
+
+#[test]
+fn options_of_open_after_the_program_are_open_options_and_the_rest_goes_to_the_program() {
+    let at = AgentTerminal::new();
+    let run = at
+        .run(&["open", &fixture("line-printer"), "--lines", "2", "--size", "30x4", "--hold", "--wait", "line 2"])
+        .success();
+    insta::assert_snapshot!(run.screen(), @r"
+    default t1 · line-printer · 30x4 · cursor 3,1 · frame N
+    1│line 1
+    2│line 2
+    …│ (rows 3-4 blank)
+    ");
+
+    let script = "echo \"got $1 $2\"; read _";
+    let passed = at
+        .run(&["tab", "new", "sh", "-c", script, "sh", "--size", "30x3", "--wait", "got", "--", "--size", "--wait"])
+        .success();
+    insta::assert_snapshot!(passed.screen(), @r"
+    default t2 · sh · 30x3 · cursor 2,1 · frame N
+    1│got --size --wait
+    …│ (rows 2-3 blank)
+    ");
+
+    let global = at.run(&["open", &fixture("line-printer"), "--hold", "--json", "--wait=line 3"]).success().json();
+    assert_eq!((&global["tab"], &global["lines"][2]), (&serde_json::json!("t3"), &serde_json::json!("line 3")));
 }
 
 #[test]
@@ -47,6 +75,37 @@ fn close_stops_the_program_and_leaves_nothing_to_read() {
     let after = at.run(&["snapshot"]);
     assert_eq!(after.code(), 1);
     assert!(after.stderr().contains("no terminal is open in session default"), "{}", after.stderr());
+}
+
+const IGNORES_HUP: &str = "trap '' HUP; echo ready; exec sleep 600";
+
+fn running(pid: &str) -> bool {
+    Command::new("kill").args(["-0", pid]).stderr(Stdio::null()).status().expect("run kill").success()
+}
+
+#[test]
+fn close_and_close_all_stop_a_program_that_ignores_sighup() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--wait", "ready", "sh", "-c", IGNORES_HUP]).success();
+    let first = at.run(&["get", "pid"]).success().stdout().trim().to_string();
+    at.run(&["--session", "other", "open", "--wait", "ready", "sh", "-c", IGNORES_HUP]).success();
+    let second = at.run(&["--session", "other", "get", "pid"]).success().stdout().trim().to_string();
+    assert!(running(&first) && running(&second));
+
+    at.run(&["close"]).success();
+    assert!(!running(&first), "close left {first} running");
+    at.run(&["close", "--all"]).success();
+    assert!(!running(&second), "close --all left {second} running");
+}
+
+#[test]
+fn restart_stops_a_program_that_ignores_sighup_and_runs_it_again() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--wait", "ready", "sh", "-c", IGNORES_HUP]).success();
+    let before = at.run(&["get", "pid"]).success().stdout().trim().to_string();
+    at.run(&["--timeout", "5000", "restart", "--wait", "ready"]).success();
+    assert!(!running(&before), "restart left {before} running");
+    assert_ne!(at.run(&["get", "pid"]).success().stdout().trim(), before);
 }
 
 #[test]
@@ -115,6 +174,46 @@ fn cwd_and_env_reach_the_program() {
     let stdout = run.stdout();
     let lines: Vec<&str> = stdout.lines().skip(1).take(2).map(|l| l.split_once('│').unwrap().1).collect();
     assert_eq!(lines, vec![folder.as_str(), "hello from env"]);
+}
+
+#[test]
+fn term_and_colorterm_describe_the_emulated_terminal_unless_env_sets_them() {
+    let at = AgentTerminal::new();
+    let script = ["sh", "-c", "echo \"[$TERM] [$COLORTERM]\"; read _"];
+    let mut emulated = vec!["open", "--size", "40x3", "--wait", "]"];
+    emulated.extend(script);
+    let from_caller = [("TERM", Path::new("dumb")), ("COLORTERM", Path::new("16"))];
+    let opened = at.run_with_env(&emulated, &from_caller).success();
+    assert_eq!(opened.stdout().lines().nth(1), Some("1│[xterm-256color] [truecolor]"));
+
+    let mut chosen = vec!["tab", "new", "--size", "40x3", "--env", "TERM=vt100", "--env", "COLORTERM=", "--wait", "]"];
+    chosen.extend(script);
+    let opened = at.run_with_env(&chosen, &from_caller).success();
+    assert_eq!(opened.stdout().lines().nth(1), Some("1│[vt100] []"));
+}
+
+#[test]
+fn a_relative_cwd_is_relative_to_where_open_runs_and_a_missing_one_is_refused() {
+    let at = AgentTerminal::new();
+    let work = at.work_folder();
+    std::fs::create_dir(work.join("app")).expect("create the app folder");
+    let script = ["sh", "-c", "echo \"in $(pwd -P)\"; read _"];
+    at.run_in(at.home(), &["open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    let mut relative = vec!["tab", "new", "--size", "100x3", "--cwd", "app", "--wait", "in "];
+    relative.extend(script);
+    let opened = at.run_in(&work, &relative).success();
+    assert_eq!(opened.stdout().lines().nth(1), Some(format!("1│in {}", work.join("app").display()).as_str()));
+
+    for (cwd, shown) in
+        [("missing", work.join("missing").display().to_string()), ("/nowhere/at/all", "/nowhere/at/all".into())]
+    {
+        let mut args = vec!["open", "--cwd", cwd];
+        args.extend(script);
+        let refused = at.run_in(&work, &args);
+        assert_eq!(refused.code(), 1, "{}", refused.stdout());
+        assert_eq!(refused.stderr(), format!("error: the working directory {shown} does not exist\n"));
+    }
+    assert_eq!(at.run(&["tab"]).success().stdout().lines().count(), 2, "a refused open opens no tab");
 }
 
 #[test]

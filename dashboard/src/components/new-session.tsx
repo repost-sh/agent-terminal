@@ -5,6 +5,8 @@ import { openTab, reason } from "../lib/api";
 import { shellWord } from "../lib/format";
 import type { SessionInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
+import { showPanel } from "../lib/side-panel";
+import { announceWhenLive } from "../lib/stream";
 import { closeDialog, Dialog } from "./dialog";
 import { toast } from "./toaster";
 import { Button, cn, copy, IconButton } from "./ui";
@@ -193,6 +195,8 @@ export const NewSessionDialog = ({ sessions, existing }: NewSessionDialogProps) 
         rows: Number(rows),
         shell_integration: integration,
       });
+      announceWhenLive(opened.session, opened.tab);
+      showPanel("activity");
       closeDialog(document.getElementById("main-content"));
       navigate(tabRoute(opened.session, opened.tab));
     } catch (error) {

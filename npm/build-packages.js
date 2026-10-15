@@ -89,7 +89,7 @@ function platformManifest(main, platform, version) {
   if (platform.libc) {
     manifest.libc = [platform.libc];
   }
-  manifest.files = [`bin/${BINARY}`];
+  manifest.files = [`bin/${BINARY}`, 'licenses'];
   return manifest;
 }
 
@@ -106,6 +106,7 @@ function build({ manifest: manifestPath, artifacts, out }) {
     fs.mkdirSync(directory, { recursive: true });
     writeJson(path.join(directory, 'package.json'), manifest);
     fs.copyFileSync(path.join(ROOT, 'LICENSE'), path.join(directory, 'LICENSE'));
+    fs.cpSync(path.join(ROOT, 'licenses'), path.join(directory, 'licenses'), { recursive: true });
     extractBinary(archives[index], path.join(directory, 'bin', BINARY));
   });
 

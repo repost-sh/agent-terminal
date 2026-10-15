@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use super::Backend;
 use super::api::{call, refused};
+use crate::native::pty;
 use crate::protocol::{Request, Sessions, Shell, Size};
 
 #[derive(Deserialize)]
@@ -37,7 +38,7 @@ impl Opening {
         }
         let size = Size::new(self.cols, self.rows)?;
         let cwd = working_directory(&self.cwd)?;
-        let env: Vec<(String, String)> = std::env::vars().collect();
+        let env = pty::inherited(std::env::vars());
         if !self.shell_integration {
             return Ok(Request::Open {
                 session: self.session,

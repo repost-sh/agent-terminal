@@ -125,7 +125,7 @@ agent-terminal expect --exit-code 0
 agent-terminal expect --cell 2,33 --style inverse   # this row is the selected one
 ```
 
-`expect` checks the current screen without waiting and exits 2 with the relevant part of the screen when it fails. Wait first, then expect.
+`expect` checks the current screen without waiting and exits 2 with the relevant part of the screen when it fails. Wait first, then expect. To wait and check in one call, add `--assert` to `wait`: running out of time then exits 2 like a failed `expect`, instead of 3 (`agent-terminal wait "Saved" --timeout 5000 --assert`).
 
 ## Evidence
 

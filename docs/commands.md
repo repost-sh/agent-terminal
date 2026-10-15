@@ -15,12 +15,15 @@ Start and stop:
                                --wait <text>  wait for this text instead of a stable screen
                                --wait-stable [ms]  how long unchanged counts as stable (default 300)
                                --no-wait  print the screen right away
+                               open's options may follow the program (open lazygit --size 80x24); the program gets
+                               every other argument, and everything after -- (open app -- --size big)
   shell [--shell zsh|bash|fish]   Open your shell (default: $SHELL) with command history turned on
                                (prints the screen at its first prompt; takes --wait / --wait-stable / --no-wait like open)
   exec "<command line>"        Run a command in the shell tab, wait for it, print output + exit code
                                --check  exit with the command's own exit code
   restart                      Run the same program again with the same options (cwd, env, current size)
   signal <INT|TERM|KILL|...>   Send a signal to the program in the foreground (INT TERM KILL HUP TSTP CONT WINCH)
+                               works like an input command: exit 4 under human control, and the options listed under Send input
   resize <cols>x<rows>         Resize the terminal, e.g. resize 80x24 (the app gets SIGWINCH)
                                restart and resize print the screen and take --wait <text> / --wait-stable [ms] like open
   close [--all]                Close the current tab (--all closes every session)
@@ -58,15 +61,16 @@ Send input:
                                down and up take --right or --middle
   send <bytes>                 Raw bytes with escapes (\e \xHH \n \r \t \0 \\), last resort
 
-  Any input command also takes:
+  Any input command, and signal, also takes:
     --wait <text>              then wait until the text is on screen
     --wait-gone <text>         then wait until it is gone
-    --wait-stable [ms]         then wait until the screen stops changing (default 300 ms)
+    --wait-stable [ms]         then wait until the screen has not changed for ms since the input (default 300)
     --snapshot                 then print the screen
     --screenshot [path]        then save a PNG
 
 Wait and check:
   wait <text>                  Until the text is on screen (--regex, --gone, --rows <a:b>, --timeout <ms>)
+                               --assert  running out of time is a failed check: exit 2, not 3 (every wait below takes it)
   wait --stable [ms]           Until the screen stops changing (default 300)
   wait --idle [ms]             Until the program prints nothing, even output that leaves the screen as it was (default 300)
   wait --exit                  Until the program exits (--code <n> to require an exit code; another code exits 2)
@@ -86,7 +90,7 @@ Evidence:
                                --from <mark|@activity:N> [--to <mark|@activity:N>]  between two marks or calls (to: now)
                                --command <id>  one shell command, from its start to its end
                                default path: <screenshot dir>/<session>-<tab>-<frame>.gif; at most 10 frames a second
-  record start|stop [path]     Save the whole tab as an asciicast (.cast) file
+  record start|stop [path]     Save the tab as an asciicast (.cast) file from now on, starting from the screen it shows
   diff snapshot                What changed on screen since the last snapshot (--baseline <file>: a saved one)
   diff screenshot --baseline <png>   Pixel diff against a baseline image, saved as an image with the changes in red
                                --output <png>  where the diff image goes (default: <screenshot dir>/<session>-<tab>-<frame>-diff.png)
@@ -98,13 +102,14 @@ Sessions and tabs:
   session                      Current session name
   session list                 Sessions, their tabs, programs and status
   session id --scope worktree --prefix <p>   A name unique to this checkout, for AGENT_TERMINAL_SESSION
-  tab                          List tabs in this session
+  tab [list]                   List tabs in this session
   tab new <program...>         Another terminal in the same session (e.g. a server next to the app)
   tab <id>                     Switch to a tab
   tab close [id]               Close a tab
 
 Watch and take over:
   dashboard [start|stop]       The live dashboard on http://localhost:4849 (--port <n>; 0 picks a free port)
+                               --allow-origin <origin>  also answer pages from this origin (the dashboard's dev server)
   attach [--read-only]         Watch or drive a session from your own terminal (detach: Ctrl-p Ctrl-q)
                                without --read-only you take control: the agent's input exits 4 until you detach
 
@@ -134,7 +139,7 @@ Exit codes:
   1  error
   2  expect or wait --assert failed, or diff screenshot found more changes than --threshold
   3  timed out
-  4  a human has control of this tab (input commands and exec; resume with wait --control)
+  4  a human has control of this tab (input commands, signal and exec; resume with wait --control)
   5  the program has exited
 ```
 

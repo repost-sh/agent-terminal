@@ -3,13 +3,14 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use crate::native::screen::Colour;
 use crate::protocol::RefKind;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Glyph {
     pub text: String,
-    pub fg: String,
-    pub bg: String,
+    pub fg: Colour,
+    pub bg: Colour,
     pub inverse: bool,
     pub bold: bool,
     pub underline: bool,
@@ -31,13 +32,19 @@ impl Glyph {
         self.text.chars().next().unwrap_or(' ')
     }
 
-    fn backdrop(&self) -> &str {
-        match (self.inverse, self.fg.as_str()) {
-            (false, _) => &self.bg,
-            (true, "default") => "foreground",
-            (true, fg) => fg,
+    fn backdrop(&self) -> Backdrop {
+        match (self.inverse, self.fg) {
+            (false, _) => Backdrop::Colour(self.bg),
+            (true, Colour::Default) => Backdrop::Foreground,
+            (true, fg) => Backdrop::Colour(fg),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Backdrop {
+    Colour(Colour),
+    Foreground,
 }
 
 pub struct Grid {
@@ -46,8 +53,10 @@ pub struct Grid {
 }
 
 impl Grid {
-    fn glyphs(&self, span: Span) -> Option<&[Glyph]> {
-        self.rows.get(span.row)?.get(span.col..=span.last_col)
+    fn glyphs(&self, area: Area) -> Option<Vec<Glyph>> {
+        let rows = self.rows.get(area.row..=area.last_row)?;
+        let cells = rows.iter().map(|row| row.get(area.col..=area.last_col)).collect::<Option<Vec<_>>>()?;
+        Some(cells.concat())
     }
 }
 
@@ -86,7 +95,7 @@ pub struct Found {
 
 impl Found {
     fn new(kind: RefKind, label: String, col: usize, area: Area, basis: Span, grid: &Grid) -> Self {
-        let seen = grid.rows[basis.row][basis.col..=basis.last_col].to_vec();
+        let seen = grid.glyphs(area).expect("a ref covers cells of the grid it was found on");
         Self { kind, label, row: basis.row, col, area, url: None, basis, seen }
     }
 
@@ -95,7 +104,7 @@ impl Found {
     }
 
     pub fn still_on(&self, grid: &Grid) -> bool {
-        grid.glyphs(self.basis) == Some(&self.seen[..])
+        grid.glyphs(self.area).as_ref() == Some(&self.seen)
     }
 }
 
@@ -165,7 +174,7 @@ fn label_in(cells: &[Glyph], first: usize, last: usize) -> Option<(String, usize
 }
 
 fn selected(grid: &Grid) -> Vec<Found> {
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut counts: BTreeMap<Backdrop, usize> = BTreeMap::new();
     for glyph in grid.rows.iter().flatten() {
         *counts.entry(glyph.backdrop()).or_default() += 1;
     }

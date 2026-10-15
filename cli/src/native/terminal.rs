@@ -12,9 +12,10 @@ use crate::native::commands::{Change, Commands, Point, Submitted};
 use crate::native::keyboard;
 use crate::native::mouse::{self, Action};
 use crate::native::output_log::{Offsets, Output, OutputLog};
-use crate::native::pty::{self, Killer, Signaller, Spawned};
+use crate::native::pty::{self, Signaller, Spawned, Stopper};
 use crate::native::recording::Recording;
 use crate::native::refs::{self, Found, Grid};
+use crate::native::replay::Replay;
 use crate::native::screen::{Screen, ShellReport};
 use crate::native::store::CommandLog;
 use crate::native::wait::{self, Condition, Moment, Verdict};
@@ -24,17 +25,19 @@ use crate::protocol::{
     SnapshotDiff, SnapshotOptions, TabInfo,
 };
 
+pub const HANG_UP_GRACE: Duration = Duration::from_secs(1);
+
 pub struct Terminal {
     pub program: String,
     pid: Option<u32>,
     cwd: String,
     started: SystemTime,
-    recorded_before: u64,
+    run: Run,
     state: Mutex<State>,
     changed: Condvar,
     input_turn: Mutex<()>,
     writer: Mutex<Box<dyn Write + Send>>,
-    killer: Mutex<Box<dyn Killer>>,
+    stopper: Stopper,
     master: pty::Master,
     signaller: Box<dyn Signaller>,
     command: pty::Command,
@@ -83,6 +86,24 @@ impl Picture {
             exit,
         }
     }
+
+    pub fn paint(&self, shown: Option<&[String]>) -> String {
+        let mut paint = String::new();
+        for (index, row) in self.rows.iter().enumerate() {
+            if shown.is_none_or(|shown| shown.get(index) != Some(row)) {
+                paint.push_str(&crate::paint::row(index, row));
+            }
+        }
+        paint.push_str(&crate::paint::cursor(self.cursor.0, self.cursor.1, self.cursor_visible && self.exit.is_none()));
+        paint
+    }
+}
+
+pub struct Continued {
+    run: Run,
+    frame: u64,
+    frame_ends: Vec<u64>,
+    first_command: u32,
 }
 
 #[derive(Clone)]
@@ -183,24 +204,31 @@ impl Terminal {
         recording: Arc<Recording>,
         command_log: CommandLog,
         lifecycle: Changes,
+        continued: Option<Continued>,
     ) -> Arc<Self> {
         let program = display_name(&command.program);
         let size = command.size;
         let cwd = command.cwd.to_string_lossy().into_owned();
         let screen = Screen::new(size);
         let started = Instant::now();
-        let commands = shell.map(|_| Commands::new(cwd.clone()));
+        let Continued { run, frame, frame_ends, first_command } = continued.unwrap_or_else(|| Continued {
+            run: Run { cast: recording.cast(), from: recording.length(), size, started: SystemTime::now() },
+            frame: 0,
+            frame_ends: Vec::new(),
+            first_command: 1,
+        });
+        let commands = shell.map(|_| Commands::new(cwd.clone(), first_command));
         let terminal = Arc::new(Self {
             program,
             pid: spawned.pid,
             cwd,
             started: SystemTime::now(),
-            recorded_before: recording.length(),
+            run,
             state: Mutex::new(State {
                 look: screen.fingerprint(),
                 screen,
-                frame: 0,
-                frame_ends: Vec::new(),
+                frame,
+                frame_ends,
                 last_change: started,
                 last_output: started,
                 exit: None,
@@ -215,7 +243,7 @@ impl Terminal {
             changed: Condvar::new(),
             input_turn: Mutex::new(()),
             writer: Mutex::new(spawned.writer),
-            killer: Mutex::new(spawned.killer),
+            stopper: spawned.stopper,
             master: spawned.master,
             signaller: spawned.signaller,
             command,
@@ -330,6 +358,27 @@ impl Terminal {
         Ok(Capture { grid, rows, frame: state.frame, refs })
     }
 
+    pub fn capture_at(&self, frame: u64, rows: Option<RowRange>) -> Result<Option<Capture>> {
+        let (run, ends, now) = {
+            let state = self.state.lock().unwrap();
+            (self.run.clone(), state.frame_ends.clone(), state.frame)
+        };
+        if frame == now {
+            return self.capture(rows, false).map(Some).map_err(anyhow::Error::msg);
+        }
+        let Some(passed) = ends.get(..frame as usize).filter(|_| frame > 0) else {
+            return Ok(None);
+        };
+        let mut replay = Replay::start(&run)?;
+        for end in passed {
+            replay.next_frame(*end)?;
+        }
+        let grid = replay.grid();
+        let size = Size { cols: grid.rows.first().map_or(0, Vec::len) as u16, rows: grid.rows.len() as u16 };
+        let rows = row_range(size, rows).map_err(anyhow::Error::msg)?;
+        Ok(Some(Capture { grid, rows, frame, refs: None }))
+    }
+
     pub fn text_rows(&self, rows: Option<RowRange>, ansi: bool) -> Result<(u64, Vec<String>), String> {
         let state = self.state.lock().unwrap();
         let rows = row_range(state.screen.size(), rows)?;
@@ -405,7 +454,17 @@ impl Terminal {
     }
 
     pub fn run(&self) -> Run {
-        Run { cast: self.recording.cast(), from: self.recorded_before, size: self.command.size, started: self.started }
+        self.run.clone()
+    }
+
+    pub fn continued(&self) -> Continued {
+        let state = self.state.lock().unwrap();
+        Continued {
+            run: self.run.clone(),
+            frame: state.frame,
+            frame_ends: state.frame_ends.clone(),
+            first_command: state.commands.as_ref().map_or(1, Commands::next_id),
+        }
     }
 
     pub fn frame_ends(&self, after: usize) -> Vec<u64> {
@@ -426,6 +485,14 @@ impl Terminal {
         }
     }
 
+    pub fn save_recording(&self, path: &std::path::Path) -> Result<()> {
+        let state = self.state.lock().unwrap();
+        let picture = Picture::of(&state.screen, state.frame, state.exit);
+        let alt_screen = if picture.alt_screen { "\x1b[?1049h" } else { "" };
+        let blank = vec![String::new(); picture.rows.len()];
+        self.recording.save_to(path, picture.size, &format!("{alt_screen}{}", picture.paint(Some(&blank))))
+    }
+
     pub fn recording(&self) -> Arc<Recording> {
         Arc::clone(&self.recording)
     }
@@ -444,7 +511,23 @@ impl Terminal {
     }
 
     pub fn stop(&self, timeout: Duration) -> bool {
-        self.kill();
+        self.hang_up();
+        let deadline = Instant::now() + timeout;
+        self.exited_within(timeout.min(HANG_UP_GRACE)) || {
+            self.kill();
+            self.exited_within(deadline.saturating_duration_since(Instant::now()))
+        }
+    }
+
+    pub fn hang_up(&self) {
+        if self.exit_status().is_none()
+            && let Err(e) = self.stopper.hang_up()
+        {
+            eprintln!("{}: hanging up failed: {e:#}", self.program);
+        }
+    }
+
+    pub fn exited_within(&self, timeout: Duration) -> bool {
         let state = self.state.lock().unwrap();
         let (state, _) = self.changed.wait_timeout_while(state, timeout, |state| state.exit.is_none()).unwrap();
         state.exit.is_some()
@@ -508,11 +591,13 @@ impl Terminal {
     pub fn diff_snapshot(&self, baseline: Option<Baseline>) -> Result<SnapshotDiff, String> {
         let mut state = self.state.lock().unwrap();
         let current = Shown { frame: state.frame, lines: state.screen.view().lines };
-        let (since, before) = match (baseline, state.last_shown.take()) {
-            (Some(baseline), _) => (DiffBase::Baseline(baseline.name), baseline.lines),
-            (None, Some(shown)) => (DiffBase::Frame(shown.frame), shown.lines),
-            (None, None) => {
-                return Err("nothing to compare with; take a snapshot first with `agent-terminal snapshot`".into());
+        let (since, before) = match baseline {
+            Some(baseline) => (DiffBase::Baseline(baseline.name), baseline.lines),
+            None => {
+                let shown = state.last_shown.take().ok_or(
+                    "nothing to compare with; take a snapshot first with `agent-terminal snapshot`".to_string(),
+                )?;
+                (DiffBase::Frame(shown.frame), shown.lines)
             }
         };
         let rows = before.len().max(current.lines.len());
@@ -522,7 +607,9 @@ impl Terminal {
             .filter(|change| change.before != change.after)
             .collect();
         let frame = current.frame;
-        state.last_shown = Some(current);
+        if let DiffBase::Frame(_) = since {
+            state.last_shown = Some(current);
+        }
         Ok(SnapshotDiff { since, frame, changes })
     }
 
@@ -809,11 +896,10 @@ impl Terminal {
     }
 
     pub fn kill(&self) {
-        let still_running = self.state.lock().unwrap().exit.is_none();
-        if let Err(e) = self.killer.lock().unwrap().kill()
-            && still_running
+        if self.exit_status().is_none()
+            && let Err(e) = self.stopper.kill()
         {
-            eprintln!("{}: stopping the program failed: {e}", self.program);
+            eprintln!("{}: killing the program failed: {e:#}", self.program);
         }
     }
 }

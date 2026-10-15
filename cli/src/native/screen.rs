@@ -1,3 +1,4 @@
+use std::fmt;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
@@ -180,7 +181,7 @@ fn color_sgr(color: Color, base: u16) -> Option<String> {
     }
 }
 
-pub const COLOR_NAMES: [&str; 16] = [
+const COLOR_NAMES: [&str; 16] = [
     "black",
     "red",
     "green",
@@ -199,22 +200,40 @@ pub const COLOR_NAMES: [&str; 16] = [
     "bright-white",
 ];
 
-fn color_name(color: Color) -> String {
-    match color {
-        Color::Spec(rgb) => format!("#{:02x}{:02x}{:02x}", rgb.r, rgb.g, rgb.b),
-        Color::Indexed(index) => COLOR_NAMES.get(index as usize).map_or_else(|| index.to_string(), |n| n.to_string()),
-        Color::Named(named) => match named {
-            NamedColor::DimBlack => "black",
-            NamedColor::DimRed => "red",
-            NamedColor::DimGreen => "green",
-            NamedColor::DimYellow => "yellow",
-            NamedColor::DimBlue => "blue",
-            NamedColor::DimMagenta => "magenta",
-            NamedColor::DimCyan => "cyan",
-            NamedColor::DimWhite => "white",
-            other => COLOR_NAMES.get(other as usize).copied().unwrap_or("default"),
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Colour {
+    Default,
+    Indexed(u8),
+    Rgb(u8, u8, u8),
+}
+
+impl From<Color> for Colour {
+    fn from(color: Color) -> Self {
+        match color {
+            Color::Spec(rgb) => Colour::Rgb(rgb.r, rgb.g, rgb.b),
+            Color::Indexed(index) => Colour::Indexed(index),
+            Color::Named(named) => {
+                let (index, dim_black) = (named as u16, NamedColor::DimBlack as u16);
+                match index {
+                    0..=15 => Colour::Indexed(index as u8),
+                    _ if (dim_black..dim_black + 8).contains(&index) => Colour::Indexed((index - dim_black) as u8),
+                    _ => Colour::Default,
+                }
+            }
         }
-        .to_string(),
+    }
+}
+
+impl fmt::Display for Colour {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Colour::Default => f.write_str("default"),
+            Colour::Indexed(index) => match COLOR_NAMES.get(usize::from(*index)) {
+                Some(name) => f.write_str(name),
+                None => write!(f, "{index}"),
+            },
+            Colour::Rgb(r, g, b) => write!(f, "#{r:02x}{g:02x}{b:02x}"),
+        }
     }
 }
 
@@ -225,8 +244,8 @@ fn glyph(cell: &GridCell) -> Glyph {
     }
     Glyph {
         text,
-        fg: color_name(cell.fg),
-        bg: color_name(cell.bg),
+        fg: cell.fg.into(),
+        bg: cell.bg.into(),
         inverse: cell.flags.contains(Flags::INVERSE),
         bold: cell.flags.contains(Flags::BOLD),
         underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
@@ -508,8 +527,8 @@ impl Screen {
             row,
             col,
             char,
-            fg: color_name(cell.fg),
-            bg: color_name(cell.bg),
+            fg: Colour::from(cell.fg).to_string(),
+            bg: Colour::from(cell.bg).to_string(),
             bold: cell.flags.contains(Flags::BOLD),
             inverse: cell.flags.contains(Flags::INVERSE),
             underline: cell.flags.intersects(Flags::ALL_UNDERLINES),

@@ -30,7 +30,6 @@ pub struct Saved {
 
 struct Writer {
     tape: Tape,
-    first_size: Size,
     command: String,
     undecoded: Vec<u8>,
     copy: Option<Copy>,
@@ -123,7 +122,7 @@ impl Recording {
             eprintln!("starting the recording {} failed: {e:#}", path.display());
             Tape { path, file: Err(format!("{e:#}")), clock: Clock::on_the_second(), length: 0 }
         });
-        let writer = Writer { tape, first_size: size, command, undecoded: Vec::new(), copy: None };
+        let writer = Writer { tape, command, undecoded: Vec::new(), copy: None };
         Arc::new(Self { tab, writer: Mutex::new(writer) })
     }
 
@@ -173,7 +172,7 @@ impl Recording {
         Ok(Position { path: writer.tape.path.clone(), seconds: writer.tape.clock.seconds() })
     }
 
-    pub fn save_to(&self, path: &Path) -> Result<()> {
+    pub fn save_to(&self, path: &Path, size: Size, screen: &str) -> Result<()> {
         let mut writer = self.writer.lock().unwrap();
         if let Some(copy) = &writer.copy {
             bail!(
@@ -182,19 +181,8 @@ impl Recording {
                 copy.tape.path.display()
             );
         }
-        if let Some(failure) = writer.tape.failure() {
-            return Err(failure.context(format!("{} has no recording to save", self.tab)));
-        }
-        let recorded = std::fs::read_to_string(&writer.tape.path)
-            .with_context(|| format!("read the recording {}", writer.tape.path.display()))?;
-        let mut tape = Tape::create(path, writer.first_size, &writer.command, Clock::from_now())?;
-        for line in recorded.lines().skip(1) {
-            let (_, kind, data): (f64, String, String) = serde_json::from_str(line)
-                .with_context(|| format!("read the recording {}", writer.tape.path.display()))?;
-            if kind != "i" {
-                tape.event(&kind, &data);
-            }
-        }
+        let mut tape = Tape::create(path, size, &writer.command, Clock::from_now())?;
+        tape.event("o", screen);
         if let Some(failure) = tape.failure() {
             return Err(failure);
         }

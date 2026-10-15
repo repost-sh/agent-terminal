@@ -144,13 +144,25 @@ pub fn reply_text(reply: &Reply) -> String {
             format!("recording {} {} to {}\n", recording.session, recording.tab, recording.path.display())
         }
         Reply::Saved(saved) => format!("{}\n", saved_text(saved)),
-        Reply::Exported(export) => format!(
-            "exported session {} to {} ({}, {} KB)\n",
-            export.session,
-            export.path.display(),
-            count(export.files, "file"),
-            export.bytes.div_ceil(1024)
-        ),
+        Reply::Exported(export) => {
+            let mut text = format!(
+                "exported session {} to {} ({}, {} KB)\n",
+                export.session,
+                export.path.display(),
+                count(export.files, "file"),
+                export.bytes.div_ceil(1024)
+            );
+            if !export.missing.is_empty() {
+                let is = if export.missing.len() == 1 { "is" } else { "are" };
+                let paths: Vec<String> = export.missing.iter().map(|path| path.display().to_string()).collect();
+                text.push_str(&format!(
+                    "{} the session saved {is} gone and {is} not in it: {}\n",
+                    count(export.missing.len(), "file"),
+                    paths.join(", ")
+                ));
+            }
+            text
+        }
         Reply::Screenshot(screenshot) => screenshot_text(screenshot),
         Reply::ScreenshotDiff(diff) => format!("{}\n", diff.summary()),
         Reply::Clip(clip) => clip_text(clip),
@@ -460,6 +472,16 @@ pub fn error_text(error: &ErrorBody) -> String {
 pub fn fail(message: &str, code: i32) -> i32 {
     eprintln!("error: {message}");
     code
+}
+
+pub fn refuse(message: &str, json: bool) -> i32 {
+    if json {
+        return error(
+            &ErrorBody { code: crate::exit::ERROR, message: message.trim_end().to_string(), snapshot: None },
+            true,
+        );
+    }
+    fail(message, crate::exit::ERROR)
 }
 
 pub fn version(json: bool) -> i32 {

@@ -83,6 +83,14 @@ impl Browser {
     }
 
     #[track_caller]
+    pub fn wait_for_announcement(&self, text: &str) {
+        self.wait_until(&format!(
+            "document.querySelector('.sr-only[aria-live=polite]')?.textContent === {}",
+            js_string(text)
+        ));
+    }
+
+    #[track_caller]
     pub fn wait_for_screen(&self, text: &str) {
         self.wait_for_screen_in("main", text);
     }

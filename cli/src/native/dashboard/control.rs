@@ -9,8 +9,10 @@ use tokio::sync::watch;
 
 use super::stream::send;
 use super::{Backend, tab_id};
+use crate::commands::without_global_options;
 use crate::native::store::SessionFolder;
-use crate::protocol::HumanInput;
+use crate::output::call_line;
+use crate::protocol::{HumanInput, TabId};
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -78,7 +80,8 @@ impl Refusals {
         entries
             .into_iter()
             .filter(|entry| entry["tab"] == self.tab && entry["exit"] == crate::exit::HUMAN_CONTROL)
-            .filter_map(|entry| entry["command"].as_str().map(str::to_string))
+            .filter_map(|entry| entry["command"].as_str().and_then(shlex::split))
+            .map(|typed| call_line(&without_global_options(&typed)))
             .collect()
     }
 }
@@ -90,7 +93,7 @@ async fn logged(refusals: Option<&mut Refusals>) -> Result<(), watch::error::Rec
     }
 }
 
-async fn hold(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: u32) {
+async fn hold(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
     let taking = {
         let (backend, session) = (Arc::clone(&backend), session.clone());
         tokio::task::spawn_blocking(move || backend.take_control(&session, id)).await
@@ -102,11 +105,11 @@ async fn hold(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String,
             return;
         }
         Err(e) => {
-            eprintln!("dashboard: taking control of {session} t{id} failed: {e}");
+            eprintln!("dashboard: taking control of {session} {id} failed: {e}");
             return;
         }
     };
-    let tab = format!("t{id}");
+    let tab = id.to_string();
     let mut refusals = match backend.folder(&session) {
         Some(folder) => Refusals::start(folder, tab.clone()).await,
         None => None,

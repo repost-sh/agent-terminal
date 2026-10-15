@@ -44,19 +44,8 @@ fn resize_reaches_a_tab_other_than_the_current_one() {
 #[test]
 fn resizing_a_tab_whose_program_exited_fails_with_exit_code_5() {
     let at = AgentTerminal::new();
-    at.run(&[
-        "open",
-        "--size",
-        "20x3",
-        "--wait-stable",
-        "5000",
-        &fixture("line-printer"),
-        "--lines",
-        "1",
-        "--exit",
-        "7",
-    ])
-    .success();
+    at.run(&["open", "--size", "20x3", "--no-wait", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    at.run(&["wait", "--exit"]).success();
 
     let run = at.run(&["resize", "30x5"]);
     assert_eq!(run.code(), 5);
@@ -73,4 +62,18 @@ fn resize_waits_for_a_stable_screen_when_no_wait_value_is_given() {
     at.run(&["open", "--size", "50x8", "--wait", "Size: 50x8", &fixture("fixture-tui")]).success();
     let resized = at.run(&["resize", "60x10", "--wait-stable"]).success();
     assert!(resized.stdout().starts_with("default t1 · fixture-tui · 60x10 · "), "{}", resized.stdout());
+}
+
+#[test]
+fn a_size_out_of_range_with_json_is_a_json_error_on_stdout() {
+    let at = AgentTerminal::new();
+    let run = at.run(&["resize", "0x0", "--json"]);
+    assert_eq!((run.code(), run.stderr().as_str()), (1, ""));
+    assert_eq!(
+        run.json(),
+        serde_json::json!({ "error": {
+            "code": 1,
+            "message": "invalid value '0x0' for '<COLSxROWS>': columns and rows must be between 2 and 1000\n\nFor more information, try '--help'."
+        } })
+    );
 }

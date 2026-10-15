@@ -21,8 +21,8 @@ Main job: **QA of TUIs and CLIs by agents** (lazygit-style apps, chat TUIs, inst
 - The daemon owns, per terminal: a PTY, a VT parser and grid with scrollback (`alacritty_terminal` or `libghostty-vt`), a frame counter, an output ring buffer, and an asciicast event log.
 - The CLI talks to the daemon over a unix socket. The dashboard talks over HTTP + WebSocket on `127.0.0.1:4849`.
 - Each session keeps its tab recordings and the activity log of every call in a plain folder; the format is in [`session-folder.md`](session-folder.md).
-- `agent-terminal mcp` is an MCP stdio server (`rmcp`) whose tools are generated from the CLI's own command definitions: one tool per command, named by its words joined with `_` (`get text` is `get_text`), taking the command's arguments and options as properties. A tool call runs that command with `--json` and returns what it prints, so a new command is a new tool with no MCP code.
-- PNG rendering happens on the server from the grid, with a bundled monospace font (JetBrains Mono + Symbols Nerd Font fallback, then Noto Emoji for emoji), so it needs no window server. The fonts and their licences are in `cli/assets/fonts/`.
+- `agent-terminal mcp` is an MCP stdio server (`rmcp`) whose tools are generated from the CLI's own command definitions: one tool per command, named by its words joined with `_` (`get text` is `get_text`), taking the command's arguments and options as properties. A tool call runs that command with `--json` as a child process and returns what it prints, so a new command is a new tool with no MCP code ([ADR 0001](adr/0001-mcp-tools-run-the-cli.md)).
+- PNG rendering happens on the server from the grid, with a bundled monospace font (JetBrains Mono + Symbols Nerd Font fallback, then Noto Emoji for emoji), so it needs no window server. The fonts are in `cli/assets/fonts/`; their licences, and OpenH264's (the H.264 encoder `clip` builds MP4 with), are in `licenses/`, which ships in every release archive and npm platform package.
 - Shell integration (OSC 133 prompt marks, OSC 7 cwd, OSC 2 title) is injected into `bash`, `zsh` and `fish` when a session opens a shell. That is what produces command history.
 - Speed targets: CLI round trip ≤ 5 ms; `snapshot` ≤ 10 ms; `screenshot` PNG ≤ 40 ms at 120×40; `open` to first frame ≤ 50 ms plus the app's own startup.
 
@@ -66,10 +66,10 @@ refs:
 `agent-terminal dashboard start` serves `http://localhost:4849`. Same layout and visual language as the agent-browser dashboard:
 
 - **Sessions sidebar**: sessions grouped with their tabs; each tab shows program, status (running · exited 0 · exited 1 · human control) and a live dot. New session, close all, theme.
-- **Center**: a toolbar showing the command line and size, then the live terminal (rendered from the daemon's grid, not a second PTY). Status bar: Live/Reconnecting, stream URL, size, modes.
+- **Center**: a toolbar showing the command line and size, then the live terminal, drawn from the daemon's grid: for each frame the daemon sends the rows that changed, not the program's bytes, so the browser shows the screen the agent sees ([ADR 0002](adr/0002-dashboard-draws-the-daemons-screen.md)). Status bar: Live/Reconnecting, stream URL, size, modes.
 - **Split view**: show 2 or 4 terminals side by side, so one human can watch several agents or the server and the TUI under test at once.
 - **Right panel** tabs: **Activity** (every CLI call: command, duration, result, inline thumbnail for screenshots, failed waits in red), **Commands** (shell history from OSC 133: command, exit code, duration, cwd; click to see its output), **Screenshots** (gallery with diff), **Output** (raw stream with marks), **Info** (pid, cwd, TERM, env, modes).
-- **Timeline**: scrub back through frames; clicking an Activity or Commands row jumps the terminal to that moment. "Live" returns.
+- **Timeline**: scrub back through frames, which the daemon replays from the tab's recording and sends the same way; clicking an Activity or Commands row jumps the terminal to that moment. "Live" returns.
 - **Take control**: a human takes the keyboard. While they hold it, agent input commands exit `4` with "A human has control of qa t1. Run `agent-terminal wait --control`."
 
 ## Skills shipped

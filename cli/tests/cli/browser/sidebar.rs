@@ -116,3 +116,32 @@ fn a_tab_that_is_not_open_says_so_and_links_back() {
     browser.run(&["find", "role", "link", "click", "--name", "Show open sessions", "--exact"]);
     browser.wait_until("location.pathname === '/s/qa/t1'");
 }
+
+#[test]
+fn the_side_panel_keeps_its_tab_and_width_from_one_terminal_to_the_next() {
+    let at = AgentTerminal::new();
+    for tab in ["open", "tab"] {
+        let mut args = vec!["--session", "qa"];
+        args.extend(if tab == "open" { vec!["open"] } else { vec!["tab", "new"] });
+        let printer = fixture("line-printer");
+        args.extend(["--size", "30x4", "--wait", "line 1", printer.as_str(), "--lines", "1", "--hold"]);
+        at.run(&args).success();
+    }
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/s/qa/t1"));
+    browser.wait_for_status("Live");
+    let handle = "[role=separator][aria-label='Resize the side panel']";
+    let width = || browser.eval(&format!("document.querySelector(\"{handle}\").ariaValueNow"));
+    assert_eq!(width(), "\"30\"");
+
+    browser.run(&["find", "role", "tab", "click", "--name", "Output", "--exact"]);
+    browser.run(&["focus", handle]);
+    browser.run(&["press", "ArrowLeft"]);
+    assert_eq!(width(), "\"32\"");
+
+    browser.run(&["find", "role", "link", "click", "--name", "line-printer , qa t2, running", "--exact"]);
+    browser.wait_until("location.pathname === '/s/qa/t2'");
+    browser.wait_until("document.querySelector('[aria-label=\"Details of qa t2\"]') !== null");
+    assert_eq!(browser.eval("document.querySelector('[role=tab][aria-selected=true]').textContent"), "\"Output\"");
+    assert_eq!(width(), "\"32\"");
+}

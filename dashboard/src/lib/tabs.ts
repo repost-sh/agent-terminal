@@ -7,6 +7,8 @@ export type TabState =
 
 export const tabName = (session: string, tab: string) => `${session} ${tab}`;
 
+export const tabKey = (session: string, tab: string) => JSON.stringify([session, tab]);
+
 export const tabState = (tab: TabInfo): TabState => {
   if (tab.exited) {
     return { kind: "exited", label: tab.exit_code === null ? "exited" : `exited ${tab.exit_code}`, tone: tab.exit_code ? "destructive" : "muted" };

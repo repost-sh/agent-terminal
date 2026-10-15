@@ -40,7 +40,7 @@ fn info_shows_the_setup_modes_recording_and_the_environment_with_secrets_masked_
         "--lines",
         "1",
         "--cue",
-        &cue.dir(),
+        &cue.path(),
     ])
     .success();
     cue.print("");
@@ -51,7 +51,7 @@ fn info_shows_the_setup_modes_recording_and_the_environment_with_secrets_masked_
     browser.wait_for_text("xterm-256color");
 
     let shown = lists(&browser);
-    let args = format!("--lines 1 --cue {}", cue.dir());
+    let args = format!("--lines 1 --cue {}", cue.path());
     let started = shown[0][8].1.clone();
     assert_eq!(
         shown[0],

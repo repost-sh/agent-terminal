@@ -3,6 +3,7 @@ mod assets;
 mod commands;
 mod control;
 mod details;
+mod follow;
 mod guard;
 mod open;
 mod screenshots;
@@ -22,27 +23,28 @@ use tokio::sync::{oneshot, watch};
 use crate::native::control::Hold;
 use crate::native::store::SessionFolder;
 use crate::native::terminal::Terminal;
-use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions};
+use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions, TabId};
 
 pub trait Backend: Send + Sync + 'static {
     fn call(&self, request: Request) -> Result<Reply, ErrorBody>;
     fn sessions(&self) -> Sessions;
-    fn terminal(&self, session: &str, tab: u32) -> Option<Arc<Terminal>>;
+    fn terminal(&self, session: &str, tab: TabId) -> Option<Arc<Terminal>>;
     fn folder(&self, session: &str) -> Option<Arc<SessionFolder>>;
     fn changes(&self) -> watch::Receiver<u64>;
-    fn take_control(&self, session: &str, tab: u32) -> Result<Hold, ErrorBody>;
-    fn holds(&self, session: &str, tab: u32, hold: &Hold) -> bool;
-    fn type_as_human(&self, session: &str, tab: u32, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody>;
+    fn take_control(&self, session: &str, tab: TabId) -> Result<Hold, ErrorBody>;
+    fn holds(&self, session: &str, tab: TabId, hold: &Hold) -> bool;
+    fn type_as_human(&self, session: &str, tab: TabId, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody>;
 }
 
 pub struct Server {
     port: u16,
+    origins: Vec<String>,
     stop: Option<oneshot::Sender<()>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Server {
-    pub fn start(port: u16, backend: Arc<dyn Backend>) -> Result<Self> {
+    pub fn start(port: u16, origins: Vec<String>, backend: Arc<dyn Backend>) -> Result<Self> {
         let v4 = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).map_err(|e| refused(port, e))?;
         let port = v4.local_addr().context("read the dashboard's port")?.port();
         let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, port))
@@ -55,7 +57,7 @@ impl Server {
             .enable_io()
             .build()
             .context("start the dashboard's runtime")?;
-        let app = router(port, backend);
+        let app = router(guard::Pages { port, origins: origins.clone() }, backend);
         let (stop, stopped) = oneshot::channel();
         let thread = std::thread::Builder::new()
             .name("dashboard".into())
@@ -64,11 +66,15 @@ impl Server {
                 runtime.shutdown_background();
             })
             .context("start the dashboard's thread")?;
-        Ok(Self { port, stop: Some(stop), thread: Some(thread) })
+        Ok(Self { port, origins, stop: Some(stop), thread: Some(thread) })
     }
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    pub fn allows(&self, origin: &str) -> bool {
+        self.origins.iter().any(|allowed| allowed == origin)
     }
 
     pub fn info(&self) -> Dashboard {
@@ -128,7 +134,7 @@ async fn serve(app: Router, v4: TcpListener, v6: Option<TcpListener>, stopped: o
     }
 }
 
-fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
+fn router(pages: guard::Pages, backend: Arc<dyn Backend>) -> Router {
     Router::new()
         .route("/api/sessions", get(api::sessions).post(open::open))
         .route("/api/sessions/stream", get(api::sessions_stream))
@@ -151,9 +157,9 @@ fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
         .route("/api/session/{session}/{tab}/commands/{id}", get(commands::output))
         .fallback(assets::serve)
         .with_state(backend)
-        .layer(axum::middleware::from_fn_with_state(port, guard::same_origin))
+        .layer(axum::middleware::from_fn_with_state(Arc::new(pages), guard::same_origin))
 }
 
-fn tab_id(tab: &str) -> Option<u32> {
-    tab.strip_prefix('t').and_then(|id| id.parse().ok()).filter(|id| *id > 0)
+fn tab_id(tab: &str) -> Option<TabId> {
+    tab.parse().ok()
 }

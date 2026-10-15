@@ -2,7 +2,7 @@ import { Maximize2, X } from "lucide-react";
 import { useState } from "react";
 import { createPortal } from "react-dom";
 
-import { controlTerminal, useControl } from "../lib/control";
+import { controlKeys, controlTerminal, useControl } from "../lib/control";
 import { focusNext, focusWhenShown } from "../lib/focus";
 import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { followLink, navigate, splitRoute, tabRoute, type Cell } from "../lib/route";
@@ -101,7 +101,9 @@ const SplitCell = ({ at, session, tab, focused, statusSlot, toolbarSlot, layout,
   const { state, shown, paint } = useTabStream(session, tab.tab);
   const name = tabName(session, tab.tab);
   const alone = tabRoute(session, tab.tab);
+  const [keyboard] = useState(() => controlKeys(session, tab.tab));
   const held = useControl(session, tab.tab) === "held";
+  const typing = held && focused && !shown?.exited;
 
   return (
     <>
@@ -150,15 +152,29 @@ const SplitCell = ({ at, session, tab, focused, statusSlot, toolbarSlot, layout,
           />
         </div>
         <Viewport
-          compact
+          compact={!focused}
           paint={paint}
           state={state}
           shown={shown}
           program={tab.program}
           label={`${name} ${tab.program}, live frame ${shown?.frame ?? 0}`}
-          held={held ? { name, focus: controlTerminal(session, tab.tab) } : null}
+          held={
+            held
+              ? { name, focus: controlTerminal(session, tab.tab), keys: typing ? keyboard.keys : undefined, paste: typing ? keyboard.paste : undefined }
+              : null
+          }
         />
-        {statusSlot && createPortal(<StatusBar session={session} tab={tab} state={state} shown={shown} />, statusSlot)}
+        {statusSlot &&
+          createPortal(
+            <StatusBar
+              session={session}
+              tab={tab}
+              state={state}
+              shown={shown}
+              hint={typing ? `Keys go to ${tab.program} · ctrl+p ctrl+q moves focus out` : null}
+            />,
+            statusSlot,
+          )}
       </section>
     </>
   );

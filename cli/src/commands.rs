@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -9,12 +10,13 @@ use crate::connection::{self, IfNotRunning, Launch};
 use crate::doctor;
 use crate::key::Key;
 use crate::mcp;
-use crate::native::daemon;
+use crate::native::{daemon, pty};
 use crate::output;
 use crate::protocol::{
     Baseline, BatchStep, Call, ClickTarget, ClipFormat, ClipPoint, ClipRange, ClipSpec, DashboardStopped, Direction,
     Expect, Get, Input, Look, MouseButton, MouseEvent, Reply, Request, Response, RowRange, ScreenshotFormat,
-    Scrollback, SessionInfo, Sessions, Shell, Shot, Signal, Size, SnapshotOptions, Style, TextMatch, Theme, Wait,
+    Scrollback, SessionInfo, Sessions, Shell, Shot, Signal, Size, SnapshotOptions, Style, TabId, Target, TextMatch,
+    Theme, Wait,
 };
 use crate::session_id;
 use crate::skills;
@@ -38,8 +40,8 @@ struct Cli {
     #[arg(long, global = true, help = "Give up waiting after this long", value_name = "MS", default_value_t = 25_000)]
     timeout: u64,
 
-    #[arg(long, global = true, help = "Act on this tab instead of the current one", value_name = "ID", value_parser = parse_tab)]
-    tab: Option<u32>,
+    #[arg(long, global = true, help = "Act on this tab instead of the current one", value_name = "ID", value_parser = clap::value_parser!(TabId))]
+    tab: Option<TabId>,
 
     #[arg(
         long,
@@ -112,8 +114,8 @@ enum Command {
     },
     #[command(about = "List tabs in this session (tab <id> switches to one)", args_conflicts_with_subcommands = true)]
     Tab {
-        #[arg(help = "Switch to this tab", value_name = "ID", value_parser = parse_tab)]
-        id: Option<u32>,
+        #[arg(help = "Switch to this tab", value_name = "ID", value_parser = clap::value_parser!(TabId))]
+        id: Option<TabId>,
         #[command(subcommand)]
         action: Option<TabAction>,
     },
@@ -432,6 +434,7 @@ impl ScreenshotArgs {
             look: self.look.look(),
             rows: self.look.rows,
             annotate: self.annotate,
+            frame: None,
         })
     }
 }
@@ -585,8 +588,8 @@ enum TabAction {
     New(OpenArgs),
     #[command(about = "Close a tab (the current one when no id is given)")]
     Close {
-        #[arg(value_parser = parse_tab, value_name = "ID")]
-        id: Option<u32>,
+        #[arg(value_parser = clap::value_parser!(TabId), value_name = "ID")]
+        id: Option<TabId>,
     },
 }
 
@@ -612,7 +615,7 @@ enum GetCommand {
     ExitCode,
     #[command(about = "Process id of the program")]
     Pid,
-    #[command(about = "Title the program set for its window")]
+    #[command(about = "Title the program set for its terminal (OSC 2)")]
     Title,
     #[command(about = "Working directory the program last reported (OSC 7), else where it started")]
     Cwd,
@@ -692,7 +695,7 @@ enum RecordAction {
 
 #[derive(Subcommand)]
 enum TraceAction {
-    #[command(about = "Zip the session folder (activity log of every call, tab recordings) into one file")]
+    #[command(about = "Zip the session folder (activity log, recordings, command logs) with its screenshots and clips")]
     Export {
         #[arg(help = "Where to write the zip file", value_name = "PATH")]
         path: PathBuf,
@@ -939,6 +942,9 @@ struct UntilArgs {
 
     #[arg(long, help = "Until a human hands control back (at once when the agent has it)")]
     control: bool,
+
+    #[arg(long, help = "Treat running out of time as a failed check: exit 2 instead of 3")]
+    assert: bool,
 }
 
 impl UntilArgs {
@@ -1071,6 +1077,14 @@ enum DashboardAction {
 struct DashboardArgs {
     #[arg(long, help = "Port to serve on (0 picks a free one)", value_name = "N", default_value_t = 4849)]
     port: u16,
+
+    #[arg(
+        long = "allow-origin",
+        help = "Also answer pages from this origin, such as the dashboard's dev server (repeatable)",
+        value_name = "ORIGIN",
+        value_parser = parse_origin
+    )]
+    allow_origin: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -1083,8 +1097,13 @@ enum DaemonAction {
 }
 
 pub fn run() -> i32 {
-    let cli = match Cli::try_parse() {
+    let cli = match Cli::try_parse_from(open_options_first(&Cli::command(), std::env::args_os().collect())) {
         Ok(cli) => cli,
+        Err(e) if e.use_stderr() && json_asked() => {
+            let rendered = e.render().to_string();
+            let message = rendered.strip_prefix("error: ").unwrap_or(&rendered).trim_end();
+            return output::refuse(message, true);
+        }
         Err(e) => {
             let code = if e.use_stderr() { crate::exit::ERROR } else { 0 };
             if let Err(print) = e.print() {
@@ -1106,7 +1125,12 @@ pub fn run() -> i32 {
         Command::Install { .. } => return skills::install(json),
         Command::Mcp => return mcp::run(Cli::command()),
         Command::Attach { read_only } => {
-            return attach::run(cli.session, cli.tab, read_only, json, Launch { idle_timeout });
+            return attach::run(
+                Target { session: cli.session, tab: cli.tab },
+                read_only,
+                json,
+                Launch { idle_timeout },
+            );
         }
         Command::Session { action: None } => {
             output::session(&cli.session, json);
@@ -1121,7 +1145,7 @@ pub fn run() -> i32 {
                     output::session_id(&id, json);
                     0
                 }
-                Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
+                Err(e) => output::refuse(&format!("{e:#}"), json),
             };
         }
         Command::Version => return output::version(json),
@@ -1132,22 +1156,28 @@ pub fn run() -> i32 {
     };
     match request {
         Ok(request) => send(request, json, idle_timeout),
-        Err(message) => output::fail(&message, crate::exit::ERROR),
+        Err(message) => output::refuse(&message, json),
     }
 }
 
+fn json_asked() -> bool {
+    std::env::args_os().skip(1).take_while(|arg| arg != "--").any(|arg| arg == "--json")
+}
+
 fn request(cli: Cli) -> Result<Request, String> {
-    let session = cli.session;
+    let target = Target { session: cli.session, tab: cli.tab };
     let dir = cli.screenshot_dir;
     let request = match cli.command {
         Command::Daemon { action: DaemonAction::Stop } => Request::Stop,
         Command::Dashboard { action: Some(DashboardAction::Stop), .. } => Request::DashboardStop,
-        Command::Dashboard { action: Some(DashboardAction::Start(DashboardArgs { port })), .. }
-        | Command::Dashboard { start: DashboardArgs { port }, action: None } => Request::DashboardStart { port },
-        Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
-            open(session, args, cli.timeout)?
+        Command::Dashboard { action: Some(DashboardAction::Start(DashboardArgs { port, allow_origin })), .. }
+        | Command::Dashboard { start: DashboardArgs { port, allow_origin }, action: None } => {
+            Request::DashboardStart { port, origins: allow_origin }
         }
-        Command::Shell(args) => shell(session, args, cli.timeout)?,
+        Command::Open(args) | Command::Tab { action: Some(TabAction::New(args)), .. } => {
+            open(target.session, args, cli.timeout)?
+        }
+        Command::Shell(args) => shell(target.session, args, cli.timeout)?,
         Command::Exec { line, check } => {
             if line.trim().is_empty() {
                 return Err("exec needs a command line, e.g. exec \"cargo test\"".into());
@@ -1155,89 +1185,74 @@ fn request(cli: Cli) -> Result<Request, String> {
             if line.contains(['\n', '\r']) {
                 return Err("exec runs one command line; join commands with ; or && instead of newlines".into());
             }
-            Request::Exec { session, tab: cli.tab, line, check, timeout_ms: cli.timeout }
+            Request::Exec { target, line, check, timeout_ms: cli.timeout }
         }
-        Command::History { action: Some(HistoryAction::Show { id }), .. } => {
-            Request::HistoryShow { session, tab: cli.tab, id }
-        }
-        Command::History { last, failed, action: None } => Request::History { session, tab: cli.tab, last, failed },
-        Command::Tab { id: Some(tab), .. } => Request::SwitchTab { session, tab },
-        Command::Tab { id: None, action: None | Some(TabAction::List) } => Request::Tabs { session },
+        Command::History { action: Some(HistoryAction::Show { id }), .. } => Request::HistoryShow { target, id },
+        Command::History { last, failed, action: None } => Request::History { target, last, failed },
+        Command::Tab { id: Some(tab), .. } => Request::SwitchTab { session: target.session, tab },
+        Command::Tab { id: None, action: None | Some(TabAction::List) } => Request::Tabs { session: target.session },
         Command::Tab { action: Some(TabAction::Close { id }), .. } => {
-            Request::Close { session, all: false, tab: id.or(cli.tab) }
+            Request::Close { target: Target { tab: id.or(target.tab), ..target }, all: false }
         }
         Command::Session { action: Some(SessionAction::List) } => Request::Sessions,
-        Command::Restart(wait) => {
-            Request::Restart { session, tab: cli.tab, wait: wait.until(), timeout_ms: cli.timeout }
-        }
-        Command::Resize { size, wait } => {
-            Request::Resize { session, tab: cli.tab, size, wait: wait.until(), timeout_ms: cli.timeout }
-        }
-        Command::Snapshot(args) => Request::Snapshot { session, tab: cli.tab, options: args.options() },
-        Command::Close { all } => Request::Close { session, all, tab: cli.tab },
-        Command::Get { what } => Request::Get { session, tab: cli.tab, what: what.request() },
-        Command::Find { text, regex, all } => Request::Find { session, tab: cli.tab, text, regex, all },
-        Command::Mark { name } => Request::Mark { session, tab: cli.tab, name },
-        Command::Output { since, raw } => Request::Output { session, tab: cli.tab, since, raw },
+        Command::Restart(wait) => Request::Restart { target, wait: wait.until(), timeout_ms: cli.timeout },
+        Command::Resize { size, wait } => Request::Resize { target, size, wait: wait.until(), timeout_ms: cli.timeout },
+        Command::Snapshot(args) => Request::Snapshot { target, options: args.options() },
+        Command::Close { all } => Request::Close { target, all },
+        Command::Get { what } => Request::Get { target, what: what.request() },
+        Command::Find { text, regex, all } => Request::Find { target, text, regex, all },
+        Command::Mark { name } => Request::Mark { target, name },
+        Command::Output { since, raw } => Request::Output { target, since, raw },
         Command::Diff { what: DiffCommand::Snapshot { baseline } } => {
             let baseline = baseline.map(|path| read_baseline(&path)).transpose()?;
-            Request::DiffSnapshot { session, tab: cli.tab, baseline }
+            Request::DiffSnapshot { target, baseline }
         }
         Command::Diff { what: DiffCommand::Screenshot { baseline, output, threshold, look } } => {
             let png = ScreenshotArgs { path: output, annotate: false, format: Some(ScreenshotFormat::Png), look };
-            Request::DiffScreenshot {
-                session,
-                tab: cli.tab,
-                baseline: absolute(&baseline)?,
-                shot: png.shot(dir)?,
-                threshold,
-            }
+            Request::DiffScreenshot { target, baseline: absolute(&baseline)?, shot: png.shot(dir)?, threshold }
         }
         Command::Record { action: RecordAction::Start { path } } => {
             let path = path.map(|path| absolute(&path)).transpose()?;
-            Request::RecordStart { session, tab: cli.tab, path }
+            Request::RecordStart { target, path }
         }
-        Command::Record { action: RecordAction::Stop } => Request::RecordStop { session, tab: cli.tab },
+        Command::Record { action: RecordAction::Stop } => Request::RecordStop { target },
         Command::Trace { action: TraceAction::Export { path } } => {
-            Request::TraceExport { session, path: absolute(&path)? }
+            Request::TraceExport { session: target.session, path: absolute(&path)? }
         }
-        Command::Screenshot(args) => Request::Screenshot { session, tab: cli.tab, shot: args.shot(dir)? },
-        Command::Clip(args) => Request::Clip { session, tab: cli.tab, clip: args.spec(dir)? },
+        Command::Screenshot(args) => Request::Screenshot { target, shot: args.shot(dir)? },
+        Command::Clip(args) => Request::Clip { target, clip: args.spec(dir)? },
         Command::Type(args) => {
             let typed = Input::Type { text: args.text, delay_ms: args.delay };
-            input(session, cli.tab, typed, args.after, dir, cli.timeout)?
+            input(target, typed, args.after, dir, cli.timeout)?
         }
         Command::Press(args) => {
             let pressed = Input::Press { keys: args.keys, repeat: args.repeat };
-            input(session, cli.tab, pressed, args.after, dir, cli.timeout)?
+            input(target, pressed, args.after, dir, cli.timeout)?
         }
-        Command::Paste(args) => {
-            input(session, cli.tab, Input::Paste { text: args.text }, args.after, dir, cli.timeout)?
-        }
-        Command::Send(args) => {
-            input(session, cli.tab, Input::Send { bytes: args.bytes.0 }, args.after, dir, cli.timeout)?
-        }
-        Command::Signal(args) => {
-            input(session, cli.tab, Input::Signal { signal: args.signal }, args.after, dir, cli.timeout)?
-        }
+        Command::Paste(args) => input(target, Input::Paste { text: args.text }, args.after, dir, cli.timeout)?,
+        Command::Send(args) => input(target, Input::Send { bytes: args.bytes.0 }, args.after, dir, cli.timeout)?,
+        Command::Signal(args) => input(target, Input::Signal { signal: args.signal }, args.after, dir, cli.timeout)?,
         Command::Click(args) => {
             let button = if args.right { MouseButton::Right } else { MouseButton::Left };
             let click = Input::Click { target: args.target, button, double: args.double };
-            input(session, cli.tab, click, args.after, dir, cli.timeout)?
+            input(target, click, args.after, dir, cli.timeout)?
         }
         Command::Scroll(args) => {
             let scroll = Input::Scroll { direction: args.direction, count: args.count, keys: args.keys };
-            input(session, cli.tab, scroll, args.after, dir, cli.timeout)?
+            input(target, scroll, args.after, dir, cli.timeout)?
         }
         Command::Mouse { event } => {
             let (event, after) = event.event();
-            input(session, cli.tab, Input::Mouse { event }, after, dir, cli.timeout)?
+            input(target, Input::Mouse { event }, after, dir, cli.timeout)?
         }
-        Command::Wait(UntilArgs { control: true, .. }) => {
-            Request::WaitControl { session, tab: cli.tab, timeout_ms: cli.timeout }
+        Command::Wait(UntilArgs { control: true, assert, .. }) => {
+            Request::WaitControl { target, timeout_ms: cli.timeout, assert }
         }
-        Command::Wait(args) => Request::Wait { session, tab: cli.tab, wait: args.until(), timeout_ms: cli.timeout },
-        Command::Expect(args) => Request::Expect { session, tab: cli.tab, expect: args.check() },
+        Command::Wait(args) => {
+            let assert = args.assert;
+            Request::Wait { target, wait: args.until(), timeout_ms: cli.timeout, assert }
+        }
+        Command::Expect(args) => Request::Expect { target, expect: args.check() },
         Command::Daemon { action: DaemonAction::Run }
         | Command::Skills { .. }
         | Command::Install { .. }
@@ -1258,7 +1273,7 @@ fn request(cli: Cli) -> Result<Request, String> {
 fn batch(
     args: &BatchArgs,
     session: &str,
-    tab: Option<u32>,
+    tab: Option<TabId>,
     timeout: u64,
     screenshot_dir: Option<&std::path::Path>,
 ) -> Result<Request, String> {
@@ -1283,7 +1298,110 @@ fn batch(
     Ok(Request::Batch { steps, bail: args.bail })
 }
 
+enum Takes {
+    Nothing,
+    Value,
+    Number,
+}
+
+pub fn without_global_options(typed: &[String]) -> Vec<String> {
+    let mut cli = Cli::command();
+    cli.build();
+    let global = |word: &str| {
+        let name = word.strip_prefix("--")?.split('=').next()?;
+        let arg = cli.get_arguments().find(|arg| arg.is_global_set() && arg.get_long() == Some(name))?;
+        let takes_value = matches!(arg.get_action(), clap::ArgAction::Set | clap::ArgAction::Append);
+        Some(takes_value && !word.contains('='))
+    };
+    let mut words = Vec::new();
+    let mut rest = typed.iter();
+    while let Some(word) = rest.next() {
+        if word == "--" {
+            words.push(word.clone());
+            words.extend(rest.cloned());
+            break;
+        }
+        match global(word) {
+            Some(true) => {
+                rest.next();
+            }
+            Some(false) => {}
+            None => words.push(word.clone()),
+        }
+    }
+    words
+}
+
+fn open_options_first(parser: &clap::Command, argv: Vec<OsString>) -> Vec<OsString> {
+    let Ok(matches) = parser.clone().try_get_matches_from(&argv) else { return argv };
+    let (path, opened) = match matches.subcommand() {
+        Some(("open", opened)) => (["open", ""], opened),
+        Some(("tab", tab)) => match tab.subcommand() {
+            Some(("new", opened)) => (["tab", "new"], opened),
+            _ => return argv,
+        },
+        _ => return argv,
+    };
+    let Some(command) = opened.get_many::<String>("command") else { return argv };
+    let command: Vec<&String> = command.collect();
+    let program_at = argv.len() - command.len();
+    if argv[..program_at].last().is_some_and(|before| before == "--") {
+        return argv;
+    }
+    let mut parser = parser.clone();
+    parser.build();
+    let open =
+        path.iter().filter(|name| !name.is_empty()).try_fold(&parser, |command, name| command.find_subcommand(name));
+    let Some(open) = open else { return argv };
+    let own = |token: &str| {
+        let name = token.strip_prefix("--")?.split('=').next()?;
+        let arg = open.get_arguments().find(|arg| arg.get_long() == Some(name))?;
+        let inline = token.contains('=');
+        Some(match arg.get_action() {
+            clap::ArgAction::Set | clap::ArgAction::Append if inline => Takes::Nothing,
+            clap::ArgAction::Set | clap::ArgAction::Append => {
+                match arg.get_num_args().is_some_and(|range| range.min_values() == 0) {
+                    true => Takes::Number,
+                    false => Takes::Value,
+                }
+            }
+            _ => Takes::Nothing,
+        })
+    };
+    let mut options = Vec::new();
+    let mut program = vec![OsString::from(command[0])];
+    let mut separated = false;
+    let mut rest = command[1..].iter().peekable();
+    while let Some(token) = rest.next() {
+        if token.as_str() == "--" {
+            separated = true;
+            program.extend(rest.map(OsString::from));
+            break;
+        }
+        let Some(takes) = own(token) else {
+            program.push(OsString::from(token.as_str()));
+            continue;
+        };
+        options.push(OsString::from(token.as_str()));
+        let value = match takes {
+            Takes::Nothing => None,
+            Takes::Value => rest.next(),
+            Takes::Number => rest.next_if(|next| !next.is_empty() && next.bytes().all(|byte| byte.is_ascii_digit())),
+        };
+        options.extend(value.map(OsString::from));
+    }
+    if options.is_empty() && !separated {
+        return argv;
+    }
+    let mut reordered = argv[..program_at].to_vec();
+    reordered.extend(options);
+    reordered.push("--".into());
+    reordered.extend(program);
+    reordered
+}
+
 fn batch_step(parser: clap::Command, call: &[String]) -> Result<Request, String> {
+    let call = open_options_first(&parser, call.iter().map(OsString::from).collect());
     let matches = parser.try_get_matches_from(call).map_err(|e| e.render().to_string())?;
     request(Cli::from_arg_matches(&matches).map_err(|e| e.render().to_string())?)
 }
@@ -1299,7 +1417,7 @@ fn send(request: Request, json: bool, idle_timeout: Duration) -> i32 {
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     let response = match connection::send(&Call { typed: Some(typed), request }, if_not_running) {
         Ok(response) => response,
-        Err(e) => return output::fail(&format!("{e:#}"), crate::exit::ERROR),
+        Err(e) => return output::refuse(&format!("{e:#}"), json),
     };
     match response {
         Response::Err(error) => output::error(&error, json),
@@ -1311,8 +1429,7 @@ fn send(request: Request, json: bool, idle_timeout: Duration) -> i32 {
 }
 
 fn input(
-    session: String,
-    tab: Option<u32>,
+    target: Target,
     input: Input,
     after: AfterInput,
     dir: Option<PathBuf>,
@@ -1323,11 +1440,11 @@ fn input(
         .screenshot
         .map(|path| ScreenshotArgs { path, annotate: false, format: None, look: LookArgs::plain() }.shot(dir))
         .transpose()?;
-    Ok(Request::Input { session, tab, input, wait, snapshot: after.snapshot, screenshot, timeout_ms })
+    Ok(Request::Input { target, input, wait, snapshot: after.snapshot, screenshot, timeout_ms })
 }
 
 fn environment(extra: Vec<(String, String)>) -> Vec<(String, String)> {
-    let mut env: Vec<(String, String)> = std::env::vars().filter(|(k, _)| !extra.iter().any(|(o, _)| o == k)).collect();
+    let mut env = pty::inherited(std::env::vars().filter(|(key, _)| !extra.iter().any(|(set, _)| set == key)));
     env.extend(extra);
     env
 }
@@ -1360,7 +1477,8 @@ fn shell(session: String, args: ShellArgs, timeout_ms: u64) -> Result<Request, S
 }
 
 fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, String> {
-    let cwd = args.cwd.map_or_else(std::env::current_dir, Ok).map_err(|e| format!("current directory: {e}"))?;
+    let current = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
+    let cwd = args.cwd.map_or_else(|| current.clone(), |cwd| current.join(cwd));
     let env = environment(args.env);
     let mut command = args.command.into_iter();
     Ok(Request::Open {
@@ -1377,16 +1495,6 @@ fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, Str
 
 fn absolute(path: &std::path::Path) -> Result<PathBuf, String> {
     std::path::absolute(path).map_err(|e| format!("current directory: {e}"))
-}
-
-fn parse_tab(value: &str) -> Result<u32, String> {
-    value
-        .strip_prefix('t')
-        .unwrap_or(value)
-        .parse()
-        .ok()
-        .filter(|id| *id > 0)
-        .ok_or_else(|| format!("invalid tab id: {value} (expected t1, t2, ...)"))
 }
 
 fn parse_duration(value: &str) -> Result<Duration, String> {
@@ -1445,6 +1553,16 @@ fn parse_position(value: &str) -> Result<(u16, u16), String> {
         return Err("rows and columns count from 1".into());
     }
     Ok((row, col))
+}
+
+fn parse_origin(value: &str) -> Result<String, String> {
+    let refused = || format!("{value} is not an origin; an origin is http://host:port, like http://localhost:5173");
+    let rest = value.strip_prefix("http://").or_else(|| value.strip_prefix("https://")).ok_or_else(refused)?;
+    let (host, port) = rest.rsplit_once(':').ok_or_else(refused)?;
+    if host.is_empty() || host.contains('/') || port.parse::<u16>().is_err() {
+        return Err(refused());
+    }
+    Ok(value.to_string())
 }
 
 fn parse_env(value: &str) -> Result<(String, String), String> {

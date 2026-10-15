@@ -10,8 +10,8 @@ use crate::protocol::{RowRange, TextMatch, Wait};
 pub enum Condition {
     Text(Pattern),
     Gone(Pattern),
-    Stable(Duration),
-    Idle(Duration),
+    Stable(Duration, Option<Instant>),
+    Idle(Duration, Option<Instant>),
     Exit,
     Cursor(u16, u16),
     Frame(u64),
@@ -87,8 +87,8 @@ impl Condition {
         Ok(match wait {
             Wait::Text(text) => Condition::Text(Pattern::new(text)?),
             Wait::Gone(text) => Condition::Gone(Pattern::new(text)?),
-            Wait::Stable { quiet_ms } => Condition::Stable(Duration::from_millis(*quiet_ms)),
-            Wait::Idle { quiet_ms } => Condition::Idle(Duration::from_millis(*quiet_ms)),
+            Wait::Stable { quiet_ms } => Condition::Stable(Duration::from_millis(*quiet_ms), None),
+            Wait::Idle { quiet_ms } => Condition::Idle(Duration::from_millis(*quiet_ms), None),
             Wait::Exit { .. } => Condition::Exit,
             Wait::Cursor { row, col } => Condition::Cursor(*row, *col),
             Wait::Frame { frame } => Condition::Frame(*frame),
@@ -97,12 +97,20 @@ impl Condition {
         })
     }
 
+    pub fn counted_from(self, action: Instant) -> Self {
+        match self {
+            Condition::Stable(quiet, _) => Condition::Stable(quiet, Some(action)),
+            Condition::Idle(quiet, _) => Condition::Idle(quiet, Some(action)),
+            other => other,
+        }
+    }
+
     pub fn judge(&self, moment: &Moment) -> Verdict {
         match self {
             Condition::Text(pattern) => while_running(pattern.found(&moment.view().lines), moment),
             Condition::Gone(pattern) => while_running(!pattern.found(&moment.view().lines), moment),
-            Condition::Stable(quiet) => quiet_for(moment.last_change + *quiet, moment),
-            Condition::Idle(quiet) => quiet_for(moment.last_output + *quiet, moment),
+            Condition::Stable(quiet, since) => quiet_for(latest(moment.last_change, *since) + *quiet, moment),
+            Condition::Idle(quiet, since) => quiet_for(latest(moment.last_output, *since) + *quiet, moment),
             Condition::Exit => while_running(moment.exited, moment),
             Condition::Cursor(row, col) => {
                 let (line, column) = moment.view().cursor;
@@ -127,6 +135,10 @@ fn while_running(met: bool, moment: &Moment) -> Verdict {
     } else {
         Verdict::Pending(None)
     }
+}
+
+fn latest(last: Instant, since: Option<Instant>) -> Instant {
+    since.map_or(last, |since| since.max(last))
 }
 
 fn quiet_for(until: Instant, moment: &Moment) -> Verdict {

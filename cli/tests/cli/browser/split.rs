@@ -68,7 +68,7 @@ fn two_up_from_a_tab_shows_it_beside_the_tab_after_it_both_live() {
         "--lines",
         "2",
         "--cue",
-        &cue.dir(),
+        &cue.path(),
     ])
     .success();
     cue.print("");
@@ -290,4 +290,27 @@ fn a_split_route_with_three_cells_is_not_a_page() {
 
     browser.wait_for_text("This page could not be found.");
     assert_eq!(browser.run(&["get", "title"]).trim(), "404: This page could not be found · agent-terminal");
+}
+
+#[test]
+fn the_focused_cell_of_a_split_takes_the_keys_of_a_human_in_control() {
+    let at = AgentTerminal::new();
+    at.run(&["--session", "app", "open", "--size", "40x6", "--wait", "ready", &fixture("input-echo")]).success();
+    hold(&at, &["--session", "web", "open"], "30x4", "1");
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/split/app:t1,web:t1"));
+    browser.wait_for_status("Live");
+    browser.wait_for_screen_in(&cell("app t1 input-echo"), "ready");
+
+    browser.click_button("Take control");
+    browser.wait_until("document.activeElement?.getAttribute('aria-label') === 'Terminal app t1, you have control'");
+    browser.run(&["press", "q"]);
+    at.run(&["--session", "app", "wait", "q"]).success();
+    assert_eq!(at.received("app"), "q");
+    assert!(
+        browser.status().contains(&"Keys go to input-echo · ctrl+p ctrl+q moves focus out".to_string()),
+        "{:?}",
+        browser.status()
+    );
+    assert_eq!(browser.eval("document.querySelectorAll('.split-grid [role=application]').length"), "1");
 }

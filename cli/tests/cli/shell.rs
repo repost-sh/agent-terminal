@@ -10,19 +10,16 @@ struct ShellTab {
 }
 
 impl ShellTab {
-    fn new(shell: &'static str) -> Option<Self> {
-        if !installed(shell) {
-            eprintln!("skipping the {shell} case: {shell} is not installed (no {shell} on PATH)");
-            return None;
-        }
+    fn new(shell: &'static str) -> Self {
+        assert!(installed(shell), "the shell tests run in zsh, bash and fish, and {shell} is not on PATH; install it");
         let temp = |prefix: &str| tempfile::Builder::new().prefix(prefix).tempdir_in("/tmp").expect("temp folder");
-        Some(Self { at: AgentTerminal::new(), shell, home: temp("home-"), work: temp("work-") })
+        Self { at: AgentTerminal::new(), shell, home: temp("home-"), work: temp("work-") }
     }
 
-    fn opened(shell: &'static str) -> Option<Self> {
-        let tab = Self::new(shell)?;
+    fn opened(shell: &'static str) -> Self {
+        let tab = Self::new(shell);
         tab.open().success();
-        Some(tab)
+        tab
     }
 
     fn open(&self) -> Run {
@@ -91,20 +88,22 @@ in_every_shell!(
     history_keeps_every_command_with_its_exit_code_cwd_and_output,
     wait_command_waits_for_a_long_running_command,
     a_cancelled_command_line_leaves_the_shell_ready,
+    exec_of_a_line_the_shell_waits_to_finish_says_no_command_started,
+    a_command_the_users_history_leaves_out_is_recorded_as_typed,
     exec_after_a_line_the_shell_refused_starts_on_an_empty_command_line,
     the_users_startup_files_load_and_stay_untouched,
     the_command_log_keeps_every_finished_command_with_its_output,
 );
 
 fn exec_prints_the_output_and_the_exit_code(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     let run = tab.run(&["exec", "echo hello"]).success();
     assert_eq!(timeless(&run.stdout()), format!("hello\n1 · exit 0 · <time> · {cwd} · echo hello\n"));
 }
 
 fn history_keeps_every_command_with_its_exit_code_cwd_and_output(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     let sub = format!("{cwd}/sub");
     assert_eq!(tab.run(&["history"]).success().stdout(), "no commands have run in default t1\n");
@@ -113,23 +112,23 @@ fn history_keeps_every_command_with_its_exit_code_cwd_and_output(shell: &'static
     tab.run(&["restart"]).success();
 
     let failed = tab.run(&["exec", "false"]).success();
-    assert_eq!(timeless(&failed.stdout()), format!("1 · exit 1 · <time> · {cwd} · false\n"));
+    assert_eq!(timeless(&failed.stdout()), format!("2 · exit 1 · <time> · {cwd} · false\n"));
     let checked = tab.run(&["exec", "--check", "sh -c 'echo to stderr >&2; exit 3'"]);
     assert_eq!(checked.code(), 3, "{}", checked.stderr());
     assert_eq!(
         timeless(&checked.stdout()),
-        format!("to stderr\n2 · exit 3 · <time> · {cwd} · sh -c 'echo to stderr >&2; exit 3'\n")
+        format!("to stderr\n3 · exit 3 · <time> · {cwd} · sh -c 'echo to stderr >&2; exit 3'\n")
     );
     tab.run(&["exec", "--check", "mkdir sub && cd sub"]).success();
     let numbers: String = (1..=25).map(|n| format!("{n}\n")).collect();
     let scrolled = tab.run(&["exec", "seq 1 25"]).success();
-    assert_eq!(timeless(&scrolled.stdout()), format!("{numbers}4 · exit 0 · <time> · {sub} · seq 1 25\n"));
+    assert_eq!(timeless(&scrolled.stdout()), format!("{numbers}5 · exit 0 · <time> · {sub} · seq 1 25\n"));
 
     let all = format!(
-        "1 · exit 1 · <time> · {cwd} · false\n\
-         2 · exit 3 · <time> · {cwd} · sh -c 'echo to stderr >&2; exit 3'\n\
-         3 · exit 0 · <time> · {cwd} · mkdir sub && cd sub\n\
-         4 · exit 0 · <time> · {sub} · seq 1 25\n"
+        "2 · exit 1 · <time> · {cwd} · false\n\
+         3 · exit 3 · <time> · {cwd} · sh -c 'echo to stderr >&2; exit 3'\n\
+         4 · exit 0 · <time> · {cwd} · mkdir sub && cd sub\n\
+         5 · exit 0 · <time> · {sub} · seq 1 25\n"
     );
     let lines: Vec<&str> = all.lines().collect();
     assert_eq!(timeless(&tab.run(&["history"]).success().stdout()), all);
@@ -142,7 +141,7 @@ fn history_keeps_every_command_with_its_exit_code_cwd_and_output(shell: &'static
         timeless(&tab.run(&["history", "--failed", "--last", "1"]).success().stdout()),
         format!("{}\n", lines[1])
     );
-    assert_eq!(timeless(&tab.run(&["history", "show", "4"]).success().stdout()), format!("{numbers}{}\n", lines[3]));
+    assert_eq!(timeless(&tab.run(&["history", "show", "5"]).success().stdout()), format!("{numbers}{}\n", lines[3]));
     let missing = tab.run(&["history", "show", "9"]);
     assert_eq!(missing.code(), 1);
     assert_eq!(missing.stderr(), "error: no command 9 in default t1; list them with `agent-terminal history`\n");
@@ -150,7 +149,7 @@ fn history_keeps_every_command_with_its_exit_code_cwd_and_output(shell: &'static
 }
 
 fn wait_command_waits_for_a_long_running_command(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     let hold = tab.work.path().join("hold");
     let status = std::process::Command::new("mkfifo").arg(&hold).status().expect("run mkfifo");
@@ -203,8 +202,60 @@ fn wait_command_waits_for_a_long_running_command(shell: &'static str) {
     );
 }
 
+fn a_command_the_users_history_leaves_out_is_recorded_as_typed(shell: &'static str) {
+    let tab = ShellTab::new(shell);
+    let (file, leave_out) = match shell {
+        "zsh" => (".zshrc", "setopt HIST_IGNORE_SPACE\n"),
+        "bash" => (".bashrc", "HISTCONTROL=ignoreboth\nHISTIGNORE='echo secret*'\n"),
+        _ => (".config/fish/config.fish", ""),
+    };
+    let file = tab.home.path().join(file);
+    std::fs::create_dir_all(file.parent().unwrap()).expect("create the config folder");
+    std::fs::write(&file, leave_out).expect("write a startup file");
+    tab.open().success();
+    let cwd = tab.cwd();
+    for line in ["echo first", " echo spaced", "echo secret word", "echo first"] {
+        tab.run(&["exec", line]).success();
+    }
+    assert_eq!(
+        timeless(&tab.run(&["history"]).success().stdout()),
+        format!(
+            "1 · exit 0 · <time> · {cwd} · echo first\n\
+             2 · exit 0 · <time> · {cwd} ·  echo spaced\n\
+             3 · exit 0 · <time> · {cwd} · echo secret word\n\
+             4 · exit 0 · <time> · {cwd} · echo first\n"
+        )
+    );
+    if shell == "bash" {
+        let settings = tab.run(&["exec", "echo \"[$HISTCONTROL] [$HISTIGNORE]\""]).success().stdout();
+        assert_eq!(settings.lines().next(), Some("[ignoreboth] [echo secret*]"));
+        let kept = tab.run(&["exec", "history"]).success().stdout();
+        assert!(kept.contains("echo first") && !kept.contains("spaced") && !kept.contains("echo secret"), "{kept}");
+    }
+}
+
+fn exec_of_a_line_the_shell_waits_to_finish_says_no_command_started(shell: &'static str) {
+    let tab = ShellTab::opened(shell);
+    let cwd = tab.cwd();
+    let unfinished = tab.run(&["exec", "echo 'unfinished", "--timeout", "300"]);
+    assert_eq!(unfinished.code(), 3);
+    assert_eq!(
+        unfinished.stderr().lines().next(),
+        Some(
+            "error: timed out after 300 ms waiting for `echo 'unfinished` to finish in default t1; the shell has not started a command for it, so the line may be unfinished (read the screen with `agent-terminal snapshot`, cancel the line with `agent-terminal press Ctrl+c`)"
+        )
+    );
+    assert_eq!(tab.run(&["history"]).success().stdout(), "no commands have run in default t1\n");
+    tab.run(&["press", "Ctrl+c"]).success();
+    tab.run(&["wait", "--command"]).success();
+    assert_eq!(
+        timeless(&tab.run(&["exec", "echo after"]).success().stdout()),
+        format!("after\n1 · exit 0 · <time> · {cwd} · echo after\n")
+    );
+}
+
 fn a_cancelled_command_line_leaves_the_shell_ready(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     for cancel in [&["press", "Ctrl+c"][..], &["signal", "INT"]] {
         tab.run(&["type", "echo 'unfinished\n"]).success();
@@ -219,7 +270,7 @@ fn a_cancelled_command_line_leaves_the_shell_ready(shell: &'static str) {
 }
 
 fn exec_after_a_line_the_shell_refused_starts_on_an_empty_command_line(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     let refused = tab.run(&["exec", ")"]);
     assert_eq!(refused.code(), 1);
@@ -260,7 +311,7 @@ fn finished(id: u32, command: &str, cwd: &str, exit_code: i32, output: &str) -> 
 }
 
 fn the_command_log_keeps_every_finished_command_with_its_output(shell: &'static str) {
-    let Some(tab) = ShellTab::opened(shell) else { return };
+    let tab = ShellTab::opened(shell);
     let cwd = tab.cwd();
     tab.run(&["exec", "echo passing"]).success();
     tab.run(&["exec", "echo failing; false"]).success();
@@ -290,11 +341,11 @@ fn the_command_log_keeps_every_finished_command_with_its_output(shell: &'static 
     tab.run(&["exec", "echo again"]).success();
     let logged = logged_commands(&tab);
     assert_eq!(logged.len(), 4, "restart keeps the log of the tab");
-    assert_eq!(without_timing(logged[3].clone()), finished(1, "echo again", &cwd, 0, "again\n"));
+    assert_eq!(without_timing(logged[3].clone()), finished(4, "echo again", &cwd, 0, "again\n"));
 }
 
 fn the_users_startup_files_load_and_stay_untouched(shell: &'static str) {
-    let Some(tab) = ShellTab::new(shell) else { return };
+    let tab = ShellTab::new(shell);
     let home = tab.home.path();
     let files: Vec<(PathBuf, &str)> = match shell {
         "zsh" => vec![
@@ -352,7 +403,7 @@ fn a_tab_without_shell_integration_says_so() {
 
 #[test]
 fn exec_says_when_the_shell_exits() {
-    let Some(tab) = ShellTab::opened("zsh") else { return };
+    let tab = ShellTab::opened("zsh");
     let run = tab.run(&["exec", "exit 4"]);
     assert_eq!(run.code(), 5);
     assert_eq!(
@@ -365,7 +416,7 @@ fn exec_says_when_the_shell_exits() {
 
 #[test]
 fn exec_refuses_what_is_not_one_command_line() {
-    let Some(tab) = ShellTab::opened("zsh") else { return };
+    let tab = ShellTab::opened("zsh");
     let empty = tab.run(&["exec", " "]);
     assert_eq!(empty.code(), 1);
     assert_eq!(empty.stderr(), "error: exec needs a command line, e.g. exec \"cargo test\"\n");
@@ -385,7 +436,7 @@ fn exec_refuses_what_is_not_one_command_line() {
 
 #[test]
 fn exec_and_history_print_json() {
-    let Some(tab) = ShellTab::opened("bash") else { return };
+    let tab = ShellTab::opened("bash");
     let cwd = tab.cwd();
     let mut ran = tab.run(&["--json", "exec", "echo hi"]).success().json();
     let started = ran["started_at_ms"].as_u64().expect("started_at_ms");
@@ -424,7 +475,7 @@ fn exec_and_history_print_json() {
 
 #[test]
 fn the_activity_log_keeps_the_exit_code_exec_check_exits_with() {
-    let Some(tab) = ShellTab::opened("zsh") else { return };
+    let tab = ShellTab::opened("zsh");
     assert_eq!(tab.run(&["exec", "--check", "sh -c 'exit 7'"]).code(), 7);
     tab.run(&["exec", "false"]).success();
     let log = std::fs::read_to_string(tab.at.home().join("sessions/default/activity.jsonl")).expect("activity log");
@@ -439,19 +490,19 @@ fn the_activity_log_keeps_the_exit_code_exec_check_exits_with() {
 
 #[test]
 fn restart_opens_the_shell_again_with_integration() {
-    let Some(tab) = ShellTab::opened("zsh") else { return };
+    let tab = ShellTab::opened("zsh");
     tab.run(&["exec", "echo before"]).success();
     tab.run(&["restart"]).success();
     let cwd = tab.cwd();
     assert_eq!(
         timeless(&tab.run(&["exec", "echo after"]).success().stdout()),
-        format!("after\n1 · exit 0 · <time> · {cwd} · echo after\n")
+        format!("after\n2 · exit 0 · <time> · {cwd} · echo after\n")
     );
 }
 
 #[test]
 fn shell_says_when_the_first_prompt_never_comes() {
-    let Some(tab) = ShellTab::new("bash") else { return };
+    let tab = ShellTab::new("bash");
     std::fs::write(tab.home.path().join(".bashrc"), "echo starting\nread -r answer\n").expect("write .bashrc");
     let run = tab.run(&["shell", "--shell", "bash", "--size", "40x5", "--timeout", "500"]);
     assert_eq!(run.code(), 3);
@@ -466,7 +517,7 @@ fn shell_says_when_the_first_prompt_never_comes() {
 
 #[test]
 fn execs_sent_together_run_one_after_the_other() {
-    let Some(tab) = ShellTab::opened("zsh") else { return };
+    let tab = ShellTab::opened("zsh");
     let words = ["alpha", "bravo", "charlie", "delta"];
     let outputs: Vec<String> = std::thread::scope(|scope| {
         let calls: Vec<_> = words
@@ -493,7 +544,7 @@ fn execs_sent_together_run_one_after_the_other() {
 
 #[test]
 fn shell_opens_the_shell_your_shell_variable_names() {
-    let Some(tab) = ShellTab::new("bash") else { return };
+    let tab = ShellTab::new("bash");
     let work = tab.work.path().to_string_lossy().into_owned();
     let shell_args = ["shell", "--size", "40x5", "--cwd", work.as_str()];
     let bash = which("bash");

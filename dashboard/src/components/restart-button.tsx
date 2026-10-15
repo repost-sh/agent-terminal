@@ -1,6 +1,8 @@
 import { RotateCw } from "lucide-react";
 
 import { reason, restartTab } from "../lib/api";
+import { controlButtonId } from "../lib/control";
+import { focusNowOrWhenShown } from "../lib/focus";
 import type { TabInfo } from "../lib/protocol";
 import { tabName } from "../lib/tabs";
 import type { ToolbarActionProps } from "../toolbar-actions";
@@ -18,6 +20,10 @@ export const restartProgram = async (session: string, tab: TabInfo) => {
     toast("error", `Could not restart ${tab.program}`, reason(error));
     return false;
   }
+};
+
+export const restartExited = async (session: string, tab: TabInfo) => {
+  if (await restartProgram(session, tab)) focusNowOrWhenShown(controlButtonId(session, tab.tab));
 };
 
 const RestartDialog = ({ session, tab }: { session: string; tab: TabInfo }) => (
@@ -47,7 +53,7 @@ const RestartDialog = ({ session, tab }: { session: string; tab: TabInfo }) => (
 export const RestartButton = ({ session, tab, stream, shown }: ToolbarActionProps) => {
   const drawn = shown !== null && (shown.frame > 0 || shown.exited);
   const restart = () => {
-    if (shown?.exited) void restartProgram(session, tab);
+    if (shown?.exited) void restartExited(session, tab);
     else showDialog(() => <RestartDialog session={session} tab={tab} />);
   };
   return <IconButton label={`Restart ${tab.program}`} tooltip="Restart" icon={RotateCw} disabled={stream !== "open" || !drawn} onClick={restart} />;

@@ -259,8 +259,6 @@ fn simultaneous_installs_leave_one_complete_stub() {
     assert_eq!(installed, at.run(&["skills", "get", "agent-terminal"]).success().stdout());
 }
 
-const NOT_YET_BUILT: &[&str] = &[];
-
 fn code_in(markdown: &str) -> Vec<&str> {
     let mut code = Vec::new();
     let mut fenced = false;
@@ -276,21 +274,66 @@ fn code_in(markdown: &str) -> Vec<&str> {
     code
 }
 
-fn commands_run_in(code: &str) -> Vec<&str> {
+fn commands_run_in(code: &str) -> Vec<Vec<&str>> {
     code.match_indices("agent-terminal ")
         .filter(|(at, _)| !code[..*at].ends_with(|c: char| c.is_alphanumeric() || "-_/.".contains(c)))
-        .filter_map(|(at, name)| code[at + name.len()..].split_whitespace().next())
-        .filter(|word| !word.starts_with('<'))
+        .map(|(at, name)| code[at + name.len()..].split_whitespace().collect::<Vec<_>>())
+        .filter(|words| words.first().is_some_and(|first| !first.starts_with('<')))
         .collect()
 }
 
-fn contract_commands() -> Vec<String> {
-    shipped("docs/commands.md")
-        .lines()
-        .filter_map(|line| line.strip_prefix("  "))
-        .filter(|entry| entry.starts_with(|c: char| c.is_ascii_lowercase()))
-        .filter_map(|entry| entry.split_whitespace().next().map(String::from))
-        .collect()
+struct Help {
+    subcommands: Vec<String>,
+    arguments: bool,
+}
+
+struct Commands<'a> {
+    at: &'a AgentTerminal,
+    known: std::collections::HashMap<Vec<String>, Option<Help>>,
+}
+
+impl Commands<'_> {
+    fn help(&mut self, path: &[String]) -> Option<&Help> {
+        let at = self.at;
+        self.known
+            .entry(path.to_vec())
+            .or_insert_with(|| {
+                let mut args = vec!["help"];
+                args.extend(path.iter().map(String::as_str));
+                let run = at.run(&args);
+                (run.code() == 0).then(|| {
+                    let printed = run.stdout();
+                    let listed = printed.split("\nCommands:\n").nth(1).unwrap_or_default();
+                    let subcommands = listed
+                        .lines()
+                        .take_while(|line| line.starts_with("  "))
+                        .filter_map(|line| line.split_whitespace().next())
+                        .filter(|name| *name != "help")
+                        .map(String::from)
+                        .collect();
+                    Help { subcommands, arguments: printed.contains("\nArguments:\n") }
+                })
+            })
+            .as_ref()
+    }
+
+    fn path(&mut self, words: &[&str]) -> Result<Vec<String>, String> {
+        let mut path = vec![words[0].to_string()];
+        for word in &words[1..] {
+            let help =
+                self.help(&path).ok_or_else(|| format!("`{}` is not a command of agent-terminal", path.join(" ")))?;
+            if help.subcommands.iter().any(|name| name == word) {
+                path.push(word.to_string());
+                continue;
+            }
+            if !help.subcommands.is_empty() && !help.arguments && !word.starts_with(['-', '<', '"', '\'']) {
+                return Err(format!("`{}` has no subcommand `{word}`", path.join(" ")));
+            }
+            return Ok(path);
+        }
+        self.help(&path).ok_or_else(|| format!("`{}` is not a command of agent-terminal", path.join(" ")))?;
+        Ok(path)
+    }
 }
 
 #[test]
@@ -304,40 +347,65 @@ fn every_command_a_guide_runs_is_a_command_of_this_binary() {
         .collect();
     names.push("agent-terminal".into());
 
+    let mut commands = Commands { at: &at, known: std::collections::HashMap::new() };
     let mut used = std::collections::BTreeMap::<String, Vec<String>>::new();
+    let mut problems = Vec::new();
     for name in &names {
         let guide = at.run(&["skills", "get", name]).success().stdout();
         for code in code_in(&guide) {
-            for command in commands_run_in(code) {
-                used.entry(command.to_string()).or_default().push(format!("{name}: `{code}`"));
+            for words in commands_run_in(code) {
+                let place = format!("{name}: `{code}`");
+                if words[0].starts_with('-') {
+                    problems.push(format!("put the command before its options in {place}"));
+                    continue;
+                }
+                match commands.path(&words) {
+                    Ok(path) => used.entry(path.join(" ")).or_default().push(place),
+                    Err(problem) => problems.push(format!("{problem}, but {place} runs it")),
+                }
             }
         }
     }
-    for built in ["open", "snapshot", "close", "skills"] {
+    for built in ["open", "snapshot", "close", "skills get", "history show", "diff screenshot", "tab new"] {
         assert!(used.contains_key(built), "no guide runs `{built}`; is the guide scan broken?\n{used:#?}");
     }
+    assert!(problems.is_empty(), "guides and the commands of this binary disagree:\n{}", problems.join("\n"));
+}
 
-    let mut problems = Vec::new();
-    for (command, places) in &used {
-        if command.starts_with('-') {
-            problems.push(format!("put the command before its options in {places:?}"));
-        } else if !NOT_YET_BUILT.contains(&command.as_str()) && at.run(&["help", command]).code() != 0 {
-            problems.push(format!("`{command}` is not a command of agent-terminal, but {places:?}"));
+#[test]
+fn the_help_of_every_command_calls_a_terminal_a_terminal_or_a_tab() {
+    let at = AgentTerminal::new();
+    let mut commands = Commands { at: &at, known: std::collections::HashMap::new() };
+    let mut paths: Vec<Vec<String>> = vec![Vec::new()];
+    let mut banned = Vec::new();
+    while let Some(path) = paths.pop() {
+        let mut args = vec!["help"];
+        args.extend(path.iter().map(String::as_str));
+        let text = at.run(&args).success().stdout().to_lowercase();
+        for word in ["window", "pane"] {
+            if text.split(|c: char| !c.is_alphanumeric()).any(|said| said == word || said == format!("{word}s")) {
+                banned.push(format!("`help {}` says {word}", path.join(" ")));
+            }
         }
+        let subcommands = commands.help(&path).map(|help| help.subcommands.clone()).unwrap_or_default();
+        paths.extend(subcommands.into_iter().map(|name| [path.clone(), vec![name]].concat()));
     }
-    let contract = contract_commands();
-    for pending in NOT_YET_BUILT {
-        if at.run(&["help", pending]).code() == 0 {
-            problems.push(format!("`{pending}` is built now; remove it from NOT_YET_BUILT"));
-        }
-        if !contract.iter().any(|command| command == pending) {
-            problems.push(format!("`{pending}` in NOT_YET_BUILT is not a command in docs/commands.md"));
-        }
-        if !used.contains_key(*pending) {
-            problems.push(format!("`{pending}` in NOT_YET_BUILT is not run by any guide"));
-        }
-    }
-    assert!(problems.is_empty(), "guides and the command list disagree:\n{}", problems.join("\n"));
+    assert!(banned.is_empty(), "GLOSSARY.md says terminal or tab, never pane or window:\n{}", banned.join("\n"));
+}
+
+#[test]
+fn a_guide_that_runs_a_renamed_subcommand_fails_the_check() {
+    let at = AgentTerminal::new();
+    let mut commands = Commands { at: &at, known: std::collections::HashMap::new() };
+    assert_eq!(commands.path(&["history", "show", "3"]), Ok(vec!["history".to_string(), "show".to_string()]));
+    assert_eq!(commands.path(&["tab", "t2"]), Ok(vec!["tab".to_string()]));
+    assert_eq!(commands.path(&["history", "detail", "3"]), Err("`history` has no subcommand `detail`".to_string()));
+    assert_eq!(commands.path(&["get", "txt"]), Err("`get` has no subcommand `txt`".to_string()));
+    assert_eq!(
+        commands.path(&["diff", "screen", "--baseline", "a.png"]),
+        Err("`diff` has no subcommand `screen`".to_string())
+    );
+    assert_eq!(commands.path(&["snap"]), Err("`snap` is not a command of agent-terminal".to_string()));
 }
 
 fn the_setup_copies_the_report_template(skill: &str) {

@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow};
-use nix::sys::signal::{Signal as NativeSignal, killpg};
+use nix::sys::signal::{Signal as NativeSignal, kill, killpg};
 use nix::unistd::Pid;
-use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::protocol::{Signal, Size};
 
@@ -28,7 +28,7 @@ impl Command {
 pub struct Spawned {
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
-    pub killer: Box<dyn Killer>,
+    pub stopper: Stopper,
     pub master: Master,
     pub pid: Option<u32>,
     pub signaller: Box<dyn Signaller>,
@@ -36,9 +36,9 @@ pub struct Spawned {
 }
 
 impl Spawned {
-    pub fn abandon(mut self) {
-        if let Err(e) = self.killer.kill() {
-            eprintln!("stopping a program that could not be set up failed: {e}");
+    pub fn abandon(self) {
+        if let Err(e) = self.stopper.signal(NativeSignal::SIGKILL) {
+            eprintln!("stopping a program that could not be set up failed: {e:#}");
         }
         if let Err(e) = (self.wait)() {
             eprintln!("waiting for a program that could not be set up failed: {e:#}");
@@ -65,19 +65,31 @@ fn pty_size(size: Size) -> PtySize {
     PtySize { rows: size.rows, cols: size.cols, pixel_width: 0, pixel_height: 0 }
 }
 
-pub trait Killer: Send {
-    fn kill(&mut self) -> std::io::Result<()>;
-}
-
 pub trait Signaller: Send + Sync {
     fn signal(&self, signal: Signal) -> Result<i32>;
 }
 
-struct PortableKiller(Box<dyn ChildKiller + Send + Sync>);
+pub struct Stopper {
+    pid: Option<u32>,
+}
 
-impl Killer for PortableKiller {
-    fn kill(&mut self) -> std::io::Result<()> {
-        self.0.kill()
+impl Stopper {
+    pub fn hang_up(&self) -> Result<()> {
+        self.signal(NativeSignal::SIGHUP)
+    }
+
+    pub fn kill(&self) -> Result<()> {
+        self.signal(NativeSignal::SIGKILL)
+    }
+
+    fn signal(&self, signal: NativeSignal) -> Result<()> {
+        let pid = self.pid.ok_or_else(|| anyhow!("the program has no process id to signal"))?;
+        let pid = Pid::from_raw(i32::try_from(pid).context("a process id")?);
+        match killpg(pid, signal) {
+            Err(nix::errno::Errno::ESRCH) => kill(pid, signal),
+            sent => sent,
+        }
+        .with_context(|| format!("send {signal} to process group {pid}"))
     }
 }
 
@@ -111,6 +123,10 @@ fn native(signal: Signal) -> NativeSignal {
 }
 
 pub fn spawn(command: Command) -> Result<Spawned> {
+    if !command.cwd.is_dir() {
+        let missing = format!("the working directory {} does not exist", command.cwd.display());
+        return Err(crate::Error::new(crate::exit::ERROR, missing).into());
+    }
     let path_var = command.env.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.as_str()).unwrap_or("");
     let program = resolve(&command.program, &command.cwd, path_var)?;
 
@@ -125,14 +141,13 @@ pub fn spawn(command: Command) -> Result<Spawned> {
 
     let mut child = pair.slave.spawn_command(builder).with_context(|| format!("start {}", command.program))?;
     drop(pair.slave);
-    let killer = PortableKiller(child.clone_killer());
     let reader = pair.master.try_clone_reader().context("read from the pseudo-terminal")?;
     let writer = pair.master.take_writer().context("write to the pseudo-terminal")?;
     let master: SharedMaster = Arc::new(Mutex::new(Some(pair.master)));
     Ok(Spawned {
         reader,
         writer,
-        killer: Box::new(killer),
+        stopper: Stopper { pid: child.process_id() },
         master: Master(Arc::clone(&master)),
         pid: child.process_id(),
         signaller: Box::new(ForegroundSignaller(Arc::clone(&master))),
@@ -144,11 +159,19 @@ pub fn spawn(command: Command) -> Result<Spawned> {
     })
 }
 
+const EMULATED: [(&str, &str); 2] = [("TERM", "xterm-256color"), ("COLORTERM", "truecolor")];
+
+pub fn inherited(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+    vars.into_iter().filter(|(key, _)| !EMULATED.iter().any(|(name, _)| name == key)).collect()
+}
+
 pub fn environment(command: &Command) -> Vec<(String, String)> {
-    let set = [("TERM", "xterm-256color"), ("COLORTERM", "truecolor")];
-    let mut env: Vec<(String, String)> =
-        command.env.iter().filter(|(key, _)| !set.iter().any(|(name, _)| name == key)).cloned().collect();
-    env.extend(set.iter().map(|(name, value)| (name.to_string(), value.to_string())));
+    let mut env = command.env.clone();
+    for (name, value) in EMULATED {
+        if !env.iter().any(|(key, _)| key == name) {
+            env.push((name.to_string(), value.to_string()));
+        }
+    }
     env
 }
 

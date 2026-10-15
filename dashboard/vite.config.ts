@@ -13,7 +13,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": { target: dashboard, ws: true, changeOrigin: true, headers: { origin: dashboard } },
+      "/api": { target: dashboard, ws: true, changeOrigin: true },
     },
   },
 });

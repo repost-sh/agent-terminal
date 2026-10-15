@@ -1,4 +1,3 @@
-mod cast;
 mod gif;
 mod mp4;
 
@@ -7,6 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 
+use crate::native::cast::{Change, Event, Reader};
 use crate::native::refs::Grid;
 use crate::native::render::{self, Image};
 use crate::native::screen::Screen;
@@ -14,7 +14,6 @@ use crate::native::screenshots;
 use crate::native::store::{self, SessionFolder};
 use crate::native::terminal::Terminal;
 use crate::protocol::{Clip, ClipFormat, ClipPoint, ClipRange, ClipSpec, CommandRecord, Look, RowRange, Size};
-use cast::{Cast, Change};
 
 const SLOT_MS: u64 = 100;
 const TRUNCATED: Duration = Duration::from_millis(1);
@@ -41,7 +40,7 @@ struct Shown {
 pub fn cut(session: &str, tab: &str, terminal: &Terminal, folder: &SessionFolder, spec: &ClipSpec) -> Result<Clip> {
     let frame = terminal.frame();
     let position = terminal.recording().position()?;
-    let cast = cast::read(&position.path, position.seconds)?;
+    let cast = Cast::read(&position.path, position.seconds)?;
     let timeline = Timeline { cast: &cast, now: position.seconds, session, tab, terminal, folder };
     let (from, to) = timeline.span(&spec.range)?;
     let duration_ms = ((to - from) * 1000.0).round() as u64;
@@ -183,18 +182,33 @@ fn call(folder: &SessionFolder, session: &str, entry: usize) -> Result<(SystemTi
     Ok((began, Duration::from_millis(call.duration_ms)))
 }
 
+struct Cast {
+    size: Size,
+    timestamp: u64,
+    events: Vec<Event>,
+}
+
+impl Cast {
+    fn read(path: &std::path::Path, until: f64) -> Result<Self> {
+        let mut reader = Reader::open(path)?;
+        let mut events = Vec::new();
+        while let Some(event) = reader.next()? {
+            if event.time > until {
+                break;
+            }
+            events.push(event);
+        }
+        let header = reader.header();
+        Ok(Self { size: header.size(), timestamp: header.timestamp, events })
+    }
+}
+
 fn film(cast: &Cast, from: f64, to: f64, duration_ms: u64, mut movie: impl Movie) -> Result<Filmed> {
     let mut screen = Screen::new(cast.size);
     let mut events = cast.events.iter().peekable();
     let mut play = |screen: &mut Screen, until: f64| {
         while let Some(event) = events.next_if(|event| event.time <= until) {
-            match &event.change {
-                Change::Output(text) => {
-                    screen.feed(text.as_bytes());
-                }
-                Change::Resize(size) => screen.resize(*size),
-                Change::Mark(_) => {}
-            }
+            event.change.apply(screen);
         }
     };
     play(&mut screen, from);
@@ -236,7 +250,7 @@ fn canvas(at_start: Size, cast: &Cast, from: f64, to: f64) -> Size {
         .filter(|event| event.time > from && event.time <= to)
         .filter_map(|event| match event.change {
             Change::Resize(size) => Some(size),
-            Change::Output(_) | Change::Mark(_) => None,
+            Change::Output(_) | Change::Mark(_) | Change::Input => None,
         })
         .fold(at_start, |canvas, size| Size { cols: canvas.cols.max(size.cols), rows: canvas.rows.max(size.rows) })
 }

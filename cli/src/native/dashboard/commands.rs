@@ -1,28 +1,21 @@
 use std::sync::Arc;
 
+use super::follow::Follow;
+use super::stream::send;
+use super::{Backend, tab_id};
+use crate::protocol::{CommandOutput, CommandRecord, Shell, TabId};
 use axum::Json;
 use axum::extract::ws::{WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
-use tokio::sync::watch;
-
-use super::stream::{hung_up, send};
-use super::{Backend, tab_id};
-use crate::native::terminal::Terminal;
-use crate::protocol::{CommandOutput, CommandRecord, Shell};
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 enum Update {
     Commands { shell: bool, integration: bool, home: Option<String>, commands: Vec<CommandRecord> },
     Closed,
-}
-
-struct Watched {
-    terminal: Arc<Terminal>,
-    history: watch::Receiver<u64>,
 }
 
 pub async fn stream(
@@ -36,22 +29,14 @@ pub async fn stream(
     }
 }
 
-async fn follow_commands(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: u32) {
-    let mut lifecycle = backend.changes();
-    let mut watched: Option<Watched> = None;
+async fn follow_commands(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
+    let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.history_changes()));
     let home = std::env::var("HOME").ok();
     loop {
-        lifecycle.borrow_and_update();
-        let Some(terminal) = backend.terminal(&session, id) else {
+        let Some((terminal, _)) = follow.next() else {
             send(&mut socket, &Update::Closed).await;
             return;
         };
-        if watched.as_ref().is_some_and(|watching| !Arc::ptr_eq(&watching.terminal, &terminal)) {
-            watched = None;
-        }
-        let watching = watched.get_or_insert_with(|| Watched { history: terminal.history_changes(), terminal });
-        watching.history.borrow_and_update();
-        let terminal = &watching.terminal;
         let integration = terminal.shell().is_some();
         let update = Update::Commands {
             shell: integration || Shell::of_program(&terminal.program).is_some(),
@@ -59,13 +44,8 @@ async fn follow_commands(mut socket: WebSocket, backend: Arc<dyn Backend>, sessi
             home: home.clone(),
             commands: terminal.commands().unwrap_or_default(),
         };
-        if !send(&mut socket, &update).await {
+        if !send(&mut socket, &update).await || !follow.changed(&mut socket).await {
             return;
-        }
-        tokio::select! {
-            changed = lifecycle.changed() => if changed.is_err() { return },
-            changed = watching.history.changed() => if changed.is_err() { return },
-            received = socket.recv() => if hung_up(received) { return },
         }
     }
 }

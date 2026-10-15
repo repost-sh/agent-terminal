@@ -52,6 +52,7 @@ One line per CLI call addressed to the session, written before the CLI gets its 
 - `frame`: the tab's frame when the call ended, when the tab still exists.
 - `screenshots`: absolute paths of the files the call saved: the screenshot of `screenshot` or of an input command's `--screenshot`, the diff image of `diff screenshot`. Left out when the call saved none. The files live where the call put them, outside the session folder.
 - `clips`: absolute path of the GIF or MP4 a `clip` call saved, in a list like `screenshots`. Left out for every other call. `clip --from @activity:N` counts the lines of this file from 1: it starts when entry N was received, and `--to @activity:N` ends when it was answered (`time` + `duration_ms`, both cut to the millisecond, so the clip runs up to 2 ms past it).
+- `raw`: `true` on a `send` call, which writes raw bytes the program reads as they are, the last resort the guides warn about; left out for every other call.
 - `output`: what the call printed without `--json` (its result, or `error: ...` and the screen it last saw when it failed). Only the first 64 KiB are kept; a longer output ends with `… N more bytes not kept`.
 - `human`: only on the keys of a human who has control of the tab (from the dashboard or `attach`), one line per key or run of text as it arrived: `{"typed":"hi"}`, `{"pressed":"Ctrl+c"}` or `{"pasted":"..."}`. `command` is the call that sends the same input (`type hi`, `press Ctrl+c`, `paste ...`), `output` is empty, and `exit` and `error` say whether the program got it.
 - Not logged: calls that name no session (`session list`, `skills`, `daemon stop`), calls to a session that is not open, and `attach` itself (the keys of a human who attached are logged as above).
@@ -86,7 +87,7 @@ Only tabs opened with `shell`, which have shell integration. One line per comman
 ```
 
 - Each line is what `history show <id> --json` prints for the command, without `session` and `tab`.
-- `id`: the command's number in `history`. `restart` starts the history again at 1 and keeps appending to the same file, so after a restart an id can appear twice; the earlier line is from before the restart.
+- `id`: the command's number in `history`, unique in the tab: `restart` starts `history` with the commands of the new run, numbered on from the last command before it, and keeps appending to the same file.
 - `started_at_ms`, `ended_at_ms`: wall-clock Unix time in milliseconds, so `started_at_ms / 1000 - timestamp` is where the command starts in the tab's recording. `duration_ms`: from start to finish.
 - `exit_code`: what the shell reported; `null` when it started a new prompt without reporting one.
 - `first_frame`, `last_frame`: the tab's frame when the command started and after its last output.
@@ -96,3 +97,5 @@ Only tabs opened with `shell`, which have shell integration. One line per comman
 ## `trace export <path>`
 
 A zip of the folder with every entry under `<session folder name>/`. Recordings, the activity log, the screenshot list and the command logs are copied up to their last complete line, so an export taken while a program prints never holds half an event. The `trace export` call itself is logged after the zip is written, so it is not in the zip.
+
+The files the session saved outside its folder come along: every path in the `screenshots` of the activity log and in the screenshot list goes under `screenshots/`, every path in `clips` under `clips/`, each by its file name (a second file of the same name gets a `2-` before it). A file that is no longer there is left out, and `trace export` names it (`missing` in `--json`).

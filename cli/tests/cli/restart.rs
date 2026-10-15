@@ -44,24 +44,24 @@ fn restart_runs_the_same_program_again_in_the_same_cwd_env_and_size() {
 fn restart_brings_back_a_program_that_exited() {
     let at = AgentTerminal::new();
     let work = workdir(&at);
-    let opened = at
-        .run(&[
-            "open",
-            "--size",
-            "40x3",
-            "--cwd",
-            &work,
-            "--env",
-            "GREETING=hi",
-            "--env",
-            "EXIT_FIRST=1",
-            "--wait-stable",
-            "5000",
-            "sh",
-            "-c",
-            COUNT_RUNS,
-        ])
-        .success();
+    at.run(&[
+        "open",
+        "--size",
+        "40x3",
+        "--cwd",
+        &work,
+        "--env",
+        "GREETING=hi",
+        "--env",
+        "EXIT_FIRST=1",
+        "--no-wait",
+        "sh",
+        "-c",
+        COUNT_RUNS,
+    ])
+    .success();
+    at.run(&["wait", "--exit"]).success();
+    let opened = at.run(&["snapshot"]).success();
     assert!(opened.stdout().starts_with("default t1 · sh · 40x3 · cursor 2,1 · frame "), "{}", opened.stdout());
     assert!(opened.stdout().lines().next().unwrap().ends_with(" · exited 3"), "{}", opened.stdout());
 
