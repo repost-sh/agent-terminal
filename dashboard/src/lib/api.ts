@@ -12,6 +12,8 @@ export const timelineUrl = (session: string, tab: string) => socketUrl(`${tabPat
 
 export const commandsStreamUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/commands/stream`);
 
+export const controlUrl = (session: string, tab: string) => socketUrl(`${tabPath(session, tab)}/control`);
+
 export const screenshotUrl = (session: string, path: string) =>
   `/api/session/${encodeURIComponent(session)}/screenshots/${encodeURIComponent(path)}`;
 

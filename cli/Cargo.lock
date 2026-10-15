@@ -28,6 +28,7 @@ dependencies = [
  "portable-pty",
  "regex",
  "rmcp",
+ "rustix",
  "semver",
  "serde",
  "serde_json",

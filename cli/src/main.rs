@@ -1,3 +1,4 @@
+mod attach;
 mod batch;
 mod commands;
 mod connection;
@@ -17,6 +18,7 @@ pub mod exit {
     pub const ERROR: i32 = 1;
     pub const ASSERTION: i32 = 2;
     pub const TIMEOUT: i32 = 3;
+    pub const HUMAN_CONTROL: i32 = 4;
     pub const EXITED: i32 = 5;
 }
 

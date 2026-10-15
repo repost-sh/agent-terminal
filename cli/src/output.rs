@@ -1,7 +1,7 @@
 use crate::protocol::{
     BatchOutcome, Checked, ClickTarget, Clip, CommandRecord, DashboardStopped, Delivered, Delivery, DiffBase,
-    Direction, ErrorBody, Exit, Fact, Modes, MouseButton, MouseEvent, Ref, RefKind, Reply, Response, SavedRecording,
-    Screenshot, ScrollBy, SessionInfo, Snapshot, SnapshotDiff, Waited,
+    Direction, ErrorBody, Exit, Fact, Modes, MouseButton, MouseEvent, Owner, Ref, RefKind, Reply, Response,
+    SavedRecording, Screenshot, ScrollBy, SessionInfo, Snapshot, SnapshotDiff, Waited,
 };
 use crate::session_id::SessionId;
 
@@ -105,6 +105,7 @@ pub fn reply(reply: &Reply, json: bool) {
         Reply::DashboardStopped(stopped) => println!("{}", serde_json::json!(stopped)),
         Reply::History(history) => println!("{}", serde_json::json!(history)),
         Reply::Command(ran) => println!("{}", serde_json::json!(ran)),
+        Reply::Attached(attached) => println!("{}", serde_json::json!(attached)),
     }
 }
 
@@ -167,6 +168,7 @@ pub fn reply_text(reply: &Reply) -> String {
             let gap = if !ran.output.is_empty() && !ran.output.ends_with('\n') { "\n" } else { "" };
             format!("{}{gap}{}\n", ran.output, record_line(&ran.record))
         }
+        Reply::Attached(attached) => format!("attached to {} {}\n", attached.session, attached.tab),
     }
 }
 
@@ -287,6 +289,9 @@ fn tab_lines(session: &SessionInfo) -> String {
             (true, None) => "exited".into(),
             (false, _) => "running".into(),
         });
+        if tab.control == Owner::Human {
+            line.push("human control".into());
+        }
         if session.current.as_ref() == Some(&tab.tab) {
             line.push("current".into());
         }

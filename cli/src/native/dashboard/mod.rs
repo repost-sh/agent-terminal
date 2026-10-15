@@ -1,6 +1,7 @@
 mod api;
 mod assets;
 mod commands;
+mod control;
 mod details;
 mod guard;
 mod open;
@@ -18,9 +19,10 @@ use axum::Router;
 use axum::routing::{get, post};
 use tokio::sync::{oneshot, watch};
 
+use crate::native::control::Hold;
 use crate::native::store::SessionFolder;
 use crate::native::terminal::Terminal;
-use crate::protocol::{Dashboard, ErrorBody, Reply, Request, Sessions};
+use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions};
 
 pub trait Backend: Send + Sync + 'static {
     fn call(&self, request: Request) -> Result<Reply, ErrorBody>;
@@ -28,6 +30,9 @@ pub trait Backend: Send + Sync + 'static {
     fn terminal(&self, session: &str, tab: u32) -> Option<Arc<Terminal>>;
     fn folder(&self, session: &str) -> Option<Arc<SessionFolder>>;
     fn changes(&self) -> watch::Receiver<u64>;
+    fn take_control(&self, session: &str, tab: u32) -> Result<Hold, ErrorBody>;
+    fn holds(&self, session: &str, tab: u32, hold: &Hold) -> bool;
+    fn type_as_human(&self, session: &str, tab: u32, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody>;
 }
 
 pub struct Server {
@@ -141,6 +146,7 @@ fn router(port: u16, backend: Arc<dyn Backend>) -> Router {
         .route("/api/session/{session}/{tab}/screenshot", post(api::screenshot))
         .route("/api/session/{session}/{tab}/record/start", post(api::record_start))
         .route("/api/session/{session}/{tab}/record/stop", post(api::record_stop))
+        .route("/api/session/{session}/{tab}/control", get(control::take))
         .route("/api/session/{session}/{tab}/commands/stream", get(commands::stream))
         .route("/api/session/{session}/{tab}/commands/{id}", get(commands::output))
         .fallback(assets::serve)

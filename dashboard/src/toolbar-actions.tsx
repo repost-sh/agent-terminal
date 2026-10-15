@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 
+import { ControlButton } from "./components/control-button";
 import { LayoutSwitch } from "./components/layout-switch";
 import { RecordButton } from "./components/record-button";
 import { RestartButton } from "./components/restart-button";
@@ -19,4 +20,5 @@ export const TOOLBAR_ACTIONS: ToolbarAction[] = [
   { id: "screenshot", Action: ScreenshotButton },
   { id: "record", Action: RecordButton },
   { id: "layout", Action: LayoutSwitch },
+  { id: "control", Action: ControlButton },
 ];

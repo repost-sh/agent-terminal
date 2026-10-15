@@ -8,6 +8,7 @@ export type TabInfo = {
   exited: boolean;
   exit_code: number | null;
   recording: string | null;
+  control: "agent" | "human";
 };
 
 export type SessionInfo = {
@@ -67,9 +68,20 @@ export type ActivityEntry = {
   frame?: number;
   output: string;
   screenshots?: string[];
+  human?: HumanInput;
 };
 
-export type ActivityUpdate = { type: "entries"; entries: ActivityEntry[] } | { type: "closed" };
+export type HumanInput = { typed: string } | { pressed: string } | { pasted: string };
+
+export type PendingCall = { time: string; tab?: string; command: string };
+
+export type ActivityUpdate = { type: "entries"; entries: ActivityEntry[]; pending: PendingCall[] } | { type: "closed" };
+
+export type ControlUpdate =
+  | { type: "held" }
+  | { type: "refused"; message: string }
+  | { type: "agent-refused"; command: string }
+  | { type: "closed" };
 
 export type CommandRecord = {
   id: number;

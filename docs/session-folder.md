@@ -53,7 +53,13 @@ One line per CLI call addressed to the session, written before the CLI gets its 
 - `screenshots`: absolute paths of the files the call saved: the screenshot of `screenshot` or of an input command's `--screenshot`, the diff image of `diff screenshot`. Left out when the call saved none. The files live where the call put them, outside the session folder.
 - `clips`: absolute path of the GIF or MP4 a `clip` call saved, in a list like `screenshots`. Left out for every other call. `clip --from @activity:N` counts the lines of this file from 1: it starts when entry N was received, and `--to @activity:N` ends when it was answered (`time` + `duration_ms`, both cut to the millisecond, so the clip runs up to 2 ms past it).
 - `output`: what the call printed without `--json` (its result, or `error: ...` and the screen it last saw when it failed). Only the first 64 KiB are kept; a longer output ends with `… N more bytes not kept`.
-- Not logged: calls that name no session (`session list`, `skills`, `daemon stop`) and calls to a session that is not open.
+- `human`: only on the keys of a human who has control of the tab (from the dashboard or `attach`), one line per key or run of text as it arrived: `{"typed":"hi"}`, `{"pressed":"Ctrl+c"}` or `{"pasted":"..."}`. `command` is the call that sends the same input (`type hi`, `press Ctrl+c`, `paste ...`), `output` is empty, and `exit` and `error` say whether the program got it.
+- Not logged: calls that name no session (`session list`, `skills`, `daemon stop`), calls to a session that is not open, and `attach` itself (the keys of a human who attached are logged as above).
+
+```json
+{"time":"2026-10-14T14:02:31.100Z","tab":"t1","command":"press j","duration_ms":0,"exit":4,"error":"A human has control of qa t1. Run `agent-terminal wait --control`.","frame":212,"output":"error: A human has control of qa t1. Run `agent-terminal wait --control`.\n"}
+{"time":"2026-10-14T14:02:33.402Z","tab":"t1","command":"type hi","duration_ms":0,"exit":0,"frame":213,"output":"","human":{"typed":"hi"}}
+```
 
 ## Screenshot list: `screenshots.jsonl`
 

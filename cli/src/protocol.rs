@@ -290,6 +290,16 @@ pub enum Request {
         tab: Option<u32>,
         clip: ClipSpec,
     },
+    WaitControl {
+        session: String,
+        tab: Option<u32>,
+        timeout_ms: u64,
+    },
+    Attach {
+        session: String,
+        tab: Option<u32>,
+        read_only: bool,
+    },
 }
 
 impl Request {
@@ -299,7 +309,8 @@ impl Request {
             | Request::Stop
             | Request::Batch { .. }
             | Request::DashboardStart { .. }
-            | Request::DashboardStop => Addressed::Nothing,
+            | Request::DashboardStop
+            | Request::Attach { .. } => Addressed::Nothing,
             Request::Open { session, .. }
             | Request::Shell { session, .. }
             | Request::Tabs { session }
@@ -325,9 +336,71 @@ impl Request {
             | Request::HistoryShow { session, tab, .. }
             | Request::Screenshot { session, tab, .. }
             | Request::DiffScreenshot { session, tab, .. }
-            | Request::Clip { session, tab, .. } => Addressed::Tab(session, *tab),
+            | Request::Clip { session, tab, .. }
+            | Request::WaitControl { session, tab, .. } => Addressed::Tab(session, *tab),
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Owner {
+    Agent,
+    Human,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum HumanInput {
+    Typed(String),
+    Pressed(Key),
+    Pasted(String),
+}
+
+impl HumanInput {
+    pub fn input(&self) -> Input {
+        match self {
+            HumanInput::Typed(text) => Input::Type { text: text.clone(), delay_ms: 0 },
+            HumanInput::Pressed(key) => Input::Press { keys: vec![*key], repeat: 1 },
+            HumanInput::Pasted(text) => Input::Paste { text: text.clone() },
+        }
+    }
+
+    pub fn call(&self) -> Vec<String> {
+        match self {
+            HumanInput::Typed(text) => vec!["type".into(), text.clone()],
+            HumanInput::Pressed(key) => vec!["press".into(), key.to_string()],
+            HumanInput::Pasted(text) => vec!["paste".into(), text.clone()],
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub enum AttachInput {
+    Human(HumanInput),
+    Detach,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub enum AttachEvent {
+    Screen(Mirror),
+    Detached,
+    Closed,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Mirror {
+    pub program: String,
+    pub frame: u64,
+    pub cols: u16,
+    pub rows: u16,
+    pub lines: Vec<String>,
+    pub cursor: [u16; 2],
+    pub cursor_visible: bool,
+    pub exited: bool,
+    pub exit_code: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -767,6 +840,7 @@ pub enum Reply {
     Screenshot(Screenshot),
     ScreenshotDiff(ScreenshotDiff),
     Clip(Clip),
+    Attached(Attached),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -779,6 +853,14 @@ pub struct Clip {
     pub duration_ms: u64,
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Attached {
+    pub session: String,
+    pub tab: String,
+    pub program: String,
+    pub read_only: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -1043,6 +1125,7 @@ pub struct TabInfo {
     pub exited: bool,
     pub exit_code: Option<i32>,
     pub recording: Option<PathBuf>,
+    pub control: Owner,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

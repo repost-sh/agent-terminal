@@ -20,7 +20,7 @@ const along = (frame: number, last: number) => `calc(5px + (100% - 10px) * ${las
 export const Timeline = ({ session, tab }: { session: string; tab: TabInfo }) => {
   const { count, started, frame: frameAt } = useTimeline(session, tab.tab);
   const viewed = useViewedFrame(session, tab.tab);
-  const entries = useActivity(session, tab.tab);
+  const { entries } = useActivity(session, tab.tab);
   const commands = useCommands(session, tab.tab);
   const name = tabName(session, tab.tab);
   const last = Math.max(count, 1);

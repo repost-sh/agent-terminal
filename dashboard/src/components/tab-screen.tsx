@@ -1,4 +1,7 @@
+import { useState } from "react";
+
 import { closeTab, reason } from "../lib/api";
+import { controlKeys, controlTerminal, useControl } from "../lib/control";
 import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
 import type { Layout } from "../lib/split";
@@ -21,6 +24,9 @@ export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) 
   const viewed = useViewedFrame(session, tab.tab);
   const past = viewed === null ? null : timeline.frame(viewed);
   const name = tabName(session, tab.tab);
+  const [keyboard] = useState(() => controlKeys(session, tab.tab));
+  const held = useControl(session, tab.tab) === "held";
+  const typing = held && !shown?.exited;
 
   const restart = async () => {
     if (await restartProgram(session, tab)) document.getElementById("main-content")?.focus({ preventScroll: true });
@@ -49,12 +55,24 @@ export const TabScreen = ({ session, tab, sessions, onLayout }: TabScreenProps) 
         program={tab.program}
         label={`${name} ${tab.program}, live frame ${shown?.frame ?? 0}`}
         past={past && { label: `${name} ${tab.program}, viewing frame ${past.frame}`, paint: timeline.paint }}
+        held={
+          held
+            ? { name, focus: controlTerminal(session, tab.tab), keys: typing ? keyboard.keys : undefined, paste: typing ? keyboard.paste : undefined }
+            : null
+        }
         onRestart={restart}
         onClose={close}
       />
       <Timeline session={session} tab={tab} />
       <div className="h-px shrink-0 bg-border" role="none" />
-      <StatusBar session={session} tab={tab} state={state} shown={shown} past={past} />
+      <StatusBar
+        session={session}
+        tab={tab}
+        state={state}
+        shown={shown}
+        past={past}
+        hint={typing ? `Keys go to ${tab.program} · ctrl+p ctrl+q moves focus out` : null}
+      />
     </>
   );
 };

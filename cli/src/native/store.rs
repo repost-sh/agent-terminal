@@ -15,16 +15,54 @@ use crate::native::pty;
 use crate::native::recording::Recording;
 use crate::native::render::Cells;
 use crate::output::call_line;
-use crate::protocol::CommandRecord;
+use crate::protocol::{CommandRecord, HumanInput};
 
 pub struct SessionFolder {
     session: String,
     path: PathBuf,
     last_tab: AtomicU32,
-    activity: Mutex<()>,
+    activity: Mutex<Calls>,
     logged: Changes,
     screenshots: Mutex<()>,
     screenshots_listed: Changes,
+}
+
+#[derive(Default)]
+struct Calls {
+    next: u64,
+    pending: Vec<(u64, PendingCall)>,
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq)]
+pub struct PendingCall {
+    pub time: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
+    pub command: String,
+}
+
+pub struct Pending {
+    folder: Arc<SessionFolder>,
+    id: u64,
+}
+
+impl Pending {
+    pub fn log(self, entry: &ActivityEntry) {
+        self.folder.append(entry, Some(self.id));
+    }
+}
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        let mut calls = self.folder.activity.lock().unwrap();
+        let before = calls.pending.len();
+        calls.pending.retain(|(id, _)| *id != self.id);
+        let ended = calls.pending.len() != before;
+        drop(calls);
+        if ended {
+            self.folder.logged.notify();
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -44,6 +82,8 @@ pub struct ActivityEntry {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub clips: Vec<PathBuf>,
     pub output: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub human: Option<HumanInput>,
 }
 
 const KEPT_OUTPUT_BYTES: usize = 64 * 1024;
@@ -74,6 +114,7 @@ impl ActivityEntry {
             screenshots: Vec::new(),
             clips: Vec::new(),
             output: String::new(),
+            human: None,
         }
     }
 
@@ -101,7 +142,7 @@ impl SessionFolder {
             session: session.to_string(),
             path,
             last_tab: AtomicU32::new(0),
-            activity: Mutex::new(()),
+            activity: Mutex::new(Calls::default()),
             logged: Changes::default(),
             screenshots: Mutex::new(()),
             screenshots_listed: Changes::default(),
@@ -112,16 +153,32 @@ impl SessionFolder {
         self.last_tab.fetch_add(1, Ordering::SeqCst) + 1
     }
 
+    pub fn begin(self: &Arc<Self>, time: SystemTime, tab: Option<String>, typed: &[String]) -> Pending {
+        let mut calls = self.activity.lock().unwrap();
+        let id = calls.next;
+        calls.next += 1;
+        let time = humantime::format_rfc3339_millis(time).to_string();
+        calls.pending.push((id, PendingCall { time, tab, command: call_line(typed) }));
+        drop(calls);
+        self.logged.notify();
+        Pending { folder: Arc::clone(self), id }
+    }
+
     pub fn log(&self, entry: &ActivityEntry) {
+        self.append(entry, None);
+    }
+
+    fn append(&self, entry: &ActivityEntry, ending: Option<u64>) {
         let path = self.path.join("activity.jsonl");
         let appended = serde_json::to_string(entry).map_err(anyhow::Error::from).and_then(|line| {
-            let _turn = self.activity.lock().unwrap();
+            let mut calls = self.activity.lock().unwrap();
+            calls.pending.retain(|(id, _)| Some(*id) != ending);
             append_line(&path, &line)
         });
-        match appended {
-            Ok(()) => self.logged.notify(),
-            Err(e) => eprintln!("adding `{}` to the activity log {} failed: {e:#}", entry.command, path.display()),
+        if let Err(e) = appended {
+            eprintln!("adding `{}` to the activity log {} failed: {e:#}", entry.command, path.display());
         }
+        self.logged.notify();
     }
 
     pub fn keep_screenshot(&self, entry: &ScreenshotEntry) {
@@ -144,6 +201,12 @@ impl SessionFolder {
 
     pub fn logged(&self) -> watch::Receiver<u64> {
         self.logged.subscribe()
+    }
+
+    pub fn activity_and_pending_since(&self, offset: u64) -> Result<(Vec<serde_json::Value>, u64, Vec<PendingCall>)> {
+        let calls = self.activity.lock().unwrap();
+        let (entries, end) = self.activity_since(offset)?;
+        Ok((entries, end, calls.pending.iter().map(|(_, call)| call.clone()).collect()))
     }
 
     pub fn activity_since(&self, offset: u64) -> Result<(Vec<serde_json::Value>, u64)> {

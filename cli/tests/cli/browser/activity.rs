@@ -3,7 +3,7 @@ use serde_json::Value;
 use super::{Browser, Dashboard};
 use crate::support::{AgentTerminal, fixture};
 
-const CALLS: &str = "[aria-label='Calls to default t1'] > li";
+const CALLS: &str = "[aria-label='Calls to default t1'] > li:not([aria-busy])";
 
 fn logged(at: &AgentTerminal) -> Vec<Value> {
     std::fs::read_to_string(at.home().join("sessions/default/activity.jsonl"))
@@ -184,13 +184,16 @@ fn in_a_split_activity_shows_the_calls_to_the_focused_terminal() {
     at.run(&["--session", "web", "get", "frame"]).success();
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/split/qa:t1,web:t1"));
-    browser.wait_until("document.querySelectorAll(\"[aria-label='Calls to qa t1'] > li\").length === 1");
+    browser
+        .wait_until("document.querySelectorAll(\"[aria-label='Calls to qa t1'] > li:not([aria-busy])\").length === 1");
 
     browser.run(&["click", "main section[aria-label='web t1 line-printer'] [role=group]"]);
-    browser.wait_until("document.querySelectorAll(\"[aria-label='Calls to web t1'] > li\").length === 2");
+    browser
+        .wait_until("document.querySelectorAll(\"[aria-label='Calls to web t1'] > li:not([aria-busy])\").length === 2");
     at.run(&["--session", "qa", "get", "frame"]).success();
     at.run(&["--session", "web", "get", "frame"]).success();
-    browser.wait_until("document.querySelectorAll(\"[aria-label='Calls to web t1'] > li\").length === 3");
+    browser
+        .wait_until("document.querySelectorAll(\"[aria-label='Calls to web t1'] > li:not([aria-busy])\").length === 3");
 }
 
 #[test]

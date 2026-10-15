@@ -1,7 +1,8 @@
 import type { Terminal } from "@xterm/xterm";
 import { LoaderCircle, RotateCw } from "lucide-react";
-import { useCallback, useRef, type RefObject } from "react";
+import { useCallback, useRef, type ClipboardEventHandler, type KeyboardEventHandler, type ReactNode, type RefObject } from "react";
 
+import { focusWhenShown } from "../lib/focus";
 import type { StreamState, Shown } from "../lib/stream";
 import { LARGEST_FONT_PX, openTerminal } from "../lib/xterm";
 import { Button, cn } from "./ui";
@@ -34,6 +35,13 @@ type Paint = (terminal: Terminal) => () => void;
 
 export type Past = { label: string; paint: Paint };
 
+export type HeldTerminal = {
+  name: string;
+  focus: string;
+  keys?: KeyboardEventHandler<HTMLDivElement>;
+  paste?: ClipboardEventHandler<HTMLDivElement>;
+};
+
 type ViewportProps = {
   paint: Paint;
   state: StreamState;
@@ -41,10 +49,30 @@ type ViewportProps = {
   program: string;
   label: string;
   past?: Past | null;
+  held?: HeldTerminal | null;
 } & ({ compact: true } | ({ compact?: false } & ExitActions));
 
+const HeldRing = ({ held, compact, children }: { held: HeldTerminal | null; compact: boolean; children: ReactNode }) =>
+  held && !compact ? (
+    <div
+      ref={focusWhenShown(held.focus)}
+      tabIndex={0}
+      role="application"
+      aria-roledescription="terminal"
+      aria-label={`Terminal ${held.name}, you have control`}
+      aria-describedby="control-hint"
+      onKeyDown={held.keys}
+      onPaste={held.paste}
+      className="rounded-[2px] ring-2 ring-warning ring-offset-4 ring-offset-background outline-none focus-visible:ring-[3px]"
+    >
+      {children}
+    </div>
+  ) : (
+    <div className={cn(held && "rounded-[2px] ring-2 ring-warning ring-offset-2 ring-offset-background")}>{children}</div>
+  );
+
 export const Viewport = (props: ViewportProps) => {
-  const { paint, state, shown, program, label, past } = props;
+  const { paint, state, shown, program, label, past, held = null } = props;
   const box = useRef<HTMLDivElement>(null);
   const host = useCallback(
     (node: HTMLDivElement) =>
@@ -70,15 +98,17 @@ export const Viewport = (props: ViewportProps) => {
           Waiting for first frame...
         </p>
       )}
-      <div
-        role="group"
-        aria-label={label}
-        aria-hidden={past ? true : undefined}
-        inert={Boolean(past)}
-        className={cn("term-frame", dim && "is-dim", (loading || past) && "opacity-0")}
-      >
-        <div ref={host} />
-      </div>
+      <HeldRing held={held} compact={Boolean(props.compact)}>
+        <div
+          role="group"
+          aria-label={label}
+          aria-hidden={past ? true : undefined}
+          inert={Boolean(past)}
+          className={cn("term-frame", dim && "is-dim", (loading || past) && "opacity-0")}
+        >
+          <div ref={host} />
+        </div>
+      </HeldRing>
       {past && <PastView box={box} past={past} dim={Boolean(dim)} />}
       {shown?.exited && !past && <ExitBar program={program} code={shown.exit_code} actions={props.compact ? null : props} />}
     </div>

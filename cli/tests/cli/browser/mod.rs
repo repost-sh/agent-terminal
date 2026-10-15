@@ -1,6 +1,7 @@
 mod activity;
 mod close_all;
 mod commands;
+mod control;
 mod empty;
 mod info;
 mod new_session;

@@ -20,7 +20,7 @@ use crate::native::store::CommandLog;
 use crate::native::wait::{self, Condition, Moment, Verdict};
 use crate::protocol::{
     Baseline, Cell, ClickTarget, CommandRecord, Cursor, Delivery, DiffBase, Direction, Exit, Fact, Get, Input, Match,
-    Modes, MouseButton, MouseEvent, Ref, RowChange, RowRange, ScrollBy, Scrollback, Shell, Size, Snapshot,
+    Modes, MouseButton, MouseEvent, Owner, Ref, RowChange, RowRange, ScrollBy, Scrollback, Shell, Size, Snapshot,
     SnapshotDiff, SnapshotOptions, TabInfo,
 };
 
@@ -450,7 +450,7 @@ impl Terminal {
         state.exit.is_some()
     }
 
-    pub fn info(&self, tab: &str) -> TabInfo {
+    pub fn info(&self, tab: &str, control: Owner) -> TabInfo {
         let state = self.state.lock().unwrap();
         let size = state.screen.size();
         TabInfo {
@@ -466,6 +466,7 @@ impl Terminal {
             exited: state.exit.is_some(),
             exit_code: state.exit.flatten(),
             recording: self.recording.saving_to(),
+            control,
         }
     }
 

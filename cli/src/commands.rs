@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use clap::{ArgGroup, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
+use crate::attach;
 use crate::batch;
 use crate::connection::{self, IfNotRunning, Launch};
 use crate::doctor;
@@ -204,6 +205,11 @@ enum Command {
         start: DashboardArgs,
         #[command(subcommand)]
         action: Option<DashboardAction>,
+    },
+    #[command(about = "Watch or drive a session from your own terminal (detach: Ctrl-p Ctrl-q)")]
+    Attach {
+        #[arg(long, help = "Only watch: your keys are not sent and the agent keeps control")]
+        read_only: bool,
     },
     #[command(about = "Install the agent skill stub into ~/.claude/skills")]
     Install {
@@ -874,7 +880,7 @@ impl ButtonArgs {
 }
 
 #[derive(Args)]
-#[command(group(ArgGroup::new("until").required(true).args(["text", "stable", "idle", "exit", "cursor", "frame", "command"])))]
+#[command(group(ArgGroup::new("until").required(true).args(["text", "stable", "idle", "exit", "cursor", "frame", "command", "control"])))]
 struct UntilArgs {
     #[arg(
         help = "The text to wait for; a plain number pauses that many milliseconds",
@@ -930,6 +936,9 @@ struct UntilArgs {
 
     #[arg(long, help = "Until the shell command finishes and the shell shows its prompt (shell tabs)")]
     command: bool,
+
+    #[arg(long, help = "Until a human hands control back (at once when the agent has it)")]
+    control: bool,
 }
 
 impl UntilArgs {
@@ -1096,6 +1105,9 @@ pub fn run() -> i32 {
         Command::Skills { action } => return skills::run(action, json, Cli::command()),
         Command::Install { .. } => return skills::install(json),
         Command::Mcp => return mcp::run(Cli::command()),
+        Command::Attach { read_only } => {
+            return attach::run(cli.session, cli.tab, read_only, json, Launch { idle_timeout });
+        }
         Command::Session { action: None } => {
             output::session(&cli.session, json);
             return 0;
@@ -1221,6 +1233,9 @@ fn request(cli: Cli) -> Result<Request, String> {
             let (event, after) = event.event();
             input(session, cli.tab, Input::Mouse { event }, after, dir, cli.timeout)?
         }
+        Command::Wait(UntilArgs { control: true, .. }) => {
+            Request::WaitControl { session, tab: cli.tab, timeout_ms: cli.timeout }
+        }
         Command::Wait(args) => Request::Wait { session, tab: cli.tab, wait: args.until(), timeout_ms: cli.timeout },
         Command::Expect(args) => Request::Expect { session, tab: cli.tab, expect: args.check() },
         Command::Daemon { action: DaemonAction::Run }
@@ -1229,6 +1244,7 @@ fn request(cli: Cli) -> Result<Request, String> {
         | Command::Session { action: None | Some(SessionAction::Id { .. }) }
         | Command::Batch(_)
         | Command::Mcp
+        | Command::Attach { .. }
         | Command::Doctor { .. }
         | Command::Upgrade
         | Command::Version => {

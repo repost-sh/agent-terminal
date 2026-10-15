@@ -101,17 +101,17 @@ fn session_list_shows_every_tab_with_its_program_size_and_status() {
             { "session": "a", "current": "t2", "tabs": [
                 {
                     "tab": "t1", "program": "line-printer", "command": format!("{printer} --lines 1 --hold"), "cwd": cwd,
-                    "cols": 30, "rows": 5, "exited": false, "exit_code": null, "recording": null,
+                    "cols": 30, "rows": 5, "exited": false, "exit_code": null, "recording": null, "control": "agent",
                 },
                 {
                     "tab": "t2", "program": "line-printer", "command": format!("{printer} --lines 1 --exit 4"), "cwd": cwd,
-                    "cols": 20, "rows": 3, "exited": true, "exit_code": 4, "recording": null,
+                    "cols": 20, "rows": 3, "exited": true, "exit_code": 4, "recording": null, "control": "agent",
                 },
             ] },
             { "session": "b", "current": "t1", "tabs": [
                 {
                     "tab": "t1", "program": "fixture-tui", "command": fixture("fixture-tui"), "cwd": cwd,
-                    "cols": 50, "rows": 8, "exited": false, "exit_code": null, "recording": null,
+                    "cols": 50, "rows": 8, "exited": false, "exit_code": null, "recording": null, "control": "agent",
                 },
             ] },
         ] })

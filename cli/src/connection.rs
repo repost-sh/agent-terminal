@@ -37,17 +37,34 @@ pub fn socket_path() -> Result<PathBuf> {
 }
 
 pub fn send(call: &Call, if_not_running: IfNotRunning) -> Result<Response> {
-    let socket = socket_path()?;
-    let mut stream = match UnixStream::connect(&socket) {
-        Ok(stream) => stream,
-        Err(e) if is_not_running(&e) => match if_not_running {
+    let mut stream = match connect()? {
+        Some(stream) => stream,
+        None => match if_not_running {
             IfNotRunning::Answer(reply) => return Ok(Response::Ok(reply)),
             IfNotRunning::Start(launch) => connect_or_start(&launch)?,
         },
-        Err(e) => return Err(e).with_context(|| format!("connect to the daemon at {}", socket.display())),
     };
     protocol::write(&mut stream, call)?;
     protocol::read(&mut stream)?.context("the daemon closed the connection without replying")
+}
+
+pub fn keep_open(call: &Call, launch: &Launch) -> Result<(Response, UnixStream)> {
+    let mut stream = match connect()? {
+        Some(stream) => stream,
+        None => connect_or_start(launch)?,
+    };
+    protocol::write(&mut stream, call)?;
+    let response = protocol::read(&mut stream)?.context("the daemon closed the connection without replying")?;
+    Ok((response, stream))
+}
+
+fn connect() -> Result<Option<UnixStream>> {
+    let socket = socket_path()?;
+    match UnixStream::connect(&socket) {
+        Ok(stream) => Ok(Some(stream)),
+        Err(e) if is_not_running(&e) => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("connect to the daemon at {}", socket.display())),
+    }
 }
 
 fn connect_or_start(launch: &Launch) -> Result<UnixStream> {

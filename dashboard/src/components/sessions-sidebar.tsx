@@ -1,4 +1,4 @@
-import { ChevronRight, Moon, Plus, SquareTerminal, Sun, Trash2 } from "lucide-react";
+import { ChevronRight, Hand, Moon, Plus, SquareTerminal, Sun, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import type { Connection } from "../lib/daemon";
@@ -13,8 +13,16 @@ import { Badge, Chip, Dot, IconButton, cn } from "./ui";
 
 export type Selected = { session: string; tab: string } | null;
 
-export const TabGlyph = ({ tab }: { tab: TabInfo }) =>
-  tabState(tab).kind === "running" ? (
+export const TabGlyph = ({ tab }: { tab: TabInfo }) => {
+  const kind = tabState(tab).kind;
+  if (kind === "human") {
+    return (
+      <span className="flex size-4 shrink-0 items-center justify-center text-yellow-700 dark:text-warning" aria-hidden="true">
+        <Hand className="size-[13px]" />
+      </span>
+    );
+  }
+  return kind === "running" ? (
     <span className="flex size-4 shrink-0 items-center justify-center">
       <Dot tone="success" />
     </span>
@@ -23,6 +31,7 @@ export const TabGlyph = ({ tab }: { tab: TabInfo }) =>
       <span className="size-2 rounded-full border border-muted-foreground/70" />
     </span>
   );
+};
 
 export const TabChip = ({ tab }: { tab: TabInfo }) => {
   const state = tabState(tab);
