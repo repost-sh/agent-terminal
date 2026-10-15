@@ -1,6 +1,8 @@
 import type { IUnicodeVersionProvider } from "@xterm/xterm";
 
-import { UNICODE, WIDE, ZERO } from "./widths";
+import { UNICODE } from "./widths/version";
+import { WIDE } from "./widths/wide";
+import { ZERO } from "./widths/zero";
 
 type Ranges = readonly (readonly [number, number])[];
 
