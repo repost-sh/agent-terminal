@@ -128,7 +128,7 @@ dashboard() {
   step "fix the type errors in the lint tooling → GAUNTLET.md#dashboard-types" node_modules/.bin/tsc --noEmit -p eslint
   step "fix the type errors in the CRAP tool → GAUNTLET.md#dashboard-types" node_modules/.bin/tsc --noEmit -p gauntlet
   step "fix the rule or the sealed config the failing test names → GAUNTLET.md#sealed-eslint-config" node --test 'eslint/*.test.ts'
-  step "fix the CRAP tool the failing test names → GAUNTLET.md#crap" node --test 'gauntlet/*.test.ts'
+  step "fix the gauntlet tool the failing test names → GAUNTLET.md#gauntlet-tools" node --test 'gauntlet/*.test.ts'
   step "fix the code the failing test names, or test the lines it reports uncovered → GAUNTLET.md#dashboard-tests" npm run --silent test
   step "cover every branch of each function it names, or split the function → GAUNTLET.md#crap" node gauntlet/crap.ts
   step "state an invariant of the dashboard's behaviour as fc.assert(fc.property(…)) → GAUNTLET.md#property-tests" node gauntlet/props.ts
@@ -136,6 +136,12 @@ dashboard() {
   cd "$root"
   git diff --quiet -- cli/assets/dashboard || fail "the built dashboard differs from cli/assets/dashboard: commit the rebuilt cli/assets/dashboard with its sources → GAUNTLET.md#dashboard-build"
   [ -z "$(git ls-files --others --exclude-standard -- cli/assets/dashboard)" ] || fail "cli/assets/dashboard has untracked files: commit them with the sources → GAUNTLET.md#dashboard-build"
+}
+
+duplication() {
+  cd "$root/dashboard"
+  [ -x node_modules/.bin/jscpd ] || fail "dashboard/node_modules is missing: run \`npm ci\` in dashboard/ → GAUNTLET.md#duplication"
+  step "move the shared code into the module that owns it and call it from both places → GAUNTLET.md#duplication" node gauntlet/duplication.ts
 }
 
 browser() {
@@ -146,7 +152,7 @@ browser() {
 
 areas=("$@")
 if [ "${#areas[@]}" -eq 0 ]; then
-  areas=(rust dashboard npm)
+  areas=(rust dashboard npm duplication)
 fi
 
 for area in "${areas[@]}"; do
@@ -154,11 +160,12 @@ for area in "${areas[@]}"; do
     rust) rust ;;
     dashboard) dashboard ;;
     npm) npm_tests ;;
+    duplication) duplication ;;
     browser) browser ;;
     coverage) coverage ;;
     mutation) mutation ;;
     acceptance-faults) acceptance_faults ;;
-    *) fail "unknown area \`$area\`: use rust, dashboard, npm, browser, coverage, mutation or acceptance-faults" ;;
+    *) fail "unknown area \`$area\`: use rust, dashboard, npm, duplication, browser, coverage, mutation or acceptance-faults" ;;
   esac
 done
 

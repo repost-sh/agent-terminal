@@ -3,7 +3,7 @@ use std::fmt::{self, Write as _};
 use anyhow::Result;
 
 use super::theme::{self, Palette, Rgb};
-use super::{Drawing, Entry, Layout, Placed, cell_colors, legend_lines, span_of};
+use super::{Drawing, Entry, Framed, Layout, Placed, cell_colors, span_of};
 use crate::native::refs::{Decoration, Glyph, Grid};
 use crate::protocol::Ref;
 
@@ -93,12 +93,8 @@ fn escaped(text: &str) -> String {
 }
 
 pub(crate) fn svg(drawing: &Drawing<'_>, refs: &[Ref]) -> Result<Svg> {
-    let Drawing { grid, rows, look } = *drawing;
-    let palette = theme::palette(look.theme);
-    let layout = Layout::new(grid, rows, look.scale)?;
-    let shown: Vec<(usize, &Ref)> = refs.iter().enumerate().filter(|(_, r)| layout.shows(r)).collect();
-    let legend = legend_lines(&shown, layout.cols.max(20));
-    let (width, height) = layout.picture_size(&legend);
+    let Drawing { grid, look, .. } = *drawing;
+    let Framed { palette, layout, shown, legend, size: (width, height) } = drawing.framed(refs)?;
     let placed =
         shown.iter().map(|(index, r)| Ok((*index, *r, Placed::new(&layout, r)?))).collect::<Result<Vec<_>>>()?;
     let text = fmt::from_fn(|f| {

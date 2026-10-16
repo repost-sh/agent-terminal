@@ -1,14 +1,12 @@
-use gherkin_cargo_test::{Ctx, DataTable, StepRegistry};
+use gherkin_cargo_test::{Ctx, DataTable};
 use serde_json::Value;
 
-use super::common::{self, json};
+use super::common::json;
 use super::{Steps, arg};
 use crate::programs;
 use crate::terminal::Terminal;
 
-pub(crate) fn define(registry: &mut StepRegistry<Terminal>) {
-    let mut steps = Steps(registry);
-    common::define(&mut steps);
+pub(crate) fn define(steps: &mut Steps<'_>) {
     steps
         .given(r#"^terminals open in the sessions "([^"]*)" and "([^"]*)"$"#, open_in)
         .when(r"^the agent lists the sessions$", list)

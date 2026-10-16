@@ -2,12 +2,11 @@ import { globSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { functionsIn, type Found } from "./functions.ts";
+import { TEST_CODE } from "./test-code.ts";
 
 const CEILING = 6;
 
 const FIX = "cover every branch through the dashboard's tests, or split it into simpler functions that are each covered → GAUNTLET.md#crap";
-
-export const TEST_CODE = ["src/**/*.test.ts", "src/**/*.test.tsx", "src/fake-daemon/**", "src/test-setup.ts"];
 
 interface Start { line: number; column: number }
 

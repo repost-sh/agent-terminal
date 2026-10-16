@@ -30,6 +30,14 @@ impl Steps<'_> {
     }
 }
 
+pub(crate) type Define = fn(&mut Steps<'_>);
+
+pub(crate) fn register(registry: &mut StepRegistry<Terminal>, define: Define) {
+    let mut steps = Steps(registry);
+    common::define(&mut steps);
+    define(&mut steps);
+}
+
 pub(crate) fn arg(args: &[String], at: usize) -> &str {
     args.get(at).map_or("", String::as_str)
 }

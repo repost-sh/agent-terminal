@@ -167,13 +167,27 @@ pub(crate) fn cells(drawing: &Drawing<'_>) -> Result<Cells> {
     })
 }
 
+struct Framed<'r> {
+    palette: &'static Palette,
+    layout: Layout,
+    shown: Vec<(usize, &'r Ref)>,
+    legend: Vec<Vec<Entry>>,
+    size: (u32, u32),
+}
+
+impl Drawing<'_> {
+    fn framed<'r>(&self, refs: &'r [Ref]) -> Result<Framed<'r>> {
+        let layout = Layout::new(self.grid, self.rows, self.look.scale)?;
+        let shown: Vec<(usize, &Ref)> = refs.iter().enumerate().filter(|(_, r)| layout.shows(r)).collect();
+        let legend = legend_lines(&shown, layout.cols.max(20));
+        let size = layout.picture_size(&legend);
+        Ok(Framed { palette: theme::palette(self.look.theme), layout, shown, legend, size })
+    }
+}
+
 pub(crate) fn image(drawing: &Drawing<'_>, refs: &[Ref]) -> Result<Image> {
-    let Drawing { grid, rows, look } = *drawing;
-    let palette = theme::palette(look.theme);
-    let layout = Layout::new(grid, rows, look.scale)?;
-    let shown: Vec<(usize, &Ref)> = refs.iter().enumerate().filter(|(_, r)| layout.shows(r)).collect();
-    let legend = legend_lines(&shown, layout.cols.max(20));
-    let (width, height) = layout.picture_size(&legend);
+    let Drawing { grid, look, .. } = *drawing;
+    let Framed { palette, layout, shown, legend, size: (width, height) } = drawing.framed(refs)?;
     let mut canvas = Canvas::new(width, height, palette.background)?;
     let mut glyphs = GLYPHS.lock().unwrap_or_else(PoisonError::into_inner);
     let painting = Painting { layout: &layout, palette, grid, cursor: look.cursor };

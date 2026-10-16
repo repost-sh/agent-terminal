@@ -18,6 +18,11 @@ if grep -q '^npm/' <<<"$staged"; then
   areas+=(npm)
 fi
 
+if grep -qE '^(cli|dashboard|scripts|\.githooks)/' <<<"$staged"; then
+  [ -x "$root/dashboard/node_modules/.bin/jscpd" ] || { echo "pre-commit: run 'npm ci' in dashboard/" >&2; exit 1; }
+  areas+=(duplication)
+fi
+
 workflows="$(grep -E '^\.github/workflows/.+\.ya?ml$' <<<"$staged" | grep -v '^\.github/workflows/release\.yml$' || true)"
 if [ -n "$workflows" ]; then
   command -v actionlint >/dev/null || { echo "pre-commit: install actionlint (brew install actionlint) to check .github/workflows" >&2; exit 1; }

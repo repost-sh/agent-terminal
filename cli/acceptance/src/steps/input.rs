@@ -1,15 +1,13 @@
-use gherkin_cargo_test::{Ctx, DataTable, StepRegistry};
+use gherkin_cargo_test::{Ctx, DataTable};
 use serde_json::Value;
 
 use super::WAIT_MS;
-use super::common::{self, json};
+use super::common::json;
 use super::{Steps, arg};
 use crate::programs;
 use crate::terminal::Terminal;
 
-pub(crate) fn define(registry: &mut StepRegistry<Terminal>) {
-    let mut steps = Steps(registry);
-    common::define(&mut steps);
+pub(crate) fn define(steps: &mut Steps<'_>) {
     steps
         .given(r"^a terminal running a program that echoes its input$", echoing)
         .when(r#"^the agent types "([^"]*)"$"#, types)
