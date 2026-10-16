@@ -1,9 +1,10 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::native::daemon::tests::{ECHO, Running};
+use crate::native::daemon::tests::{ECHO, Running, open, text};
 
 fn start(port: u64, origins: &[&str]) -> Value {
     json!({ "command": "dashboard-start", "port": port, "origins": origins })
@@ -138,4 +139,36 @@ fn the_dashboard_answers_only_its_own_pages_and_the_origins_it_was_given() {
     );
     let refused = send(port, &format!("GET / HTTP/1.1\r\nHost: evil.test:{port}\r\nConnection: close\r\n\r\n"));
     assert_eq!(refused, (403, format!("the dashboard only answers its own pages at http://localhost:{port}")));
+}
+
+fn feed(port: u64, path: &str) -> tungstenite::WebSocket<TcpStream> {
+    let stream = TcpStream::connect(("127.0.0.1", u16::try_from(port).unwrap())).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    tungstenite::client(format!("ws://localhost:{port}{path}").as_str(), stream).unwrap().0
+}
+
+fn next(socket: &mut tungstenite::WebSocket<TcpStream>) -> Value {
+    match socket.read().unwrap() {
+        tungstenite::Message::Text(text) => serde_json::from_str(&text).unwrap(),
+        other => panic!("expected a text message, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_info_feed_describes_the_tab_and_says_closed_when_it_closes() {
+    let running = Running::new();
+    let mut secret = open(ECHO, &text("ready"));
+    secret["env"] = json!([["PATH", "/usr/bin:/bin"], ["API_TOKEN", "hidden"]]);
+    running.ok(&secret);
+    let port = running.ok(&start(0, &[]))["port"].as_u64().unwrap();
+    let mut info = feed(port, "/api/session/s/t1/info");
+    let mut described = next(&mut info);
+    assert!(described["pid"].take().as_u64().is_some_and(|pid| pid > 0) && described["started"].take().is_string());
+    insta::assert_snapshot!(described, @r#"{"args":"-c \"printf 'ready\\\\n'; while read line; do printf 'got %s\\\\n' \\\"\"'$line\"; done'","cols":30,"cwd":"/","env":[{"name":"API_TOKEN","value":null},{"name":"COLORTERM","value":"truecolor"},{"name":"PATH","value":"/usr/bin:/bin"},{"name":"TERM","value":"xterm-256color"}],"exit_code":null,"exited":false,"modes":{"alt_screen":false,"app_cursor":false,"bracketed_paste":false,"focus_events":false,"keyboard":[],"mouse":null},"pid":null,"program":"/bin/sh","rows":4,"shell_integration":null,"started":null,"term":"xterm-256color","type":"info"}"#);
+    running.ok(&on_close());
+    assert_eq!(next(&mut info), json!({ "type": "closed" }));
+}
+
+fn on_close() -> Value {
+    json!({ "command": "close", "session": "s", "tab": null, "all": false })
 }

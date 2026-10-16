@@ -366,3 +366,6 @@ fn listed_png(folder: &SessionFolder, wanted: &str) -> anyhow::Result<Option<Vec
     }
     Ok(Some(std::fs::read(wanted)?))
 }
+
+#[cfg(test)]
+mod tests;
