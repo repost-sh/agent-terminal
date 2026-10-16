@@ -4,19 +4,33 @@ const BINARY: &str = env!("CARGO_BIN_EXE_agent-terminal");
 
 fn open_app(at: &AgentTerminal) {
     at.run(&["session", "new", "app"]).success();
-    at.run(&["--session", "app", "open", "--size", "40x6", "--wait", "ready", &fixture("input-echo")]).success();
+    at.run(&["--session", "app", "open", "--name", "app", "--size", "40x6", "--wait", "ready", &fixture("input-echo")])
+        .success();
 }
 
 fn attach(at: &AgentTerminal, from: &str, extra: &[&str], ready: &str) -> Run {
     at.run(&["session", "new", from]).success();
-    let mut args =
-        vec!["--session", from, "open", "--size", "70x10", "--wait", ready, BINARY, "--", "--session", "app"];
+    let mut args = vec![
+        "--session",
+        from,
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "70x10",
+        "--wait",
+        ready,
+        BINARY,
+        "--",
+        "--session",
+        "app",
+    ];
     args.push("attach");
     args.extend_from_slice(extra);
     at.run(&args)
 }
 
-const REFUSED: &str = "A human has control of app t1. Run `agent-terminal wait --control`.";
+const REFUSED: &str = "A human has control of app app. Run `agent-terminal wait --control`.";
 
 fn detach(at: &AgentTerminal, from: &str) -> String {
     at.run(&["--session", from, "press", "Ctrl+p", "Ctrl+q"]).success();
@@ -35,7 +49,7 @@ fn while_a_human_is_attached_input_exits_4_and_wait_control_resumes_once_they_de
     detaching_ends_the_agents_wait(&at);
     at.run(&["--session", "human", "wait", "--exit"]).success();
     let detached = at.run(&["--session", "human", "get", "text"]).success().stdout();
-    assert!(detached.contains("detached from app t1"), "{detached}");
+    assert!(detached.contains("detached from app app"), "{detached}");
     at.run(&["--session", "app", "press", "j", "--wait", "j"]).success();
     assert_eq!(at.received("app"), "j");
     each_refusal_is_logged_with_its_tab_and_error(&at);
@@ -44,14 +58,14 @@ fn while_a_human_is_attached_input_exits_4_and_wait_control_resumes_once_they_de
 fn input_is_refused_with_exit_4(at: &AgentTerminal) {
     let refused = at.run(&["--session", "app", "press", "j"]);
     assert_eq!(refused.code(), 4, "{}", refused.stderr());
-    assert_eq!(refused.stderr(), "error: A human has control of app t1. Run `agent-terminal wait --control`.\n");
+    assert_eq!(refused.stderr(), "error: A human has control of app app. Run `agent-terminal wait --control`.\n");
     let typed = at.run(&["--session", "app", "--json", "type", "x"]);
     assert_eq!(typed.code(), 4);
     assert_eq!(
         typed.json(),
         serde_json::json!({ "error": {
             "code": 4,
-            "message": "A human has control of app t1. Run `agent-terminal wait --control`."
+            "message": "A human has control of app app. Run `agent-terminal wait --control`."
         } })
     );
     assert_eq!(at.run(&["--session", "app", "signal", "INT"]).code(), 4);
@@ -62,11 +76,11 @@ fn wait_control_runs_out_of_time_while_the_human_holds_it(at: &AgentTerminal) {
     assert_eq!(held.code(), 3);
     assert_eq!(
         held.stderr(),
-        "error: timed out after 300 ms waiting for a human to hand back control of app t1; wait longer with --timeout <ms>\n"
+        "error: timed out after 300 ms waiting for a human to hand back control of app app; wait longer with --timeout <ms>\n"
     );
     let asserted = at.run(&["--session", "app", "--timeout", "300", "wait", "--control", "--assert"]);
     assert_eq!(asserted.code(), 2);
-    assert_eq!(asserted.stderr(), "error: a human did not hand back control of app t1 within 300 ms\n");
+    assert_eq!(asserted.stderr(), "error: a human did not hand back control of app app within 300 ms\n");
 }
 
 fn detaching_ends_the_agents_wait(at: &AgentTerminal) {
@@ -75,7 +89,7 @@ fn detaching_ends_the_agents_wait(at: &AgentTerminal) {
         at.run(&["--session", "human", "press", "Ctrl+p", "Ctrl+q"]).success();
         let waited = waiting.join().expect("the waiting call").success().json();
         assert_eq!(waited["until"], "a human to hand back control");
-        assert_eq!((&waited["session"], &waited["tab"]), (&serde_json::json!("app"), &serde_json::json!("t1")));
+        assert_eq!((&waited["session"], &waited["tab"]), (&serde_json::json!("app"), &serde_json::json!("app")));
     });
 }
 
@@ -89,7 +103,7 @@ fn each_refusal_is_logged_with_its_tab_and_error(at: &AgentTerminal) {
 }
 
 fn the_refusal_names_the_tab_and_the_human(refusal: &serde_json::Value) {
-    assert_eq!(refusal["tab"], "t1");
+    assert_eq!(refusal["tab"], "app");
     assert_eq!(refusal["error"], REFUSED);
 }
 
@@ -100,7 +114,7 @@ fn wait_control_returns_at_once_while_the_agent_has_control() {
     let waited = at.run(&["--session", "app", "wait", "--control"]).success();
     let line = waited.stdout();
     assert!(line.starts_with("waited "), "{line}");
-    assert!(line.ends_with(" ms for a human to hand back control in app t1\n"), "{line}");
+    assert!(line.ends_with(" ms for a human to hand back control in app app\n"), "{line}");
 }
 
 #[test]
@@ -114,7 +128,7 @@ fn the_tab_list_says_when_a_human_has_control() {
     let tabs = at.run(&["--session", "app", "--json", "tab"]).success().json();
     assert_eq!(tabs["tabs"][0]["control"], "human");
     let listed = at.run(&["--session", "app", "tab"]).success().stdout();
-    assert_eq!(listed, "app t1 · input-echo · 40x6 · running · human control · current\n");
+    assert_eq!(listed, "app app · input-echo · 40x6 · running · human control · current\n");
 }
 
 #[test]
@@ -125,7 +139,7 @@ fn closing_the_tab_ends_the_attach() {
     at.run(&["--session", "app", "close"]).success();
     at.run(&["--session", "human", "wait", "--exit"]).success();
     let ended = at.run(&["--session", "human", "get", "text"]).success().stdout();
-    assert!(ended.contains("app t1 was closed; detached"), "{ended}");
+    assert!(ended.contains("app app was closed; detached"), "{ended}");
 }
 
 fn human_entries(at: &AgentTerminal) -> Vec<serde_json::Value> {
@@ -136,8 +150,20 @@ fn human_entries(at: &AgentTerminal) -> Vec<serde_json::Value> {
 fn an_attached_human_types_with_keys_encoded_for_the_program_and_each_key_is_logged_as_human() {
     let at = AgentTerminal::new();
     at.run(&["session", "new", "app"]).success();
-    at.run(&["--session", "app", "open", "--size", "40x6", "--wait", "ready", &fixture("input-echo"), "--app-cursor"])
-        .success();
+    at.run(&[
+        "--session",
+        "app",
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "40x6",
+        "--wait",
+        "ready",
+        &fixture("input-echo"),
+        "--app-cursor",
+    ])
+    .success();
     attach(&at, "human", &[], "ctrl-p ctrl-q detaches").success();
 
     at.run(&["--session", "human", "type", "hé"]).success();
@@ -155,7 +181,7 @@ fn an_attached_human_types_with_keys_encoded_for_the_program_and_each_key_is_log
     }
     assert_eq!(input.typed, "hé");
     assert_eq!(input.pressed, keys);
-    assert!(detach(&at, "human").contains("detached from app t1"));
+    assert!(detach(&at, "human").contains("detached from app app"));
 }
 
 const SENT: [&str; 24] = [
@@ -189,7 +215,19 @@ const SENT: [&str; 24] = [
 fn attach_turns_the_sequences_a_terminal_sends_into_keys_for_the_tab() {
     let at = AgentTerminal::new();
     at.run(&["session", "new", "app"]).success();
-    at.run(&["--session", "app", "open", "--size", "160x4", "--wait", "ready", &fixture("input-echo")]).success();
+    at.run(&[
+        "--session",
+        "app",
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "160x4",
+        "--wait",
+        "ready",
+        &fixture("input-echo"),
+    ])
+    .success();
     attach(&at, "human", &[], "ctrl-p ctrl-q detaches").success();
     for raw in SENT {
         at.run(&["--session", "human", "send", raw]).success();
@@ -198,7 +236,7 @@ fn attach_turns_the_sequences_a_terminal_sends_into_keys_for_the_tab() {
         r"\e[1;5A\eOP\e[3~\e[24;2~\e[Z\ex\x00\x1c\x7f\xc3\xa9\e[1;3D\e[H\e[H\e[F\e[B\eOQ\epasted texttwo parts";
     at.run(&["--session", "app", "wait", expected]).success();
     assert_eq!(at.received("app"), expected);
-    assert!(detach(&at, "human").contains("detached from app t1"));
+    assert!(detach(&at, "human").contains("detached from app app"));
 }
 
 #[test]
@@ -210,6 +248,8 @@ fn attach_in_a_window_no_taller_than_the_tab_has_no_room_for_the_hint() {
         "--session",
         "human",
         "open",
+        "--name",
+        "app",
         "--size",
         "40x6",
         "--wait",
@@ -223,14 +263,28 @@ fn attach_in_a_window_no_taller_than_the_tab_has_no_room_for_the_hint() {
     .success();
     let shown = at.run(&["--session", "human", "get", "text"]).success().stdout();
     assert!(shown.starts_with("ready") && !shown.contains("detaches"), "{shown}");
-    assert!(detach(&at, "human").contains("detached from app t1"));
+    assert!(detach(&at, "human").contains("detached from app app"));
 }
 
 #[test]
 fn attaching_to_a_session_that_does_not_exist_says_so() {
     let at = AgentTerminal::new();
     at.run(&["session", "new", "human"]).success();
-    at.run(&["--session", "human", "open", "--size", "70x6", BINARY, "--", "--session", "nowhere", "attach"]).success();
+    at.run(&[
+        "--session",
+        "human",
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "70x6",
+        BINARY,
+        "--",
+        "--session",
+        "nowhere",
+        "attach",
+    ])
+    .success();
     at.run(&["--session", "human", "wait", "--exit"]).success();
     let shown = at.run(&["--session", "human", "get", "text"]).success().stdout();
     assert_eq!(shown, "error: no session nowhere; create it with `agent-terminal session new\nnowhere`\n");
@@ -244,7 +298,7 @@ struct HumanInput {
 
 impl HumanInput {
     fn take(&mut self, entry: &serde_json::Value, entries: &[serde_json::Value]) {
-        assert_eq!((&entry["tab"], &entry["exit"]), (&serde_json::json!("t1"), &serde_json::json!(0)), "{entry}");
+        assert_eq!((&entry["tab"], &entry["exit"]), (&serde_json::json!("app"), &serde_json::json!(0)), "{entry}");
         match (&entry["human"]["typed"], &entry["human"]["pressed"]) {
             (serde_json::Value::String(text), _) => self.typed_text(entry, entries, text),
             (_, serde_json::Value::String(key)) => self.pressed_key(entry, key),
@@ -268,7 +322,19 @@ impl HumanInput {
 fn attach_mirrors_the_tab_with_a_line_saying_how_to_detach() {
     let at = AgentTerminal::new();
     at.run(&["session", "new", "app"]).success();
-    at.run(&["--session", "app", "open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    at.run(&[
+        "--session",
+        "app",
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "50x8",
+        "--wait",
+        "Quit: q",
+        &fixture("fixture-tui"),
+    ])
+    .success();
     attach(&at, "watcher", &["--read-only"], "read-only").success();
 
     let inner = at.run(&["--session", "app", "--json", "snapshot"]).success().json();
@@ -276,11 +342,11 @@ fn attach_mirrors_the_tab_with_a_line_saying_how_to_detach() {
     let mirrored: Vec<&str> = outer["lines"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect();
     let shown: Vec<&str> = inner["lines"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect();
     assert_eq!(mirrored[..8].iter().map(|line| line.trim_end()).collect::<Vec<_>>(), shown);
-    assert_eq!(mirrored[8], "app t1 · read-only · ctrl-p ctrl-q detaches");
+    assert_eq!(mirrored[8], "app app · read-only · ctrl-p ctrl-q detaches");
 
     at.run(&["--session", "app", "press", "j", "--wait", "Selected: beta.txt"]).success();
     at.run(&["--session", "watcher", "wait", "Selected: beta.txt"]).success();
-    assert!(detach(&at, "watcher").contains("detached from app t1"));
+    assert!(detach(&at, "watcher").contains("detached from app app"));
 }
 
 #[test]
@@ -307,7 +373,7 @@ fn exec_is_refused_while_a_human_has_control_of_the_shell() {
     let home = crate::support::scratch("home-");
     at.run(&["session", "new", "app"]).success();
     let shell = at
-        .command(&["--session", "app", "shell", "--shell", "bash", "--size", "40x6"])
+        .command(&["--session", "app", "shell", "--name", "shell", "--shell", "bash", "--size", "40x6"])
         .env("HOME", home.path())
         .output()
         .expect("run agent-terminal");
@@ -316,10 +382,10 @@ fn exec_is_refused_while_a_human_has_control_of_the_shell() {
 
     let refused = at.run(&["--session", "app", "exec", "echo hi"]);
     assert_eq!(refused.code(), 4);
-    assert_eq!(refused.stderr(), "error: A human has control of app t1. Run `agent-terminal wait --control`.\n");
+    assert_eq!(refused.stderr(), "error: A human has control of app shell. Run `agent-terminal wait --control`.\n");
     let history = at.run(&["--session", "app", "--json", "history"]).success().json();
     assert_eq!(history["total"], 0);
-    assert!(detach(&at, "human").contains("detached from app t1"));
+    assert!(detach(&at, "human").contains("detached from app shell"));
 }
 
 #[test]

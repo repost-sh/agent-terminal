@@ -46,7 +46,8 @@ impl Screen {
         let path = dir.path().join("screen");
         std::fs::write(&path, shown.bytes).expect("write the screen");
         let path = path.to_string_lossy().into_owned();
-        at.run(&["open", "--size", shown.size, "--wait", shown.wait, "sh", "-c", "cat \"$1\"; read _", "sh", &path])
+        let script = "cat \"$1\"; read _";
+        at.run(&["open", "--name", "app", "--size", shown.size, "--wait", shown.wait, "sh", "-c", script, "sh", &path])
             .success();
         Self { dir }
     }
@@ -238,7 +239,7 @@ impl Cue {
     pub(crate) fn open_line_printer(&self, at: &AgentTerminal, options: &[&str]) {
         let printer = fixture("line-printer");
         let path = self.path();
-        let mut args = vec!["open"];
+        let mut args = vec!["open", "--name", "app"];
         args.extend_from_slice(options);
         args.extend_from_slice(&["--wait", "line 2", &printer, "--lines", "2", "--cue", &path]);
         at.run(&args).success();
@@ -319,6 +320,8 @@ pub(crate) fn open_redraw(at: &AgentTerminal, redraw: &Redraw<'_>) {
         "--session",
         session,
         "open",
+        "--name",
+        "app",
         "--size",
         "120x40",
         "--wait",

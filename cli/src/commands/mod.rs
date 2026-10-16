@@ -23,7 +23,7 @@ use crate::mcp;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::request;
-use crate::protocol::{Call, DashboardStopped, Name, Reply, Request, Response, Sessions, TabId, Target};
+use crate::protocol::{Call, DashboardStopped, Name, Reply, Request, Response, Sessions, Target};
 use crate::skills;
 use crate::upgrade;
 
@@ -64,7 +64,7 @@ enum Command {
 
 struct Context {
     session: Option<Name>,
-    tab: Option<TabId>,
+    tab: Option<Name>,
     session_typed: bool,
     dir: Option<PathBuf>,
     timeout: u64,
@@ -76,7 +76,7 @@ impl Context {
     }
 
     fn target(&self) -> Result<Target, String> {
-        Ok(Target { session: self.session()?, tab: self.tab })
+        Ok(Target { session: self.session()?, tab: self.tab.clone() })
     }
 }
 
@@ -128,7 +128,7 @@ fn dispatch(cli: Cli) -> io::Result<i32> {
         Command::Tools(tools::ToolCommand::Batch(args)) => {
             let defaults = batch::Defaults {
                 session: cli.global.session.as_ref(),
-                tab: cli.global.tab,
+                tab: cli.global.tab.as_ref(),
                 timeout: cli.global.timeout,
                 screenshot_dir: cli.global.screenshot_dir.as_deref(),
             };

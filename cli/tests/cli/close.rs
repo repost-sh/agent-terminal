@@ -6,7 +6,7 @@ fn two_sessions() -> AgentTerminal {
     let at = AgentTerminal::without_session();
     for session in ["a", "b"] {
         at.run(&["session", "new", session]).success();
-        at.run(&["--session", session, "open", &fixture("line-printer"), "--hold"]).success();
+        at.run(&["--session", session, "open", "--name", "app", &fixture("line-printer"), "--hold"]).success();
     }
     at
 }
@@ -20,7 +20,7 @@ fn sessions_left(at: &AgentTerminal) -> Vec<String> {
 #[test]
 fn closing_the_last_tab_leaves_the_session_listed_with_no_tabs() {
     let at = two_sessions();
-    assert_eq!(at.run(&["--session", "a", "close"]).success().stdout(), "closed a t1\n");
+    assert_eq!(at.run(&["--session", "a", "close"]).success().stdout(), "closed a app\n");
     assert_eq!(at.run(&["session", "list"]).success().stdout().lines().next(), Some("a · no tabs"));
     assert_eq!(at.run(&["--session", "a", "tab"]).success().stdout(), "no tabs are open in session a\n");
 }
@@ -28,8 +28,8 @@ fn closing_the_last_tab_leaves_the_session_listed_with_no_tabs() {
 #[test]
 fn close_all_with_a_session_ends_it_so_its_name_is_free_again() {
     let at = two_sessions();
-    assert_eq!(at.run(&["--session", "a", "close", "--all"]).success().stdout(), "closed a t1\nended session a\n");
-    let gone = at.run(&["--session", "a", "open", "cat"]);
+    assert_eq!(at.run(&["--session", "a", "close", "--all"]).success().stdout(), "closed a app\nended session a\n");
+    let gone = at.run(&["--session", "a", "open", "--name", "app", "cat"]);
     assert_eq!(
         (gone.code(), gone.stderr()),
         (1, "error: no session a; create it with `agent-terminal session new a`\n".to_string())
@@ -40,9 +40,9 @@ fn close_all_with_a_session_ends_it_so_its_name_is_free_again() {
 #[test]
 fn close_all_with_a_session_closes_that_sessions_tabs_and_leaves_the_others_running() {
     let at = two_sessions();
-    assert_eq!(at.run(&["--session", "a", "close", "--all"]).success().stdout(), "closed a t1\nended session a\n");
+    assert_eq!(at.run(&["--session", "a", "close", "--all"]).success().stdout(), "closed a app\nended session a\n");
     assert_eq!(sessions_left(&at), ["b"]);
-    assert_eq!(at.run(&["close", "--all", "--session", "b"]).success().stdout(), "closed b t1\nended session b\n");
+    assert_eq!(at.run(&["close", "--all", "--session", "b"]).success().stdout(), "closed b app\nended session b\n");
     assert_eq!(sessions_left(&at), Vec::<String>::new());
 }
 
@@ -60,7 +60,7 @@ fn close_all_refuses_a_session_named_only_by_the_environment_and_closes_nothing(
 fn close_all_bypass_session_closes_every_tab_in_every_session_even_with_a_session_in_the_environment() {
     let at = two_sessions();
     let closed = at.run_with_session_env("a", &["close", "--all", "--bypass-session"]).success();
-    assert_eq!(closed.stdout(), "closed a t1\nclosed b t1\nended session a\nended session b\n");
+    assert_eq!(closed.stdout(), "closed a app\nclosed b app\nended session a\nended session b\n");
     assert_eq!(sessions_left(&at), Vec::<String>::new());
 }
 

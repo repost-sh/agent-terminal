@@ -1,8 +1,20 @@
 use crate::support::{AgentTerminal, fixture};
 
 fn open_eight_lines_in_five_rows(at: &AgentTerminal) {
-    at.run(&["open", "--size", "30x5", "--wait", "line 8", &fixture("line-printer"), "--lines", "8", "--hold"])
-        .success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "30x5",
+        "--wait",
+        "line 8",
+        &fixture("line-printer"),
+        "--lines",
+        "8",
+        "--hold",
+    ])
+    .success();
 }
 
 #[test]
@@ -49,6 +61,18 @@ fn find_without_all_looks_only_at_the_screen(at: &AgentTerminal) {
 #[test]
 fn find_counts_columns_in_cells_and_finds_repeats_on_one_row() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "30x3", "--wait", "ready", "sh", "-c", "printf '日本 ab ab ready'; read _"]).success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "30x3",
+        "--wait",
+        "ready",
+        "sh",
+        "-c",
+        "printf '日本 ab ab ready'; read _",
+    ])
+    .success();
     assert_eq!(at.run(&["find", "ab"]).success().stdout(), "1,6 ab\n1,9 ab\n");
 }

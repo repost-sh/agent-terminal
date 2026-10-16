@@ -18,7 +18,8 @@ fn shot(at: &AgentTerminal, work: &Path, name: &str, options: &[&str]) -> PathBu
 #[test]
 fn scale_rows_theme_and_cursor_options_change_the_picture() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"])
+        .success();
     at.run(&["wait", "--cursor", "4,1"]).success();
     let work = at.work_folder();
 

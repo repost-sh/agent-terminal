@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::native::terminal::Labelled;
 use crate::output;
-use crate::protocol::{ErrorBody, SessionInfo, TabId};
+use crate::protocol::{ErrorBody, SessionInfo};
 
 pub(super) fn stopping() -> ErrorBody {
     ErrorBody::failure("the daemon is stopping; run the command again to start a new one")
@@ -13,10 +13,10 @@ pub(super) fn no_session(session: &str) -> ErrorBody {
 }
 
 pub(super) fn taken(held: &SessionInfo, open_for: Duration) -> ErrorBody {
-    let ids: Vec<&str> = held.tabs.iter().map(|tab| tab.tab.as_str()).collect();
-    let tabs = match ids.len() {
+    let names: Vec<&str> = held.tabs.iter().map(|tab| &*tab.tab).collect();
+    let tabs = match names.len() {
         0 => "no tabs".to_string(),
-        k => format!("{}: {}", output::count(k, "tab"), ids.join(", ")),
+        k => format!("{}: {}", output::count(k, "tab"), names.join(", ")),
     };
     ErrorBody::failure(format!(
         "session {} is taken: open for {}, {tabs}; pick another name for this conversation",
@@ -36,12 +36,17 @@ fn age(open_for: Duration) -> String {
 
 pub(super) fn no_terminal(session: &str) -> ErrorBody {
     ErrorBody::failure(format!(
-        "no terminal is open in session {session}; start one with `agent-terminal open <program>`"
+        "no terminal is open in session {session}; start one with `agent-terminal open --name <name> <program>`"
     ))
 }
 
-pub(super) fn no_tab(session: &str, id: TabId) -> ErrorBody {
-    ErrorBody::failure(format!("no tab {id} in session {session}; list tabs with `agent-terminal tab`"))
+pub(super) fn no_tab(session: &str, tab: &str) -> ErrorBody {
+    ErrorBody::failure(format!("no tab {tab} in session {session}; list tabs with `agent-terminal tab`"))
+}
+
+pub(super) fn tab_taken(holder: &Labelled<'_>) -> ErrorBody {
+    let Labelled { session, tab, terminal } = holder;
+    ErrorBody::failure(format!("tab {tab} already runs {} in session {session}; pick another name", terminal.program()))
 }
 
 pub(super) fn no_integration(at: &Labelled<'_>) -> ErrorBody {

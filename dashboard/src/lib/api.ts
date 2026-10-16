@@ -43,6 +43,7 @@ export const reason = (error: unknown) => (error instanceof Error ? error.messag
 export interface Opening {
   session: string;
   new_session: boolean;
+  tab: string;
   command: string;
   cwd: string;
   cols: number;

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Baseline, Name, Shot, Size, SnapshotOptions, TabId, Target};
+use super::{Baseline, Name, Shot, Size, SnapshotOptions, Target};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Call {
@@ -13,7 +13,7 @@ pub(crate) struct Call {
 pub(crate) enum Addressed<'a> {
     Nothing,
     Session(&'a Name),
-    Tab(&'a Name, Option<TabId>),
+    Tab(&'a Name, Option<&'a Name>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -28,6 +28,7 @@ pub(crate) enum Request {
     Sessions,
     Tabs(Tabs),
     SwitchTab(SwitchTab),
+    RenameTab(RenameTab),
     Input(Deliver),
     Wait(WaitFor),
     Expect(Expect),
@@ -60,6 +61,7 @@ pub(crate) struct NewSession {
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Open {
     pub session: Name,
+    pub tab: Name,
     pub program: String,
     pub args: Vec<String>,
     pub size: Size,
@@ -110,7 +112,14 @@ pub(crate) struct Tabs {
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct SwitchTab {
     pub session: Name,
-    pub tab: TabId,
+    pub tab: Name,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct RenameTab {
+    #[serde(flatten)]
+    pub target: Target,
+    pub name: Name,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -203,6 +212,7 @@ pub(crate) struct DashboardStart {
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct OpenShell {
     pub session: Name,
+    pub tab: Name,
     pub shell: super::Shell,
     pub program: String,
     pub size: Size,
@@ -291,7 +301,7 @@ impl Request {
             | Request::Tabs(Tabs { session })
             | Request::Close(Close::Session { session })
             | Request::TraceExport(TraceExport { session, .. }) => Addressed::Session(session),
-            Request::SwitchTab(SwitchTab { session, tab }) => Addressed::Tab(session, Some(*tab)),
+            Request::SwitchTab(SwitchTab { session, tab }) => Addressed::Tab(session, Some(tab)),
             Request::Snapshot(Snapshot { target, .. })
             | Request::Close(Close::Tab(target))
             | Request::Resize(Resize { target, .. })
@@ -309,7 +319,8 @@ impl Request {
             | Request::HistoryShow(HistoryShow { target, .. })
             | Request::Screenshot(Screenshot { target, .. })
             | Request::DiffScreenshot(DiffScreenshot { target, .. })
-            | Request::WaitControl(WaitControl { target, .. }) => Addressed::Tab(&target.session, target.tab),
+            | Request::RenameTab(RenameTab { target, .. })
+            | Request::WaitControl(WaitControl { target, .. }) => Addressed::Tab(&target.session, target.tab.as_ref()),
         }
     }
 }

@@ -9,8 +9,8 @@ use axum::response::{IntoResponse, Response};
 use serde_json::Value;
 use tokio::sync::watch;
 
+use super::Backend;
 use super::stream::{LastSent, hung_up};
-use super::{Backend, tab_id};
 use crate::native::log;
 use crate::protocol::request;
 use crate::protocol::{ErrorBody, Request, Sessions, Shot, Target, Wait};
@@ -86,7 +86,7 @@ pub(super) async fn screenshot(
 }
 
 fn addressed(session: &str, tab: &str) -> Option<Target> {
-    Some(Target::tab(&session.parse().ok()?, tab_id(tab)?))
+    Some(Target::tab(&session.parse().ok()?, &tab.parse().ok()?))
 }
 
 pub(super) async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
@@ -111,5 +111,5 @@ fn refusal(error: &ErrorBody) -> Response {
 }
 
 fn no_tab(session: &str, tab: &str) -> Response {
-    (StatusCode::NOT_FOUND, format!("{tab} is not a tab id in session {session}; tabs are t1, t2, ...")).into_response()
+    (StatusCode::NOT_FOUND, format!("{session} {tab} is not a session and tab name")).into_response()
 }

@@ -1,3 +1,5 @@
+mod tab_id;
+
 use std::fmt::{self, Write as _};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Cursor, ErrorKind, Write};
@@ -17,7 +19,9 @@ use crate::native::changes::Changes;
 use crate::native::log;
 use crate::native::render::Cells;
 use crate::output::call_line;
-use crate::protocol::{CommandRecord, HumanInput, TabId, request};
+use crate::protocol::{CommandRecord, HumanInput, request};
+
+pub(crate) use tab_id::TabId;
 
 pub(crate) struct SessionFolder {
     path: PathBuf,
@@ -37,6 +41,8 @@ struct Calls {
 #[derive(Serialize, Clone, PartialEq, Eq)]
 pub(crate) struct PendingCall {
     pub time: String,
+    #[serde(skip)]
+    pub tab_id: Option<TabId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tab: Option<String>,
     pub command: String,
@@ -69,6 +75,8 @@ impl Drop for Pending {
 #[derive(Serialize)]
 pub(crate) struct ActivityEntry {
     pub time: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<TabId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tab: Option<String>,
     pub command: String,
@@ -111,6 +119,7 @@ impl ActivityEntry {
     pub(crate) fn at(typed: &Typed<'_>, duration: Duration) -> Self {
         Self {
             time: humantime::format_rfc3339_millis(typed.time).to_string(),
+            tab_id: None,
             tab: None,
             command: call_line(typed.words),
             duration_ms: u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
@@ -161,12 +170,13 @@ impl SessionFolder {
         next
     }
 
-    pub(crate) fn begin(self: &Arc<Self>, typed: &Typed<'_>, tab: Option<String>) -> Pending {
+    pub(crate) fn begin(self: &Arc<Self>, typed: &Typed<'_>, tab: Option<(TabId, String)>) -> Pending {
         let mut calls = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
         let id = calls.next;
         calls.next += 1;
         let time = humantime::format_rfc3339_millis(typed.time).to_string();
-        calls.pending.push((id, PendingCall { time, tab, command: call_line(typed.words) }));
+        let (tab_id, tab) = tab.unzip();
+        calls.pending.push((id, PendingCall { time, tab_id, tab, command: call_line(typed.words) }));
         drop(calls);
         self.logged.notify();
         Pending { folder: Arc::clone(self), id }
@@ -230,8 +240,8 @@ impl SessionFolder {
         screenshots_in(&self.path)
     }
 
-    pub(crate) fn command_log(&self, tab: &str) -> CommandLog {
-        CommandLog { path: self.path.join(format!("{tab}.commands.jsonl")) }
+    pub(crate) fn command_log(&self, tab: TabId) -> CommandLog {
+        CommandLog { path: self.path.join(format!("t{}.commands.jsonl", tab.0)) }
     }
 }
 
@@ -336,7 +346,7 @@ pub(crate) fn export(home: &Path, export: &request::TraceExport) -> Result<Expor
     let folder = folder(home, session);
     if !folder.is_dir() {
         bail!(
-            "session {session} has nothing to export; open a terminal in it first with `agent-terminal open <program>`"
+            "session {session} has nothing to export; open a terminal in it first with `agent-terminal open --name <name> <program>`"
         );
     }
     let mut zip = SessionZip::new(file_name(session));

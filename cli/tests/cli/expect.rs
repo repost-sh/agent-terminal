@@ -1,13 +1,25 @@
 use crate::support::{AgentTerminal, fixture};
 
 fn open_three_lines(at: &AgentTerminal) {
-    at.run(&["open", "--size", "30x5", "--wait", "line 3", &fixture("line-printer"), "--lines", "3", "--hold"])
-        .success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "30x5",
+        "--wait",
+        "line 3",
+        &fixture("line-printer"),
+        "--lines",
+        "3",
+        "--hold",
+    ])
+    .success();
 }
 
 fn open_styled(at: &AgentTerminal) {
     let script = r"printf '\033[1;31mred\033[0m \033[7minv\033[0m \033[4;44mund\033[0m\n'; read _";
-    at.run(&["open", "--size", "30x3", "--wait", "und", "sh", "-c", script]).success();
+    at.run(&["open", "--name", "app", "--size", "30x3", "--wait", "und", "sh", "-c", script]).success();
 }
 
 fn without_frame(text: &str) -> String {
@@ -24,9 +36,9 @@ fn without_frame(text: &str) -> String {
 fn expect_passes_when_the_text_is_on_screen() {
     let at = AgentTerminal::new();
     open_three_lines(&at);
-    assert_eq!(at.run(&["expect", "line 2"]).success().stdout(), "\"line 2\" is on screen in work t1\n");
+    assert_eq!(at.run(&["expect", "line 2"]).success().stdout(), "\"line 2\" is on screen in work app\n");
     let json = at.run(&["--json", "expect", "line 2"]).success().json();
-    assert_eq!(json, serde_json::json!({ "session": "work", "tab": "t1", "fact": "\"line 2\" is on screen" }));
+    assert_eq!(json, serde_json::json!({ "session": "work", "tab": "app", "fact": "\"line 2\" is on screen" }));
 }
 
 #[test]
@@ -37,8 +49,8 @@ fn expect_fails_with_exit_code_2_and_the_screen_when_the_text_is_missing() {
     assert_eq!(checked.code(), 2, "{}", checked.stderr());
     assert_eq!(checked.stdout(), "");
     insta::assert_snapshot!(without_frame(&checked.stderr()), @r#"
-    error: "line 9" is not on screen in work t1
-    work t1 · line-printer · 30x5 · cursor 4,1 · frame N
+    error: "line 9" is not on screen in work app
+    work app · line-printer · 30x5 · cursor 4,1 · frame N
     1│line 1
     2│line 2
     3│line 3
@@ -51,7 +63,7 @@ fn expect_gone_passes_when_the_text_is_not_on_screen() {
     let at = AgentTerminal::new();
     open_three_lines(&at);
     let checked = at.run(&["expect", "--gone", "line 9"]).success();
-    assert_eq!(checked.stdout(), "\"line 9\" is not on screen in work t1\n");
+    assert_eq!(checked.stdout(), "\"line 9\" is not on screen in work app\n");
 }
 
 #[test]
@@ -61,14 +73,14 @@ fn expect_gone_fails_with_exit_code_2_and_the_rows_that_show_the_text() {
     let checked = at.run(&["expect", "line 2", "--gone"]);
     assert_eq!(checked.code(), 2, "{}", checked.stderr());
     insta::assert_snapshot!(without_frame(&checked.stderr()), @r#"
-    error: "line 2" is on screen in work t1, in row 2
-    work t1 · line-printer · 30x5 · cursor 4,1 · frame N
+    error: "line 2" is on screen in work app, in row 2
+    work app · line-printer · 30x5 · cursor 4,1 · frame N
     2│line 2
     "#);
     let several = at.run(&["expect", "--gone", "line"]);
     assert_eq!(several.code(), 2, "{}", several.stderr());
     assert!(
-        several.stderr().starts_with("error: \"line\" is on screen in work t1, in rows 1-3\n"),
+        several.stderr().starts_with("error: \"line\" is on screen in work app, in rows 1-3\n"),
         "{}",
         several.stderr()
     );
@@ -77,22 +89,24 @@ fn expect_gone_fails_with_exit_code_2_and_the_rows_that_show_the_text() {
 #[test]
 fn expect_exit_code_passes_when_the_program_exited_with_it() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x3", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x3", &fixture("line-printer"), "--lines", "1", "--exit", "7"])
+        .success();
     at.run(&["wait", "--exit"]).success();
     let checked = at.run(&["expect", "--exit-code", "7"]).success();
-    assert_eq!(checked.stdout(), "line-printer exited with code 7 in work t1\n");
+    assert_eq!(checked.stdout(), "line-printer exited with code 7 in work app\n");
 }
 
 #[test]
 fn expect_exit_code_fails_with_exit_code_2_when_the_program_exited_with_another_code() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x3", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x3", &fixture("line-printer"), "--lines", "1", "--exit", "7"])
+        .success();
     at.run(&["wait", "--exit"]).success();
     let checked = at.run(&["expect", "--exit-code", "0"]);
     assert_eq!(checked.code(), 2, "{}", checked.stderr());
     insta::assert_snapshot!(without_frame(&checked.stderr()), @r"
-    error: line-printer in work t1 exited with code 7, not 0
-    work t1 · line-printer · 20x3 · cursor 2,1 · frame N · exited 7
+    error: line-printer in work app exited with code 7, not 0
+    work app · line-printer · 20x3 · cursor 2,1 · frame N · exited 7
     1│line 1
     …│ (rows 2-3 blank)
     ");
@@ -107,7 +121,7 @@ fn expect_exit_code_fails_with_exit_code_2_while_the_program_runs() {
     assert!(
         checked
             .stderr()
-            .starts_with("error: line-printer in work t1 is still running, so it has not exited with code 0\n"),
+            .starts_with("error: line-printer in work app is still running, so it has not exited with code 0\n"),
         "{}",
         checked.stderr()
     );
@@ -118,7 +132,7 @@ fn expect_cell_style_passes_when_the_cell_has_that_style() {
     let at = AgentTerminal::new();
     open_styled(&at);
     let checked = at.run(&["expect", "--cell", "1,1", "--style", "bold,fg=red"]).success();
-    assert_eq!(checked.stdout(), "cell 1,1 is bold, fg=red in work t1\n");
+    assert_eq!(checked.stdout(), "cell 1,1 is bold, fg=red in work app\n");
     at.run(&["expect", "--cell", "1,5", "--style", "inverse"]).success();
     at.run(&["expect", "--cell", "1,9", "--style", "underline", "--style", "bg=blue"]).success();
 }
@@ -130,8 +144,8 @@ fn expect_cell_style_fails_with_exit_code_2_and_the_row_of_the_cell() {
     let checked = at.run(&["expect", "--cell", "1,5", "--style", "bold,inverse"]);
     assert_eq!(checked.code(), 2, "{}", checked.stderr());
     insta::assert_snapshot!(without_frame(&checked.stderr()), @r#"
-    error: cell 1,5 in work t1 is not bold: it is "i" fg=default bg=default inverse
-    work t1 · sh · 30x3 · cursor 2,1 · frame N
+    error: cell 1,5 in work app is not bold: it is "i" fg=default bg=default inverse
+    work app · sh · 30x3 · cursor 2,1 · frame N
     1│red inv und
     "#);
 }

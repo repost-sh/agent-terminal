@@ -6,7 +6,7 @@ import { startDaemon } from "../fake-daemon/daemon";
 import { sessionInfo, tabInfo } from "../fake-daemon/messages";
 
 const shownApp = async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1"), tabInfo("t2", { exited: true })]), sessionInfo("play", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app"), tabInfo("api", { exited: true })]), sessionInfo("play", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();
@@ -54,7 +54,7 @@ test("a refused close-all keeps the dialog and says why, and cancel puts focus b
 });
 
 test("one session with one running process reads in the singular", async () => {
-  const daemon = startDaemon([sessionInfo("solo", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("solo", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();

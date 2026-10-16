@@ -17,7 +17,7 @@ const three = (prefix: string): Screenshot[] => [
 ];
 
 const opened = async (list: Screenshot[], at: number) => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();
@@ -55,7 +55,7 @@ test("a screenshot shows framed at its size with its tab, frame, time and maker"
   await opened(shots, 0);
   expect(lightbox().outerHTML).toMatchSnapshot();
   fireEvent.click(button("Next screenshot"));
-  expect(within(lightbox()).getByRole("figure").textContent).toBe("look2.png · t1 · frame 4 · 03:04:05 · dashboard");
+  expect(within(lightbox()).getByRole("figure").textContent).toBe("look2.png · app · frame 4 · 03:04:05 · dashboard");
   closed();
 });
 

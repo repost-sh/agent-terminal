@@ -5,10 +5,10 @@ import { App } from "../app";
 import { startDaemon } from "../fake-daemon/daemon";
 import { frameOf, sessionInfo, tabInfo } from "../fake-daemon/messages";
 
-const STREAM = "/api/session/work/t1/stream";
+const STREAM = "/api/session/work/app/stream";
 
 const shownApp = async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1", { program: "vim" })])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app", { program: "vim" })])]);
 
   render(<App />);
   await daemon.serve();
@@ -38,7 +38,7 @@ test("restart waits for a drawn frame on an open stream", async () => {
 test("restarting an exited program skips the question and hands focus to taking control once the program runs", async () => {
   const daemon = await shownApp();
 
-  daemon.answer("POST /api/session/work/t1/restart", () => ({ status: 200, body: { data: null } }));
+  daemon.answer("POST /api/session/work/app/restart", () => ({ status: 200, body: { data: null } }));
   await daemon.push(STREAM, frameOf(1, { exited: true, exit_code: 0 }));
   await screen.findByRole("button", { name: "Close tab" });
   fireEvent.click(restart());

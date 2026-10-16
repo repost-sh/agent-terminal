@@ -7,7 +7,7 @@ import { frameOf, sessionInfo, tabInfo } from "../fake-daemon/messages";
 import { openAt } from "../fake-daemon/sockets";
 import { navigate } from "../lib/route";
 
-const STREAM = "/api/session/work/t1/stream";
+const STREAM = "/api/session/work/app/stream";
 
 const observers: CapturingObserver[] = [];
 
@@ -47,7 +47,7 @@ const fontSize = () => /\.xterm-rows \{[^}]*font-size: ([\d.]+px)/.exec(screen.g
 
 test("the terminal's font shrinks to fit its area in quarter-pixel steps, waits for a drawn screen, and stops at 4px", async () => {
   vi.stubGlobal("ResizeObserver", CapturingObserver);
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();
@@ -90,7 +90,7 @@ const resizeUntilSettled = (grid: Grid) => {
 
 test("when cells snap to device pixels, the font settles on the largest quarter-pixel size that fits instead of flipping between two", async () => {
   vi.stubGlobal("ResizeObserver", CapturingObserver);
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();
@@ -109,7 +109,7 @@ test("when cells snap to device pixels, the font settles on the largest quarter-
 
 test("leaving a tab stops watching its size and closes its stream", async () => {
   vi.stubGlobal("ResizeObserver", CapturingObserver);
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1"), tabInfo("t2")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app"), tabInfo("api")])]);
 
   render(<App />);
   await daemon.serve();
@@ -118,7 +118,7 @@ test("leaving a tab stops watching its size and closes its stream", async () => 
   const watching = observers.filter((observer) => observer.targets.includes(area));
 
   await act(async () => {
-    navigate("/s/work/t2");
+    navigate("/s/work/api");
     await Promise.resolve();
   });
   expect([watching.length, watching.flatMap((observer) => observer.targets), openAt(STREAM)]).toEqual([1, [], []]);
@@ -127,7 +127,7 @@ test("leaving a tab stops watching its size and closes its stream", async () => 
 const frame = () => screen.getByRole("group", { name: /live frame/ });
 
 test("a terminal hides until its first frame, dims once its program exits or its stream reconnects, and says how it exited", async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1", { program: "make" })])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app", { program: "make" })])]);
 
   render(<App />);
   await daemon.serve();
@@ -144,7 +144,7 @@ test("a terminal hides until its first frame, dims once its program exits or its
 });
 
 test("a frame that has not drawn yet waits, and a reconnecting stream dims the frame", async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();

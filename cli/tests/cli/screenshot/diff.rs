@@ -6,14 +6,14 @@ use crate::support::{AgentTerminal, Run, fixture};
 #[test]
 fn diff_screenshot_passes_when_the_screen_still_looks_like_the_baseline() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
     let work = at.work_folder();
     at.run_in(&work, &["screenshot", "before.png"]).success();
     let frame = at.frame("work");
 
     let run = at.run_in(&work, &["diff", "screenshot", "--baseline", "before.png"]).success();
 
-    let image = at.home().join("screenshots").join(format!("work-t1-{frame}-diff.png"));
+    let image = at.home().join("screenshots").join(format!("work-app-{frame}-diff.png"));
     assert_eq!(
         run.stdout(),
         format!(
@@ -30,7 +30,7 @@ const CHANGED: [u8; 3] = [0xe6, 0x1e, 0x3c];
 #[test]
 fn diff_screenshot_highlights_what_changed_and_fails_above_the_threshold() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
     let work = at.work_folder();
     at.run_in(&work, &["screenshot", "before.png"]).success();
     at.run(&["press", "j", "--wait", "Selected: beta.txt"]).success();

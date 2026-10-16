@@ -30,6 +30,8 @@ fn diff_snapshot_counts_open_as_a_snapshot_and_has_json() {
         .run(&[
             "--json",
             "open",
+            "--name",
+            "app",
             "--size",
             "30x5",
             "--wait",

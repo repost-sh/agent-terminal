@@ -21,8 +21,9 @@ fn bytes_in(folder: &Path) -> u64 {
         .sum()
 }
 
-fn open_printer(at: &AgentTerminal, session: &str, command: &str) {
-    at.run(&["--session", session, command, "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+fn open_printer(at: &AgentTerminal, session: &str, tab: &str) {
+    at.run(&["--session", session, "open", "--name", tab, "--wait", "line 3", &fixture("line-printer"), "--hold"])
+        .success();
 }
 
 #[test]
@@ -31,10 +32,12 @@ fn no_tab_of_a_session_leaves_a_file_of_its_own_in_the_session_folder() {
     let folder = at.home().join("sessions").join("qa");
     at.run(&["session", "new", "qa"]).success();
     assert_eq!(names_in(&folder), Vec::<String>::new());
-    open_printer(&at, "qa", "open");
-    at.run(&["--session", "qa", "tab", "new", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
-    at.run(&["--session", "qa", "tab", "close", "t1"]).success();
-    at.run(&["--session", "qa", "tab", "new", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    open_printer(&at, "qa", "app");
+    at.run(&["--session", "qa", "tab", "new", "--name", "api", "--wait", "line 3", &fixture("line-printer"), "--hold"])
+        .success();
+    at.run(&["--session", "qa", "tab", "close", "app"]).success();
+    at.run(&["--session", "qa", "tab", "new", "--name", "web", "--wait", "line 3", &fixture("line-printer"), "--hold"])
+        .success();
     assert_eq!(names_in(&folder), ["activity.jsonl"]);
 }
 
@@ -44,13 +47,13 @@ fn a_session_that_starts_again_starts_a_fresh_folder() {
     let folder = at.home().join("sessions").join("qa");
     let shot = at.work_folder().join("first-run.png").to_string_lossy().into_owned();
     at.run(&["session", "new", "qa"]).success();
-    open_printer(&at, "qa", "open");
+    open_printer(&at, "qa", "app");
     at.run(&["--session", "qa", "screenshot", &shot]).success();
     at.run(&["--session", "qa", "close", "--all"]).success();
     assert_eq!(names_in(&folder), ["activity.jsonl", "screenshots.jsonl"]);
 
     at.run(&["session", "new", "qa"]).success();
-    open_printer(&at, "qa", "open");
+    open_printer(&at, "qa", "app");
     assert_eq!(names_in(&folder), ["activity.jsonl"]);
     assert_eq!(at.activity("qa").len(), 1);
 }
@@ -63,9 +66,10 @@ fn simultaneous_session_news_of_one_name_make_one_session_whose_opens_share_one_
         news.into_iter().map(|new| new.join().unwrap()).collect()
     });
     assert_eq!((created.iter().filter(|code| **code == 0).count(), created.len()), (1, 4), "{created:?}");
+    let at = &at;
     std::thread::scope(|scope| {
-        for _ in 0..4 {
-            scope.spawn(|| open_printer(&at, "qa", "open"));
+        for tab in ["app", "api", "web", "db"] {
+            scope.spawn(move || open_printer(at, "qa", tab));
         }
     });
     assert_eq!(names_in(&at.home().join("sessions").join("qa")), ["activity.jsonl"]);
@@ -75,7 +79,11 @@ fn simultaneous_session_news_of_one_name_make_one_session_whose_opens_share_one_
 #[test]
 fn a_session_name_that_is_empty_or_a_path_is_refused_and_makes_no_folder() {
     let at = AgentTerminal::new();
-    let calls = [&["session", "new", "../escape/qa"][..], &["session", "new", ""], &["--session", "", "open", "cat"]];
+    let calls = [
+        &["session", "new", "../escape/qa"][..],
+        &["session", "new", ""],
+        &["--session", "", "open", "--name", "app", "cat"],
+    ];
     let refused: Vec<(i32, bool)> = calls
         .iter()
         .map(|args| at.run(args))
@@ -99,7 +107,7 @@ fn a_program_repainting_fast_adds_nothing_to_the_session_folder() {
     assert_eq!(names_in(&folder), ["activity.jsonl", "screenshots.jsonl"]);
 
     let port = dashboard(&at);
-    let mut viewer = DashboardSocket::open(port, "/api/session/qa/t1/stream");
+    let mut viewer = DashboardSocket::open(port, "/api/session/qa/app/stream");
     let before = bytes_in(&folder);
     let from = viewer.acknowledge_next();
     while viewer.acknowledge_next() < from + 120 {}
@@ -132,7 +140,7 @@ fn restart_and_close_add_no_file_to_the_session_folder() {
     let at = AgentTerminal::new();
     let folder = at.home().join("sessions").join("qa");
     at.run(&["session", "new", "qa"]).success();
-    open_printer(&at, "qa", "open");
+    open_printer(&at, "qa", "app");
     assert_eq!(names_in(&folder), ["activity.jsonl"]);
 
     at.run(&["--session", "qa", "restart", "--wait", "line 3"]).success();
@@ -169,7 +177,7 @@ fn every_png_screenshot_is_listed_in_the_session_folder_with_the_call_that_took_
     let text = shots.join("screen.txt").to_string_lossy().into_owned();
     let diff = shots.join("diff.png").to_string_lossy().into_owned();
     let began = SystemTime::now() - Duration::from_secs(1);
-    at.run(&["open", "--size", "20x4", "--wait", "line 3", &printer, "--hold"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x4", "--wait", "line 3", &printer, "--hold"]).success();
     at.run(&["screenshot", &first]).success();
     let first_frame = at.frame("work");
     at.run(&["type", "x", "--wait", "x", "--screenshot"]).success();
@@ -183,16 +191,16 @@ fn every_png_screenshot_is_listed_in_the_session_folder_with_the_call_that_took_
         assert_recent_utc_millis(entry, began);
         entry.as_object_mut().unwrap().remove("time");
     }
-    let typed = at.home().join("screenshots").join(format!("work-t1-{typed_frame}.png"));
+    let typed = at.home().join("screenshots").join(format!("work-app-{typed_frame}.png"));
     let full = json!({ "first": 1, "last": 4 });
     assert_eq!(
         listed,
         [
-            json!({ "tab": "t1", "frame": first_frame, "path": first, "by": format!("screenshot {first}"),
+            json!({ "tab": "app", "frame": first_frame, "path": first, "by": format!("screenshot {first}"),
                 "width": 200, "height": 100, "scale": 1, "cols": 20, "rows": full }),
-            json!({ "tab": "t1", "frame": typed_frame, "path": typed.to_string_lossy(), "by": "type x --wait x --screenshot",
+            json!({ "tab": "app", "frame": typed_frame, "path": typed.to_string_lossy(), "by": "type x --wait x --screenshot",
                 "width": 200, "height": 100, "scale": 1, "cols": 20, "rows": full }),
-            json!({ "tab": "t1", "frame": typed_frame, "path": crop, "by": format!("screenshot --scale 2 --rows 2:3 {crop}"),
+            json!({ "tab": "app", "frame": typed_frame, "path": crop, "by": format!("screenshot --scale 2 --rows 2:3 {crop}"),
                 "width": 400, "height": 120, "scale": 2, "cols": 20, "rows": { "first": 2, "last": 3 } }),
         ]
     );
@@ -216,5 +224,5 @@ fn a_session_whose_folder_cannot_be_made_opens_nothing_and_the_daemon_keeps_serv
     );
     assert_eq!(at.run(&["session", "list"]).success().stdout(), "work · no tabs\n");
     at.run(&["session", "new", "open"]).success();
-    at.run(&["--session", "open", "open", "--size", "20x2", "cat"]).success();
+    at.run(&["--session", "open", "open", "--name", "app", "--size", "20x2", "cat"]).success();
 }

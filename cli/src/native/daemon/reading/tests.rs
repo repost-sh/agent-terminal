@@ -6,7 +6,7 @@ const PAGE: &str = "printf 'one\\ntwo\\nthree\\nfour\\nfive\\n\\033[1mbold\\033[
 
 fn paged() -> Running {
     let running = Running::new();
-    running.ok(&open(PAGE, &text("ready")));
+    running.ok(&open("page", PAGE));
     running
 }
 
@@ -29,7 +29,7 @@ fn options(rows: Option<(u16, u16)>, scrollback: &Value, ansi: bool, refs: bool)
 #[test]
 fn a_snapshot_shows_the_screen_with_its_cursor_size_and_state() {
     let running = paged();
-    insta::assert_snapshot!(snapshot(&running, &options(None, &json!("none"), false, false)), @r#"{"alt_screen":false,"cols":30,"cursor":[4,6],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"lines":["four","five","bold [ OK ]","ready"],"mouse":null,"program":"sh","rows":4,"session":"s","tab":"t1"}"#);
+    insta::assert_snapshot!(snapshot(&running, &options(None, &json!("none"), false, false)), @r#"{"alt_screen":false,"cols":30,"cursor":[4,6],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"lines":["four","five","bold [ OK ]","ready"],"mouse":null,"program":"sh","rows":4,"session":"s","tab":"page"}"#);
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn fact(running: &Running, what: &Value) -> Value {
 #[test]
 fn each_fact_reads_one_thing_about_the_tab() {
     let running = Running::new();
-    running.ok(&open("printf '\\033]0;Title\\007\\033[?1h\\033[2;3Hready\\n\\n'; read x", &text("ready")));
+    running.ok(&open("titled", "printf '\\033]0;Title\\007\\033[?1h\\033[2;3Hready\\n\\n'; read x"));
     let facts = ["text", "cursor", "size", "program", "exit-code", "title", "cwd", "modes"]
         .map(|what| fact(&running, &json!(what)));
     insta::assert_snapshot!(facts.map(|fact| fact.to_string()).join("\n"), @r#"

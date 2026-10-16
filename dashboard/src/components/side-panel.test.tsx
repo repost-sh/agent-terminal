@@ -6,7 +6,7 @@ import { startDaemon } from "../fake-daemon/daemon";
 import { sessionInfo, tabInfo } from "../fake-daemon/messages";
 
 const shownApp = async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();
@@ -18,7 +18,7 @@ const selectedPanel = () => screen.getByRole("tab", { selected: true }).textCont
 
 test("the details panels switch by click and by arrow, Home and End keys", async () => {
   await shownApp();
-  const details = screen.getByRole("region", { name: "Details of work t1" });
+  const details = screen.getByRole("region", { name: "Details of work app" });
   const tabs = within(details).getByRole("tablist", { name: "Details" });
 
   fireEvent.click(within(tabs).getByRole("tab", { name: "Activity" }));

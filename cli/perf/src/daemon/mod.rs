@@ -11,6 +11,10 @@ pub(crate) const SESSION: &str = "perf";
 
 const A_BUILD_BEFORE_SESSION_NEW: &str = "unrecognized subcommand 'new'";
 
+const A_BUILD_BEFORE_TAB_NAMES: &str = "unexpected argument '--name'";
+
+const FIRST_TAB_BEFORE_TAB_NAMES: &str = "t1";
+
 pub(crate) struct Agent {
     pub side: &'static str,
     pub binary: PathBuf,
@@ -59,6 +63,25 @@ impl Agent {
             refusal.trim_start()
         );
         Ok(())
+    }
+
+    pub(crate) fn open(&self, tab: &str, args: &[&str]) -> Result<String> {
+        let named = [&["open", "--name", tab][..], args].concat();
+        let output = self.command(&named).output().with_context(|| format!("run {}", self.binary.display()))?;
+        let refusal = String::from_utf8_lossy(&output.stderr);
+        if output.status.success() {
+            return Ok(tab.to_string());
+        }
+        ensure!(
+            refusal.contains(A_BUILD_BEFORE_TAB_NAMES),
+            "`agent-terminal {}` failed for the {} ({}): {}",
+            named.join(" "),
+            self.side,
+            output.status,
+            refusal.trim_start()
+        );
+        self.run(&[&["open"][..], args].concat())?;
+        Ok(FIRST_TAB_BEFORE_TAB_NAMES.to_string())
     }
 
     pub(crate) fn home(&self) -> PathBuf {

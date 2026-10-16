@@ -69,14 +69,14 @@ fn a_command_replaces_a_daemon_of_another_build_that_has_no_terminals() {
     assert_eq!(run.stderr(), "");
     assert_eq!(other.join().unwrap(), [stop_if_no_terminals()], "the other build gets nothing but the stop");
     assert_eq!(recorded_build(&at), BUILD);
-    at.run(&["--session", "work", "open", "--size", "20x2", "cat"]).success();
+    at.run(&["--session", "work", "open", "--name", "app", "--size", "20x2", "cat"]).success();
     assert_eq!(at.run(&["--session", "work", "get", "program"]).success().stdout(), "cat\n");
 }
 
 #[test]
 fn a_running_daemon_of_another_build_with_no_tab_is_replaced_by_the_next_command() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x2", "cat"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x2", "cat"]).success();
     at.run(&["close"]).success();
     std::fs::write(at.home().join("daemon.version"), OTHER_BUILD).expect("make the daemon report another build");
 
@@ -84,10 +84,10 @@ fn a_running_daemon_of_another_build_with_no_tab_is_replaced_by_the_next_command
     assert_eq!(run.stderr(), "");
     assert_eq!(recorded_build(&at), BUILD);
     assert!(at.daemon_log().contains("a command of another build stopped this daemon, which had no terminals"));
-    at.run(&["open", "--size", "20x2", "cat"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x2", "cat"]).success();
     assert_eq!(
         at.run(&["--session", "work", "close", "--all"]).success().stdout(),
-        "closed work t1\nended session work\n"
+        "closed work app\nended session work\n"
     );
 }
 
@@ -109,8 +109,8 @@ fn commands_started_together_replace_a_daemon_of_another_build_once() {
 #[test]
 fn a_daemon_of_another_build_with_open_tabs_is_left_running_and_the_command_exits_6_naming_both_builds() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x2", "cat"]).success();
-    at.run(&["tab", "new", "--size", "20x2", "cat"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x2", "cat"]).success();
+    at.run(&["tab", "new", "--name", "api", "--size", "20x2", "cat"]).success();
     std::fs::write(at.home().join("daemon.version"), OTHER_BUILD).expect("make the daemon report another build");
     let message = format!(
         "the daemon is agent-terminal {OTHER_BUILD}, not {BUILD} like this command, and it has 2 open terminals, so it was left running; {RESTARTED}"
@@ -119,11 +119,11 @@ fn a_daemon_of_another_build_with_open_tabs_is_left_running_and_the_command_exit
     the_command_exits_6_naming_both_builds(&at, &message);
     at.run(&["daemon", "stop"]).success();
     at.run(&["session", "new", "work"]).success();
-    at.run(&["open", "--size", "20x2", "cat"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x2", "cat"]).success();
     assert_eq!(recorded_build(&at), BUILD);
     assert_eq!(
         at.run(&["--session", "work", "close", "--all"]).success().stdout(),
-        "closed work t1\nended session work\n"
+        "closed work app\nended session work\n"
     );
 }
 
@@ -183,7 +183,7 @@ fn the_json_error_says_neither_build_nor_terminals_are_known(at: &AgentTerminal,
 #[test]
 fn a_request_the_daemon_cannot_parse_gets_an_error_naming_the_daemons_build() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x2", "cat"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x2", "cat"]).success();
     let mut daemon = UnixStream::connect(at.home().join("daemon.sock")).expect("connect to the daemon");
     write_message(&mut daemon, br#"{"typed":["future-command"],"request":{"command":"future-command"}}"#);
 
@@ -205,7 +205,7 @@ fn a_request_the_daemon_cannot_parse_gets_an_error_naming_the_daemons_build() {
 #[test]
 fn a_request_cut_short_is_dropped_and_the_daemon_keeps_serving() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x2", "cat"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x2", "cat"]).success();
     let mut daemon = UnixStream::connect(at.home().join("daemon.sock")).expect("connect to the daemon");
     daemon.write_all(&100u32.to_be_bytes()).and_then(|()| daemon.write_all(b"{\"ty")).expect("write part of a request");
     daemon.shutdown(std::net::Shutdown::Write).expect("end the request early");
@@ -218,7 +218,7 @@ fn a_request_cut_short_is_dropped_and_the_daemon_keeps_serving() {
 #[test]
 fn a_daemon_with_no_terminals_stops_when_another_build_asks() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x2", "cat"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x2", "cat"]).success();
     at.run(&["close"]).success();
     let mut daemon = UnixStream::connect(at.home().join("daemon.sock")).expect("connect to the daemon");
     write_message(&mut daemon, stop_if_no_terminals().to_string().as_bytes());

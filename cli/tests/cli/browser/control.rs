@@ -1,21 +1,21 @@
 use super::{Browser, Dashboard, js_string};
 use crate::support::{AgentTerminal, fixture};
 
-const REFUSED: &str = "A human has control of work t1. Run `agent-terminal wait --control`.";
+const REFUSED: &str = "A human has control of work app. Run `agent-terminal wait --control`.";
 
 fn open_input_echo(at: &AgentTerminal) {
-    at.run(&["open", "--size", "40x6", "--wait", "ready", &fixture("input-echo")]).success();
+    at.run(&["open", "--name", "app", "--size", "40x6", "--wait", "ready", &fixture("input-echo")]).success();
 }
 
 fn take_control(browser: &Browser) {
     browser.wait_for_status("Live");
     browser.click_button("Take control");
-    browser.wait_until("document.activeElement?.getAttribute('aria-label') === 'Terminal work t1, you have control'");
+    browser.wait_until("document.activeElement?.getAttribute('aria-label') === 'Terminal work app, you have control'");
 }
 
 fn rows(which: &str) -> String {
     format!(
-        "[...document.querySelectorAll(\"[aria-label='Calls to work t1'] > li{which}\")].map((row) => \
+        "[...document.querySelectorAll(\"[aria-label='Calls to work app'] > li{which}\")].map((row) => \
             row.innerText.split('\\n').map((part) => part.trim()).filter(Boolean).slice(1).join(' | '))"
     )
 }
@@ -45,7 +45,7 @@ fn taking_control_refuses_the_agent_with_exit_4_until_the_human_releases_it() {
     let at = AgentTerminal::new();
     open_input_echo(&at);
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/work/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/app"));
     take_control(&browser);
 
     the_dashboard_and_the_tab_show_the_human_has_control(&at, &browser);
@@ -81,7 +81,7 @@ fn releasing_control_ends_the_agents_wait(at: &AgentTerminal, browser: &Browser)
         wait_for_row(browser, "[aria-busy=true]", "wait --control", "waiting");
         browser.click_button("Release control");
         let waited = waiting.join().expect("the waiting call").success().stdout();
-        assert!(waited.ends_with(" ms for a human to hand back control in work t1\n"), "{waited}");
+        assert!(waited.ends_with(" ms for a human to hand back control in work app\n"), "{waited}");
     });
 }
 
@@ -99,7 +99,7 @@ fn keys_typed_in_the_dashboard_reach_the_program_and_show_in_activity_as_human_r
     let at = AgentTerminal::new();
     open_input_echo(&at);
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/work/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/app"));
     take_control(&browser);
 
     for key in ["h", "i", "Tab", "Escape", "Control+c", "ArrowUp"] {
@@ -132,12 +132,23 @@ fn a_human_attached_from_a_terminal_shows_as_human_in_the_sidebar() {
     let at = AgentTerminal::new();
     open_input_echo(&at);
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/work/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/app"));
     browser.wait_for_status("Live");
     let binary = env!("CARGO_BIN_EXE_agent-terminal");
     let attach = ["--session", "work", "attach"];
-    let mut args =
-        vec!["--session", "human", "open", "--size", "70x10", "--wait", "ctrl-p ctrl-q detaches", binary, "--"];
+    let mut args = vec![
+        "--session",
+        "human",
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "70x10",
+        "--wait",
+        "ctrl-p ctrl-q detaches",
+        binary,
+        "--",
+    ];
     args.extend(attach);
     at.run(&["session", "new", "human"]).success();
     at.run(&args).success();

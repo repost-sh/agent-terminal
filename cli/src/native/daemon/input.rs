@@ -17,8 +17,8 @@ pub(super) struct Shooting<'a> {
 
 impl Daemon {
     pub(super) fn input(&self, input: request::Deliver, typed: Option<&[String]>) -> Result<Reply, ErrorBody> {
-        let (id, Tab { terminal, control }) = self.tab(&input.target)?;
-        let (session, tab) = (String::from(input.target.session), id.to_string());
+        let (_, Tab { name, terminal, control, .. }) = self.tab(&input.target)?;
+        let (session, tab) = (String::from(input.target.session), name.to_string());
         let at = Labelled { session: &session, tab: &tab, terminal: &terminal };
         let condition = input.wait.as_ref().map(condition).transpose()?;
         let delivery = {

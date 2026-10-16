@@ -58,3 +58,25 @@ fn a_session_is_created_unless_the_build_predates_session_new_and_a_refusal_fail
         ]
     );
 }
+
+const BEFORE_TAB_NAMES: &str = "#!/bin/sh\ncase \"$2 $4\" in\n  \"--name old\") echo \"error: unexpected argument '--name' found\" >&2; exit 1 ;;\n  \"--name taken\") echo 'error: tab perf already runs sh in session perf; pick another name' >&2; exit 1 ;;\n  *) exit 0 ;;\nesac\n";
+
+#[test]
+fn a_tab_opens_by_its_name_unless_the_build_predates_tab_names_and_a_refusal_fails() {
+    let work = tempfile::tempdir().unwrap();
+    let binary = work.path().join("tabs");
+    std::fs::write(&binary, BEFORE_TAB_NAMES).unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let agent = Agent { side: "base", binary, work: work.path().to_path_buf(), home: "home".into() };
+    let opened =
+        ["fresh", "old", "taken"].map(|program| agent.open("perf", &[program]).map_err(|error| error.to_string()));
+    assert_eq!(
+        opened,
+        [
+            Ok("perf".to_string()),
+            Ok("t1".to_string()),
+            Err("`agent-terminal open --name perf taken` failed for the base (exit status: 1): error: tab perf already runs sh in session perf; pick another name\n"
+                .to_string())
+        ]
+    );
+}

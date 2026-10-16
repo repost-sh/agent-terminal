@@ -16,6 +16,7 @@ use crate::protocol::{Name, Request, Shell, Size};
 pub(super) struct Opening {
     session: String,
     new_session: bool,
+    tab: String,
     command: String,
     cwd: String,
     cols: u16,
@@ -50,12 +51,14 @@ impl Opening {
         let mut words = shlex::split(&self.command).ok_or("a quote in the command is not closed")?.into_iter();
         let program = words.next().ok_or("enter a command")?;
         let session: Name = self.session.parse()?;
+        let tab: Name = self.tab.parse()?;
         let size = Size::new(self.cols, self.rows)?;
         let cwd = working_directory(&self.cwd)?;
         let env = pty::inherited(std::env::vars());
         if !self.shell_integration {
             let open = Request::Open(request::Open {
                 session: session.clone(),
+                tab,
                 program,
                 args: words.collect(),
                 size,
@@ -70,6 +73,7 @@ impl Opening {
             .ok_or_else(|| format!("{program} has no shell integration; it comes with zsh, bash and fish"))?;
         let shell = Request::Shell(request::OpenShell {
             session: session.clone(),
+            tab,
             shell,
             program,
             size,

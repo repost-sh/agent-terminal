@@ -33,7 +33,7 @@ fn every_call_is_logged_with_its_command_duration_and_result() {
 
 fn make_one_call_of_each_outcome(at: &AgentTerminal, printer: &str) -> (Window, u64) {
     let began = SystemTime::now() - Duration::from_secs(1);
-    at.run(&["open", "--wait", "line 3", printer, "--hold"]).success();
+    at.run(&["open", "--name", "app", "--wait", "line 3", printer, "--hold"]).success();
     at.run(&["mark", "before-typing"]).success();
     at.run(&["type", "hello world", "--wait", "hello world"]).success();
     let frame: u64 = at.run(&["get", "frame"]).success().stdout().trim().parse().unwrap();
@@ -48,7 +48,7 @@ fn the_log_names_each_command_its_exit_and_tab(log: &[Value], printer: &str) {
     assert_eq!(
         field(log, "command"),
         json!([
-            format!("open --wait 'line 3' {printer} --hold"),
+            format!("open --name app --wait 'line 3' {printer} --hold"),
             "mark before-typing",
             "type 'hello world' --wait 'hello world'",
             "get frame",
@@ -58,7 +58,7 @@ fn the_log_names_each_command_its_exit_and_tab(log: &[Value], printer: &str) {
         ])
     );
     assert_eq!(field(log, "exit"), json!([0, 0, 0, 0, 1, 3, 0]));
-    assert_eq!(field(log, "tab"), json!(["t1", "t1", "t1", "t1", "t1", "t1", "t1"]));
+    assert_eq!(field(log, "tab"), json!(["app", "app", "app", "app", "app", "app", "app"]));
 }
 
 fn the_log_keeps_the_frame_and_the_errors(log: &[Value], frame: u64) {
@@ -79,7 +79,7 @@ fn the_log_times_each_call_in_order(log: &[Value], window: &Window) {
 fn raw_bytes_sent_with_send_are_flagged_raw_in_the_activity_log() {
     let at = AgentTerminal::new();
     let echo = fixture("input-echo");
-    at.run(&["open", "--size", "40x4", "--wait", "ready", &echo]).success();
+    at.run(&["open", "--name", "app", "--size", "40x4", "--wait", "ready", &echo]).success();
     at.run(&["send", r"\e[A", "--wait", r"\e[A"]).success();
     at.run(&["press", "Up"]).success();
     at.run(&["--json", "batch", r"send 'x\x01'"]).success();
@@ -88,7 +88,7 @@ fn raw_bytes_sent_with_send_are_flagged_raw_in_the_activity_log() {
     assert_eq!(
         field(&log, "command"),
         json!([
-            format!("open --size 40x4 --wait ready {echo}"),
+            format!("open --name app --size 40x4 --wait ready {echo}"),
             r#"send "\\e[A" --wait "\\e[A""#,
             "press Up",
             r#"send "x\\x01""#
@@ -103,15 +103,15 @@ fn each_session_logs_its_own_calls_and_the_tab_they_acted_on() {
     let printer = fixture("line-printer");
     at.run(&["session", "new", "qa"]).success();
     at.run(&["session", "new", "other"]).success();
-    at.run(&["--session", "qa", "open", "--wait", "line 3", &printer, "--hold"]).success();
-    at.run(&["--session", "qa", "tab", "new", "--wait", "line 3", &printer, "--hold"]).success();
-    at.run(&["--session", "other", "open", "--wait", "line 3", &printer, "--hold"]).success();
-    at.run(&["--session", "qa", "--tab", "t1", "snapshot"]).success();
-    at.run(&["--session", "qa", "tab", "close", "t1"]).success();
+    at.run(&["--session", "qa", "open", "--name", "app", "--wait", "line 3", &printer, "--hold"]).success();
+    at.run(&["--session", "qa", "tab", "new", "--name", "api", "--wait", "line 3", &printer, "--hold"]).success();
+    at.run(&["--session", "other", "open", "--name", "app", "--wait", "line 3", &printer, "--hold"]).success();
+    at.run(&["--session", "qa", "--tab", "app", "snapshot"]).success();
+    at.run(&["--session", "qa", "tab", "close", "app"]).success();
     at.run(&["--session", "qa", "tab"]).success();
 
     let log = at.activity("qa");
-    assert_eq!(field(&log, "tab"), json!(["t1", "t2", "t1", "t1", null]));
+    assert_eq!(field(&log, "tab"), json!(["app", "api", "app", "app", null]));
     assert_eq!(at.activity("other").len(), 1);
 }
 
@@ -119,13 +119,13 @@ fn each_session_logs_its_own_calls_and_the_tab_they_acted_on() {
 fn a_batch_logs_each_command_it_ran() {
     let at = AgentTerminal::new();
     let printer = fixture("line-printer");
-    at.run(&["open", "--wait", "line 3", &printer, "--hold"]).success();
+    at.run(&["open", "--name", "app", "--wait", "line 3", &printer, "--hold"]).success();
     assert_eq!(at.run(&["batch", "--bail", "mark before", "get cell 99 1", "get frame"]).code(), 1);
 
     let log = at.activity("work");
     assert_eq!(
         field(&log, "command"),
-        json!([format!("open --wait 'line 3' {printer} --hold"), "mark before", "get cell 99 1"])
+        json!([format!("open --name app --wait 'line 3' {printer} --hold"), "mark before", "get cell 99 1"])
     );
     assert_eq!(field(&log, "exit"), json!([0, 0, 1]));
 }
@@ -149,7 +149,7 @@ fn each_entry_keeps_what_the_call_printed() {
 
 fn make_calls_that_print(at: &AgentTerminal) -> Printed {
     let printer = fixture("line-printer");
-    let opened = at.run(&["open", "--size", "40x6", "--wait", "line 3", &printer, "--hold"]).success();
+    let opened = at.run(&["open", "--name", "app", "--size", "40x6", "--wait", "line 3", &printer, "--hold"]).success();
     at.run(&["wait", "--cursor", "4,1"]).success();
     let shown = at.run(&["snapshot"]).success();
     at.run(&["type", "hi", "--wait", "hi"]).success();
@@ -162,11 +162,11 @@ fn make_calls_that_print(at: &AgentTerminal) -> Printed {
 fn the_entries_keep_what_the_successful_calls_printed(log: &[Value], printed: &Printed) {
     assert_eq!(
         printed.shown.screen(),
-        "work t1 · line-printer · 40x6 · cursor 4,1 · frame N\n1│line 1\n2│line 2\n3│line 3\n…│ (rows 4-6 blank)\n"
+        "work app · line-printer · 40x6 · cursor 4,1 · frame N\n1│line 1\n2│line 2\n3│line 3\n…│ (rows 4-6 blank)\n"
     );
     assert_eq!(log[0]["output"], printed.opened.stdout());
     assert_eq!(log[2]["output"], printed.shown.stdout());
-    assert_eq!(log[3]["output"], "typed 2 keys into work t1\n");
+    assert_eq!(log[3]["output"], "typed 2 keys into work app\n");
 }
 
 fn the_entries_keep_what_the_failed_calls_printed(log: &[Value], printed: &Printed) {
@@ -183,7 +183,8 @@ fn the_entries_keep_what_the_failed_calls_printed(log: &[Value], printed: &Print
 #[test]
 fn an_entry_keeps_the_first_64_kib_of_a_long_output() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--wait", "line 20000", &fixture("line-printer"), "--lines", "20000", "--hold"]).success();
+    at.run(&["open", "--name", "app", "--wait", "line 20000", &fixture("line-printer"), "--lines", "20000", "--hold"])
+        .success();
     let printed = at.run(&["output"]).success().stdout();
     assert!(printed.len() > 128 * 1024, "{} bytes", printed.len());
 
@@ -199,7 +200,7 @@ fn every_screenshot_a_call_saves_is_linked_from_its_entry() {
     let printer = fixture("line-printer");
     let shots = at.home().join("shots");
     let (first, second, diff) = (shots.join("first.png"), shots.join("second.png"), shots.join("diff.png"));
-    at.run(&["open", "--size", "20x4", "--wait", "line 3", &printer, "--hold"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x4", "--wait", "line 3", &printer, "--hold"]).success();
     at.run(&["screenshot", &first.to_string_lossy()]).success();
     at.run(&["type", "x", "--wait", "x", "--screenshot", &second.to_string_lossy()]).success();
     let failed =
@@ -220,7 +221,7 @@ fn every_screenshot_a_call_saves_is_linked_from_its_entry() {
 fn calls_that_reach_no_session_leave_no_folder() {
     let at = AgentTerminal::new();
     assert_eq!(at.run(&["--session", "ghost", "snapshot"]).code(), 1);
-    assert_eq!(at.run(&["--session", "typo", "open", "no-such-program-xyz"]).code(), 1);
+    assert_eq!(at.run(&["--session", "typo", "open", "--name", "app", "no-such-program-xyz"]).code(), 1);
     assert!(!at.home().join("sessions").join("ghost").exists());
     assert!(!at.home().join("sessions").join("typo").exists());
 }

@@ -11,7 +11,7 @@ fn a_saved_screen_is_read_from_snapshot_json_or_from_numbered_text_rows() {
         [None, None, Some(Vec::new())]
     );
     assert_eq!(
-        rows("work t1 · sh\n 1│one\n 3│three │ bar\n…│ (rows blank)\n 0│zero"),
+        rows("work app · sh\n 1│one\n 3│three │ bar\n…│ (rows blank)\n 0│zero"),
         owned(&["one", "", "three │ bar"])
     );
     assert_eq!(rows("no rows here"), None);

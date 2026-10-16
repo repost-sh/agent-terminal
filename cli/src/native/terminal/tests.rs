@@ -4,7 +4,7 @@ use std::time::Duration;
 use super::{Settled, Starting, Terminal};
 use crate::native::changes::Changes;
 use crate::native::pty;
-use crate::native::store::SessionFolder;
+use crate::native::store::{SessionFolder, TabId};
 use crate::native::wait::Condition;
 use crate::protocol::{Size, TextMatch, Wait};
 
@@ -36,7 +36,7 @@ fn a_read_of_the_programs_output_that_a_signal_interrupts_is_retried() {
     let mut spawned = pty::spawn(&command).unwrap();
     let reader = std::mem::replace(&mut spawned.reader, Box::new(io::empty()));
     spawned.reader = Box::new(InterruptedOnce { interrupted: false, reader });
-    let command_log = SessionFolder::start(home.path(), "s").unwrap().command_log("t1");
+    let command_log = SessionFolder::start(home.path(), "s").unwrap().command_log(TabId::FIRST);
     let starting =
         Starting { command, shell: None, spawned, command_log, lifecycle: Changes::default(), continued: None };
     let terminal = Terminal::start(starting);

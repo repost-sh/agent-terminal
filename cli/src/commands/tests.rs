@@ -87,33 +87,48 @@ fn a_session_is_created_by_session_new_and_named_on_every_command_that_acts_on_o
 #[test]
 fn opening_a_program_takes_its_options_before_or_after_it_and_keeps_its_own_flags() {
     insta::assert_snapshot!(table(&[
-        "open vim notes.txt",
-        "open --size 80x24 --cwd /srv --env A=1 --env B=2 htop -d 5",
-        "open htop --size 80x24 --wait ready",
-        "open htop --wait-stable",
-        "open htop --wait-stable 50 -d 5",
-        "open --no-wait -- htop --size 1x1",
-        "open ls -- --size",
-        "open htop --wait-stable=40",
-        "shell --shell zsh --size 100x30 --wait $",
-        "shell --shell bash --no-wait",
-        "tab new --cwd /tmp make",
-        "tab new make all --env X=y",
-        "open --size 9 htop",
+        "open --name notes vim notes.txt",
+        "open --name top --size 80x24 --cwd /srv --env A=1 --env B=2 htop -d 5",
+        "open htop --size 80x24 --wait ready --name top",
+        "open --name top htop --wait-stable",
+        "open --name top htop --wait-stable 50 -d 5",
+        "open --name top --no-wait -- htop --size 1x1 --name x",
+        "open --name ls ls -- --size",
+        "open --name top htop --wait-stable=40",
+        "shell --name sh --shell zsh --size 100x30 --wait $",
+        "shell --shell bash --no-wait --name sh",
+        "tab new --name make --cwd /tmp make",
+        "tab new make all --env X=y --name make",
+        "open --name top --size 9 htop",
     ]), @r##"
-        open vim notes.txt -> {"args":["notes.txt"],"command":"open","cwd":"<here>","env":[],"program":"vim","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
-        open --size 80x24 --cwd /srv --env A=1 --env B=2 htop -d 5 -> {"args":["-d","5"],"command":"open","cwd":"/srv","env":[["A","1"],["B","2"]],"program":"htop","session":"work","size":{"cols":80,"rows":24},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
-        open htop --size 80x24 --wait ready -> {"args":[],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":80,"rows":24},"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"ready","until":"text"}}
-        open htop --wait-stable -> {"args":[],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
-        open htop --wait-stable 50 -d 5 -> {"args":["-d","5"],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":50,"until":"stable"}}
-        open --no-wait -- htop --size 1x1 -> {"args":["--size","1x1"],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":null}
-        open ls -- --size -> {"args":["--size"],"command":"open","cwd":"<here>","env":[],"program":"ls","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
-        open htop --wait-stable=40 -> {"args":[],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":40,"until":"stable"}}
-        shell --shell zsh --size 100x30 --wait $ -> {"command":"shell","cwd":"<here>","env":[],"program":"zsh","session":"work","shell":"zsh","size":{"cols":100,"rows":30},"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"$","until":"text"}}
-        shell --shell bash --no-wait -> {"command":"shell","cwd":"<here>","env":[],"program":"bash","session":"work","shell":"bash","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":null}
-        tab new --cwd /tmp make -> {"args":[],"command":"open","cwd":"/tmp","env":[],"program":"make","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
-        tab new make all --env X=y -> {"args":["all"],"command":"open","cwd":"<here>","env":[["X","y"]],"program":"make","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
-        open --size 9 htop -> usage: ValueValidation
+        open --name notes vim notes.txt -> {"args":["notes.txt"],"command":"open","cwd":"<here>","env":[],"program":"vim","session":"work","size":{"cols":120,"rows":40},"tab":"notes","timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        open --name top --size 80x24 --cwd /srv --env A=1 --env B=2 htop -d 5 -> {"args":["-d","5"],"command":"open","cwd":"/srv","env":[["A","1"],["B","2"]],"program":"htop","session":"work","size":{"cols":80,"rows":24},"tab":"top","timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        open htop --size 80x24 --wait ready --name top -> {"args":[],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":80,"rows":24},"tab":"top","timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"ready","until":"text"}}
+        open --name top htop --wait-stable -> {"args":[],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"tab":"top","timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        open --name top htop --wait-stable 50 -d 5 -> {"args":["-d","5"],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"tab":"top","timeout_ms":25000,"wait":{"quiet_ms":50,"until":"stable"}}
+        open --name top --no-wait -- htop --size 1x1 --name x -> {"args":["--size","1x1","--name","x"],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"tab":"top","timeout_ms":25000,"wait":null}
+        open --name ls ls -- --size -> {"args":["--size"],"command":"open","cwd":"<here>","env":[],"program":"ls","session":"work","size":{"cols":120,"rows":40},"tab":"ls","timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        open --name top htop --wait-stable=40 -> {"args":[],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"tab":"top","timeout_ms":25000,"wait":{"quiet_ms":40,"until":"stable"}}
+        shell --name sh --shell zsh --size 100x30 --wait $ -> {"command":"shell","cwd":"<here>","env":[],"program":"zsh","session":"work","shell":"zsh","size":{"cols":100,"rows":30},"tab":"sh","timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"$","until":"text"}}
+        shell --shell bash --no-wait --name sh -> {"command":"shell","cwd":"<here>","env":[],"program":"bash","session":"work","shell":"bash","size":{"cols":120,"rows":40},"tab":"sh","timeout_ms":25000,"wait":null}
+        tab new --name make --cwd /tmp make -> {"args":[],"command":"open","cwd":"/tmp","env":[],"program":"make","session":"work","size":{"cols":120,"rows":40},"tab":"make","timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        tab new make all --env X=y --name make -> {"args":["all"],"command":"open","cwd":"<here>","env":[["X","y"]],"program":"make","session":"work","size":{"cols":120,"rows":40},"tab":"make","timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        open --name top --size 9 htop -> usage: ValueValidation
+    "##);
+}
+
+#[test]
+fn every_way_of_opening_a_tab_needs_a_name_that_follows_the_rule() {
+    insta::assert_snapshot!(table(&[
+        "open htop",
+        "tab new make",
+        "shell --shell zsh",
+        "open --name Api htop",
+    ]), @r##"
+        open htop -> refused: name the tab after the program or app it runs, e.g. `--name api`; the name is how later calls reach it (`--tab api`)
+        tab new make -> refused: name the tab after the program or app it runs, e.g. `--name api`; the name is how later calls reach it (`--tab api`)
+        shell --shell zsh -> refused: name the tab after the program or app it runs, e.g. `--name api`; the name is how later calls reach it (`--tab api`)
+        open --name Api htop -> usage: ValueValidation
     "##);
 }
 
@@ -133,7 +148,7 @@ fn shell_history_restart_and_resize_name_their_command_and_its_wait() {
         "close --all",
         "close --all --bypass-session",
         "close --bypass-session",
-        "--tab 2 close",
+        "--tab api close",
     ]), @r##"
         exec 'ls -la' -> {"check":false,"command":"exec","env":null,"line":"ls -la","session":"work","tab":null,"timeout_ms":25000}
         exec --check true -> {"check":true,"command":"exec","env":null,"line":"true","session":"work","tab":null,"timeout_ms":25000}
@@ -148,7 +163,7 @@ fn shell_history_restart_and_resize_name_their_command_and_its_wait() {
         close --all -> {"command":"close","env":null,"scope":"session","session":"work"}
         close --all --bypass-session -> refused: the argument '--bypass-session' cannot be used with '--session <NAME>': close --all --session <name> closes the tabs of that session, close --all --bypass-session closes every tab in every session
         close --bypass-session -> usage: MissingRequiredArgument
-        --tab 2 close -> {"command":"close","env":null,"scope":"tab","session":"work","tab":"t2"}
+        --tab api close -> {"command":"close","env":null,"scope":"tab","session":"work","tab":"api"}
     "##);
 }
 
@@ -331,8 +346,11 @@ fn session_and_tool_commands_ask_the_daemon_about_itself() {
         "session list",
         "tab",
         "tab list",
-        "tab 3",
-        "tab close 2",
+        "tab api",
+        "tab close api",
+        "tab rename web",
+        "--tab api tab rename web",
+        "tab rename Web",
         "dashboard",
         "dashboard --port 0 --allow-origin http://localhost:5173",
         "dashboard stop",
@@ -340,8 +358,11 @@ fn session_and_tool_commands_ask_the_daemon_about_itself() {
         session list -> {"command":"sessions","env":null}
         tab -> {"command":"tabs","env":null,"session":"work"}
         tab list -> {"command":"tabs","env":null,"session":"work"}
-        tab 3 -> {"command":"switch-tab","env":null,"session":"work","tab":"t3"}
-        tab close 2 -> {"command":"close","env":null,"scope":"tab","session":"work","tab":"t2"}
+        tab api -> {"command":"switch-tab","env":null,"session":"work","tab":"api"}
+        tab close api -> {"command":"close","env":null,"scope":"tab","session":"work","tab":"api"}
+        tab rename web -> {"command":"rename-tab","env":null,"name":"web","session":"work","tab":null}
+        --tab api tab rename web -> {"command":"rename-tab","env":null,"name":"web","session":"work","tab":"api"}
+        tab rename Web -> usage: ValueValidation
         dashboard -> {"command":"dashboard-start","env":null,"origins":[],"port":4849}
         dashboard --port 0 --allow-origin http://localhost:5173 -> {"command":"dashboard-start","env":null,"origins":["http://localhost:5173"],"port":0}
         dashboard stop -> {"command":"dashboard-stop","env":null}

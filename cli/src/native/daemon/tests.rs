@@ -55,8 +55,8 @@ impl Running {
         (refusal["code"].as_i64().unwrap(), shown.replace(crate::version::BUILD, "<build>"))
     }
 
-    pub(super) fn open(&self, script: &str) -> Value {
-        self.ok(&open(script, &text("ready")))
+    pub(super) fn open(&self, tab: &str, script: &str) -> Value {
+        self.ok(&open(tab, script))
     }
 
     pub(super) fn user(&self) -> PathBuf {
@@ -65,11 +65,12 @@ impl Running {
         user
     }
 
-    pub(super) fn shell(&self, timeout_ms: u64) -> Value {
+    pub(super) fn shell(&self, tab: &str, timeout_ms: u64) -> Value {
         let user = self.user();
         json!({
             "command": "shell",
             "session": "s",
+            "tab": tab,
             "shell": "bash",
             "program": "bash",
             "size": { "cols": 60, "rows": 8 },
@@ -88,18 +89,24 @@ impl Drop for Running {
     }
 }
 
-pub(super) fn open(script: &str, wait: &Value) -> Value {
+pub(super) fn open(tab: &str, script: &str) -> Value {
     json!({
         "command": "open",
         "session": "s",
+        "tab": tab,
         "program": "/bin/sh",
         "args": ["-c", script],
         "size": { "cols": 30, "rows": 4 },
         "cwd": Path::new("/"),
         "env": [["PATH", "/usr/bin:/bin"]],
-        "wait": wait,
+        "wait": text("ready"),
         "timeout_ms": 10_000
     })
+}
+
+pub(super) fn waiting(mut request: Value, wait: Value) -> Value {
+    request["wait"] = wait;
+    request
 }
 
 pub(super) fn text(text: &str) -> Value {
@@ -123,9 +130,9 @@ fn sessions_list_each_tab_with_its_program_size_and_owner() {
         running.ok(&json!({ "command": "sessions" })),
         json!({ "sessions": [{ "session": "s", "current": null, "tabs": [] }] })
     );
-    running.open(ECHO);
+    running.open("echo", ECHO);
     let listed = running.ok(&json!({ "command": "sessions" }));
-    insta::assert_snapshot!(listed, @r#"{"sessions":[{"current":"t1","session":"s","tabs":[{"cols":30,"command":"/bin/sh -c \"printf 'ready\\\\n'; while read line; do printf 'got %s\\\\n' \\\"\"'$line\"; done'","control":"agent","cwd":"/","exit_code":null,"exited":false,"program":"sh","rows":4,"tab":"t1"}]}]}"#);
+    insta::assert_snapshot!(listed, @r#"{"sessions":[{"current":"echo","session":"s","tabs":[{"cols":30,"command":"/bin/sh -c \"printf 'ready\\\\n'; while read line; do printf 'got %s\\\\n' \\\"\"'$line\"; done'","control":"agent","cwd":"/","exit_code":null,"exited":false,"program":"sh","rows":4,"tab":"echo"}]}]}"#);
 }
 
 #[test]
@@ -133,18 +140,18 @@ fn a_session_name_is_taken_until_close_all_ends_its_session() {
     let running = Running::new();
     let new = json!({ "command": "new-session", "session": "s" });
     let mut held = vec![running.refused(&new).1];
-    running.open(ECHO);
+    running.open("app", ECHO);
     held.push(running.refused(&new).1);
-    running.open(ECHO);
-    running.ok(&on("close", &json!({ "scope": "tab", "tab": "t1" })));
+    running.open("api", ECHO);
+    running.ok(&on("close", &json!({ "scope": "tab", "tab": "app" })));
     held.push(running.refused(&new).1);
     let held: Vec<&str> = held.iter().map(|message| message.split_once(", ").map_or("", |(_, tabs)| tabs)).collect();
     assert_eq!(
         held,
         [
             "no tabs; pick another name for this conversation",
-            "1 tab: t1; pick another name for this conversation",
-            "1 tab: t2; pick another name for this conversation"
+            "1 tab: app; pick another name for this conversation",
+            "1 tab: api; pick another name for this conversation"
         ]
     );
     running.ok(&json!({ "command": "close", "scope": "session", "session": "s" }));
@@ -173,8 +180,8 @@ fn a_taken_name_says_how_long_its_session_has_been_open_and_which_tabs_it_has() 
         ]
     );
     assert_eq!(
-        taken(&held(&["t1", "t3", "t4"]), Duration::from_secs(5)).message,
-        "session api is taken: open for 5s, 3 tabs: t1, t3, t4; pick another name for this conversation"
+        taken(&held(&["app", "web", "db"]), Duration::from_secs(5)).message,
+        "session api is taken: open for 5s, 3 tabs: app, web, db; pick another name for this conversation"
     );
 }
 
@@ -193,10 +200,14 @@ fn a_tab_or_session_that_is_not_there_is_named_in_the_refusal() {
     let mut elsewhere = snapshot(None);
     elsewhere["session"] = json!("nowhere");
     assert_eq!(
-        [running.refused(&snapshot(None)), running.refused(&snapshot(Some("t3"))), running.refused(&elsewhere)],
+        [running.refused(&snapshot(None)), running.refused(&snapshot(Some("web"))), running.refused(&elsewhere)],
         [
-            (1, "no terminal is open in session s; start one with `agent-terminal open <program>`".to_string()),
-            (1, "no tab t3 in session s; list tabs with `agent-terminal tab`".to_string()),
+            (
+                1,
+                "no terminal is open in session s; start one with `agent-terminal open --name <name> <program>`"
+                    .to_string()
+            ),
+            (1, "no tab web in session s; list tabs with `agent-terminal tab`".to_string()),
             (1, "no session nowhere; create it with `agent-terminal session new nowhere`".to_string())
         ]
     );

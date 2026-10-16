@@ -4,9 +4,9 @@ use crate::protocol::{BlankRows, Snapshot};
 
 #[test]
 fn a_squeezed_screen_folds_each_run_of_three_or_more_blank_rows_and_keeps_the_numbers() {
-    let squeezed: Snapshot = serde_json::from_str(r#"{"alt_screen":false,"cols":30,"cursor":[3,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":2,"frame":1,"lines":["a","","","","b","","","c","",""],"mouse":null,"program":"sh","rows":12,"scrollback":["","","","old"],"session":"rec","blank_rows":"squeezed","tab":"t1"}"#).unwrap();
+    let squeezed: Snapshot = serde_json::from_str(r#"{"alt_screen":false,"cols":30,"cursor":[3,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":2,"frame":1,"lines":["a","","","","b","","","c","",""],"mouse":null,"program":"sh","rows":12,"scrollback":["","","","old"],"session":"rec","blank_rows":"squeezed","tab":"app"}"#).unwrap();
     insta::assert_snapshot!(screen(&squeezed), @r##"
-        rec t1 · sh · 30x12 · cursor 3,1 · frame 1
+        rec app · sh · 30x12 · cursor 3,1 · frame 1
         -4│
         -3│
         -2│
@@ -24,7 +24,7 @@ fn a_squeezed_screen_folds_each_run_of_three_or_more_blank_rows_and_keeps_the_nu
 fn squeezable(first_row: u16, lines: &[String], blank_rows: &BlankRows) -> Snapshot {
     let rows = usize::from(first_row) + lines.len();
     serde_json::from_value(serde_json::json!({
-        "session": "rec", "tab": "t1", "program": "sh", "cols": 30, "rows": rows, "alt_screen": false,
+        "session": "rec", "tab": "app", "program": "sh", "cols": 30, "rows": rows, "alt_screen": false,
         "mouse": null, "cursor": [1, 1], "cursor_visible": true, "frame": 1, "exited": false, "exit_code": null,
         "first_row": first_row, "lines": lines, "blank_rows": blank_rows
     }))

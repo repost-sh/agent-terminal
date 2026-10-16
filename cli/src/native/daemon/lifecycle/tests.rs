@@ -10,7 +10,7 @@ const STOPPING: &str = "the daemon is stopping; run the command again to start a
 #[test]
 fn a_stop_closes_every_tab_removes_the_socket_and_version_files_and_ends_the_daemon() {
     let running = Running::new();
-    running.open(ECHO);
+    running.open("echo", ECHO);
     for file in [SOCKET, DAEMON_VERSION] {
         std::fs::write(running.home.path().join(file), "").unwrap();
     }
@@ -32,7 +32,7 @@ fn a_stopped_daemon_has_let_go_of_its_lock_by_the_time_it_answers() {
 #[test]
 fn a_daemon_with_terminals_keeps_running_when_asked_to_stop_only_without_them() {
     let running = Running::new();
-    running.open(ECHO);
+    running.open("echo", ECHO);
     let stop_if_empty = json!({ "command": "stop-if-no-terminals" });
     assert_eq!(running.ok(&stop_if_empty), json!({ "terminals": 1 }));
     running.daemon.close_all();
@@ -72,7 +72,7 @@ fn a_stop_without_terminals_keeps_running_once_a_call_in_flight_opens_one() {
     let (in_flight, asking) = (running.daemon.busy().unwrap(), running.daemon.busy().unwrap());
     let reply = std::thread::scope(|scope| {
         let stopping = scope.spawn(|| running.daemon.stop_if_no_terminals(Duration::from_secs(60)));
-        running.open(ECHO);
+        running.open("echo", ECHO);
         stopping.join().unwrap()
     });
     drop((in_flight, asking));

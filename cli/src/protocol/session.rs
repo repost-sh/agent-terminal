@@ -1,6 +1,3 @@
-use std::fmt;
-use std::str::FromStr;
-
 use serde::{Deserialize, Serialize};
 
 use super::Name;
@@ -20,61 +17,15 @@ impl Size {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[serde(try_from = "String", into = "String")]
-pub struct TabId(u32);
-
-impl TabId {
-    pub const FIRST: TabId = TabId(1);
-
-    pub fn next(self) -> TabId {
-        TabId(self.0 + 1)
-    }
-}
-
-impl FromStr for TabId {
-    type Err = String;
-
-    fn from_str(text: &str) -> Result<Self, String> {
-        text.strip_prefix('t')
-            .unwrap_or(text)
-            .parse()
-            .ok()
-            .filter(|id| *id > 0)
-            .map(TabId)
-            .ok_or_else(|| format!("invalid tab id: {text} (expected t1, t2, ...)"))
-    }
-}
-
-impl fmt::Display for TabId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "t{}", self.0)
-    }
-}
-
-impl TryFrom<String> for TabId {
-    type Error = String;
-
-    fn try_from(text: String) -> Result<Self, String> {
-        text.parse()
-    }
-}
-
-impl From<TabId> for String {
-    fn from(id: TabId) -> String {
-        id.to_string()
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Target {
     pub session: Name,
-    pub tab: Option<TabId>,
+    pub tab: Option<Name>,
 }
 
 impl Target {
-    pub(crate) fn tab(session: &Name, tab: TabId) -> Self {
-        Self { session: session.clone(), tab: Some(tab) }
+    pub(crate) fn tab(session: &Name, tab: &Name) -> Self {
+        Self { session: session.clone(), tab: Some(tab.clone()) }
     }
 }
 
@@ -119,13 +70,15 @@ pub(crate) struct Sessions {
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct SessionInfo {
     pub session: Name,
-    pub current: Option<String>,
+    pub current: Option<Name>,
     pub tabs: Vec<TabInfo>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct TabInfo {
-    pub tab: String,
+    pub tab: Name,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renamed_from: Option<Name>,
     pub program: String,
     pub command: String,
     pub cwd: String,

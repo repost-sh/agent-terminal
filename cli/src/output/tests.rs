@@ -17,9 +17,9 @@ fn replied(replies: &[(&str, &str)]) -> String {
 #[test]
 fn a_screen_reads_as_its_header_numbered_rows_and_refs() {
     insta::assert_snapshot!(replied(&[
-        ("Snapshot", r#"{"alt_screen":false,"cols":30,"cursor":[3,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"frame":1,"lines":["hello [ OK ]","q: quit  h: help","","","",""],"mouse":null,"program":"sh","refs":[{"col":9,"cols":[7,12],"frame":1,"kind":"button","label":"OK","ref":"@t1","row":1,"rows":[1,1]},{"col":1,"cols":[1,7],"frame":1,"kind":"hint","label":"q: quit","ref":"@t2","row":2,"rows":[2,2]},{"col":10,"cols":[10,16],"frame":1,"kind":"hint","label":"h: help","ref":"@t3","row":2,"rows":[2,2]},{"col":1,"cols":[1,30],"frame":1,"kind":"input","label":"","ref":"@t4","row":3,"rows":[3,3]}],"rows":6,"session":"rec","tab":"t1"}"#),
+        ("Snapshot", r#"{"alt_screen":false,"cols":30,"cursor":[3,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"frame":1,"lines":["hello [ OK ]","q: quit  h: help","","","",""],"mouse":null,"program":"sh","refs":[{"col":9,"cols":[7,12],"frame":1,"kind":"button","label":"OK","ref":"@t1","row":1,"rows":[1,1]},{"col":1,"cols":[1,7],"frame":1,"kind":"hint","label":"q: quit","ref":"@t2","row":2,"rows":[2,2]},{"col":10,"cols":[10,16],"frame":1,"kind":"hint","label":"h: help","ref":"@t3","row":2,"rows":[2,2]},{"col":1,"cols":[1,30],"frame":1,"kind":"input","label":"","ref":"@t4","row":3,"rows":[3,3]}],"rows":6,"session":"rec","tab":"app"}"#),
     ]), @r##"
-        rec t1 · sh · 30x6 · cursor 3,1 · frame 1
+        rec app · sh · 30x6 · cursor 3,1 · frame 1
         1│hello [ OK ]
         2│q: quit  h: help
         …│ (rows 3-6 blank)
@@ -34,9 +34,9 @@ fn a_screen_reads_as_its_header_numbered_rows_and_refs() {
 #[test]
 fn a_part_of_the_screen_starts_at_its_first_row() {
     insta::assert_snapshot!(replied(&[
-        ("Snapshot", r#"{"alt_screen":false,"cols":30,"cursor":[3,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"frame":1,"lines":["hello [ OK ]","q: quit  h: help"],"mouse":null,"program":"sh","rows":6,"scrollback":[],"session":"rec","tab":"t1"}"#),
+        ("Snapshot", r#"{"alt_screen":false,"cols":30,"cursor":[3,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"frame":1,"lines":["hello [ OK ]","q: quit  h: help"],"mouse":null,"program":"sh","rows":6,"scrollback":[],"session":"rec","tab":"app"}"#),
     ]), @r##"
-        rec t1 · sh · 30x6 · cursor 3,1 · frame 1
+        rec app · sh · 30x6 · cursor 3,1 · frame 1
         1│hello [ OK ]
         2│q: quit  h: help
     "##);
@@ -45,9 +45,9 @@ fn a_part_of_the_screen_starts_at_its_first_row() {
 #[test]
 fn an_ended_program_on_the_alternate_screen_says_so_in_the_header() {
     insta::assert_snapshot!(replied(&[
-        ("Snapshot", r#"{"alt_screen":true,"cols":30,"cursor":[3,1],"cursor_visible":false,"exit_code":2,"exited":true,"first_row":1,"frame":1,"lines":["done","","","","",""],"mouse":"sgr","program":"sh","rows":6,"session":"rec","tab":"t1"}"#),
+        ("Snapshot", r#"{"alt_screen":true,"cols":30,"cursor":[3,1],"cursor_visible":false,"exit_code":2,"exited":true,"first_row":1,"frame":1,"lines":["done","","","","",""],"mouse":"sgr","program":"sh","rows":6,"session":"rec","tab":"app"}"#),
     ]), @r##"
-        rec t1 · sh · 30x6 · alt-screen · mouse:sgr · cursor hidden · frame 1 · exited 2
+        rec app · sh · 30x6 · alt-screen · mouse:sgr · cursor hidden · frame 1 · exited 2
         1│done
         …│ (rows 2-6 blank)
     "##);
@@ -56,9 +56,9 @@ fn an_ended_program_on_the_alternate_screen_says_so_in_the_header() {
 #[test]
 fn scrollback_rows_come_above_the_screen_with_negative_numbers() {
     insta::assert_snapshot!(replied(&[
-        ("Snapshot", r#"{"alt_screen":false,"cols":30,"cursor":[3,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":3,"frame":1,"lines":["row three","row four"],"mouse":null,"program":"sh","rows":6,"scrollback":["earlier one","earlier two"],"session":"rec","tab":"t1"}"#),
+        ("Snapshot", r#"{"alt_screen":false,"cols":30,"cursor":[3,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":3,"frame":1,"lines":["row three","row four"],"mouse":null,"program":"sh","rows":6,"scrollback":["earlier one","earlier two"],"session":"rec","tab":"app"}"#),
     ]), @r##"
-        rec t1 · sh · 30x6 · cursor 3,1 · frame 1
+        rec app · sh · 30x6 · cursor 3,1 · frame 1
         -2│earlier one
         -1│earlier two
          3│row three
@@ -70,10 +70,11 @@ fn scrollback_rows_come_above_the_screen_with_negative_numbers() {
 fn squeezing_shapes_the_text_and_leaves_the_json_as_it_is() {
     let replies = |blank_rows: &str| -> [Reply; 2] {
         let shown = format!(
-            r#"{{"alt_screen":false,"cols":30,"cursor":[1,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"frame":1,"lines":["a","","","","b"],"mouse":null,"program":"sh","rows":5,"session":"rec","tab":"t1","blank_rows":"{blank_rows}"}}"#
+            r#"{{"alt_screen":false,"cols":30,"cursor":[1,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"frame":1,"lines":["a","","","","b"],"mouse":null,"program":"sh","rows":5,"session":"rec","tab":"app","blank_rows":"{blank_rows}"}}"#
         );
-        let delivered =
-            format!(r#"{{"input":"paste","bytes":1,"bracketed":false,"session":"rec","tab":"t1","snapshot":{shown}}}"#);
+        let delivered = format!(
+            r#"{{"input":"paste","bytes":1,"bracketed":false,"session":"rec","tab":"app","snapshot":{shown}}}"#
+        );
         [("Snapshot", shown), ("Delivered", delivered)]
             .map(|(reply, data)| serde_json::from_str(&format!(r#"{{"reply":"{reply}","data":{data}}}"#)).unwrap())
     };
@@ -220,21 +221,21 @@ fn matches_read_as_their_places_and_marks_as_their_frame() {
 #[test]
 fn deliveries_waits_and_checks_read_as_what_happened() {
     insta::assert_snapshot!(replied(&[
-        ("Delivered", r#"{"bytes":3,"input":"text","keys":3,"session":"rec","tab":"t1"}"#),
-        ("Delivered", r#"{"bytes":1,"input":"keys","keys":1,"session":"rec","tab":"t1"}"#),
-        ("Waited", r#"{"frame":5,"session":"rec","tab":"t1","until":"\"got\" to appear","waited_ms":0}"#),
-        ("Checked", r#"{"fact":"\"got\" is on screen","session":"rec","tab":"t1"}"#),
+        ("Delivered", r#"{"bytes":3,"input":"text","keys":3,"session":"rec","tab":"app"}"#),
+        ("Delivered", r#"{"bytes":1,"input":"keys","keys":1,"session":"rec","tab":"app"}"#),
+        ("Waited", r#"{"frame":5,"session":"rec","tab":"app","until":"\"got\" to appear","waited_ms":0}"#),
+        ("Checked", r#"{"fact":"\"got\" is on screen","session":"rec","tab":"app"}"#),
     ]), @r##"
-        typed 3 keys into rec t1
+        typed 3 keys into rec app
 
         ~
-        pressed 1 key in rec t1
+        pressed 1 key in rec app
 
         ~
-        waited 0 ms for "got" to appear in rec t1
+        waited 0 ms for "got" to appear in rec app
 
         ~
-        "got" is on screen in rec t1
+        "got" is on screen in rec app
     "##);
 }
 
@@ -258,14 +259,14 @@ fn printed_output_is_given_as_it_was_printed() {
 #[test]
 fn sessions_and_tabs_read_as_lists() {
     insta::assert_snapshot!(replied(&[
-        ("Sessions", r#"{"sessions":[{"current":"t1","session":"rec","tabs":[{"cols":30,"command":"sh -c \"printf \\\"\\\\033[1mhello\\\\033[0m [ OK ]\\\\nq: quit  h: help\\\\n\\\"; read x; printf \\\"got \"'$x'\"\\\\n\\\"; sleep 30\"","control":"agent","cwd":"/home/me/work","exit_code":null,"exited":false,"program":"sh","rows":6,"tab":"t1"}]}]}"#),
+        ("Sessions", r#"{"sessions":[{"current":"app","session":"rec","tabs":[{"cols":30,"command":"sh -c \"printf \\\"\\\\033[1mhello\\\\033[0m [ OK ]\\\\nq: quit  h: help\\\\n\\\"; read x; printf \\\"got \"'$x'\"\\\\n\\\"; sleep 30\"","control":"agent","cwd":"/home/me/work","exit_code":null,"exited":false,"program":"sh","rows":6,"tab":"app"}]}]}"#),
         ("Sessions", r#"{"sessions":[]}"#),
         ("Sessions", r#"{"sessions":[{"current":null,"session":"idle","tabs":[]}]}"#),
-        ("Tabs", r#"{"current":"t1","session":"rec","tabs":[{"cols":30,"command":"sh -c \"printf \\\"\\\\033[1mhello\\\\033[0m [ OK ]\\\\nq: quit  h: help\\\\n\\\"; read x; printf \\\"got \"'$x'\"\\\\n\\\"; sleep 30\"","control":"agent","cwd":"/home/me/work","exit_code":null,"exited":false,"program":"sh","rows":6,"tab":"t1"}]}"#),
+        ("Tabs", r#"{"current":"app","session":"rec","tabs":[{"cols":30,"command":"sh -c \"printf \\\"\\\\033[1mhello\\\\033[0m [ OK ]\\\\nq: quit  h: help\\\\n\\\"; read x; printf \\\"got \"'$x'\"\\\\n\\\"; sleep 30\"","control":"agent","cwd":"/home/me/work","exit_code":null,"exited":false,"program":"sh","rows":6,"tab":"app"}]}"#),
         ("Tabs", r#"{"current":null,"session":"idle","tabs":[]}"#),
         ("Created", r#"{"session":"repost-forward"}"#),
     ]), @r##"
-        rec t1 · sh · 30x6 · running · current
+        rec app · sh · 30x6 · running · current
 
         ~
         no sessions are open
@@ -274,7 +275,7 @@ fn sessions_and_tabs_read_as_lists() {
         idle · no tabs
 
         ~
-        rec t1 · sh · 30x6 · running · current
+        rec app · sh · 30x6 · running · current
 
         ~
         no tabs are open in session idle
@@ -287,15 +288,15 @@ fn sessions_and_tabs_read_as_lists() {
 #[test]
 fn screenshots_exports_and_closes_say_where_and_what() {
     insta::assert_snapshot!(replied(&[
-        ("Screenshot", r#"{"format":"png","frame":5,"height":140,"path":"/home/me/work/shots/a.png","session":"rec","tab":"t1","width":290}"#),
+        ("Screenshot", r#"{"format":"png","frame":5,"height":140,"path":"/home/me/work/shots/a.png","session":"rec","tab":"app","width":290}"#),
         ("Exported", r#"{"bytes":7098,"files":3,"path":"/home/me/work/t.zip","session":"rec"}"#),
         ("Exported", r#"{"bytes":10,"files":1,"path":"/t.zip","session":"rec","missing":["/a.png","/b.png"]}"#),
-        ("Closed", r#"{"closed":[{"session":"rec","tab":"t1"}]}"#),
+        ("Closed", r#"{"closed":[{"session":"rec","tab":"app"}]}"#),
         ("Closed", r#"{"closed":[]}"#),
-        ("Closed", r#"{"closed":[{"session":"a","tab":"t1"},{"session":"b","tab":"t2"}]}"#),
-        ("Closed", r#"{"closed":[{"session":"a","tab":"t1"}],"ended":["a","b"]}"#),
+        ("Closed", r#"{"closed":[{"session":"a","tab":"app"},{"session":"b","tab":"api"}]}"#),
+        ("Closed", r#"{"closed":[{"session":"a","tab":"app"}],"ended":["a","b"]}"#),
     ]), @r##"
-        saved /home/me/work/shots/a.png (rec t1, frame 5)
+        saved /home/me/work/shots/a.png (rec app, frame 5)
 
         ~
         exported session rec to /home/me/work/t.zip (3 files, 7 KB)
@@ -305,16 +306,16 @@ fn screenshots_exports_and_closes_say_where_and_what() {
         2 files the session saved are gone and are not in it: /a.png, /b.png
 
         ~
-        closed rec t1
+        closed rec app
 
         ~
 
         ~
-        closed a t1
-        closed b t2
+        closed a app
+        closed b api
 
         ~
-        closed a t1
+        closed a app
         ended session a
         ended session b
     "##);
@@ -323,11 +324,11 @@ fn screenshots_exports_and_closes_say_where_and_what() {
 #[test]
 fn a_shell_command_reads_as_its_output_and_exit_and_history_as_its_lines() {
     insta::assert_snapshot!(replied(&[
-        ("Command", r#"{"command":"echo hi; false","cwd":"/home/me/work","duration_ms":1234,"ended_at_ms":1700000001234,"exit_code":1,"first_frame":4,"id":1,"last_frame":5,"output":"hi\n","session":"rec","started_at_ms":1700000000000,"tab":"t1"}"#),
-        ("Command", r#"{"check":true,"command":"echo done","cwd":"/home/me/work","duration_ms":5,"ended_at_ms":1700000001234,"exit_code":0,"first_frame":12,"id":3,"last_frame":13,"output":"done\n","session":"rec","started_at_ms":1700000000000,"tab":"t1"}"#),
-        ("Command", r#"{"command":"echo hi; false","cwd":"/home/me/work","duration_ms":61000,"ended_at_ms":null,"exit_code":null,"first_frame":4,"id":1,"last_frame":5,"output":"hi\n","session":"rec","started_at_ms":1700000000000,"tab":"t1"}"#),
-        ("History", r#"{"commands":[{"command":"echo hi; false","cwd":"/home/me/work","duration_ms":0,"ended_at_ms":1700000001234,"exit_code":1,"first_frame":4,"id":1,"last_frame":5,"started_at_ms":1700000000000},{"command":"echo hi; false","cwd":"/home/me/work","duration_ms":999,"ended_at_ms":1700000001234,"exit_code":1,"first_frame":8,"id":2,"last_frame":9,"started_at_ms":1700000000000},{"command":"echo done","cwd":"/home/me/work","duration_ms":1000,"ended_at_ms":1700000001234,"exit_code":0,"first_frame":12,"id":3,"last_frame":13,"started_at_ms":1700000000000},{"command":"echo done","cwd":"/home/me/work","duration_ms":125000,"ended_at_ms":1700000001234,"exit_code":0,"first_frame":16,"id":4,"last_frame":17,"started_at_ms":1700000000000}],"session":"rec","tab":"t1","total":4}"#),
-        ("History", r#"{"commands":[],"session":"rec","tab":"t1","total":0}"#),
+        ("Command", r#"{"command":"echo hi; false","cwd":"/home/me/work","duration_ms":1234,"ended_at_ms":1700000001234,"exit_code":1,"first_frame":4,"id":1,"last_frame":5,"output":"hi\n","session":"rec","started_at_ms":1700000000000,"tab":"app"}"#),
+        ("Command", r#"{"check":true,"command":"echo done","cwd":"/home/me/work","duration_ms":5,"ended_at_ms":1700000001234,"exit_code":0,"first_frame":12,"id":3,"last_frame":13,"output":"done\n","session":"rec","started_at_ms":1700000000000,"tab":"app"}"#),
+        ("Command", r#"{"command":"echo hi; false","cwd":"/home/me/work","duration_ms":61000,"ended_at_ms":null,"exit_code":null,"first_frame":4,"id":1,"last_frame":5,"output":"hi\n","session":"rec","started_at_ms":1700000000000,"tab":"app"}"#),
+        ("History", r#"{"commands":[{"command":"echo hi; false","cwd":"/home/me/work","duration_ms":0,"ended_at_ms":1700000001234,"exit_code":1,"first_frame":4,"id":1,"last_frame":5,"started_at_ms":1700000000000},{"command":"echo hi; false","cwd":"/home/me/work","duration_ms":999,"ended_at_ms":1700000001234,"exit_code":1,"first_frame":8,"id":2,"last_frame":9,"started_at_ms":1700000000000},{"command":"echo done","cwd":"/home/me/work","duration_ms":1000,"ended_at_ms":1700000001234,"exit_code":0,"first_frame":12,"id":3,"last_frame":13,"started_at_ms":1700000000000},{"command":"echo done","cwd":"/home/me/work","duration_ms":125000,"ended_at_ms":1700000001234,"exit_code":0,"first_frame":16,"id":4,"last_frame":17,"started_at_ms":1700000000000}],"session":"rec","tab":"app","total":4}"#),
+        ("History", r#"{"commands":[],"session":"rec","tab":"app","total":0}"#),
     ]), @r##"
         hi
         1 · exit 1 · 1.2 s · /home/me/work · echo hi; false
@@ -347,79 +348,79 @@ fn a_shell_command_reads_as_its_output_and_exit_and_history_as_its_lines() {
         4 · exit 0 · 2 min 05 s · /home/me/work · echo done
 
         ~
-        no commands have run in rec t1
+        no commands have run in rec app
     "##);
 }
 
 #[test]
 fn pastes_bytes_signals_and_scrolls_say_what_was_sent() {
     insta::assert_snapshot!(replied(&[
-        ("Delivered", r#"{"bracketed":false,"bytes":6,"input":"paste","session":"rec","tab":"t1"}"#),
-        ("Delivered", r#"{"bracketed":true,"bytes":6,"input":"paste","session":"rec","tab":"t1"}"#),
-        ("Delivered", r#"{"bytes":1,"input":"raw","session":"rec","tab":"t1"}"#),
-        ("Delivered", r#"{"input":"signal","process_group":4321,"session":"rec","signal":"INT","tab":"t1"}"#),
-        ("Delivered", r#"{"by":"keys","bytes":8,"count":2,"direction":"up","input":"scroll","session":"rec","tab":"t1"}"#),
-        ("Delivered", r#"{"by":"wheel","bytes":8,"count":1,"direction":"down","input":"scroll","session":"rec","tab":"t1"}"#),
+        ("Delivered", r#"{"bracketed":false,"bytes":6,"input":"paste","session":"rec","tab":"app"}"#),
+        ("Delivered", r#"{"bracketed":true,"bytes":6,"input":"paste","session":"rec","tab":"app"}"#),
+        ("Delivered", r#"{"bytes":1,"input":"raw","session":"rec","tab":"app"}"#),
+        ("Delivered", r#"{"input":"signal","process_group":4321,"session":"rec","signal":"INT","tab":"app"}"#),
+        ("Delivered", r#"{"by":"keys","bytes":8,"count":2,"direction":"up","input":"scroll","session":"rec","tab":"app"}"#),
+        ("Delivered", r#"{"by":"wheel","bytes":8,"count":1,"direction":"down","input":"scroll","session":"rec","tab":"app"}"#),
     ]), @r##"
-        pasted 6 bytes into rec t1 (plain, the app has not turned on bracketed paste)
+        pasted 6 bytes into rec app (plain, the app has not turned on bracketed paste)
 
         ~
-        pasted 6 bytes into rec t1 (bracketed paste)
+        pasted 6 bytes into rec app (bracketed paste)
 
         ~
-        sent 1 raw byte to rec t1
+        sent 1 raw byte to rec app
 
         ~
-        sent INT to rec t1 (process group 4321)
+        sent INT to rec app (process group 4321)
 
         ~
-        scrolled up 2 in rec t1 with PageUp
+        scrolled up 2 in rec app with PageUp
 
         ~
-        scrolled down 1 in rec t1 with the mouse wheel
+        scrolled down 1 in rec app with the mouse wheel
     "##);
 }
 
 #[test]
 fn clicks_and_mouse_events_say_where_and_with_which_button() {
     insta::assert_snapshot!(replied(&[
-        ("Delivered", r#"{"input":"click","target":"@t3","row":2,"col":4,"button":"left","double":false,"bytes":12,"session":"rec","tab":"t1"}"#),
-        ("Delivered", r#"{"input":"click","target":"4,3","row":4,"col":3,"button":"right","double":true,"bytes":24,"session":"rec","tab":"t1"}"#),
-        ("Delivered", r#"{"input":"click","target":"OK","row":1,"col":9,"button":"middle","double":false,"bytes":12,"session":"rec","tab":"t1"}"#),
-        ("Delivered", r#"{"input":"mouse","event":"move","row":2,"col":3,"bytes":6,"session":"rec","tab":"t1"}"#),
-        ("Delivered", r#"{"input":"mouse","event":"down","row":2,"col":3,"button":"left","bytes":6,"session":"rec","tab":"t1"}"#),
-        ("Delivered", r#"{"input":"mouse","event":"up","row":2,"col":3,"button":"right","bytes":6,"session":"rec","tab":"t1"}"#),
-        ("Delivered", r#"{"input":"mouse","event":"wheel","row":2,"col":3,"direction":"up","bytes":6,"session":"rec","tab":"t1"}"#),
+        ("Delivered", r#"{"input":"click","target":"@t3","row":2,"col":4,"button":"left","double":false,"bytes":12,"session":"rec","tab":"app"}"#),
+        ("Delivered", r#"{"input":"click","target":"4,3","row":4,"col":3,"button":"right","double":true,"bytes":24,"session":"rec","tab":"app"}"#),
+        ("Delivered", r#"{"input":"click","target":"OK","row":1,"col":9,"button":"middle","double":false,"bytes":12,"session":"rec","tab":"app"}"#),
+        ("Delivered", r#"{"input":"mouse","event":"move","row":2,"col":3,"bytes":6,"session":"rec","tab":"app"}"#),
+        ("Delivered", r#"{"input":"mouse","event":"down","row":2,"col":3,"button":"left","bytes":6,"session":"rec","tab":"app"}"#),
+        ("Delivered", r#"{"input":"mouse","event":"up","row":2,"col":3,"button":"right","bytes":6,"session":"rec","tab":"app"}"#),
+        ("Delivered", r#"{"input":"mouse","event":"wheel","row":2,"col":3,"direction":"up","bytes":6,"session":"rec","tab":"app"}"#),
     ]), @r##"
-        clicked @t3 at 2,4 in rec t1
+        clicked @t3 at 2,4 in rec app
 
         ~
-        clicked 4,3 in rec t1 (right button, double click)
+        clicked 4,3 in rec app (right button, double click)
 
         ~
-        clicked "OK" at 1,9 in rec t1 (middle button)
+        clicked "OK" at 1,9 in rec app (middle button)
 
         ~
-        mouse move to 2,3 in rec t1
+        mouse move to 2,3 in rec app
 
         ~
-        mouse down at 2,3 in rec t1
+        mouse down at 2,3 in rec app
 
         ~
-        mouse up at 2,3 in rec t1 (right button)
+        mouse up at 2,3 in rec app (right button)
 
         ~
-        mouse wheel up at 2,3 in rec t1
+        mouse wheel up at 2,3 in rec app
     "##);
 }
 
 #[test]
 fn a_delivery_that_asked_for_the_screen_prints_it_after_what_it_sent() {
     insta::assert_snapshot!(replied(&[
-        ("Delivered", r#"{"bracketed":false,"bytes":6,"input":"paste","session":"rec","tab":"t1","snapshot":{"alt_screen":false,"cols":30,"cursor":[3,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"frame":1,"lines":["hello [ OK ]","q: quit  h: help","","","",""],"mouse":null,"program":"sh","refs":[{"col":9,"cols":[7,12],"frame":1,"kind":"button","label":"OK","ref":"@t1","row":1,"rows":[1,1]},{"col":1,"cols":[1,7],"frame":1,"kind":"hint","label":"q: quit","ref":"@t2","row":2,"rows":[2,2]},{"col":10,"cols":[10,16],"frame":1,"kind":"hint","label":"h: help","ref":"@t3","row":2,"rows":[2,2]},{"col":1,"cols":[1,30],"frame":1,"kind":"input","label":"","ref":"@t4","row":3,"rows":[3,3]}],"rows":6,"session":"rec","tab":"t1"}}"#),
+        ("Delivered", r#"{"bracketed":false,"bytes":6,"input":"paste","session":"rec","tab":"app","snapshot":{"alt_screen":false,"cols":30,"cursor":[3,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"frame":1,"lines":["hello [ OK ]","q: quit  h: help","","","",""],"mouse":null,"program":"sh","refs":[{"col":9,"cols":[7,12],"frame":1,"kind":"button","label":"OK","ref":"@t1","row":1,"rows":[1,1]},{"col":1,"cols":[1,7],"frame":1,"kind":"hint","label":"q: quit","ref":"@t2","row":2,"rows":[2,2]},{"col":10,"cols":[10,16],"frame":1,"kind":"hint","label":"h: help","ref":"@t3","row":2,"rows":[2,2]},{"col":1,"cols":[1,30],"frame":1,"kind":"input","label":"","ref":"@t4","row":3,"rows":[3,3]}],"rows":6,"session":"rec","tab":"app"}}"#),
     ]), @r##"
-        pasted 6 bytes into rec t1 (plain, the app has not turned on bracketed paste)
-        rec t1 · sh · 30x6 · cursor 3,1 · frame 1
+        pasted 6 bytes into rec app (plain, the app has not turned on bracketed paste)
+        rec app · sh · 30x6 · cursor 3,1 · frame 1
         1│hello [ OK ]
         2│q: quit  h: help
         …│ (rows 3-6 blank)
@@ -434,9 +435,9 @@ fn a_delivery_that_asked_for_the_screen_prints_it_after_what_it_sent() {
 #[test]
 fn a_screenshot_diff_counts_the_pixels_that_differ_against_its_threshold() {
     insta::assert_snapshot!(replied(&[
-        ("ScreenshotDiff", r#"{"baseline":"/home/me/work/shots/base.png","changed":491,"frame":4,"passed":false,"path":"/home/me/work/shots/d.png","pixels":16000,"session":"rec","tab":"t1","threshold":0.0}"#),
-        ("ScreenshotDiff", r#"{"baseline":"/home/me/work/shots/base.png","changed":491,"frame":4,"passed":true,"path":"/home/me/work/shots/d.png","pixels":16000,"session":"rec","tab":"t1","threshold":0.5}"#),
-        ("ScreenshotDiff", r#"{"baseline":"/home/me/work/shots/base.png","changed":0,"frame":4,"passed":true,"path":"/home/me/work/shots/d.png","pixels":16000,"session":"rec","tab":"t1","threshold":0.0}"#),
+        ("ScreenshotDiff", r#"{"baseline":"/home/me/work/shots/base.png","changed":491,"frame":4,"passed":false,"path":"/home/me/work/shots/d.png","pixels":16000,"session":"rec","tab":"app","threshold":0.0}"#),
+        ("ScreenshotDiff", r#"{"baseline":"/home/me/work/shots/base.png","changed":491,"frame":4,"passed":true,"path":"/home/me/work/shots/d.png","pixels":16000,"session":"rec","tab":"app","threshold":0.5}"#),
+        ("ScreenshotDiff", r#"{"baseline":"/home/me/work/shots/base.png","changed":0,"frame":4,"passed":true,"path":"/home/me/work/shots/d.png","pixels":16000,"session":"rec","tab":"app","threshold":0.0}"#),
     ]), @r##"
         491 of 16000 pixels (3.07%) differ from /home/me/work/shots/base.png, above the threshold 0; diff image /home/me/work/shots/d.png
 

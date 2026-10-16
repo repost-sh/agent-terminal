@@ -31,7 +31,7 @@ fn a_second_daemon_is_refused_naming_the_pid_build_and_socket_of_the_one_that_ru
         )
     );
     at.run(&["session", "new", "work"]).success();
-    at.run(&["--session", "work", "open", "--size", "20x2", "cat"]).success();
+    at.run(&["--session", "work", "open", "--name", "app", "--size", "20x2", "cat"]).success();
     assert_eq!(
         at.run(&["--session", "work", "get", "program"]).success().stdout(),
         "cat\n",
@@ -79,7 +79,7 @@ fn a_daemon_replaces_a_socket_nobody_listens_on() {
     drop(UnixListener::bind(at.home().join("daemon.sock")).expect("leave a socket file behind"));
     let mut daemon = started(&at);
     at.run(&["session", "new", "work"]).success();
-    at.run(&["--session", "work", "open", "--size", "20x2", "cat"]).success();
+    at.run(&["--session", "work", "open", "--name", "app", "--size", "20x2", "cat"]).success();
     at.run(&["daemon", "stop"]).success();
     assert!(daemon.wait().expect("wait for the daemon").success());
 }

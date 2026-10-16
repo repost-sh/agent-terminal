@@ -3,9 +3,9 @@ use crate::support::{AgentTerminal, Screen, Shown, fixture};
 #[test]
 fn snapshot_i_lists_refs_for_panels_the_selected_row_and_key_hints() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
-    work t1 · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N
+    work app · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N
     1│┌Files─────────────┐┌Details─────────────────────┐
     2││alpha.txt         ││Selected: alpha.txt         │
     3││beta.txt          ││Size: 50x8                  │
@@ -27,7 +27,7 @@ fn snapshot_i_lists_refs_for_panels_the_selected_row_and_key_hints() {
 #[test]
 fn snapshot_i_json_gives_each_ref_its_place_area_and_frame() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
     let json = at.run(&["--json", "snapshot", "-i"]).success().json();
     let frame = json["frame"].as_u64().expect("a frame number");
     assert_eq!(
@@ -65,7 +65,7 @@ fn box_titles_are_panels() {
         },
     );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
-    work t1 · sh · 30x7 · cursor hidden · frame N
+    work app · sh · 30x7 · cursor hidden · frame N
     1│┌─ Status ──┐ ╭─ Log ─────╮
     2││ ok        │ │ started   │
     3│└───────────┘ ╰───────────╯
@@ -97,7 +97,7 @@ fn inverse_and_highlighted_spans_are_selected() {
         },
     );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
-    work t1 · sh · 30x6 · cursor hidden · frame N
+    work app · sh · 30x6 · cursor hidden · frame N
     1│Files
     2│  notes.txt
     3│  todo.txt
@@ -124,7 +124,7 @@ fn a_background_painted_everywhere_is_not_a_selection() {
         },
     );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
-    work t1 · sh · 20x3 · cursor hidden · frame N
+    work app · sh · 20x3 · cursor hidden · frame N
     1│  one
     2│ two
     3│three
@@ -148,7 +148,7 @@ fn padded_bracket_and_angle_labels_are_buttons() {
         },
     );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
-    work t1 · sh · 40x4 · cursor hidden · frame N
+    work app · sh · 40x4 · cursor hidden · frame N
     1│Save changes?
     2│  [ OK ]  [ Cancel ]  < Yes >  <  No  >
     3│status [x] <space> [INFO] [ ]
@@ -176,7 +176,7 @@ fn osc_8_hyperlinks_are_links_with_their_url() {
         },
     );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
-    work t1 · sh · 30x3 · cursor hidden · frame N
+    work app · sh · 30x3 · cursor hidden · frame N
     1│See the docs or FAQ.
     …│ (rows 2-3 blank)
     refs:
@@ -206,7 +206,7 @@ fn rows_of_key_bindings_are_hints() {
         },
     );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
-    work t1 · sh · 60x6 · cursor hidden · frame N
+    work app · sh · 60x6 · cursor hidden · frame N
     1│Error: file not found
     2│Size: 80x24  Mode: insert
     3│^G Help    ^O Write Out    ^X Exit
@@ -241,7 +241,7 @@ fn the_text_around_a_visible_cursor_is_the_input() {
     );
     at.run(&["wait", "--cursor", "2,13"]).success();
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
-    work t1 · sh · 30x4 · cursor 2,13 · frame N
+    work app · sh · 30x4 · cursor 2,13 · frame N
     1│┌─ Login ────────────┐
     2││ Name: john         │
     3│└────────────────────┘
@@ -257,7 +257,7 @@ fn a_screen_with_nothing_to_act_on_has_no_refs() {
     let at = AgentTerminal::new();
     let _screen = Screen::open(&at, &Shown { size: "20x2", bytes: "\x1b[?25ljust text", wait: "just text" });
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r"
-    work t1 · sh · 20x2 · cursor hidden · frame N
+    work app · sh · 20x2 · cursor hidden · frame N
     1│just text
     …│ (row 2 blank)
     refs: none

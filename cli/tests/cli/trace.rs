@@ -35,8 +35,8 @@ fn trace_export_zips_the_session_folder() {
     let work = at.work_folder();
     let folder = at.home().join("sessions").join("qa");
     at.run(&["session", "new", "qa"]).success();
-    open_printer(&at, "qa", &["open"]);
-    open_printer(&at, "qa", &["tab", "new"]);
+    open_printer(&at, "qa", &["open", "--name", "app"]);
+    open_printer(&at, "qa", &["tab", "new", "--name", "api"]);
     let activity = read(&folder.join("activity.jsonl"));
 
     let exported = at.run_in(&work, &["--session", "qa", "trace", "export", "evidence/qa.zip"]).success().stdout();
@@ -69,7 +69,7 @@ fn unzip_bytes(path: &Path) -> BTreeMap<String, Vec<u8>> {
 fn trace_export_adds_the_screenshots_the_session_saved() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
-    open_printer(&at, "work", &["open"]);
+    open_printer(&at, "work", &["open", "--name", "app"]);
     let frame = at.run(&["get", "frame"]).success().stdout().trim().to_string();
     at.run_in(&work, &["--screenshot-dir", "shots", "screenshot"]).success();
     at.run_in(&work, &["screenshot", "named.png"]).success();
@@ -79,7 +79,7 @@ fn trace_export_adds_the_screenshots_the_session_saved() {
 
     let exported = at.run_in(&work, &["trace", "export", "trace.zip"]).success().stdout();
     let files = unzip_bytes(&work.join("trace.zip"));
-    let default_shot = format!("work-t1-{frame}.png");
+    let default_shot = format!("work-app-{frame}.png");
     let saved = [
         (format!("work/screenshots/{default_shot}"), work.join("shots").join(&default_shot)),
         ("work/screenshots/named.png".to_string(), work.join("named.png")),
@@ -105,7 +105,8 @@ fn trace_export_includes_the_command_log_of_a_shell_tab() {
     let work = at.work_folder();
     let folder = at.home().join("sessions").join("work");
     let cwd = work.to_string_lossy().into_owned();
-    at.run_with_env(&["shell", "--shell", "bash", "--cwd", &cwd], &[("HOME", work.as_path())]).success();
+    at.run_with_env(&["shell", "--name", "shell", "--shell", "bash", "--cwd", &cwd], &[("HOME", work.as_path())])
+        .success();
     at.run(&["exec", "echo traced"]).success();
 
     at.run_in(&work, &["trace", "export", "trace.zip"]).success();
@@ -127,7 +128,7 @@ fn the_command_log_holds_the_command_its_exit_and_output(log: &str) {
 fn trace_export_answers_in_json() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
-    open_printer(&at, "work", &["open"]);
+    open_printer(&at, "work", &["open", "--name", "app"]);
     let exported = at.run_in(&work, &["--json", "trace", "export", "trace.zip"]).success().json();
     let zip = work.join("trace.zip");
     assert_eq!(
@@ -145,7 +146,7 @@ fn trace_export_answers_in_json() {
 fn trace_export_still_works_after_the_session_closed() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
-    open_printer(&at, "work", &["open"]);
+    open_printer(&at, "work", &["open", "--name", "app"]);
     at.run(&["close"]).success();
     at.run_in(&work, &["trace", "export", "after-close.zip"]).success();
     let files = unzip(&work.join("after-close.zip"));
@@ -167,14 +168,14 @@ fn trace_export_of_a_session_that_was_not_created_says_to_create_it() {
 fn trace_export_leaves_out_an_event_still_being_written() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
-    open_printer(&at, "work", &["open"]);
+    open_printer(&at, "work", &["open", "--name", "app"]);
     at.run_in(&work, &["screenshot", "listed.png"]).success();
     let folder = at.home().join("sessions/work");
     let written = |name: &str| read(&folder.join(name));
     let (activity, screenshots) = (written("activity.jsonl"), written("screenshots.jsonl"));
     let half_written = [
-        ("activity.jsonl", r#"{"time":"2026-10-14T14:01:22.051Z","tab":"t1","comm"#),
-        ("screenshots.jsonl", r#"{"time":"2026-10-14T14:01:22.060Z","tab":"t1","fra"#),
+        ("activity.jsonl", r#"{"time":"2026-10-14T14:01:22.051Z","tab":"app","comm"#),
+        ("screenshots.jsonl", r#"{"time":"2026-10-14T14:01:22.060Z","tab":"app","fra"#),
     ];
     for (name, half) in half_written {
         let mut file = std::fs::OpenOptions::new().append(true).open(folder.join(name)).expect("open a session file");

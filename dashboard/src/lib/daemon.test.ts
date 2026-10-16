@@ -5,7 +5,7 @@ import { SESSIONS_STREAM, startDaemon } from "../fake-daemon/daemon";
 import { sessionInfo, tabInfo } from "../fake-daemon/messages";
 import { everySocket, FakeSocket } from "../fake-daemon/sockets";
 
-const SESSIONS = [sessionInfo("work", [tabInfo("t1")])];
+const SESSIONS = [sessionInfo("work", [tabInfo("app")])];
 
 const watched = async () => {
   const { useDaemon } = await import("./daemon");
@@ -48,7 +48,7 @@ test("the sessions arrive and lead home to the first tab, until the daemon is lo
 
   expect(hook.result.current.connection).toBe("connecting");
   await daemon.serve();
-  expect([hook.result.current.connection, hook.result.current.sessions, location.pathname]).toEqual(["connected", SESSIONS, "/s/work/t1"]);
+  expect([hook.result.current.connection, hook.result.current.sessions, location.pathname]).toEqual(["connected", SESSIONS, "/s/work/app"]);
   await daemon.hangUp(SESSIONS_STREAM);
   act(() => {
     shown.navigate("/");

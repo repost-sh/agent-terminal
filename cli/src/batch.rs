@@ -50,6 +50,9 @@ fn from_stdin() -> Result<Vec<Call>, String> {
     if input.trim().is_empty() {
         return Ok(Vec::new());
     }
-    serde_json::from_str(&input)
-        .map_err(|e| format!("stdin is not a JSON array of commands, like [[\"open\", \"htop\"], \"snapshot\"]: {e}"))
+    serde_json::from_str(&input).map_err(|e| {
+        format!(
+            "stdin is not a JSON array of commands, like [[\"open\", \"--name\", \"top\", \"htop\"], \"snapshot\"]: {e}"
+        )
+    })
 }

@@ -31,7 +31,7 @@ test("icon buttons and links name their action for screen readers and tooltips",
     <>
       <IconButton look={{ label: "Copy line", icon: Copy }} />
       <IconButton look={{ label: "Copy", tooltip: "Copy the line", icon: Copy, kind: "head" }} className="extra" />
-      <IconLink href="/s/work/t1" look={{ label: "Open work t1", icon: Copy }} />
+      <IconLink href="/s/work/app" look={{ label: "Open work app", icon: Copy }} />
       <IconLink href="/x" look={{ label: "X", tooltip: "Go to x", icon: Copy }} className="extra" />
     </>,
   );

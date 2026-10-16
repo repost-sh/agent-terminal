@@ -33,7 +33,7 @@ pub(super) struct Follow<T> {
 impl Follow<Terminal> {
     pub(super) fn tab(route: &TabRoute) -> Self {
         let (looking, session, id) = (Arc::clone(&route.backend), route.session.clone(), route.id);
-        Self::new(route.backend.changes(), Box::new(move || looking.terminal(&session, id)))
+        Self::new(route.backend.changes(), Box::new(move || looking.terminal(&session, id?)))
     }
 }
 

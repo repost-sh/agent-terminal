@@ -18,6 +18,7 @@ impl Daemon {
             Request::WaitControl(waiting) => self.wait_control(waiting),
             Request::Attach(_) => Err(attach_on_its_own()),
             Request::SwitchTab(switch) => self.switch_tab(&switch),
+            Request::RenameTab(rename) => self.rename_tab(&rename),
             Request::Input(input) => self.input(input, typed),
             Request::Screenshot(screenshot) => self.screenshot_request(&screenshot, typed),
             Request::DiffScreenshot(diff) => self.diff_screenshot(diff),

@@ -3,8 +3,9 @@ use std::io::{self, Read};
 use serde_json::json;
 
 use super::{
-    Cell, ClickTarget, CommandRecord, Direction, ErrorBody, Modes, MouseButton, MouseEvent, Name, OtherVersion, Reply,
-    ScreenshotFormat, Shell, Size, Snapshot, Style, TabId, TextMatch, Theme, read, read_body, write,
+    Addressed, Cell, ClickTarget, CommandRecord, Direction, ErrorBody, Modes, MouseButton, MouseEvent, Name,
+    OtherVersion, Reply, Request, ScreenshotFormat, Shell, Size, Snapshot, Style, TextMatch, Theme, read, read_body,
+    write,
 };
 
 struct FailingOnce<'a> {
@@ -129,7 +130,7 @@ fn a_command_failed_once_it_ended_with_a_nonzero_exit_code() {
 fn an_error_carries_the_screen_or_the_other_versions_it_met() {
     let screen: Snapshot = serde_json::from_value(json!({
         "session": "default",
-        "tab": "t1",
+        "tab": "app",
         "program": "bash",
         "cols": 80,
         "rows": 24,
@@ -178,7 +179,7 @@ fn screenshot_diff(passed: bool) -> serde_json::Value {
         "reply": "ScreenshotDiff",
         "data": {
             "session": "default",
-            "tab": "t1",
+            "tab": "app",
             "baseline": "/home/me/work/before.png",
             "path": "/home/me/work/diff.png",
             "frame": 4,
@@ -213,7 +214,7 @@ fn a_checked_command_exits_with_its_own_code_and_a_failed_screenshot_diff_with_a
             "reply": "Command",
             "data": {
                 "session": "default",
-                "tab": "t1",
+                "tab": "app",
                 "id": 1,
                 "command": "make",
                 "cwd": "/home/me/work",
@@ -254,18 +255,27 @@ fn a_screenshot_format_and_theme_are_named_in_any_case() {
 }
 
 #[test]
-fn tabs_count_up_from_t1_and_parse_with_or_without_their_t() {
-    assert_eq!(TabId::FIRST.next().next().to_string(), "t3");
+fn a_request_addresses_a_tab_by_its_name() {
+    let addressed = |request: serde_json::Value| match serde_json::from_value::<Request>(request) {
+        Ok(request) => match request.addressed() {
+            Addressed::Tab(session, tab) => format!("{session} {}", tab.map_or("(current)", |tab| &**tab)),
+            Addressed::Session(session) => session.to_string(),
+            Addressed::Nothing => "nothing".to_string(),
+        },
+        Err(refused) => refused.to_string(),
+    };
     assert_eq!(
-        ["t2", "7"].map(|text| text.parse::<TabId>().map(|tab| tab.to_string())),
-        [Ok("t2".into()), Ok("t7".into())]
-    );
-    assert_eq!(
-        ["t0", "tab", ""].map(|text| text.parse::<TabId>().unwrap_err()),
         [
-            "invalid tab id: t0 (expected t1, t2, ...)",
-            "invalid tab id: tab (expected t1, t2, ...)",
-            "invalid tab id:  (expected t1, t2, ...)"
+            addressed(json!({ "command": "snapshot", "session": "work", "tab": "api" })),
+            addressed(json!({ "command": "rename-tab", "session": "work", "tab": null, "name": "web" })),
+            addressed(json!({ "command": "switch-tab", "session": "work", "tab": "web" })),
+            addressed(json!({ "command": "snapshot", "session": "work", "tab": "T1" })),
+        ],
+        [
+            "work api",
+            "work (current)",
+            "work web",
+            "\"T1\" is not a name: a name is 1 to 24 characters of a-z, 0-9 and -, starting with a letter or digit, such as repost-forward"
         ]
     );
 }

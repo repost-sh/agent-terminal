@@ -1,7 +1,7 @@
 use crate::support::{AgentTerminal, Screen, Shown, fixture};
 
 fn open_tui(at: &AgentTerminal) {
-    at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
 }
 
 #[test]
@@ -9,8 +9,8 @@ fn input_snapshot_rows_prints_only_that_range() {
     let at = AgentTerminal::new();
     open_tui(&at);
     insta::assert_snapshot!(at.run(&["press", "Enter", "--snapshot", "--rows", "2:3"]).success().screen(), @r"
-    pressed 1 key in work t1
-    work t1 · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N
+    pressed 1 key in work app
+    work app · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N
     2││alpha.txt         ││Selected: alpha.txt         │
     3││beta.txt          ││Size: 50x8                  │
     ");
@@ -21,8 +21,8 @@ fn input_snapshot_i_lists_refs_for_what_is_on_screen() {
     let at = AgentTerminal::new();
     open_tui(&at);
     insta::assert_snapshot!(at.run(&["type", "z", "--snapshot", "-i"]).success().screen(), @r#"
-    typed 1 key into work t1
-    work t1 · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N
+    typed 1 key into work app
+    work app · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N
     1│┌Files─────────────┐┌Details─────────────────────┐
     2││alpha.txt         ││Selected: alpha.txt         │
     3││beta.txt          ││Size: 50x8                  │
@@ -47,8 +47,8 @@ fn input_snapshot_squeeze_blank_folds_blank_runs() {
     let _screen = Screen::open(&at, &Shown { size: "30x8", bytes: "top\n\n\n\nbottom", wait: "bottom" });
     let typed = at.run(&["type", "z", "--wait", "bottomz", "--snapshot", "-s"]).success();
     insta::assert_snapshot!(typed.screen(), @r"
-    typed 1 key into work t1
-    work t1 · sh · 30x8 · cursor 5,8 · frame N
+    typed 1 key into work app
+    work app · sh · 30x8 · cursor 5,8 · frame N
     1│top
     …│ (rows 2-4 blank)
     5│bottomz

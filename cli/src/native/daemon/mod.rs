@@ -31,9 +31,9 @@ use crate::native::changes::Changes;
 use crate::native::control::{Control, TabHold};
 use crate::native::dashboard::{self, Backend};
 use crate::native::log;
-use crate::native::store::{ActivityEntry, SessionFolder, Typed};
+use crate::native::store::{ActivityEntry, SessionFolder, TabId, Typed};
 use crate::native::terminal::Terminal;
-use crate::protocol::{ErrorBody, HumanInput, Name, Reply, Request, SessionInfo, Sessions, TabId, Target};
+use crate::protocol::{ErrorBody, HumanInput, Name, Reply, Request, SessionInfo, Sessions, TabInfo, Target};
 use lifecycle::Activity;
 use refusals::{error_body, no_session, no_tab, no_terminal, stopping};
 
@@ -62,6 +62,8 @@ struct Session {
 
 #[derive(Clone)]
 struct Tab {
+    name: Name,
+    renamed_from: Option<Name>,
     terminal: Arc<Terminal>,
     control: Arc<Control>,
 }
@@ -135,30 +137,34 @@ impl Daemon {
             .map(|tab| Arc::clone(&tab.terminal))
     }
 
+    fn id_of(&self, session: &str, tab: &str) -> Option<TabId> {
+        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        sessions.get(session).and_then(|entry| entry.named(tab)).map(|(id, _)| *id)
+    }
+
+    fn name_of(&self, session: &str, id: TabId) -> Option<Name> {
+        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        sessions.get(session).and_then(|entry| entry.tabs.get(&id)).map(|tab| tab.name.clone())
+    }
+
     fn terminal_under(&self, session: &str, id: TabId, control: &Arc<Control>) -> Option<Arc<Terminal>> {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         let tab = sessions.get(session).and_then(|entry| entry.tabs.get(&id))?;
         Arc::ptr_eq(&tab.control, control).then(|| Arc::clone(&tab.terminal))
     }
 
-    fn target(&self, target: &Target) -> Result<(TabId, Arc<Terminal>), ErrorBody> {
-        self.tab(target).map(|(id, tab)| (id, tab.terminal))
+    fn target(&self, target: &Target) -> Result<(Name, Arc<Terminal>), ErrorBody> {
+        self.tab(target).map(|(_, tab)| (tab.name, tab.terminal))
     }
 
     fn tab(&self, target: &Target) -> Result<(TabId, Tab), ErrorBody> {
-        self.tab_in(&target.session, target.tab)
+        self.tab_in(&target.session, target.tab.as_deref())
     }
 
-    fn tab_in(&self, session: &str, tab: Option<TabId>) -> Result<(TabId, Tab), ErrorBody> {
+    fn tab_in(&self, session: &str, tab: Option<&str>) -> Result<(TabId, Tab), ErrorBody> {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         let entry = sessions.get(session).ok_or_else(|| no_session(session))?;
-        match tab {
-            Some(id) => entry.tabs.get(&id).map(|t| (id, t.clone())).ok_or_else(|| no_tab(session, id)),
-            None => entry
-                .current
-                .and_then(|id| entry.tabs.get(&id).map(|t| (id, t.clone())))
-                .ok_or_else(|| no_terminal(session)),
-        }
+        entry.find(session, tab).map(|(id, tab)| (id, tab.clone()))
     }
 }
 
@@ -178,6 +184,10 @@ impl Backend for Daemon {
         self.terminal_of(session, tab)
     }
 
+    fn tab_id(&self, session: &str, tab: &str) -> Option<TabId> {
+        self.id_of(session, tab)
+    }
+
     fn folder(&self, session: &str) -> Option<Arc<SessionFolder>> {
         self.sessions.lock().unwrap_or_else(PoisonError::into_inner).get(session).map(|entry| Arc::clone(&entry.folder))
     }
@@ -186,10 +196,10 @@ impl Backend for Daemon {
         self.changes.subscribe()
     }
 
-    fn take_control(&self, session: &str, tab: TabId) -> Result<TabHold, ErrorBody> {
-        self.tab_in(session, Some(tab)).map(|(_, entry)| TabHold {
+    fn take_control(&self, session: &str, tab: &str) -> Result<TabHold, ErrorBody> {
+        self.tab_in(session, Some(tab)).map(|(id, entry)| TabHold {
             session: session.to_string(),
-            tab,
+            tab: id,
             hold: entry.control.take(),
         })
     }
@@ -206,21 +216,22 @@ impl Backend for Daemon {
         let (session, tab, hold) = (taken.session.as_str(), taken.tab, &taken.hold);
         let time = SystemTime::now();
         let started = Instant::now();
-        let (folder, terminal) = {
+        let (folder, name, terminal) = {
             let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
             let found = sessions.get(session).and_then(|s| {
                 let entry = s.tabs.get(&tab).filter(|entry| hold.holds(&entry.control))?;
-                Some((Arc::clone(&s.folder), Arc::clone(&entry.terminal)))
+                Some((Arc::clone(&s.folder), entry.name.clone(), Arc::clone(&entry.terminal)))
             });
-            found.ok_or_else(|| ErrorBody::failure(format!("{session} {tab} was closed")))?
+            found.ok_or_else(|| ErrorBody::failure(format!("the tab a human held in session {session} was closed")))?
         };
         let delivered = terminal.input(&input.input()).map(drop).map_err(|e| {
             let mut error = error_body(&e);
-            error.message = format!("{session} {tab}: {}", error.message);
+            error.message = format!("{session} {name}: {}", error.message);
             error
         });
         let mut entry = ActivityEntry::at(&Typed { time, words: &input.call() }, started.elapsed());
-        entry.tab = Some(tab.to_string());
+        entry.tab_id = Some(tab);
+        entry.tab = Some(name.to_string());
         entry.frame = Some(terminal.frame());
         entry.human = Some(input.clone());
         if let Err(error) = &delivered {
@@ -240,9 +251,28 @@ impl Session {
     fn info(&self, name: &Name) -> SessionInfo {
         SessionInfo {
             session: name.clone(),
-            current: self.current.map(|id| id.to_string()),
-            tabs: self.tabs.iter().map(|(id, tab)| tab.terminal.info(&id.to_string(), tab.control.owner())).collect(),
+            current: self.current.and_then(|id| self.tabs.get(&id)).map(|tab| tab.name.clone()),
+            tabs: self
+                .tabs
+                .values()
+                .map(|tab| TabInfo {
+                    renamed_from: tab.renamed_from.clone(),
+                    ..tab.terminal.info(&tab.name, tab.control.owner())
+                })
+                .collect(),
         }
+    }
+
+    fn named(&self, name: &str) -> Option<(&TabId, &Tab)> {
+        self.tabs.iter().find(|(_, tab)| *tab.name == *name)
+    }
+
+    fn find(&self, session: &str, tab: Option<&str>) -> Result<(TabId, &Tab), ErrorBody> {
+        let found = match tab {
+            Some(name) => self.named(name).ok_or_else(|| no_tab(session, name)),
+            None => self.current.and_then(|id| self.tabs.get_key_value(&id)).ok_or_else(|| no_terminal(session)),
+        };
+        found.map(|(id, tab)| (*id, tab))
     }
 }
 

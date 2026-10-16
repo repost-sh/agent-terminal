@@ -2,7 +2,7 @@ use crate::support::{AgentTerminal, fixture};
 
 fn open_input_echo(at: &AgentTerminal, modes: &[&str]) {
     let echo = fixture("input-echo");
-    let mut args = vec!["open", "--size", "100x4", "--wait", "ready", echo.as_str()];
+    let mut args = vec!["open", "--name", "app", "--size", "100x4", "--wait", "ready", echo.as_str()];
     args.extend_from_slice(modes);
     at.run(&args).success();
 }
@@ -12,7 +12,7 @@ fn type_types_text_key_by_key() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &[]);
     let typed = at.run(&["type", "héllo\tworld\n", "--wait", r"h\xc3\xa9llo\tworld\r"]).success();
-    assert_eq!(typed.stdout(), "typed 12 keys into work t1\n");
+    assert_eq!(typed.stdout(), "typed 12 keys into work app\n");
     assert_eq!(at.received("work"), r"h\xc3\xa9llo\tworld\r");
 }
 
@@ -53,7 +53,7 @@ fn press_sends_named_keys_in_order() {
     args.extend(keys);
     args.extend(["--wait", expected]);
     let pressed = at.run(&args).success();
-    assert_eq!(pressed.stdout(), "pressed 16 keys in work t1\n");
+    assert_eq!(pressed.stdout(), "pressed 16 keys in work app\n");
     assert_eq!(at.received("work"), expected);
 }
 
@@ -140,14 +140,14 @@ fn press_repeats_the_whole_sequence() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &[]);
     let pressed = at.run(&["press", "a", "b", "--repeat", "3", "--wait", "ababab"]).success();
-    assert_eq!(pressed.stdout(), "pressed 6 keys in work t1\n");
+    assert_eq!(pressed.stdout(), "pressed 6 keys in work app\n");
     assert_eq!(at.received("work"), "ababab");
 }
 
 #[test]
 fn press_drives_a_full_screen_app() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
     at.run(&["press", "j", "Down", "--wait", "Selected: gamma.txt"]).success();
     at.run(&["press", "k", "--wait", "Selected: beta.txt"]).success();
     assert_eq!(
@@ -180,7 +180,7 @@ fn press_names_the_plus_key_and_refuses_an_unknown_modifier() {
         (plus.code(), plus.stderr()),
         (
             1,
-            "error: work t1: Ctrl++ has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on\n".to_string()
+            "error: work app: Ctrl++ has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on\n".to_string()
         )
     );
     let unknown = at.run(&["press", "Hyper+a"]);
@@ -209,7 +209,7 @@ fn a_chord_the_app_cannot_receive_is_refused_before_any_key_is_sent() {
     assert_eq!(pressed.code(), 1, "{}", pressed.stderr());
     assert_eq!(
         pressed.stderr(),
-        "error: work t1: Ctrl+1 has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on\n"
+        "error: work app: Ctrl+1 has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on\n"
     );
     at.run(&["press", "b", "--wait", "b"]).success();
     assert_eq!(at.received("work"), "b");
@@ -221,7 +221,7 @@ fn paste_is_a_bracketed_paste_when_the_app_turned_it_on() {
     open_input_echo(&at, &["--bracketed-paste"]);
     let expected = r"\e[200~one\ntwo\e[201~";
     let pasted = at.run(&["paste", "one\ntwo", "--wait", expected]).success();
-    assert_eq!(pasted.stdout(), "pasted 19 bytes into work t1 (bracketed paste)\n");
+    assert_eq!(pasted.stdout(), "pasted 19 bytes into work app (bracketed paste)\n");
     assert_eq!(at.received("work"), expected);
 }
 
@@ -240,7 +240,7 @@ fn paste_writes_the_text_as_typed_lines_when_the_app_has_no_bracketed_paste() {
     open_input_echo(&at, &[]);
     let expected = r"one\rtwo\rthree";
     let pasted = at.run(&["paste", "one\ntwo\r\nthree", "--wait", expected]).success();
-    assert_eq!(pasted.stdout(), "pasted 13 bytes into work t1 (plain, the app has not turned on bracketed paste)\n");
+    assert_eq!(pasted.stdout(), "pasted 13 bytes into work app (plain, the app has not turned on bracketed paste)\n");
     assert_eq!(at.received("work"), expected);
 }
 
@@ -260,7 +260,7 @@ fn signal_sends_each_supported_signal_to_the_program() {
         expected.push_str(shown);
         let sent = at.run(&["signal", signal, "--wait", &expected]).success();
         let name = shown.trim_matches(['[', ']']);
-        assert!(sent.stdout().starts_with(&format!("sent {name} to work t1 (process group ")), "{}", sent.stdout());
+        assert!(sent.stdout().starts_with(&format!("sent {name} to work app (process group ")), "{}", sent.stdout());
     }
     assert_eq!(at.received("work"), expected);
 }
@@ -269,7 +269,7 @@ fn signal_sends_each_supported_signal_to_the_program() {
 fn signal_reaches_the_foreground_process_group_not_just_the_shell() {
     let at = AgentTerminal::new();
     let script = format!("set -m; {}; printf '\\r\\nafter: %s\\r\\n' \"$?\"; read _", fixture("input-echo"));
-    at.run(&["open", "--size", "100x10", "--wait", "ready", "bash", "-c", &script]).success();
+    at.run(&["open", "--name", "app", "--size", "100x10", "--wait", "ready", "bash", "-c", &script]).success();
     let sent = at.run(&["--json", "signal", "INT", "--wait", "[INT]"]).success().json();
     assert_eq!((&sent["input"], &sent["signal"]), (&serde_json::json!("signal"), &serde_json::json!("INT")));
     assert!(sent["process_group"].as_i64().is_some_and(|group| group > 1), "{sent}");
@@ -312,7 +312,7 @@ fn send_writes_raw_bytes_given_with_escapes() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &[]);
     let sent = at.run(&["send", r"a\x01\e[Z\t\\", "--wait", r"a\x01\e[Z\t\\"]).success();
-    assert_eq!(sent.stdout(), "sent 7 raw bytes to work t1\n");
+    assert_eq!(sent.stdout(), "sent 7 raw bytes to work app\n");
     assert_eq!(at.received("work"), r"a\x01\e[Z\t\\");
 }
 
@@ -327,27 +327,52 @@ fn send_refuses_an_unknown_escape_with_exit_code_1() {
 #[test]
 fn input_to_a_program_that_has_exited_fails_with_exit_code_5() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x3", "--no-wait", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "20x3",
+        "--no-wait",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--exit",
+        "7",
+    ])
+    .success();
     at.run(&["wait", "--exit"]).success();
     let sent = at.run(&["send", "x"]);
     assert_eq!(sent.code(), 5, "{}", sent.stderr());
     assert_eq!(
         sent.stderr(),
-        "error: work t1: line-printer has exited with code 7; nothing more can be sent to it (read its last screen with `agent-terminal snapshot`, run it again with `agent-terminal restart`)\n"
+        "error: work app: line-printer has exited with code 7; nothing more can be sent to it (read its last screen with `agent-terminal snapshot`, run it again with `agent-terminal restart`)\n"
     );
 }
 
 #[test]
 fn typing_stops_with_exit_code_5_as_soon_as_the_program_exits() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x3", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
-        .success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "20x3",
+        "--wait",
+        "line 1",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--hold",
+    ])
+    .success();
     let started = std::time::Instant::now();
     let typed = at.run(&["type", "\nab", "--delay", "10000"]);
     assert!(started.elapsed() < std::time::Duration::from_secs(5), "took {:?}", started.elapsed());
     assert_eq!(typed.code(), 5, "{}", typed.stderr());
     assert!(
-        typed.stderr().starts_with("error: work t1: line-printer has exited with code 0; nothing more can be sent"),
+        typed.stderr().starts_with("error: work app: line-printer has exited with code 0; nothing more can be sent"),
         "{}",
         typed.stderr()
     );
@@ -362,7 +387,7 @@ fn waiting_after_input_for_text_that_never_appears_times_out_and_shows_the_scree
     let stderr = pressed.stderr();
     assert!(
         stderr.starts_with(
-            "error: timed out after 300 ms waiting for \"never shown\" to appear; work t1 is still running"
+            "error: timed out after 300 ms waiting for \"never shown\" to appear; work app is still running"
         ),
         "{stderr}"
     );
@@ -377,7 +402,7 @@ fn type_refuses_control_characters_and_sends_nothing() {
     assert_eq!(typed.code(), 1, "{}", typed.stderr());
     assert_eq!(
         typed.stderr(),
-        "error: work t1: cannot type the control character U+001B; press it as a key (Ctrl+c, Esc) or send it with `agent-terminal send`\n"
+        "error: work app: cannot type the control character U+001B; press it as a key (Ctrl+c, Esc) or send it with `agent-terminal send`\n"
     );
     at.run(&["type", "c", "--wait", "c"]).success();
     assert_eq!(at.received("work"), "c");
@@ -390,7 +415,7 @@ fn input_with_nothing_open_explains_how_to_start() {
     assert_eq!(pressed.code(), 1);
     assert_eq!(
         pressed.stderr(),
-        "error: no terminal is open in session work; start one with `agent-terminal open <program>`\n"
+        "error: no terminal is open in session work; start one with `agent-terminal open --name <name> <program>`\n"
     );
 }
 
@@ -399,7 +424,7 @@ fn send_is_marked_as_raw_in_its_json_result() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &[]);
     let sent = at.run(&["--json", "send", r"\r\n", "--wait", r"\r\n"]).success().json();
-    assert_eq!(sent, serde_json::json!({ "session": "work", "tab": "t1", "input": "raw", "bytes": 2 }));
+    assert_eq!(sent, serde_json::json!({ "session": "work", "tab": "app", "input": "raw", "bytes": 2 }));
 }
 
 fn shown_by_input_echo(bytes: &[u8]) -> String {

@@ -68,7 +68,7 @@ fn skills_get_core_full_appends_the_full_command_reference() {
     assert!(reference.starts_with("\n--- command reference ---\n\n"), "{reference}");
     for help in [
         &["-h"][..],
-        &["open", "-h"],
+        &["open", "--name", "app", "-h"],
         &["snapshot", "-h"],
         &["close", "-h"],
         &["skills", "-h"],

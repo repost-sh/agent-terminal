@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use crate::support::{AgentTerminal, DashboardSocket, Redraw, dashboard, frame_number, open_redraw};
 
-const STREAM: &str = "/api/session/work/t1/stream";
+const STREAM: &str = "/api/session/work/app/stream";
 const COUNTED: Duration = Duration::from_secs(5);
 
 fn watch_and_acknowledge(mut socket: DashboardSocket, window_closed: &mpsc::Sender<()>) -> (u32, u64) {
@@ -74,7 +74,20 @@ fn a_viewer_that_stops_acknowledging_receives_two_frames_and_then_one_per_acknow
 #[test]
 fn a_single_change_on_a_quiet_terminal_is_one_message_carrying_the_current_frame() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x4", "--wait", "ready", "--", "sh", "-c", "printf \"ready\\n\"; cat"]).success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "20x4",
+        "--wait",
+        "ready",
+        "--",
+        "sh",
+        "-c",
+        "printf \"ready\\n\"; cat",
+    ])
+    .success();
     let mut socket = DashboardSocket::open(dashboard(&at), STREAM);
     socket.acknowledge_next();
 

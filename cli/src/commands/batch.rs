@@ -8,11 +8,11 @@ use super::{Cli, argv, parsed, request as single};
 use crate::batch::NotValid;
 use crate::output;
 use crate::protocol::request;
-use crate::protocol::{BatchStep, Name, Request, TabId};
+use crate::protocol::{BatchStep, Name, Request};
 
 pub(super) struct Defaults<'a> {
     pub(super) session: Option<&'a Name>,
-    pub(super) tab: Option<TabId>,
+    pub(super) tab: Option<&'a Name>,
     pub(super) timeout: u64,
     pub(super) screenshot_dir: Option<&'a Path>,
 }
@@ -25,7 +25,7 @@ pub(super) fn request(args: &BatchArgs, defaults: &Defaults<'_>) -> Result<Reque
             None => arg.env(None::<&str>),
         })
         .mut_arg("tab", |arg| match defaults.tab {
-            Some(id) => arg.default_value(id.to_string()),
+            Some(tab) => arg.default_value(tab.to_string()),
             None => arg,
         })
         .mut_arg("timeout", |arg| arg.default_value(defaults.timeout.to_string()))

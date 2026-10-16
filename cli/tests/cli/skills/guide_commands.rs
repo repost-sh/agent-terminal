@@ -156,7 +156,7 @@ fn a_guide_that_runs_a_renamed_subcommand_fails_the_check() {
     let at = AgentTerminal::new();
     let mut commands = Commands { at: &at, known: HashMap::new() };
     assert_eq!(commands.path(&["history", "show", "3"]), Ok(vec!["history".to_string(), "show".to_string()]));
-    assert_eq!(commands.path(&["tab", "t2"]), Ok(vec!["tab".to_string()]));
+    assert_eq!(commands.path(&["tab", "api"]), Ok(vec!["tab".to_string()]));
     a_renamed_or_unknown_command_is_named(&mut commands);
 }
 

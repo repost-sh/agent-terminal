@@ -56,7 +56,7 @@ const REPLACED_OR_RESTARTED: &str = "the next command replaces it if it has no o
 fn doctor_flags_a_daemon_of_another_build_and_says_how_it_gets_replaced() {
     let at = AgentTerminal::new();
     let socket = at.home().join("daemon.sock");
-    at.run(&["open", "--size", "20x2", "cat"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x2", "cat"]).success();
     std::fs::write(at.home().join("daemon.version"), "0.0.1").expect("make the daemon report another version");
 
     the_text_report_flags_the_other_version(&at, &socket);
@@ -112,7 +112,7 @@ fn doctor_checks_the_shell_integration_scripts_and_fix_brings_them_up_to_date() 
     let scripts = at.home().join("shell");
     let script = scripts.join("bash/agent-terminal.bash");
     at.run_with(&Call {
-        args: &["shell", "--shell", "bash", "--size", "40x5"],
+        args: &["shell", "--name", "shell", "--shell", "bash", "--size", "40x5"],
         stdin: "",
         env: &[("HOME", &at.home().to_string_lossy())],
     })

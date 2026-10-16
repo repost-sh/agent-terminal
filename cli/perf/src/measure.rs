@@ -118,18 +118,9 @@ fn memory(agent: Agent, busy_screen: &Path) -> Result<(f64, Result<f64>)> {
     daemon.agent().new_session(SESSION)?;
     let without_tabs = daemon.memory()?;
     let per_tab = (|| {
-        for _ in 0..TABS {
-            daemon.agent().run(&[
-                "tab",
-                "new",
-                "--size",
-                SIZE,
-                "--wait",
-                "ready",
-                utf8(busy_screen)?,
-                "--scrollback",
-                SCROLLBACK,
-            ])?;
+        for tab in 0..TABS {
+            let args = ["--size", SIZE, "--wait", "ready", utf8(busy_screen)?, "--scrollback", SCROLLBACK];
+            daemon.agent().open(&format!("tab-{tab}"), &args)?;
         }
         Ok((daemon.memory()? - without_tabs) / f64::from(TABS))
     })();
@@ -216,16 +207,9 @@ impl Screen {
         let screenshot = format!("{}.png", agent.home);
         let daemon = Daemon::start(agent)?;
         daemon.agent().new_session(SESSION)?;
-        daemon.agent().run(&[
-            "open",
-            "--size",
-            SIZE,
-            "--wait",
-            "ready",
-            utf8(busy_screen)?,
-            "--stamps",
-            utf8(&stamps)?,
-        ])?;
+        daemon
+            .agent()
+            .open("screen", &["--size", SIZE, "--wait", "ready", utf8(busy_screen)?, "--stamps", utf8(&stamps)?])?;
         Ok(Screen { daemon, stamps, screenshot, pressed: 0 })
     }
 

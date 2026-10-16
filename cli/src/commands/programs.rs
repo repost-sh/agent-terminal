@@ -8,6 +8,11 @@ use crate::native::pty;
 use crate::protocol::request;
 use crate::protocol::{Name, Request, Shell, Size, TextMatch, Wait};
 
+const NAME_THE_TAB: &str = "name the tab after the program or app it runs, e.g. `--name api`; the name is how later calls reach it (`--tab api`)";
+
+const TAB_NAME_HELP: &str =
+    "The tab's name, after the program or app it runs (e.g. api): 1 to 24 characters of a-z, 0-9 and -";
+
 #[derive(Subcommand)]
 pub(super) enum ProgramCommand {
     #[command(about = "Run a program in a new terminal (prints the first stable screen)")]
@@ -63,6 +68,9 @@ impl ProgramCommand {
 
 #[derive(Args)]
 pub(super) struct OpenArgs {
+    #[arg(long, help = TAB_NAME_HELP, value_name = "NAME", value_parser = clap::value_parser!(Name))]
+    name: Option<Name>,
+
     #[arg(long, help = "Terminal size", value_name = "COLSxROWS", default_value = "120x40", value_parser = parse_size)]
     size: Size,
 
@@ -90,6 +98,9 @@ pub(super) struct OpenArgs {
 
 #[derive(Args)]
 pub(super) struct ShellArgs {
+    #[arg(long, help = TAB_NAME_HELP, value_name = "NAME", value_parser = clap::value_parser!(Name))]
+    name: Option<Name>,
+
     #[arg(long, value_enum, help = "The shell to open (default: your SHELL)")]
     shell: Option<ShellName>,
 
@@ -178,6 +189,7 @@ fn environment(extra: Vec<(String, String)>) -> Vec<(String, String)> {
 }
 
 fn shell(session: Name, args: ShellArgs, timeout_ms: u64) -> Result<Request, String> {
+    let tab = args.name.ok_or(NAME_THE_TAB)?;
     let current = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
     let cwd = args.cwd.map_or_else(|| current.clone(), |cwd| current.join(cwd));
     let env = environment(args.env);
@@ -191,7 +203,7 @@ fn shell(session: Name, args: ShellArgs, timeout_ms: u64) -> Result<Request, Str
         (false, None, Some(quiet_ms)) => Some(Wait::Stable { quiet_ms }),
         (false, None, None) => Some(Wait::Command),
     };
-    Ok(Request::Shell(request::OpenShell { session, shell, program, size: args.size, cwd, env, wait, timeout_ms }))
+    Ok(Request::Shell(request::OpenShell { session, tab, shell, program, size: args.size, cwd, env, wait, timeout_ms }))
 }
 
 fn your_shell(env: &[(String, String)]) -> Result<(Shell, String), String> {
@@ -208,13 +220,15 @@ fn your_shell(env: &[(String, String)]) -> Result<(Shell, String), String> {
 
 impl OpenArgs {
     pub(super) fn request(self, session: Name, timeout_ms: u64) -> Result<Request, String> {
+        let tab = self.name.ok_or(NAME_THE_TAB)?;
         let current = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
         let cwd = self.cwd.map_or_else(|| current.clone(), |cwd| current.join(cwd));
         let env = environment(self.env);
         let mut command = self.command.into_iter();
         Ok(Request::Open(request::Open {
             session,
-            program: command.next().ok_or("open needs a program to run, e.g. open htop")?,
+            tab,
+            program: command.next().ok_or("open needs a program to run, e.g. open --name top htop")?,
             args: command.collect(),
             size: self.size,
             cwd,

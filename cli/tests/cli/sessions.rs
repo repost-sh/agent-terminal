@@ -5,13 +5,13 @@ fn session_new_creates_an_empty_session_and_a_second_one_with_its_name_fails_nam
     let at = AgentTerminal::without_session();
     assert_eq!(at.run(&["session", "new", "a"]).success().stdout(), "created session a\n");
     assert_eq!(at.run(&["session", "list"]).success().stdout(), "a · no tabs\n");
-    at.run(&["--session", "a", "open", "--size", "20x2", "cat"]).success();
+    at.run(&["--session", "a", "open", "--name", "app", "--size", "20x2", "cat"]).success();
     let taken = at.run(&["session", "new", "a"]);
     let stderr = taken.stderr();
     assert_eq!(taken.code(), 1);
     assert!(
         stderr.starts_with("error: session a is taken: open for ")
-            && stderr.ends_with(", 1 tab: t1; pick another name for this conversation\n"),
+            && stderr.ends_with(", 1 tab: app; pick another name for this conversation\n"),
         "{stderr}"
     );
 }
@@ -57,6 +57,7 @@ fn session_without_a_session_says_how_to_name_and_create_one() {
 
 #[test]
 fn sessions_never_see_each_others_terminals() {
+    let printer = fixture("line-printer");
     let at = AgentTerminal::new();
     at.run(&["session", "new", "a"]).success();
     at.run(&["session", "new", "b"]).success();
@@ -64,11 +65,13 @@ fn sessions_never_see_each_others_terminals() {
         "--session",
         "a",
         "open",
+        "--name",
+        "app",
         "--size",
         "20x2",
         "--wait",
         "line 1",
-        &fixture("line-printer"),
+        &printer,
         "--lines",
         "1",
         "--hold",
@@ -76,7 +79,7 @@ fn sessions_never_see_each_others_terminals() {
     .success();
     at.run_with_session_env(
         "b",
-        &["open", "--size", "20x3", "--wait", "line 2", &fixture("line-printer"), "--lines", "2", "--hold"],
+        &["open", "--name", "app", "--size", "20x3", "--wait", "line 2", &printer, "--lines", "2", "--hold"],
     )
     .success();
 
@@ -85,12 +88,12 @@ fn sessions_never_see_each_others_terminals() {
     assert!(default.stderr().contains("no terminal is open in session work"), "{}", default.stderr());
 
     insta::assert_snapshot!(at.run(&["--session", "a", "snapshot"]).success().screen(), @r"
-    a t1 · line-printer · 20x2 · cursor 2,1 · frame N
+    a app · line-printer · 20x2 · cursor 2,1 · frame N
     1│line 1
     …│ (row 2 blank)
     ");
     insta::assert_snapshot!(at.run_with_session_env("b", &["snapshot"]).success().screen(), @r"
-    b t1 · line-printer · 20x3 · cursor 3,1 · frame N
+    b app · line-printer · 20x3 · cursor 3,1 · frame N
     1│line 1
     2│line 2
     …│ (row 3 blank)
@@ -104,25 +107,29 @@ fn session_list_shows_every_tab_with_its_program_size_and_status() {
 
     assert_eq!(
         at.run(&["session", "list"]).success().stdout(),
-        "a t1 · line-printer · 30x5 · running\n\
-         a t2 · line-printer · 20x3 · exited 4 · current\n\
-         b t1 · fixture-tui · 50x8 · running · current\n"
+        "a app · line-printer · 30x5 · running\n\
+         a api · line-printer · 20x3 · exited 4 · current\n\
+         b app · fixture-tui · 50x8 · running · current\n"
     );
     session_list_json_describes_every_tab(&at);
 }
 
 fn open_a_with_a_running_and_an_exited_tab_and_b(at: &AgentTerminal) {
+    let tui = fixture("fixture-tui");
+    let printer = fixture("line-printer");
     at.run(&["session", "new", "a"]).success();
     at.run(&["session", "new", "b"]).success();
     at.run(&[
         "--session",
         "a",
         "open",
+        "--name",
+        "app",
         "--size",
         "30x5",
         "--wait",
         "line 1",
-        &fixture("line-printer"),
+        &printer,
         "--lines",
         "1",
         "--hold",
@@ -132,10 +139,12 @@ fn open_a_with_a_running_and_an_exited_tab_and_b(at: &AgentTerminal) {
         "--session",
         "a",
         "open",
+        "--name",
+        "api",
         "--size",
         "20x3",
         "--no-wait",
-        &fixture("line-printer"),
+        &printer,
         "--lines",
         "1",
         "--exit",
@@ -143,7 +152,7 @@ fn open_a_with_a_running_and_an_exited_tab_and_b(at: &AgentTerminal) {
     ])
     .success();
     at.run(&["--session", "a", "wait", "--exit"]).success();
-    at.run(&["--session", "b", "open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    at.run(&["--session", "b", "open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &tui]).success();
 }
 
 fn session_list_json_describes_every_tab(at: &AgentTerminal) {
@@ -152,19 +161,19 @@ fn session_list_json_describes_every_tab(at: &AgentTerminal) {
     assert_eq!(
         at.run(&["--json", "session", "list"]).success().json(),
         serde_json::json!({ "sessions": [
-            { "session": "a", "current": "t2", "tabs": [
+            { "session": "a", "current": "api", "tabs": [
                 {
-                    "tab": "t1", "program": "line-printer", "command": format!("{printer} --lines 1 --hold"), "cwd": cwd,
+                    "tab": "app", "program": "line-printer", "command": format!("{printer} --lines 1 --hold"), "cwd": cwd,
                     "cols": 30, "rows": 5, "exited": false, "exit_code": null, "control": "agent",
                 },
                 {
-                    "tab": "t2", "program": "line-printer", "command": format!("{printer} --lines 1 --exit 4"), "cwd": cwd,
+                    "tab": "api", "program": "line-printer", "command": format!("{printer} --lines 1 --exit 4"), "cwd": cwd,
                     "cols": 20, "rows": 3, "exited": true, "exit_code": 4, "control": "agent",
                 },
             ] },
-            { "session": "b", "current": "t1", "tabs": [
+            { "session": "b", "current": "app", "tabs": [
                 {
-                    "tab": "t1", "program": "fixture-tui", "command": fixture("fixture-tui"), "cwd": cwd,
+                    "tab": "app", "program": "fixture-tui", "command": fixture("fixture-tui"), "cwd": cwd,
                     "cols": 50, "rows": 8, "exited": false, "exit_code": null, "control": "agent",
                 },
             ] },

@@ -17,10 +17,10 @@ fn with_no_sessions_the_dashboard_offers_the_commands_to_get_started() {
             "Start a terminal from the CLI, or create a session here",
             "agent-terminal session new <name>",
             "Copy agent-terminal session new <name>",
-            "agent-terminal --session <name> open <program>",
-            "Copy agent-terminal --session <name> open <program>",
-            "agent-terminal --session <name> shell",
-            "Copy agent-terminal --session <name> shell",
+            "agent-terminal --session <name> open --name <tab> <program>",
+            "Copy agent-terminal --session <name> open --name <tab> <program>",
+            "agent-terminal --session <name> shell --name <tab>",
+            "Copy agent-terminal --session <name> shell --name <tab>",
             "agent-terminal skills get core",
             "Copy agent-terminal skills get core",
             "New session",
@@ -32,10 +32,22 @@ fn with_no_sessions_the_dashboard_offers_the_commands_to_get_started() {
 #[test]
 fn losing_the_daemon_shows_reconnecting_then_disconnected_and_retry_reconnects() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "30x4", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
-        .success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "30x4",
+        "--wait",
+        "line 1",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--hold",
+    ])
+    .success();
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/work/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/app"));
     browser.wait_for_status("Live");
 
     at.run(&["daemon", "stop"]).success();

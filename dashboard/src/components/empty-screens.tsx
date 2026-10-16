@@ -9,8 +9,8 @@ const DEFAULT_PORT = "4849";
 
 const START_COMMANDS = [
   "agent-terminal session new <name>",
-  "agent-terminal --session <name> open <program>",
-  "agent-terminal --session <name> shell",
+  "agent-terminal --session <name> open --name <tab> <program>",
+  "agent-terminal --session <name> shell --name <tab>",
   "agent-terminal skills get core",
 ];
 

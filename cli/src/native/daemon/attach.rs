@@ -10,10 +10,9 @@ use super::Daemon;
 use crate::native::control::{Control, TabHold};
 use crate::native::dashboard::Backend;
 use crate::native::log;
+use crate::native::store::TabId;
 use crate::native::terminal::{Picture, Status, Terminal};
-use crate::protocol::{
-    self, AttachEvent, AttachInput, Attached, HumanInput, Mirror, Reply, Response, Size, TabId, request,
-};
+use crate::protocol::{self, AttachEvent, AttachInput, Attached, HumanInput, Mirror, Reply, Response, Size, request};
 
 struct Watched {
     terminal: Arc<Terminal>,
@@ -30,6 +29,7 @@ struct Shown {
 struct Mirroring<'a> {
     daemon: &'a Daemon,
     session: &'a str,
+    name: &'a str,
     id: TabId,
     control: &'a Arc<Control>,
     hold: Option<&'a TabHold>,
@@ -49,12 +49,18 @@ impl Daemon {
                 });
                 let reply = Reply::Attached(Attached {
                     session: session.to_string(),
-                    tab: id.to_string(),
+                    tab: attached.name.to_string(),
                     program: attached.terminal.program().to_string(),
                     read_only,
                 });
-                let mirroring =
-                    Mirroring { daemon: self, session, id, control: &attached.control, hold: hold.as_ref() };
+                let mirroring = Mirroring {
+                    daemon: self,
+                    session,
+                    name: &attached.name,
+                    id,
+                    control: &attached.control,
+                    hold: hold.as_ref(),
+                };
                 mirroring.serve(stream, reply);
             }
             Err(error) => {
@@ -68,16 +74,16 @@ impl Daemon {
 
 impl Mirroring<'_> {
     fn serve(&self, mut stream: UnixStream, reply: Reply) {
-        let (session, id) = (self.session, self.id);
+        let (session, tab) = (self.session, self.name);
         if let Err(e) = protocol::write(&mut stream, &Response::Ok(reply)) {
-            log::note(format_args!("attach: answering the attach to {session} {id} failed: {e:#}"));
+            log::note(format_args!("attach: answering the attach to {session} {tab} failed: {e:#}"));
             return;
         }
         if let Err(e) = self.run(&stream) {
-            log::note(format_args!("attach: mirroring {session} {id} ended: {e:#}"));
+            log::note(format_args!("attach: mirroring {session} {tab} ended: {e:#}"));
         }
         if let Err(e) = stream.shutdown(Shutdown::Both) {
-            log::note(format_args!("attach: closing the connection to {session} {id} failed: {e}"));
+            log::note(format_args!("attach: closing the connection to {session} {tab} failed: {e}"));
         }
     }
 

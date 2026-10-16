@@ -2,13 +2,13 @@ use std::sync::{Arc, PoisonError};
 use std::time::{Instant, SystemTime};
 
 use super::Daemon;
-use crate::native::store::{ActivityEntry, Pending, SessionFolder, Typed};
+use crate::native::store::{ActivityEntry, Pending, SessionFolder, TabId, Typed};
 use crate::output;
-use crate::protocol::{Addressed, ErrorBody, Input, Name, Reply, Request, TabId, Target, request};
+use crate::protocol::{Addressed, ErrorBody, Input, Name, Reply, Request, request};
 
 pub(super) struct Logged {
     session: Name,
-    tab: Option<TabId>,
+    tab: Option<(TabId, String)>,
     raw: bool,
     folder: Option<Arc<SessionFolder>>,
     pending: Option<Pending>,
@@ -23,13 +23,14 @@ impl Daemon {
         let (session, tab) = match request.addressed() {
             Addressed::Nothing => return None,
             Addressed::Session(session) => (session, None),
-            Addressed::Tab(session, Some(id)) => (session, Some(id)),
-            Addressed::Tab(session, None) => (session, sessions.get(session).and_then(|s| s.current)),
+            Addressed::Tab(session, tab) => {
+                let found = sessions.get(session).and_then(|s| s.find(session, tab.map(|name| &**name)).ok());
+                (session, found.map(|(id, tab)| (id, tab.name.to_string())))
+            }
         };
         let time = SystemTime::now();
         let folder = sessions.get(session).map(|s| Arc::clone(&s.folder));
-        let pending =
-            folder.as_ref().map(|folder| folder.begin(&Typed { time, words: &typed }, tab.map(|id| id.to_string())));
+        let pending = folder.as_ref().map(|folder| folder.begin(&Typed { time, words: &typed }, tab.clone()));
         Some(Logged {
             session: session.clone(),
             tab,
@@ -68,16 +69,20 @@ impl Daemon {
             Err(failure) => failure.snapshot.as_deref(),
             Ok(_) => None,
         };
-        entry.tab = shown.map(|snapshot| snapshot.tab.clone()).or_else(|| logged.tab.map(|id| id.to_string()));
-        entry.frame = shown.map(|snapshot| snapshot.frame).or_else(|| self.frame_of(logged));
+        let opened = shown.and_then(|snapshot| self.id_of(&logged.session, &snapshot.tab));
+        entry.tab_id = logged.tab.as_ref().map(|(id, _)| *id).or(opened);
+        entry.tab = entry
+            .tab_id
+            .and_then(|id| self.name_of(&logged.session, id))
+            .map(String::from)
+            .or_else(|| shown.map(|snapshot| snapshot.tab.clone()))
+            .or_else(|| logged.tab.as_ref().map(|(_, name)| name.clone()));
+        entry.frame = shown
+            .map(|snapshot| snapshot.frame)
+            .or_else(|| self.terminal_of(&logged.session, entry.tab_id?).map(|terminal| terminal.frame()));
         record_outcome(&mut entry, handled);
         entry.screenshots = screenshots(handled);
         entry
-    }
-
-    fn frame_of(&self, logged: &Logged) -> Option<u64> {
-        let (_, terminal) = self.target(&Target::tab(&logged.session, logged.tab?)).ok()?;
-        Some(terminal.frame())
     }
 }
 

@@ -370,6 +370,80 @@
             }
           ],
           "tags": []
+        },
+        {
+          "line": 27,
+          "name": "a program opened without naming its tab is refused",
+          "steps": [
+            {
+              "keyword": "Given",
+              "line": 28,
+              "table": null,
+              "text": "the agent works in its own session \"qa\""
+            },
+            {
+              "keyword": "When",
+              "line": 29,
+              "table": null,
+              "text": "the agent opens a program without naming its tab"
+            },
+            {
+              "keyword": "Then",
+              "line": 30,
+              "table": null,
+              "text": "the command fails with exit code 1"
+            },
+            {
+              "keyword": "And",
+              "line": 31,
+              "table": null,
+              "text": "the error says to name the tab with \"--name api\""
+            }
+          ],
+          "tags": []
+        },
+        {
+          "line": 33,
+          "name": "a tab is reached by its name, and by its new name after a rename",
+          "steps": [
+            {
+              "keyword": "Given",
+              "line": 34,
+              "table": null,
+              "text": "the agent works in its own session \"qa\""
+            },
+            {
+              "keyword": "And",
+              "line": 35,
+              "table": null,
+              "text": "tabs named \"api\" and \"app\" are open"
+            },
+            {
+              "keyword": "When",
+              "line": 36,
+              "table": null,
+              "text": "the agent renames the tab \"api\" to \"web\""
+            },
+            {
+              "keyword": "And",
+              "line": 37,
+              "table": null,
+              "text": "the agent reads the screen of the tab \"web\""
+            },
+            {
+              "keyword": "Then",
+              "line": 38,
+              "table": null,
+              "text": "the command succeeds"
+            },
+            {
+              "keyword": "And",
+              "line": 39,
+              "table": null,
+              "text": "the screen is the tab \"web\""
+            }
+          ],
+          "tags": []
         }
       ]
     }

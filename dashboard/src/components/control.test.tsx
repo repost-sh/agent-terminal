@@ -5,13 +5,13 @@ import { App } from "../app";
 import { startDaemon, type FakeDaemon } from "../fake-daemon/daemon";
 import { frameOf, sessionInfo, tabInfo } from "../fake-daemon/messages";
 
-const streamOf = (session: string) => `/api/session/${session}/t1/stream`;
-const controlOf = (session: string) => `/api/session/${session}/t1/control`;
+const streamOf = (session: string) => `/api/session/${session}/app/stream`;
+const controlOf = (session: string) => `/api/session/${session}/app/control`;
 
 const announced = () => screen.getByRole("status", { name: "Announcements" }).textContent;
 
 const liveApp = async (session: string) => {
-  const daemon = startDaemon([sessionInfo(session, [tabInfo("t1", { program: "vim" })])]);
+  const daemon = startDaemon([sessionInfo(session, [tabInfo("app", { program: "vim" })])]);
 
   render(<App />);
   await daemon.serve();
@@ -28,7 +28,7 @@ const held = async (daemon: FakeDaemon, session: string) => {
   await daemon.connected(controlOf(session));
   await daemon.push(controlOf(session), { type: "held" });
 
-  return screen.getByRole("application", { name: `Terminal ${session} t1, you have control` });
+  return screen.getByRole("application", { name: `Terminal ${session} app, you have control` });
 };
 
 test("taking control focuses the terminal, and its keys and pastes reach the program", async () => {
@@ -39,7 +39,7 @@ test("taking control focuses the terminal, and its keys and pastes reach the pro
 
   expect(screen.getByRole("button", { name: "Release control" }).outerHTML).toMatchSnapshot();
 
-  expect([terminal.matches(":focus"), announced()]).toEqual([true, "You have control of keys t1"]);
+  expect([terminal.matches(":focus"), announced()]).toEqual([true, "You have control of keys app"]);
   expect(screen.getByText("Keys go to vim · ctrl+p ctrl+q moves focus out")).toBeTruthy();
   const keys = [
     { key: "a" },
@@ -99,7 +99,7 @@ test("a refused take says so, a refused key names the program, and the agent's r
   fireEvent.click(await screen.findByRole("button", { name: "Take control" }));
   await daemon.connected(controlOf("refused"));
   await daemon.push(controlOf("refused"), { type: "refused", message: "the agent is mid-command" });
-  expect(screen.getByText("Could not take control of refused t1")).toBeTruthy();
+  expect(screen.getByText("Could not take control of refused app")).toBeTruthy();
   expect(screen.getByText("the agent is mid-command")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Take control" })).toBeTruthy();
   await daemon.hangUp(controlOf("refused"));

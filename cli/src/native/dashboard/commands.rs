@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use super::Backend;
 use super::follow::Follow;
-use super::route::{TabRoute, not_a_tab};
+use super::route::TabRoute;
 use super::stream::send;
-use super::{Backend, tab_id};
 use crate::protocol::{CommandOutput, CommandRecord, Shell};
 use axum::Json;
 use axum::extract::ws::{WebSocket, WebSocketUpgrade};
@@ -48,8 +48,7 @@ pub(super) async fn output(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab, id)): Path<(String, String, u32)>,
 ) -> Response {
-    let Some(tab_id) = tab_id(&tab) else { return not_a_tab(&tab) };
-    let Some(terminal) = backend.terminal(&session, tab_id) else {
+    let Some(terminal) = backend.tab_id(&session, &tab).and_then(|id| backend.terminal(&session, id)) else {
         return (StatusCode::NOT_FOUND, format!("{session} {tab} is not open")).into_response();
     };
     match terminal.styled_command(id) {

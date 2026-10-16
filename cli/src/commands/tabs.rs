@@ -4,7 +4,7 @@ use super::programs::{OpenArgs, WaitArgs};
 use super::values::parse_size;
 use super::{Context, ON_ITS_OWN};
 use crate::protocol::request;
-use crate::protocol::{Name, Request, Size, TabId, Target};
+use crate::protocol::{Name, Request, Size, Target};
 
 const BYPASS_WITH_SESSION: &str = "the argument '--bypass-session' cannot be used with '--session <NAME>': close --all --session <name> closes the tabs of that session, close --all --bypass-session closes every tab in every session";
 
@@ -36,10 +36,10 @@ pub(super) enum TabCommand {
         #[command(subcommand)]
         action: Option<SessionAction>,
     },
-    #[command(about = "List tabs in this session (tab <id> switches to one)", args_conflicts_with_subcommands = true)]
+    #[command(about = "List tabs in this session (tab <name> switches to one)", args_conflicts_with_subcommands = true)]
     Tab {
-        #[arg(help = "Switch to this tab", value_name = "ID", value_parser = clap::value_parser!(TabId))]
-        id: Option<TabId>,
+        #[arg(help = "Switch to the tab with this name", value_name = "NAME", value_parser = clap::value_parser!(Name))]
+        name: Option<Name>,
         #[command(subcommand)]
         action: Option<TabAction>,
     },
@@ -66,10 +66,19 @@ pub(super) enum TabAction {
     List,
     #[command(about = "Another terminal in the same session (e.g. a server next to the app)")]
     New(OpenArgs),
-    #[command(about = "Close a tab (the current one when no id is given)")]
+    #[command(about = "Close a tab (the current one when no name is given)")]
     Close {
-        #[arg(value_parser = clap::value_parser!(TabId), value_name = "ID")]
-        id: Option<TabId>,
+        #[arg(help = "The tab's name", value_parser = clap::value_parser!(Name), value_name = "NAME")]
+        name: Option<Name>,
+    },
+    #[command(about = "Give the current tab (or the --tab one) a new name, e.g. tab rename api")]
+    Rename {
+        #[arg(
+            help = "The new name: 1 to 24 characters of a-z, 0-9 and -",
+            value_name = "NEW",
+            value_parser = clap::value_parser!(Name)
+        )]
+        name: Name,
     },
 }
 
@@ -83,14 +92,20 @@ impl TabCommand {
             TabCommand::Session { action: Some(SessionAction::List) } => Request::Sessions,
             TabCommand::Session { action: None } => return Err(ON_ITS_OWN.into()),
             TabCommand::Tab { action: Some(TabAction::New(args)), .. } => args.request(context.session()?, timeout)?,
-            TabCommand::Tab { id: Some(tab), .. } => {
+            TabCommand::Tab { action: Some(TabAction::Rename { name }), .. } => {
+                Request::RenameTab(request::RenameTab { target: context.target()?, name })
+            }
+            TabCommand::Tab { name: Some(tab), .. } => {
                 Request::SwitchTab(request::SwitchTab { session: context.session()?, tab })
             }
-            TabCommand::Tab { id: None, action: None | Some(TabAction::List) } => {
+            TabCommand::Tab { name: None, action: None | Some(TabAction::List) } => {
                 Request::Tabs(request::Tabs { session: context.session()? })
             }
-            TabCommand::Tab { action: Some(TabAction::Close { id }), .. } => {
-                Request::Close(request::Close::Tab(Target { tab: id.or(context.tab), session: context.session()? }))
+            TabCommand::Tab { action: Some(TabAction::Close { name }), .. } => {
+                Request::Close(request::Close::Tab(Target {
+                    tab: name.or_else(|| context.tab.clone()),
+                    session: context.session()?,
+                }))
             }
             TabCommand::Restart(wait) => Request::Restart(request::Restart {
                 target: context.target()?,

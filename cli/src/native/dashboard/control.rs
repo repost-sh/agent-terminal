@@ -34,22 +34,22 @@ struct Refusals {
     folder: Arc<SessionFolder>,
     logged: watch::Receiver<u64>,
     offset: u64,
-    tab: String,
+    tab: Value,
 }
 
 impl Refusals {
-    async fn start(folder: Arc<SessionFolder>, tab: String) -> Option<Self> {
+    async fn start(folder: Arc<SessionFolder>, tab: Value) -> Option<Self> {
         let mut logged = folder.logged();
         logged.borrow_and_update();
         let reading = Arc::clone(&folder);
         let offset = match tokio::task::spawn_blocking(move || reading.activity_since(0)).await {
             Ok(Ok((_, end))) => end,
             Ok(Err(e)) => {
-                log::note(format_args!("dashboard: reading the activity of {tab} failed: {e:#}"));
+                log::note(format_args!("dashboard: reading the activity of a held tab failed: {e:#}"));
                 return None;
             }
             Err(e) => {
-                log::note(format_args!("dashboard: reading the activity of {tab} failed: {e}"));
+                log::note(format_args!("dashboard: reading the activity of a held tab failed: {e}"));
                 return None;
             }
         };
@@ -65,11 +65,11 @@ impl Refusals {
                 entries
             }
             Ok(Err(e)) => {
-                log::note(format_args!("dashboard: reading the activity of {} failed: {e:#}", self.tab));
+                log::note(format_args!("dashboard: reading the activity of a held tab failed: {e:#}"));
                 return Vec::new();
             }
             Err(e) => {
-                log::note(format_args!("dashboard: reading the activity of {} failed: {e}", self.tab));
+                log::note(format_args!("dashboard: reading the activity of a held tab failed: {e}"));
                 return Vec::new();
             }
         };
@@ -82,7 +82,7 @@ impl Refusals {
     }
 
     fn refused_here(&self, entry: &Value) -> bool {
-        entry.get("tab").is_some_and(|tab| *tab == self.tab)
+        entry.get("tab_id").is_some_and(|tab| *tab == self.tab)
             && entry.get("exit").is_some_and(|exit| *exit == crate::exit::HUMAN_CONTROL)
     }
 }
@@ -117,10 +117,10 @@ async fn hold(mut socket: WebSocket, route: TabRoute) {
 }
 
 async fn take_control(socket: &mut WebSocket, route: &TabRoute) -> Option<Arc<TabHold>> {
-    let TabRoute { backend, session, id } = route;
+    let TabRoute { backend, session, name, .. } = route;
     let taking = {
-        let (backend, session, id) = (Arc::clone(backend), session.clone(), *id);
-        tokio::task::spawn_blocking(move || backend.take_control(&session, id)).await
+        let (backend, session, name) = (Arc::clone(backend), session.clone(), name.clone());
+        tokio::task::spawn_blocking(move || backend.take_control(&session, &name)).await
     };
     match taking {
         Ok(Ok(hold)) => Some(Arc::new(hold)),
@@ -129,7 +129,7 @@ async fn take_control(socket: &mut WebSocket, route: &TabRoute) -> Option<Arc<Ta
             None
         }
         Err(e) => {
-            log::note(format_args!("dashboard: taking control of {session} {id} failed: {e}"));
+            log::note(format_args!("dashboard: taking control of {session} {name} failed: {e}"));
             None
         }
     }
@@ -137,9 +137,9 @@ async fn take_control(socket: &mut WebSocket, route: &TabRoute) -> Option<Arc<Ta
 
 impl Holding {
     async fn start(backend: Arc<dyn Backend>, hold: Arc<TabHold>) -> Self {
-        let refusals = match backend.folder(&hold.session) {
-            Some(folder) => Refusals::start(folder, hold.tab.to_string()).await,
-            None => None,
+        let refusals = match (backend.folder(&hold.session), serde_json::to_value(hold.tab)) {
+            (Some(folder), Ok(tab)) => Refusals::start(folder, tab).await,
+            _ => None,
         };
         Self { backend, hold, refusals }
     }

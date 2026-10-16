@@ -7,7 +7,7 @@ use super::stream::send;
 use crate::native::log;
 use crate::native::output_log::{Marked, Output, Slice};
 use crate::native::pty;
-use crate::native::store::{PendingCall, SessionFolder};
+use crate::native::store::{PendingCall, SessionFolder, TabId};
 use crate::native::terminal::Terminal;
 use crate::output::call_line;
 use crate::protocol::{Modes, Shell};
@@ -77,7 +77,7 @@ pub(super) async fn activity(ws: WebSocketUpgrade, route: TabRoute) -> Response 
 }
 
 async fn follow_activity(mut socket: WebSocket, route: TabRoute) {
-    let (session, tab) = (route.session.as_str(), route.id.to_string());
+    let (session, tab) = (route.session.as_str(), Tab { name: &route.name, id: route.id });
     let folder = route.backend.folder(session);
     let logged = folder.as_ref().map(|folder| folder.logged());
     let folder = folder.as_ref().map_or_else(Weak::new, Arc::downgrade);
@@ -122,16 +122,24 @@ struct Read {
     pending: Vec<PendingCall>,
 }
 
-async fn read_activity(folder: Arc<SessionFolder>, offset: u64, session: &str, tab: &str) -> Option<Read> {
+struct Tab<'a> {
+    name: &'a str,
+    id: Option<TabId>,
+}
+
+async fn read_activity(folder: Arc<SessionFolder>, offset: u64, session: &str, tab: &Tab<'_>) -> Option<Read> {
     let read = match tokio::task::spawn_blocking(move || folder.activity_and_pending_since(offset)).await {
         Ok(read) => read,
         Err(e) => Err(e.into()),
     };
+    let name = tab.name;
     let (entries, end, pending) = read
-        .inspect_err(|e| log::note(format_args!("dashboard: reading the activity of {session} {tab} failed: {e:#}")))
+        .inspect_err(|e| log::note(format_args!("dashboard: reading the activity of {session} {name} failed: {e:#}")))
         .ok()?;
-    let entries = entries.into_iter().filter(|entry| entry.get("tab").is_some_and(|mine| *mine == tab)).collect();
-    let pending = pending.into_iter().filter(|call| call.tab.as_deref() == Some(tab)).collect();
+    let id = tab.id.and_then(|id| serde_json::to_value(id).ok());
+    let entries =
+        entries.into_iter().filter(|entry| entry.get("tab_id").is_some_and(|mine| Some(mine) == id.as_ref())).collect();
+    let pending = pending.into_iter().filter(|call| call.tab_id.is_some_and(|mine| Some(mine) == tab.id)).collect();
     Some(Read { entries, end, pending })
 }
 

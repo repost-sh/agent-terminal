@@ -5,16 +5,16 @@ import { sessionInfo, tabInfo } from "../fake-daemon/messages";
 import type { Cell } from "./route";
 import { fillCells, focusedAt, isShown, resizeCells, shownCells, withCell, type Layout } from "./split";
 
-const sessions = [sessionInfo("a", [tabInfo("t1"), tabInfo("t2")]), sessionInfo("b", [tabInfo("t1")])];
+const sessions = [sessionInfo("a", [tabInfo("app"), tabInfo("api")]), sessionInfo("b", [tabInfo("app")])];
 
-const a1 = { session: "a", tab: "t1" };
-const a2 = { session: "a", tab: "t2" };
-const b1 = { session: "b", tab: "t1" };
+const a1 = { session: "a", tab: "app" };
+const a2 = { session: "a", tab: "api" };
+const b1 = { session: "b", tab: "app" };
 
 test("cells show the open tab they name and nothing for a closed one", () => {
   const shown = shownCells(sessions, [a2, null, { session: "a", tab: "t9" }]);
 
-  expect(shown.map((entry) => entry && [entry.cell, entry.tab.tab])).toEqual([[a2, "t2"], null, null]);
+  expect(shown.map((entry) => entry && [entry.cell, entry.tab.tab])).toEqual([[a2, "api"], null, null]);
 });
 
 test("focus stays on a shown cell or moves to the first shown one", () => {
@@ -27,7 +27,7 @@ test("focus stays on a shown cell or moves to the first shown one", () => {
 test("filling a layout starts at the tab and wraps around the open tabs", () => {
   expect(fillCells(sessions, { from: a2, count: 4 })).toEqual([a2, b1, a1, null]);
   expect(fillCells(sessions, { from: b1, count: 2 })).toEqual([b1, a1]);
-  expect(fillCells(sessions, { from: { session: "c", tab: "t1" }, count: 2 })).toEqual([{ session: "c", tab: "t1" }, a1]);
+  expect(fillCells(sessions, { from: { session: "c", tab: "app" }, count: 2 })).toEqual([{ session: "c", tab: "app" }, a1]);
   expect(fillCells(sessions, { from: a1, count: 1 })).toEqual([a1]);
 });
 

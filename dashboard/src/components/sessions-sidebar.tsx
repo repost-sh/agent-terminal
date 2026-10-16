@@ -64,7 +64,8 @@ const TabRow = (props: TabRowProps) => {
         )}
       >
         <TabGlyph tab={tab} />
-        <span className="min-w-0 flex-1 break-all">{tab.program}</span>
+        <span className="font-mono break-all">{tab.tab}</span>
+        <span className="min-w-0 flex-1 break-all text-muted-foreground">{tab.program}</span>
         <span className="sr-only">
           , {tabName(session, tab.tab)}, {tabState(tab).label}
         </span>

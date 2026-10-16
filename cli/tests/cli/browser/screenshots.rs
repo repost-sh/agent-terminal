@@ -15,7 +15,7 @@ struct Shots {
 impl Shots {
     fn opened() -> Self {
         let at = AgentTerminal::new();
-        at.run(&["open", "--size", "20x4", "--wait", "one", "sh", "-c", LINES]).success();
+        at.run(&["open", "--name", "app", "--size", "20x4", "--wait", "one", "sh", "-c", LINES]).success();
         let dir = at.home().join("shots");
         Self { at, dir }
     }
@@ -124,7 +124,7 @@ fn focus_is(browser: &Browser, selector: &str) -> bool {
 fn the_screenshots_tab_lists_each_screenshot_of_the_session_live_with_the_call_that_took_it() {
     let shots = Shots::opened();
     let dashboard = Dashboard::start(&shots.at);
-    let browser = Browser::open(&dashboard.url("/s/work/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/app"));
     open_screenshots(&browser);
     browser.wait_for_text("No screenshots yet");
     assert_eq!(browser.text("[role=tabpanel] [data-slot=badge]").trim(), "0");
@@ -140,12 +140,12 @@ fn the_screenshots_tab_lists_each_screenshot_of_the_session_live_with_the_call_t
         [
             vec![
                 "before.png".to_string(),
-                format!("t1 · frame {before} · <time>"),
+                format!("app · frame {before} · <time>"),
                 format!("screenshot {before_path}")
             ],
             vec![
                 "after.png".to_string(),
-                format!("t1 · frame {after} · <time>"),
+                format!("app · frame {after} · <time>"),
                 format!("press Enter --wait two --screenshot {after_path}"),
             ],
         ]
@@ -158,7 +158,7 @@ fn the_screenshots_tab_lists_each_screenshot_of_the_session_live_with_the_call_t
     wait_for_shots(&browser, 3);
     assert_eq!(
         gallery(&browser)[2],
-        [format!("work-t1-{after}.png"), format!("t1 · frame {after} · <time>"), "dashboard".to_string()]
+        [format!("work-app-{after}.png"), format!("app · frame {after} · <time>"), "dashboard".to_string()]
     );
 }
 
@@ -168,7 +168,7 @@ fn the_lightbox_steps_through_the_screenshots_copies_the_path_and_escape_returns
     let before = shots.before();
     let after = shots.after();
     let dashboard = Dashboard::start(&shots.at);
-    let browser = Browser::open(&dashboard.url("/s/work/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/app"));
     open_screenshots(&browser);
     wait_for_shots(&browser, 2);
 
@@ -182,7 +182,7 @@ fn the_first_screenshot_opens_in_the_lightbox(browser: &Browser, shots: &Shots, 
     open_shot(browser, 1);
     assert_eq!(title(browser), "before.png");
     let before_path = shots.path("before.png");
-    assert_eq!(captions(browser), [format!("before.png · t1 · frame {before} · <time> · screenshot {before_path}")]);
+    assert_eq!(captions(browser), [format!("before.png · app · frame {before} · <time> · screenshot {before_path}")]);
     browser.wait_for_text("1 of 2");
     assert_eq!(button_state(browser, "Previous screenshot"), "disabled");
     let image = format!("document.querySelector({})", js_string(&format!("{LIGHTBOX} figure img")));
@@ -218,7 +218,7 @@ fn next_steps_to_the_second_screenshot(browser: &Browser, shots: &Shots, after: 
     assert_eq!(focused(browser), "Previous screenshot");
     let after_path = shots.path("after.png");
     let by = format!("press Enter --wait two --screenshot {after_path}");
-    assert_eq!(captions(browser), [format!("after.png · t1 · frame {after} · <time> · {by}")]);
+    assert_eq!(captions(browser), [format!("after.png · app · frame {after} · <time> · {by}")]);
 }
 
 fn copy_path_copies_it_and_escape_returns_to_the_thumbnail(browser: &Browser, shots: &Shots) {
@@ -248,7 +248,7 @@ fn compare_shows_the_older_screenshot_on_the_left_and_highlights_the_cells_that_
     let after = shots.after();
     shots.at.run(&["screenshot", "--scale", "2", &shots.path("bigger.png")]).success();
     let dashboard = Dashboard::start(&shots.at);
-    let browser = Browser::open(&dashboard.url("/s/work/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/app"));
     open_screenshots(&browser);
     wait_for_shots(&browser, 3);
 
@@ -275,8 +275,8 @@ fn comparing_after_with_before_puts_before_on_the_left(browser: &Browser, before
     ));
     let captions = captions(browser);
     assert_eq!(captions.len(), 2);
-    assert!(captions[0].starts_with(&format!("before.png · t1 · frame {before} · ")), "{captions:?}");
-    assert!(captions[1].starts_with(&format!("after.png · t1 · frame {after} · ")), "{captions:?}");
+    assert!(captions[0].starts_with(&format!("before.png · app · frame {before} · ")), "{captions:?}");
+    assert!(captions[1].starts_with(&format!("after.png · app · frame {after} · ")), "{captions:?}");
 }
 
 fn the_comparison_marks_the_changed_cells_and_cannot_step(browser: &Browser) {
@@ -311,14 +311,14 @@ fn comparing_screenshots_of_different_sizes_marks_no_cells(browser: &Browser) {
 fn a_screenshot_thumbnail_in_activity_opens_the_lightbox_and_escape_returns_to_it() {
     let shots = Shots::opened();
     let dashboard = Dashboard::start(&shots.at);
-    let browser = Browser::open(&dashboard.url("/s/work/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/app"));
     browser.wait_until(
-        "document.querySelectorAll(\"[aria-label='Calls to work t1'] > li:not([aria-busy])\").length === 1",
+        "document.querySelectorAll(\"[aria-label='Calls to work app'] > li:not([aria-busy])\").length === 1",
     );
     shots.before();
     shots.after();
     browser.wait_until(
-        "[...document.querySelectorAll(\"[aria-label='Calls to work t1'] button\")].some((thumbnail) => thumbnail.innerText.trim() === 'Open screenshot after.png')",
+        "[...document.querySelectorAll(\"[aria-label='Calls to work app'] button\")].some((thumbnail) => thumbnail.innerText.trim() === 'Open screenshot after.png')",
     );
 
     browser.run(&["find", "role", "button", "click", "--name", "Open screenshot after.png", "--exact"]);

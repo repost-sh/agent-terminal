@@ -24,7 +24,7 @@ impl ShellTab {
 
     pub(super) fn open(&self) -> Run {
         let work = self.work.path().to_string_lossy().into_owned();
-        self.run(&["shell", "--shell", self.shell, "--size", "60x10", "--cwd", &work])
+        self.run(&["shell", "--name", "shell", "--shell", self.shell, "--size", "60x10", "--cwd", &work])
     }
 
     pub(super) fn run(&self, args: &[&str]) -> Run {

@@ -27,7 +27,11 @@ const submit = () => {
 
 const focused = (element: HTMLElement) => element.matches(":focus");
 
-const opened = (request: Request) => ({ status: 200, body: { data: { session: "session-1", tab: "t1" } }, sessions: [sessionInfo((request.body as { session: string }).session, [tabInfo("t1")])] });
+const opened = (request: Request) => {
+  const { session, tab } = request.body as { session: string; tab: string };
+
+  return { status: 200, body: { data: { session, tab } }, sessions: [sessionInfo(session, [tabInfo(tab)])] };
+};
 
 test("a first session is named for you, needs a command, and opens on its tab", async () => {
   const daemon = await shownApp([]);
@@ -39,32 +43,39 @@ test("a first session is named for you, needs a command, and opens on its tab", 
 
   expect([focused(name), name.value, within(dialog()).getByRole("heading").textContent]).toEqual([true, "session-1", "New session"]);
   submit();
-  expect(within(dialog()).getByRole("alert").textContent).toBe("Enter a command.");
+  expect(within(dialog()).getAllByRole("alert").map((alert) => alert.textContent)).toEqual([
+    "Enter a command.",
+    "Name the tab after the program or app it runs, e.g. api.",
+  ]);
   expect(focused(within(dialog()).getByLabelText("Command"))).toBe(true);
   typeInto("Command", "lazygit");
   typeInto("Working directory", "/srv");
-  expect(within(dialog()).getByLabelText("Same as").textContent).toBe("agent-terminal session new session-1 && agent-terminal --session session-1 open lazygit --cwd /srv --size 120x40");
+  expect(within(dialog()).getByLabelText<HTMLInputElement>("Tab name").value).toBe("lazygit");
+  expect(within(dialog()).getByLabelText("Same as").textContent).toBe(
+    "agent-terminal session new session-1 && agent-terminal --session session-1 open --name lazygit lazygit --cwd /srv --size 120x40",
+  );
   submit();
-  expect(await screen.findByRole("heading", { name: /session-1 t1/ })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: /session-1 lazygit/ })).toBeTruthy();
   expect(daemon.requests.find((request) => request.path === "/api/sessions")?.body).toEqual({
     session: "session-1",
     new_session: true,
+    tab: "lazygit",
     command: "lazygit",
     cwd: "/srv",
     cols: 120,
     rows: 40,
     shell_integration: false,
   });
-  expect([location.pathname, screen.queryByRole("dialog")]).toEqual(["/s/session-1/t1", null]);
-  await daemon.connected("/api/session/session-1/t1/stream");
-  await daemon.push("/api/session/session-1/t1/stream", frameOf(1));
-  expect(await screen.findByText("session-1 t1 is live")).toBeTruthy();
+  expect([location.pathname, screen.queryByRole("dialog")]).toEqual(["/s/session-1/lazygit", null]);
+  await daemon.connected("/api/session/session-1/lazygit/stream");
+  await daemon.push("/api/session/session-1/lazygit/stream", frameOf(1));
+  expect(await screen.findByText("session-1 lazygit is live")).toBeTruthy();
 });
 
 test("a new tab in an existing session sends the shell, its integration and a custom size", async () => {
-  const daemon = await shownApp([sessionInfo("work", [tabInfo("t1")]), sessionInfo("play", [tabInfo("t1")])]);
+  const daemon = await shownApp([sessionInfo("work", [tabInfo("app")]), sessionInfo("play", [tabInfo("app")])]);
 
-  daemon.answer("POST /api/sessions", () => ({ status: 200, body: { data: { session: "play", tab: "t2" } } }));
+  daemon.answer("POST /api/sessions", () => ({ status: 200, body: { data: { session: "play", tab: "api" } } }));
   fireEvent.click(screen.getByRole("button", { name: "New tab in play" }));
   expect(within(dialog()).getByRole("heading").textContent).toBe("New tab");
   expect(within(dialog()).getByLabelText<HTMLSelectElement>("Session").value).toBe("play");
@@ -78,16 +89,17 @@ test("a new tab in an existing session sends the shell, its integration and a cu
   expect(focused(within(dialog()).getByLabelText("Custom"))).toBe(true);
   typeInto("Columns", "100");
   typeInto("Rows", "30");
-  expect(within(dialog()).getByLabelText("Same as").textContent).toBe("agent-terminal --session work shell --shell zsh --size 100x30");
+  expect(within(dialog()).getByLabelText("Same as").textContent).toBe("agent-terminal --session work shell --name zsh --shell zsh --size 100x30");
   fireEvent.click(within(dialog()).getByRole("switch", { name: "Shell integration" }));
-  expect(within(dialog()).getByLabelText("Same as").textContent).toBe("agent-terminal --session work open /bin/zsh -l --size 100x30");
+  expect(within(dialog()).getByLabelText("Same as").textContent).toBe("agent-terminal --session work open --name zsh /bin/zsh -l --size 100x30");
   submit();
   await vi.waitFor(() => {
-    expect(location.pathname).toBe("/s/play/t2");
+    expect(location.pathname).toBe("/s/play/api");
   });
   expect(daemon.requests.find((request) => request.path === "/api/sessions")?.body).toEqual({
     session: "work",
     new_session: false,
+    tab: "zsh",
     command: "/bin/zsh -l",
     cwd: "~",
     cols: 100,
@@ -97,7 +109,7 @@ test("a new tab in an existing session sends the shell, its integration and a cu
 });
 
 test("names are checked before anything is sent, and a refused open keeps the dialog", async () => {
-  const daemon = await shownApp([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = await shownApp([sessionInfo("work", [tabInfo("app")])]);
 
   daemon.answer("POST /api/sessions", () => ({ status: 400, body: { error: { code: 1, message: "lazygit: not found" } } }));
   fireEvent.click(screen.getByRole("button", { name: "New session" }));
@@ -120,12 +132,41 @@ test("names are checked before anything is sent, and a refused open keeps the di
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
+test("a new tab needs a name its session does not hold, after the rule, before anything is sent", async () => {
+  const daemon = await shownApp([sessionInfo("work", [tabInfo("lazygit", { program: "lazygit" })])]);
+
+  daemon.answer("POST /api/sessions", opened);
+  fireEvent.click(screen.getByRole("button", { name: "New tab in work" }));
+  typeInto("Command", "lazygit");
+  const tab = () => within(dialog()).getByLabelText<HTMLInputElement>("Tab name");
+
+  expect(tab().value).toBe("");
+  for (const [typed, refusal] of [
+    ["", "Name the tab after the program or app it runs, e.g. api."],
+    ["lazygit", "work already has a tab named lazygit."],
+    ["Git", "Use up to 24 of a-z, 0-9 and -, starting with a letter or digit."],
+  ]) {
+    typeInto("Tab name", String(typed));
+    submit();
+    expect([tab().getAttribute("aria-invalid"), focused(tab()), within(dialog()).getByRole("alert").textContent]).toEqual(["true", true, refusal]);
+  }
+
+  expect(daemon.requests.filter((request) => request.path === "/api/sessions")).toHaveLength(0);
+  typeInto("Tab name", " git ");
+  expect(within(dialog()).getByLabelText("Same as").textContent).toBe("agent-terminal --session work open --name git lazygit --size 120x40");
+  submit();
+  await vi.waitFor(() => {
+    expect(location.pathname).toBe("/s/work/git");
+  });
+  expect((daemon.requests.find((request) => request.path === "/api/sessions")?.body as { tab: string }).tab).toBe("git");
+});
+
 const radio = (label: string) => {
   fireEvent.click(within(dialog()).getByLabelText(label));
 };
 
 test("the dialog shows the fields its mode, size and shell call for", async () => {
-  await shownApp([sessionInfo("work", [tabInfo("t1")])]);
+  await shownApp([sessionInfo("work", [tabInfo("app")])]);
   fireEvent.click(screen.getByRole("button", { name: "New session" }));
   expect(dialog().outerHTML).toMatchSnapshot();
   radio("Existing session");
@@ -145,7 +186,7 @@ test("the command line copies, and a refused field takes focus without scrolling
   vi.stubGlobal("navigator", { clipboard: { writeText } });
   fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: "New session" }));
   fireEvent.click(within(dialog()).getByRole("button", { name: "Copy the command line" }));
-  expect(writeText.mock.calls).toEqual([["agent-terminal session new session-1 && agent-terminal --session session-1 open <program> --size 120x40"]]);
+  expect(writeText.mock.calls).toEqual([["agent-terminal session new session-1 && agent-terminal --session session-1 open --name <tab> <program> --size 120x40"]]);
   const focus = vi.spyOn(HTMLElement.prototype, "focus");
 
   submit();
@@ -154,10 +195,10 @@ test("the command line copies, and a refused field takes focus without scrolling
 });
 
 test("the dialog cannot be sent twice while it opens, opens on the Activity panel and returns focus to the page", async () => {
-  const daemon = await shownApp([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = await shownApp([sessionInfo("work", [tabInfo("app")])]);
   const create = () => within(dialog()).getByRole<HTMLButtonElement>("button", { name: "Create" });
 
-  daemon.answer("POST /api/sessions", () => ({ status: 200, body: { data: { session: "session-2", tab: "t1" } }, sessions: [sessionInfo("session-2", [tabInfo("t1")])] }));
+  daemon.answer("POST /api/sessions", () => ({ status: 200, body: { data: { session: "session-2", tab: "app" } }, sessions: [sessionInfo("session-2", [tabInfo("app")])] }));
   fireEvent.click(screen.getByRole("tab", { name: "Output" }));
   fireEvent.click(screen.getByRole("button", { name: "New session" }));
   typeInto("Command", "lazygit");

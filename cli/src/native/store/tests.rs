@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use super::{ActivityEntry, ScreenshotEntry, SessionFolder, Typed, export, file_name, folder, write_whole};
+use super::{ActivityEntry, ScreenshotEntry, SessionFolder, TabId, Typed, export, file_name, folder, write_whole};
 use crate::native::render::Cells;
-use crate::protocol::{CommandRecord, RowRange, TabId, request};
+use crate::protocol::{CommandRecord, RowRange, request};
 
 fn home() -> tempfile::TempDir {
     tempfile::tempdir().unwrap()
@@ -26,7 +26,7 @@ fn entry(command: &[&str]) -> ActivityEntry {
 fn shot(path: &str, frame: u64) -> ScreenshotEntry {
     ScreenshotEntry {
         time: "t".to_string(),
-        tab: "t1".to_string(),
+        tab: "app".to_string(),
         frame,
         path: PathBuf::from(path),
         by: None,
@@ -84,7 +84,8 @@ fn a_call_is_pending_from_its_start_and_listed_with_its_tab() {
     let started = Arc::new(SessionFolder::start(home.path(), "work").unwrap());
     let logged = started.logged();
     let words = typed(&["wait", "--idle"]);
-    let _pending = started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, Some("t1".to_string()));
+    let _pending =
+        started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, Some((TabId::FIRST, "app".to_string())));
     let _other = started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, None);
     let (entries, end, waiting) = started.activity_and_pending_since(0).unwrap();
     let listed: Vec<_> =
@@ -92,7 +93,7 @@ fn a_call_is_pending_from_its_start_and_listed_with_its_tab() {
     assert_eq!((entries.len(), end, logged.has_changed().unwrap()), (0, 0, true));
     assert_eq!(
         listed,
-        [(Some("t1"), "wait --idle", "1970-01-01T00:00:00.000Z"), (None, "wait --idle", "1970-01-01T00:00:00.000Z")]
+        [(Some("app"), "wait --idle", "1970-01-01T00:00:00.000Z"), (None, "wait --idle", "1970-01-01T00:00:00.000Z")]
     );
 }
 
@@ -178,8 +179,8 @@ fn a_tabs_command_log_gets_a_line_per_command_with_its_output() {
         first_frame: 1,
         last_frame: Some(2),
     };
-    started.command_log("t2").append(&record, "out");
-    started.command_log("t2").append(&record, "again");
+    started.command_log(TabId::FIRST.next()).append(&record, "out");
+    started.command_log(TabId::FIRST.next()).append(&record, "again");
     let written = std::fs::read_to_string(folder(home.path(), "work").join("t2.commands.jsonl")).unwrap();
     let lines: Vec<serde_json::Value> = written.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
     assert_eq!(
@@ -256,7 +257,7 @@ fn a_session_with_no_folder_has_nothing_to_export() {
     assert_eq!(
         missing.err().map(|e| e.to_string()),
         Some(
-            "session never has nothing to export; open a terminal in it first with `agent-terminal open <program>`"
+            "session never has nothing to export; open a terminal in it first with `agent-terminal open --name <name> <program>`"
                 .to_string()
         )
     );

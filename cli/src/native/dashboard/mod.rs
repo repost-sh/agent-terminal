@@ -23,17 +23,18 @@ use tokio::sync::{oneshot, watch};
 
 use crate::native::control::TabHold;
 use crate::native::log;
-use crate::native::store::SessionFolder;
+use crate::native::store::{SessionFolder, TabId};
 use crate::native::terminal::Terminal;
-use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions, TabId, request};
+use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions, request};
 
 pub(crate) trait Backend: Send + Sync + 'static {
     fn call(&self, request: Request) -> Result<Reply, ErrorBody>;
     fn sessions(&self) -> Sessions;
     fn terminal(&self, session: &str, tab: TabId) -> Option<Arc<Terminal>>;
+    fn tab_id(&self, session: &str, tab: &str) -> Option<TabId>;
     fn folder(&self, session: &str) -> Option<Arc<SessionFolder>>;
     fn changes(&self) -> watch::Receiver<u64>;
-    fn take_control(&self, session: &str, tab: TabId) -> Result<TabHold, ErrorBody>;
+    fn take_control(&self, session: &str, tab: &str) -> Result<TabHold, ErrorBody>;
     fn holds(&self, taken: &TabHold) -> bool;
     fn type_as_human(&self, taken: &TabHold, input: &HumanInput) -> Result<(), ErrorBody>;
 }
@@ -153,8 +154,4 @@ fn router(pages: guard::Pages, backend: Arc<dyn Backend>) -> Router {
         .fallback(assets::serve)
         .with_state(backend);
     guard::guarded(routes, pages)
-}
-
-fn tab_id(tab: &str) -> Option<TabId> {
-    tab.parse().ok()
 }

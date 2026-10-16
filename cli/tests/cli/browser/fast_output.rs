@@ -40,7 +40,7 @@ fn a_tab_that_redraws_sixty_times_a_second_leaves_the_dashboard_responsive_and_o
     let at = AgentTerminal::new();
     open_redraw(&at, &Redraw { session: "work", hz: "60", repaint: "--partial" });
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/work/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/app"));
     browser.wait_for_screen("forwarding");
 
     let streamed = at.frame("work") + 60 * STREAMING.as_secs();
@@ -48,7 +48,7 @@ fn a_tab_that_redraws_sixty_times_a_second_leaves_the_dashboard_responsive_and_o
     at.run(&["--timeout", &limit, "wait", "--frame", &streamed.to_string()]).success();
     let measured: serde_json::Value = browser.eval_json(MEASURE_FIVE_SECONDS);
     let latest = at.frame("work");
-    browser.run(&["open", "about:blank"]);
+    browser.run(&["open", "--name", "app", "about:blank"]);
     let blank: f64 = browser.eval_json(PAINTS_ON_A_BLANK_PAGE);
 
     let paints = measured["paints"].as_f64().expect("paints");

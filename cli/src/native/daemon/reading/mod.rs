@@ -12,8 +12,8 @@ use crate::protocol::{
 
 impl Daemon {
     pub(super) fn snapshot(&self, snapshot: &request::Snapshot) -> Result<Reply, ErrorBody> {
-        let (id, terminal) = self.target(&snapshot.target)?;
-        Labelled { session: &snapshot.target.session, tab: &id.to_string(), terminal: &terminal }
+        let (tab, terminal) = self.target(&snapshot.target)?;
+        Labelled { session: &snapshot.target.session, tab: &tab, terminal: &terminal }
             .snapshot_with(&snapshot.options)
             .map(Reply::Snapshot)
             .map_err(ErrorBody::failure)
@@ -52,22 +52,22 @@ impl Daemon {
         screenshot: &request::Screenshot,
         typed: Option<&[String]>,
     ) -> Result<Reply, ErrorBody> {
-        let (id, terminal) = self.target(&screenshot.target)?;
-        let at = Labelled { session: &screenshot.target.session, tab: &id.to_string(), terminal: &terminal };
+        let (tab, terminal) = self.target(&screenshot.target)?;
+        let at = Labelled { session: &screenshot.target.session, tab: &tab, terminal: &terminal };
         self.screenshot(&Shooting { at, shot: &screenshot.shot, typed }).map(Reply::Screenshot)
     }
 
     pub(super) fn diff_screenshot(&self, diff: request::DiffScreenshot) -> Result<Reply, ErrorBody> {
-        let (id, terminal) = self.target(&diff.target)?;
+        let (tab, terminal) = self.target(&diff.target)?;
         let session = diff.target.session.clone();
-        screenshots::diff(&Labelled { session: &session, tab: &id.to_string(), terminal: &terminal }, diff)
+        screenshots::diff(&Labelled { session: &session, tab: &tab, terminal: &terminal }, diff)
             .map(Reply::ScreenshotDiff)
             .map_err(|e| error_body(&e))
     }
 
     pub(super) fn history(&self, history: request::History) -> Result<Reply, ErrorBody> {
-        let (id, terminal) = self.target(&history.target)?;
-        let (session, tab) = (String::from(history.target.session), id.to_string());
+        let (tab, terminal) = self.target(&history.target)?;
+        let (session, tab) = (String::from(history.target.session), tab.to_string());
         let mut commands = terminal
             .commands()
             .ok_or_else(|| no_integration(&Labelled { session: &session, tab: &tab, terminal: &terminal }))?;
@@ -82,8 +82,8 @@ impl Daemon {
     }
 
     pub(super) fn history_show(&self, show: request::HistoryShow) -> Result<Reply, ErrorBody> {
-        let (tab_id, terminal) = self.target(&show.target)?;
-        let (session, tab, id) = (String::from(show.target.session), tab_id.to_string(), show.id);
+        let (tab, terminal) = self.target(&show.target)?;
+        let (session, tab, id) = (String::from(show.target.session), tab.to_string(), show.id);
         if terminal.shell().is_none() {
             return Err(no_integration(&Labelled { session: &session, tab: &tab, terminal: &terminal }));
         }

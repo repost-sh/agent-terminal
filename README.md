@@ -44,10 +44,14 @@ cargo install --locked --git https://github.com/repost-sh/agent-terminal agent-t
 ## Use
 
 ```sh
-agent-terminal open htop --wait "Load average"
+agent-terminal session new try-htop
+export AGENT_TERMINAL_SESSION=try-htop
+agent-terminal open --name htop htop --wait "Load average"
 agent-terminal snapshot
 agent-terminal close
 ```
+
+A session is one conversation, and every program in it runs in a tab with a name you give it (`--name`); later calls reach a tab by that name (`--tab htop`).
 
 Agents start with `agent-terminal skills get core`. `agent-terminal --help` lists every command.
 
