@@ -15,7 +15,7 @@ mod waiting;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, ErrorKind, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant, SystemTime};
@@ -23,7 +23,7 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{Context, Result};
 use tokio::sync::watch;
 
-use crate::home::{home, socket_path, version_path};
+use crate::home::{DAEMON_VERSION, SOCKET, home};
 use crate::native::changes::Changes;
 use crate::native::control::{Control, TabHold};
 use crate::native::dashboard::{self, Backend};
@@ -37,6 +37,7 @@ use refusals::{error_body, no_tab, no_terminal, stopping};
 pub(crate) const READY: &str = "ready";
 
 struct Daemon {
+    home: PathBuf,
     sessions: Mutex<BTreeMap<String, Session>>,
     restarting: Mutex<()>,
     activity: Mutex<Activity>,
@@ -64,7 +65,7 @@ pub(crate) fn run(idle_timeout: Duration) -> Result<()> {
     log::start()?;
     let home = home()?;
     std::fs::create_dir_all(&home).with_context(|| format!("create {}", home.display()))?;
-    let Some(listener) = listen()? else {
+    let Some(listener) = listen(&home)? else {
         return Ok(());
     };
     record_version(&home)?;
@@ -73,7 +74,7 @@ pub(crate) fn run(idle_timeout: Duration) -> Result<()> {
     writeln!(stdout, "{READY}").and_then(|()| stdout.flush()).context("tell the CLI the daemon is ready")?;
 
     let (ended, end) = mpsc::channel();
-    let daemon = Arc::new_cyclic(|me| Daemon::new(Weak::clone(me), ended));
+    let daemon = Arc::new_cyclic(|me| Daemon::new(Weak::clone(me), ended, home));
     if !idle_timeout.is_zero() {
         let watching = Arc::clone(&daemon);
         std::thread::spawn(move || watching.stop_when_idle(idle_timeout));
@@ -83,8 +84,8 @@ pub(crate) fn run(idle_timeout: Duration) -> Result<()> {
     end.recv().context("every thread of the daemon ended without stopping it")
 }
 
-fn listen() -> Result<Option<UnixListener>> {
-    let path = socket_path()?;
+fn listen(home: &Path) -> Result<Option<UnixListener>> {
+    let path = home.join(SOCKET);
     match UnixListener::bind(&path) {
         Ok(listener) => Ok(Some(listener)),
         Err(e) if e.kind() == ErrorKind::AddrInUse && UnixStream::connect(&path).is_ok() => Ok(None),
@@ -98,15 +99,16 @@ fn listen() -> Result<Option<UnixListener>> {
 }
 
 fn record_version(home: &Path) -> Result<()> {
-    let path = version_path()?;
+    let path = home.join(DAEMON_VERSION);
     let written = home.join("daemon.version.new");
     std::fs::write(&written, crate::version::VERSION).with_context(|| format!("write {}", written.display()))?;
     std::fs::rename(&written, &path).with_context(|| format!("move {} to {}", written.display(), path.display()))
 }
 
 impl Daemon {
-    fn new(me: Weak<Daemon>, ended: Sender<()>) -> Self {
+    fn new(me: Weak<Daemon>, ended: Sender<()>, home: PathBuf) -> Self {
         Self {
+            home,
             sessions: Mutex::default(),
             restarting: Mutex::default(),
             activity: Mutex::default(),
@@ -261,3 +263,6 @@ impl Session {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

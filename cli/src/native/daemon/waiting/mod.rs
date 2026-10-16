@@ -285,3 +285,6 @@ fn not_met(wait: &Wait) -> String {
         Wait::Gone(text) => describe_text(text, "did not disappear", "still a match for"),
     }
 }
+
+#[cfg(test)]
+mod tests;

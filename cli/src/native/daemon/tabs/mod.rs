@@ -6,7 +6,6 @@ use anyhow::Result;
 use super::refusals::{error_body, no_tab, no_terminal};
 use super::waiting::{Until, condition};
 use super::{Daemon, Session, Tab};
-use crate::home::home;
 use crate::native::control::Control;
 use crate::native::log;
 use crate::native::pty;
@@ -27,7 +26,7 @@ impl Daemon {
     pub(super) fn open_shell(&self, opening: request::OpenShell) -> Result<Reply, ErrorBody> {
         let request::OpenShell { session, shell: kind, program, size, cwd, env, wait, timeout_ms } = opening;
         let command = pty::Command { program, args: Vec::new(), cwd, env, size };
-        let command = shell::prepare(kind, command).map_err(|e| error_body(&e))?;
+        let command = shell::Scripts { home: &self.home }.prepare(kind, command).map_err(|e| error_body(&e))?;
         let (tab, terminal) = self.open_tab(&session, command, Some(kind))?;
         first_screen(&session, tab, &terminal, wait.as_ref(), timeout_ms).map_err(|mut error| {
             if matches!(wait, Some(Wait::Command)) && error.code == crate::exit::TIMEOUT {
@@ -80,7 +79,7 @@ impl Daemon {
         if let Some(folder) = folders.get(session).and_then(Weak::upgrade) {
             return Ok(folder);
         }
-        let folder = Arc::new(SessionFolder::start(&home()?, session)?);
+        let folder = Arc::new(SessionFolder::start(&self.home, session)?);
         folders.retain(|_, folder| folder.strong_count() > 0);
         folders.insert(session.to_string(), Arc::downgrade(&folder));
         Ok(folder)
@@ -242,3 +241,6 @@ fn settle(session: &str, tab: TabId, terminal: &Terminal, wait: &Wait, timeout_m
         Settled::TimedOut => Err(Until { wait, timeout_ms }.timed_out(snapshot)),
     }
 }
+
+#[cfg(test)]
+mod tests;

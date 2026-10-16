@@ -12,10 +12,14 @@ pub(crate) fn home() -> Result<PathBuf> {
     Ok(PathBuf::from(user_home).join(".agent-terminal"))
 }
 
+pub(crate) const SOCKET: &str = "daemon.sock";
+
+pub(crate) const DAEMON_VERSION: &str = "daemon.version";
+
 pub(crate) fn socket_path() -> Result<PathBuf> {
-    Ok(home()?.join("daemon.sock"))
+    Ok(home()?.join(SOCKET))
 }
 
 pub(crate) fn version_path() -> Result<PathBuf> {
-    Ok(home()?.join("daemon.version"))
+    Ok(home()?.join(DAEMON_VERSION))
 }

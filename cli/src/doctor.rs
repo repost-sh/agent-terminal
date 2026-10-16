@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::connection;
-use crate::home::socket_path;
+use crate::home::{home, socket_path};
 use crate::native::{pty, render, shell};
 use crate::output;
 use crate::protocol::{Shell, daemon_stop_advice};
@@ -111,7 +111,10 @@ fn listed(names: &[&str]) -> String {
 }
 
 fn shell(fix: bool) -> Check {
-    let audited = if fix { shell::repair() } else { shell::audit() };
+    let audited = home().and_then(|home| {
+        let scripts = shell::Scripts { home: &home };
+        if fix { scripts.repair() } else { scripts.audit() }
+    });
     match audited {
         Ok(audit) => audited_shell(&audit, fix),
         Err(e) => Check::problem("shell", format!("{e:#}"), "set AGENT_TERMINAL_HOME to a folder you own"),

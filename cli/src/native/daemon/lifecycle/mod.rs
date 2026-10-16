@@ -2,7 +2,7 @@ use std::sync::PoisonError;
 use std::time::{Duration, Instant};
 
 use super::Daemon;
-use crate::home::{socket_path, version_path};
+use crate::home::{DAEMON_VERSION, SOCKET};
 use crate::native::log;
 use crate::protocol::{KeptRunning, Reply};
 
@@ -94,12 +94,15 @@ impl Daemon {
 
     pub(super) fn shut_down(&self) {
         self.stop_dashboard();
-        if let Err(e) = version_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
+        if let Err(e) = std::fs::remove_file(self.home.join(DAEMON_VERSION)) {
             log::note(format_args!("removing the version file failed: {e:#}"));
         }
-        if let Err(e) = socket_path().and_then(|path| Ok(std::fs::remove_file(path)?)) {
+        if let Err(e) = std::fs::remove_file(self.home.join(SOCKET)) {
             log::note(format_args!("removing the socket failed: {e:#}"));
         }
         self.close_all();
     }
 }
+
+#[cfg(test)]
+mod tests;

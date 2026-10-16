@@ -26,7 +26,7 @@ impl Daemon {
             Request::Mark(mark) => self.mark(mark),
             Request::Output(output) => self.output(&output),
             Request::DiffSnapshot(diff) => self.diff_snapshot(diff),
-            Request::TraceExport(export) => trace_export(export),
+            Request::TraceExport(export) => trace_export(&self.home, export),
             Request::Shell(shell) => self.open_shell(shell),
             Request::Exec(exec) => self.exec(exec),
             Request::History(history) => self.history(history),
