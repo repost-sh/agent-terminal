@@ -1,6 +1,6 @@
 # agent-terminal
 
-Terminal automation CLI for AI agents, the terminal sibling of agent-browser. Specs and issues live in Linear: team 46H, project agent-terminal, blockers as native "blocked by" links.
+Terminal automation CLI for AI agents, the terminal sibling of agent-browser.
 
 ## Map
 
@@ -53,6 +53,6 @@ A file holds one concern and is named for it. If you cannot describe a file in o
 
 - Scope is optional and lowercase: the area (`cli`, `dashboard`, `skills`, `release`, `npm`) or the command (`wait`, `doctor`).
 - Summary in imperative mood, lowercase, no trailing period.
-- Footer `Refs: 46H-<n>` naming the Linear issue. A branch lands as a merge commit titled `chore: merge 46H-<n>, <what it delivers>`.
+- A branch lands as a merge commit titled `chore: merge <topic>, <what it delivers>`.
 - Breaking changes: add `!` after the type/scope and a `BREAKING CHANGE:` footer.
 - Commits and PRs carry no attribution: no `Co-Authored-By`, `Claude-Session` or "Generated with" lines, whatever a tool's defaults say.
