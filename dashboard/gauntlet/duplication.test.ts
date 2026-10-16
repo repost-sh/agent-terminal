@@ -25,6 +25,23 @@ const PRODUCT = [
   "export const percent = (part: number, whole: number) => (whole === 0 ? \"0%\" : `${(100 * part / whole).toFixed(1)}%`);",
 ].join("\n");
 
+const PRODUCT_RUST = [
+  "pub fn describe(count: u32, noun: &str) -> String {",
+  "    let plural = if count == 1 { noun.to_string() } else { format!(\"{noun}s\") };",
+  "    let shown = if count > 999 { format!(\"{}k\", count / 1000) } else { count.to_string() };",
+  "    [shown, plural].join(\" \")",
+  "}",
+  "pub fn clamp(value: i64, low: i64, high: i64) -> i64 {",
+  "    value.max(low).min(high)",
+  "}",
+  "pub fn initials(name: &str) -> String {",
+  "    name.split_whitespace().filter_map(|part| part.chars().next()).map(|c| c.to_ascii_uppercase()).collect()",
+  "}",
+  "pub fn percent(part: u64, whole: u64) -> String {",
+  "    if whole == 0 { \"0%\".to_string() } else { format!(\"{:.1}%\", 100.0 * part as f64 / whole as f64) }",
+  "}",
+].join("\n");
+
 const scratchRoot = (files: Record<string, string>) => {
   const root = scratchFolder("duplication-");
 
@@ -83,6 +100,16 @@ void test("a block repeated in the dashboard's code is an offense, and its tests
     passed: true,
   });
   assert.equal(checkDuplication(scratchRoot({ ...tests, "dashboard/src/f.ts": TYPESCRIPT, "dashboard/src/g.ts": TYPESCRIPT })).passed, false);
+});
+
+void test("a crate's unit tests may repeat themselves, and a source file beside them may not", () => {
+  const units = { ...crates, "cli/src/a/tests.rs": RUST, "cli/src/b/tests.rs": RUST, "cli/perf/src/c/tests.rs": RUST, "cli/src/a/mod.rs": PRODUCT_RUST };
+
+  assert.deepEqual(checkDuplication(scratchRoot(units)), {
+    lines: ["1 files: no block of 100 tokens appears twice"],
+    passed: true,
+  });
+  assert.equal(checkDuplication(scratchRoot({ ...units, "cli/src/a/tests_of.rs": RUST, "cli/src/d.rs": RUST })).passed, false);
 });
 
 void test("a jscpd configuration file is refused before anything is scanned", () => {

@@ -14,7 +14,9 @@ const SEALED = "delete it: the duplication gate's options live in dashboard/gaun
 
 const JSCPD = join(import.meta.dirname, "..", "node_modules", ".bin", "jscpd");
 
-const IGNORED = TEST_CODE.map((pattern) => `**/dashboard/${pattern}`);
+const UNIT_TESTS = "**/src/**/tests.rs";
+
+const IGNORED = [...TEST_CODE.map((pattern) => `**/dashboard/${pattern}`), UNIT_TESTS];
 
 interface Place { name: string; start: number; end: number }
 

@@ -83,7 +83,7 @@ A function, method or trait method visible beyond its module takes at most two p
 
 ### Duplication
 
-No block of 100 tokens appears twice (jscpd 5.4.1 at repost-go's dupl threshold, no line minimum) across every crate's `src/` and the dashboard's TypeScript. Tests are left out, as repost-go leaves out `_test.go`: they state expected screens literally. `dashboard/gauntlet/duplication.ts` passes jscpd its options and refuses a `.jscpd.json` or `package.json` key jscpd would merge. On offense: move the shared code into the module that owns it and call it from both places.
+No block of 100 tokens appears twice (jscpd 5.4.1 at repost-go's dupl threshold, no line minimum) across every crate's `src/` and the dashboard's TypeScript. Tests are left out, as repost-go leaves out `_test.go`, including a module's unit tests in `src/**/tests.rs`: they state expected screens literally. `dashboard/gauntlet/duplication.ts` passes jscpd its options and refuses a `.jscpd.json` or `package.json` key jscpd would merge. On offense: move the shared code into the module that owns it and call it from both places.
 
 ### Coverage floor
 
