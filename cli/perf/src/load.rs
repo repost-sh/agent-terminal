@@ -196,7 +196,7 @@ fn open_tabs(plan: &Plan, daemon: &Daemon, home: &Path, case: Case) -> Result<()
             "--size",
             SIZE,
             "--wait",
-            "ready",
+            "forward",
             utf8(&redraw)?,
             "--hz",
             &hz,
