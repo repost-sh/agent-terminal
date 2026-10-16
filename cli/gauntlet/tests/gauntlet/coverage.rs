@@ -1,6 +1,6 @@
 use crate::scratch::{Scratch, hits, lcov};
 
-const FIX: &str = "test the uncovered behaviour through the crate's real surface, or delete the branch no surface reaches → GAUNTLET.md#coverage-floor";
+const FIX: &str = "test the uncovered behaviour through the crate's real surface, or through a fake at the library's wrapper when only the operating system reaches it; delete only a branch nothing reaches → GAUNTLET.md#coverage-floor";
 
 #[test]
 fn a_crate_at_the_floor_passes_and_shows_its_tally() {
@@ -77,4 +77,24 @@ proptest::proptest! {
             proptest::prop_assert_eq!(run.code, 2);
         }
     }
+}
+
+#[test]
+fn the_unit_tests_beside_a_module_do_not_count_towards_its_crate() {
+    let scratch = Scratch::crate_with(&[
+        ("main.rs", "fn main() {}\n#[cfg(test)]\nmod tests;\n"),
+        ("tests.rs", "#[test]\nfn t() {}\n"),
+    ]);
+    let (main, tests) = (scratch.source("main.rs"), scratch.source("tests.rs"));
+    let run = scratch
+        .gauntlet("coverage", &lcov(&[(&main, &hits(1..=10, |line| line < 9)), (&tests, &hits(1..=20, |_| true))]));
+    assert_eq!(
+        (run.code, run.stdout),
+        (
+            2,
+            format!(
+                "app: 8 of 10 lines covered, under the 90% floor; most uncovered: app/src/main.rs (2): {FIX}\n1 offense(s)\n"
+            )
+        )
+    );
 }

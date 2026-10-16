@@ -12,7 +12,7 @@ const FLOOR: u32 = 90;
 
 const RULE: Rule = Rule {
     anchor: "coverage-floor",
-    fix: "test the uncovered behaviour through the crate's real surface, or delete the branch no surface reaches",
+    fix: "test the uncovered behaviour through the crate's real surface, or through a fake at the library's wrapper when only the operating system reaches it; delete only a branch nothing reaches",
 };
 
 #[derive(Default)]

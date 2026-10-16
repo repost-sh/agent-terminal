@@ -38,6 +38,7 @@ pub(crate) struct Member {
     pub(crate) name: String,
     pub(crate) root: PathBuf,
     pub(crate) sources: Vec<PathBuf>,
+    pub(crate) unit_tests: Vec<PathBuf>,
     pub(crate) tests: Vec<PathBuf>,
     pub(crate) dependencies: Vec<Dependency>,
 }
@@ -61,10 +62,14 @@ impl Workspace {
             .map(|package| {
                 let others: Vec<&Path> =
                     roots.iter().filter(|root| **root != package.root()).map(PathBuf::as_path).collect();
+                let (unit_tests, sources) = rust_files(&package.root().join("src"), &others)?
+                    .into_iter()
+                    .partition(|file| file.file_name().is_some_and(|name| name == "tests.rs"));
                 Ok(Member {
                     name: package.name.clone(),
                     root: package.root(),
-                    sources: rust_files(&package.root().join("src"), &others)?,
+                    sources,
+                    unit_tests,
                     tests: rust_files(&package.root().join("tests"), &others)?,
                     dependencies: package.dependencies.clone(),
                 })

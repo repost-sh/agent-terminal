@@ -23,7 +23,7 @@ pub(crate) fn check(workspace: &Workspace) -> Result<Verdict> {
 }
 
 fn has_one(member: &Member) -> Result<bool> {
-    for file in member.sources.iter().chain(&member.tests) {
+    for file in member.sources.iter().chain(&member.unit_tests).chain(&member.tests) {
         let source = std::fs::read_to_string(file).with_context(|| format!("read {}", file.display()))?;
         if has_property_test(&source).with_context(|| format!("parse {}", file.display()))? {
             return Ok(true);

@@ -15,7 +15,7 @@ pub(crate) fn check(workspace: &Workspace) -> Result<Verdict> {
     let mut offenses = Vec::new();
     let mut shared = 0;
     for member in &workspace.members {
-        for file in member.sources.iter().chain(&member.tests) {
+        for file in member.sources.iter().chain(&member.unit_tests).chain(&member.tests) {
             let source = std::fs::read_to_string(file).with_context(|| format!("read {}", file.display()))?;
             let functions = shared_functions(&source).with_context(|| format!("parse {}", file.display()))?;
             shared += functions.len();

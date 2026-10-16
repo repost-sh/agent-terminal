@@ -32,6 +32,7 @@ pub(super) fn offenses(workspace: &Workspace, member: &Member) -> Result<Vec<(St
     let sources: Vec<Source> = member
         .sources
         .iter()
+        .chain(&member.unit_tests)
         .filter_map(|file| Some(Source { file: file.clone(), module: module_of(file.strip_prefix(&src).ok()?)? }))
         .collect();
     let tops: BTreeSet<&str> = sources.iter().map(Source::top).collect();
