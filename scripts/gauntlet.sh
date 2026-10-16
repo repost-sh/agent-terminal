@@ -85,19 +85,27 @@ mutate_shard() {
   esac
   cd "$work/w$k/cli"
   CARGO_BUILD_BUILD_DIR="$root/cli/target/mb$k" cargo mutants --in-place -p "$crate" --test-package "$tests" \
-    --shard "$shard" --sharding round-robin -o "$work/out/$crate-$k" >"$work/out/$crate-$k.log" 2>&1
+    --in-diff "$work/rust.diff" --shard "$shard" --sharding round-robin -o "$work/out/$crate-$k" >"$work/out/$crate-$k.log" 2>&1
 }
 
 mutation() {
   mutants_installed
-  local shards="${GAUNTLET_MUTATION_SHARDS:-4}" reports=()
+  local base="${GAUNTLET_MUTATION_BASE:-main}" most="${GAUNTLET_MUTATION_SHARDS:-4}" since listed shards reports=()
+  since="$(git -C "$root" merge-base HEAD "$base")" ||
+    fail "HEAD shares no commit with $base: set GAUNTLET_MUTATION_BASE to the branch the change goes into → GAUNTLET.md#mutation"
   work="$root/cli/target/mutation"
   mkdir -p "$work/out"
-  for ((k = 0; k < shards; k++)); do
+  git -C "$root" diff "$since" HEAD --relative=cli -- cli >"$work/rust.diff"
+  git -C "$root" diff "$since" HEAD --relative=dashboard -- dashboard >"$work/dashboard.diff"
+  for ((k = 0; k < most; k++)); do
     fresh_tree "$work/w$k"
   done
   for crate in agent-terminal at-acceptance at-fixtures at-gauntlet at-perf; do
+    listed="$(cd "$work/w0/cli" && cargo mutants --list -p "$crate" --in-diff "$work/rust.diff" | wc -l)"
+    shards=$((listed < most ? listed : most))
+    printf '%s: %d mutants on the lines changed since %s\n' "$crate" "$listed" "${since:0:12}"
     for ((k = 0; k < shards; k++)); do
+      rm -rf "$work/out/$crate-$k"
       mkdir -p "$work/out/$crate-$k"
       reports+=("$work/out/$crate-$k/mutants.out/outcomes.json")
       (mutate_shard "$crate" "$k/$shards") &
@@ -105,10 +113,14 @@ mutation() {
     wait
   done
   cd "$root/cli"
-  step "write a test whose expected value changes when the mutated line does → GAUNTLET.md#mutation" cargo run --quiet -p at-gauntlet -- mutation "${reports[@]}"
+  if [ "${#reports[@]}" -gt 0 ]; then
+    step "write a test whose expected value changes when the mutated line does → GAUNTLET.md#mutation" cargo run --quiet -p at-gauntlet -- mutation "${reports[@]}"
+  else
+    printf 'no Rust line with a mutant changed since %s\n' "${since:0:12}"
+  fi
   cd "$root/dashboard"
   [ -x node_modules/.bin/stryker ] || fail "dashboard/node_modules is missing: run \`npm ci\` in dashboard/ → GAUNTLET.md#mutation"
-  step "write a test whose expected value changes when the mutated code does → GAUNTLET.md#mutation" node gauntlet/mutation.ts
+  step "write a test whose expected value changes when the mutated code does → GAUNTLET.md#mutation" node gauntlet/mutation.ts "$work/dashboard.diff"
 }
 
 acceptance_faults() {

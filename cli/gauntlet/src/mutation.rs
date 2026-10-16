@@ -139,8 +139,8 @@ impl Tally {
     }
 
     fn guard(&mut self) {
-        if self.caught == 0 {
-            self.offenses.push("no mutant was caught, so the tests ran on nothing".to_string());
+        if self.caught == 0 && self.total > self.unviable {
+            self.offenses.push("no mutant that compiled was caught, so the tests ran on nothing".to_string());
         }
         if self.timeouts * 100 > self.total * TIMEOUTS_PERCENT {
             self.offenses.push(format!(

@@ -52,6 +52,11 @@ void test("a run that tested nothing, or timed out on more than one mutant in tw
   });
 });
 
+void test("a change whose only mutants did not compile, or that has none, has nothing to catch", () => {
+  assert.deepEqual(judge([mutant("CompileError")]), { lines: ["0 mutants tested: every one caught (1 did not compile)"], passed: true });
+  assert.deepEqual(judge([]), { lines: ["0 mutants tested: every one caught (0 did not compile)"], passed: true });
+});
+
 void test("every config file name Stryker would read is found", () => {
   const root = scratchFolder("stryker-");
 

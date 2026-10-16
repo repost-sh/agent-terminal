@@ -60,19 +60,26 @@ fn a_missed_mutant_is_named() {
 
 #[test]
 fn a_failed_baseline_a_short_run_or_nothing_caught_proves_nothing() {
-    let read = report("Failure", &[mutant("a.rs:1:1: f", "Unviable")], 3);
+    let read = report("Failure", &[mutant("a.rs:1:1: f", "Unviable"), mutant("a.rs:2:1: g", "Timeout")], 3);
     assert_eq!(
         checked(&[read]),
         (
             2,
             format!(
                 "outcomes-0.json: the unmutated baseline did not pass, so no mutant there proves anything: {FIX}\n\
-                 outcomes-0.json: 1 of its 3 mutants were tested: {FIX}\n\
-                 no mutant was caught, so the tests ran on nothing: {FIX}\n\
-                 3 offense(s)\n"
+                 outcomes-0.json: 2 of its 3 mutants were tested: {FIX}\n\
+                 no mutant that compiled was caught, so the tests ran on nothing: {FIX}\n\
+                 1 of 2 mutants timed out, over 5%: a timeout hides whether the tests catch it; run with less load: {FIX}\n\
+                 4 offense(s)\n"
             )
         )
     );
+}
+
+#[test]
+fn a_change_whose_only_mutants_do_not_compile_has_nothing_to_catch() {
+    let read = report("Success", &[mutant("a.rs:1:1: replace f -> Foo with Default::default()", "Unviable")], 1);
+    assert_eq!(checked(&[read]), (0, "1 mutants: 0 caught, 1 unviable, 0 timed out, none missed\n".to_string()));
 }
 
 #[test]

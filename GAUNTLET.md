@@ -18,7 +18,7 @@ The escape hatches are sealed by checks of their own: [sealed lint table](#seale
 | `duplication` | [duplication](#duplication) | default; pre-commit for `cli/`, `dashboard/`, `scripts/` |
 | `browser` | [browser tests](#browser-tests) | needs `agent-browser` and Chrome |
 | `coverage` | [coverage floor](#coverage-floor) and [CRAP](#crap) for the Rust crates | needs `cargo-llvm-cov` and `agent-browser` |
-| `mutation` | [mutation](#mutation): cargo-mutants on every crate, then Stryker on the dashboard | heavy: nightly and before a release |
+| `mutation` | [mutation](#mutation): cargo-mutants and Stryker on the lines the change touched since `main` | each pull request; minutes for a typical change |
 | `acceptance-faults` | the fault self-test of [acceptance](#acceptance) | heavy: nightly and before a release |
 
 With no area, `scripts/gauntlet.sh` runs `rust dashboard npm duplication`. Enable the pre-commit hook once per clone with `git config core.hooksPath .githooks`. `git commit --no-verify` skips the hook, so CI runs the gauntlet on every push.
@@ -95,7 +95,7 @@ CRAP(f) = complexity² × (1 − coverage)³ + complexity, at most 6 for every f
 
 ### Mutation
 
-Every mutant of every crate is caught: cargo-mutants 27.1.0 runs in throwaway worktrees at `HEAD`, and `at-gauntlet mutation` fails a missed mutant, a baseline that did not pass, a report that tested fewer mutants than it listed, a run that caught none, or timeouts over 5%. Stryker 10.0.0 runs the dashboard's vitest suite against every mutant of its source, with the TypeScript checker discarding mutants that do not compile, and `gauntlet/mutation.ts` fails a survivor, a mutant no test ran, an ignored mutant, a run that tested none, timeouts over 5%, or a Stryker config file. On offense: write a test whose expected value changes when the mutated code does, through the real surface.
+Every mutant on a line the change touched is caught. The area diffs `HEAD` against its merge-base with `main` (set `GAUNTLET_MUTATION_BASE` to the branch the change goes into), then runs cargo-mutants 27.1.0 with `--in-diff` in throwaway worktrees at `HEAD` for each crate the diff reaches, and Stryker 10.0.0 on the changed line ranges of the dashboard's source. The tests a mutant runs are the crate's whole suite, its unit tests first, so a mutant the unit tests catch costs seconds. `at-gauntlet mutation` fails a missed mutant, a baseline that did not pass, a report that tested fewer mutants than it listed, mutants that compiled with none caught, or timeouts over 5%. Stryker runs the dashboard's vitest suite with the TypeScript checker discarding mutants that do not compile, and `gauntlet/mutation.ts` fails a survivor, a mutant no test ran, an ignored mutant, mutants that compiled with none tested, timeouts over 5%, or a Stryker config file. A change that touches no line with a mutant passes. On offense: write a test whose expected value changes when the mutated code does, through the real surface.
 
 ### Acceptance
 
