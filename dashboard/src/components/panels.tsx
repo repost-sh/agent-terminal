@@ -1,11 +1,11 @@
 import type { ComponentType } from "react";
 
-import { ActivityPanel } from "./components/activity-panel";
-import { CommandsPanel } from "./components/commands-panel";
-import { InfoPanel } from "./components/info-panel";
-import { OutputPanel } from "./components/output-panel";
-import { ScreenshotsPanel } from "./components/screenshots-panel";
-import type { TabInfo } from "./lib/protocol";
+import { ActivityPanel } from "./activity-panel";
+import { CommandsPanel } from "./commands-panel";
+import { InfoPanel } from "./info-panel";
+import { OutputPanel } from "./output-panel";
+import { ScreenshotsPanel } from "./screenshots-panel";
+import type { TabInfo } from "../lib/protocol";
 
 export interface PanelProps { session: string; tab: TabInfo }
 

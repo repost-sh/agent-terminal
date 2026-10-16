@@ -10,7 +10,7 @@ import { showPanel } from "../lib/side-panel";
 import { announceWhenLive } from "../lib/stream";
 import { closeDialog, Dialog } from "./dialog";
 import { INPUT, LABEL, Segmented, TextField } from "./form-fields";
-import { toast } from "./toaster";
+import { toast } from "../lib/toasts";
 import { Button, cn, copy, IconButton } from "./ui";
 
 interface NewSessionDialogProps { sessions: SessionInfo[]; existing: string | null }

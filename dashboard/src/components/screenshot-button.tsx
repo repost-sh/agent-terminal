@@ -1,8 +1,8 @@
 import { Camera } from "lucide-react";
 
 import { takeScreenshot } from "../lib/api";
-import type { ToolbarActionProps } from "../toolbar-actions";
-import { toast } from "./toaster";
+import type { ToolbarActionProps } from "./toolbar-actions";
+import { toast } from "../lib/toasts";
 import { IconButton } from "./ui";
 
 export const ScreenshotButton = (props: ToolbarActionProps) => {

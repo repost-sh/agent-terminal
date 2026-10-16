@@ -2,7 +2,7 @@ import { Copy, type LucideIcon } from "lucide-react";
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode, Ref } from "react";
 
 import { settle } from "../lib/settle";
-import { toast } from "./toaster";
+import { toast } from "../lib/toasts";
 
 export const cn = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ");
 

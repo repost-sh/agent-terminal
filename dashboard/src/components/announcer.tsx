@@ -1,27 +1,11 @@
 import { useSyncExternalStore } from "react";
 
-interface Said { text: string; times: number }
-
-let said: Said = { text: "", times: 0 };
-const listeners = new Set<() => void>();
-
-export const announce = (text: string) => {
-  said = { text, times: said.times + 1 };
-  listeners.forEach((listener) => {
-    listener();
-  });
-};
-
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-
-  return () => listeners.delete(listener);
-};
+import { lastAnnouncement, subscribeToAnnouncements } from "../lib/announcements";
 
 interface AnnouncersProps { title: string }
 
 export const Announcers = ({ title }: AnnouncersProps) => {
-  const { text, times } = useSyncExternalStore(subscribe, () => said);
+  const { text, times } = useSyncExternalStore(subscribeToAnnouncements, lastAnnouncement);
 
   return (
     <>

@@ -1,7 +1,7 @@
 import type { Terminal } from "@xterm/xterm";
 import { useState, useSyncExternalStore } from "react";
 
-import { announce } from "../components/announcer";
+import { announce } from "./announcements";
 import { tabStreamUrl } from "./api";
 import type { FrameUpdate, StreamUpdate } from "./protocol";
 import { followSocket, type Delivery } from "./socket";

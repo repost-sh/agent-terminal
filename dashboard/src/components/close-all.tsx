@@ -2,9 +2,9 @@ import { closeAll, reason } from "../lib/api";
 import type { SessionInfo } from "../lib/protocol";
 import { navigate } from "../lib/route";
 import { settle } from "../lib/settle";
-import { announce } from "./announcer";
+import { announce } from "../lib/announcements";
 import { closeDialog, Dialog } from "./dialog";
-import { toast } from "./toaster";
+import { toast } from "../lib/toasts";
 import { Button } from "./ui";
 
 interface Noun { one: string; many: string }

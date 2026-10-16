@@ -4,7 +4,7 @@ import { memo, useState } from "react";
 import { runStyle } from "../lib/ansi";
 import { plainItems, rawItems, useOutput, type Item, type Line } from "../lib/output";
 import { tabName } from "../lib/tabs";
-import type { PanelProps } from "../panels";
+import type { PanelProps } from "./panels";
 import { EmptyNote, HEAD_TOGGLE, PanelHead } from "./panel-parts";
 
 const LINE = "min-h-[1lh] whitespace-pre-wrap break-all";

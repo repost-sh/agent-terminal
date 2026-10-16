@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { announce } from "../components/announcer";
+import { announce } from "./announcements";
 import { sessionsStreamUrl } from "./api";
 import type { SessionInfo, Sessions } from "./protocol";
 import { leadHomeTo, tabRoute } from "./route";

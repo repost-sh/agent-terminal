@@ -46,6 +46,7 @@ const REQUIRED: Record<string, unknown[]> = {
   "local/no-comments": [],
   "local/no-ignored-artifact-paths": [{ paths: scratchFolders }],
   "local/no-redundant-props-alias": [],
+  "local/layers": [],
 };
 
 const REPLACED = ["no-unused-vars", "@typescript-eslint/no-unused-vars"];

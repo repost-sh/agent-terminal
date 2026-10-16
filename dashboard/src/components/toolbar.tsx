@@ -1,6 +1,6 @@
 import type { TabInfo } from "../lib/protocol";
 import type { Layout } from "../lib/split";
-import { TOOLBAR_ACTIONS, type ToolbarTab } from "../toolbar-actions";
+import { TOOLBAR_ACTIONS, type ToolbarTab } from "./toolbar-actions";
 import { LayoutSwitch } from "./layout-switch";
 
 interface CommandLineProps { tab: TabInfo }

@@ -6,10 +6,10 @@ import { focusNowOrWhenShown } from "../lib/focus";
 import type { TabInfo } from "../lib/protocol";
 import { settle } from "../lib/settle";
 import { tabName } from "../lib/tabs";
-import type { ToolbarActionProps } from "../toolbar-actions";
-import { announce } from "./announcer";
+import type { ToolbarActionProps } from "./toolbar-actions";
+import { announce } from "../lib/announcements";
 import { closeDialog, Dialog, showDialog } from "./dialog";
-import { toast } from "./toaster";
+import { toast } from "../lib/toasts";
 import { Button, IconButton } from "./ui";
 
 export const restartProgram = async (session: string, tab: TabInfo) => {

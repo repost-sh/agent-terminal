@@ -3,7 +3,7 @@ import type { KeyboardEvent } from "react";
 import type { TabInfo } from "../lib/protocol";
 import { resizePanel, showPanel, useSidePanel } from "../lib/side-panel";
 import { tabName } from "../lib/tabs";
-import { PANELS } from "../panels";
+import { PANELS } from "./panels";
 import { ResizeHandle } from "./resize-handle";
 
 const TAB_TRIGGER =

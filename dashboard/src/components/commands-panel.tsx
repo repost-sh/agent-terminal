@@ -6,7 +6,7 @@ import { outputOf, rowOf, useCommands, useOpenCommand, type LoadedOutput } from 
 import { clockTime, formatDuration, shellWord, shortPath } from "../lib/format";
 import type { CommandRecord, CommandsUpdate } from "../lib/protocol";
 import { tabName } from "../lib/tabs";
-import type { PanelProps } from "../panels";
+import type { PanelProps } from "./panels";
 import { EmptyNote, PanelHead } from "./panel-parts";
 import { CliBlock, cn } from "./ui";
 

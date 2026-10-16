@@ -2,7 +2,7 @@ import { Hand } from "lucide-react";
 
 import { controlButtonId, releaseControl, takeControl, useControl } from "../lib/control";
 import { focusWhenShown } from "../lib/focus";
-import type { ToolbarActionProps } from "../toolbar-actions";
+import type { ToolbarActionProps } from "./toolbar-actions";
 import { Button } from "./ui";
 
 const isLive = (props: ToolbarActionProps) =>

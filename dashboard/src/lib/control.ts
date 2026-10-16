@@ -1,8 +1,8 @@
 import type { ClipboardEvent, KeyboardEvent } from "react";
 import { useSyncExternalStore } from "react";
 
-import { announce } from "../components/announcer";
-import { toast } from "../components/toaster";
+import { announce } from "./announcements";
+import { toast } from "./toasts";
 import { controlUrl } from "./api";
 import { focusNext } from "./focus";
 import type { ControlUpdate, HumanInput } from "./protocol";

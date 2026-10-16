@@ -149,6 +149,7 @@ export default defineConfig(
       "local/no-comments": "error",
       "local/no-ignored-artifact-paths": ["error", { paths: scratchFolders }],
       "local/no-redundant-props-alias": "error",
+      "local/layers": "error",
     },
   },
 );

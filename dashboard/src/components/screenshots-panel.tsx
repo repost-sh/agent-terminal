@@ -2,7 +2,7 @@ import { screenshotUrl } from "../lib/api";
 import { clockTime } from "../lib/format";
 import type { Screenshot } from "../lib/protocol";
 import { fileName, useScreenshots } from "../lib/screenshots";
-import type { PanelProps } from "../panels";
+import type { PanelProps } from "./panels";
 import { EmptyNote, PanelHead } from "./panel-parts";
 import { openLightbox } from "./screenshot-lightbox";
 

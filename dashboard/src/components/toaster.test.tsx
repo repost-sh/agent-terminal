@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
-import { toast, Toaster } from "./toaster";
+import { toast } from "../lib/toasts";
+import { Toaster } from "./toaster";
 
 const shown = () => Array.from(screen.getByRole("region", { name: "Notifications" }).querySelectorAll(".toast")).map((entry) => entry.textContent);
 

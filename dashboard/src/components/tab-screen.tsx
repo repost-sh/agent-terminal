@@ -8,11 +8,11 @@ import { settle } from "../lib/settle";
 import type { Layout } from "../lib/split";
 import { useTabStream } from "../lib/stream";
 import { firstTab, tabName } from "../lib/tabs";
-import { announce } from "./announcer";
+import { announce } from "../lib/announcements";
 import { restartExited } from "./restart-button";
 import { controlHint, StatusBar } from "./status-bar";
 import { heldTerminal, liveLabel, Viewport } from "./terminal-view";
-import { toast } from "./toaster";
+import { toast } from "../lib/toasts";
 import { Toolbar } from "./toolbar";
 
 interface TabScreenProps { session: string; tab: TabInfo; sessions: SessionInfo[]; onLayout: (count: Layout) => void }

@@ -3,7 +3,7 @@ import type { PropsWithChildren, ReactNode } from "react";
 
 import { dateTime } from "../lib/format";
 import { useInfo, type Modes, type TabSetup } from "../lib/info";
-import type { PanelProps } from "../panels";
+import type { PanelProps } from "./panels";
 import { PanelHead } from "./panel-parts";
 import { cn } from "./ui";
 
