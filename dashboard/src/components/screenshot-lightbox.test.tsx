@@ -55,7 +55,7 @@ test("a screenshot shows framed at its size with its tab, frame, time and maker"
   await opened(shots, 0);
   expect(lightbox().outerHTML).toMatchSnapshot();
   fireEvent.click(button("Next screenshot"));
-  expect(lightbox().querySelector("figcaption")?.textContent).toBe("look2.png · t1 · frame 4 · 03:04:05 · dashboard");
+  expect(within(lightbox()).getByRole("figure").textContent).toBe("look2.png · t1 · frame 4 · 03:04:05 · dashboard");
   closed();
 });
 
@@ -63,7 +63,7 @@ const stepped = (name: string) => {
   button(name).focus();
   fireEvent.click(button(name));
 
-  return document.activeElement === button("Previous screenshot") ? "Previous" : "Next";
+  return button("Previous screenshot").matches(":focus") ? "Previous" : "Next";
 };
 
 test("stepping to either end moves focus to the button that still steps", async () => {
@@ -81,10 +81,10 @@ test("the compare picker offers the other screenshots, and focus follows into an
   fireEvent.click(button("Compare with…"));
   expect(Array.from(within(lightbox()).getByLabelText<HTMLSelectElement>("Compare with").options, (option) => option.text)).toEqual(["Compare with…", "pick1.png", "pick3.png"]);
   await picked(last ?? shots[0] ?? middle ?? shotOf("none.png"));
-  expect(document.activeElement).toBe(button("Back to screenshot"));
+  expect(button("Back to screenshot")).toHaveFocus();
   expect(lightbox().outerHTML).toMatchSnapshot();
   fireEvent.click(button("Back to screenshot"));
-  expect(document.activeElement).toBe(button("Compare with…"));
+  expect(button("Compare with…")).toHaveFocus();
   closed();
 });
 
@@ -141,6 +141,6 @@ test("a screenshot that left the list shows no position and cannot step", async 
 
   await daemon.push(SHOTS, { type: "screenshots", screenshots: shots.slice(1) });
   expect([within(lightbox()).getByRole("img").getAttribute("alt"), button("Previous screenshot").disabled, button("Next screenshot").disabled]).toEqual(["gone1.png, frame 3", true, true]);
-  expect(lightbox().querySelector(".tabular-nums.text-muted-foreground")?.textContent).toBe("");
+  expect(within(lightbox()).getByRole("group", { name: "Step through the screenshots" }).textContent).toBe("Previous screenshotNext screenshot");
   closed();
 });

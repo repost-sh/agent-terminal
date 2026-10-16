@@ -7,9 +7,6 @@ import { frameOf, sessionInfo, tabInfo } from "../fake-daemon/messages";
 
 const STREAM = "/api/session/work/t1/stream";
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 const shownApp = async () => {
   const daemon = startDaemon([sessionInfo("work", [tabInfo("t1", { program: "vim" })])]);
 
@@ -25,6 +22,8 @@ const newSession = () => {
   return screen.getByRole("dialog");
 };
 
+const focused = (element: HTMLElement | undefined) => element?.matches(":focus");
+
 test("Escape, the close button and a click outside close a dialog, and back closes it too", async () => {
   await shownApp();
   fireEvent.keyDown(newSession(), { key: "Escape" });
@@ -32,10 +31,7 @@ test("Escape, the close button and a click outside close a dialog, and back clos
   fireEvent.click(within(newSession()).getByRole("button", { name: "Close" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   newSession();
-  const overlay = document.querySelector(".fixed.inset-0.isolate");
-
-  expect(overlay).not.toBeNull();
-  fireEvent.click(overlay ?? document.body);
+  fireEvent.click(screen.getByTestId("backdrop"));
   expect(screen.queryByRole("dialog")).toBeNull();
   newSession();
   await act(async () => {
@@ -48,23 +44,22 @@ test("Escape, the close button and a click outside close a dialog, and back clos
 test("Tab and Shift+Tab wrap around inside the dialog and other keys pass", async () => {
   await shownApp();
   const dialog = newSession();
-  const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE));
-  const first = focusables[0];
-  const last = focusables.at(-1);
+  const [first] = within(dialog).getAllByRole("radio");
+  const last = within(dialog).getByRole("button", { name: "Close" });
 
-  last?.focus();
+  last.focus();
   expect(fireEvent.keyDown(dialog, { key: "Tab" })).toBe(false);
-  expect(document.activeElement).toBe(first);
+  expect(focused(first)).toBe(true);
   expect(fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true })).toBe(false);
-  expect(document.activeElement).toBe(last);
+  expect(focused(last)).toBe(true);
   first?.focus();
   expect(fireEvent.keyDown(dialog, { key: "Tab" })).toBe(true);
   expect(fireEvent.keyDown(dialog, { key: "a" })).toBe(true);
-  last?.focus();
-  expect([fireEvent.keyDown(dialog, { key: "a" }), document.activeElement]).toEqual([true, last]);
-  document.body.focus();
+  last.focus();
+  expect([fireEvent.keyDown(dialog, { key: "a" }), focused(last)]).toEqual([true, true]);
+  screen.getByRole("main").focus();
   expect(fireEvent.keyDown(dialog, { key: "Tab" })).toBe(false);
-  expect(document.activeElement).toBe(first);
+  expect(focused(first)).toBe(true);
   fireEvent.keyDown(dialog, { key: "Escape" });
 });
 
@@ -75,12 +70,11 @@ test("restarting a running program asks first in an alert that only its buttons 
   await daemon.connected(STREAM);
   await daemon.push(STREAM, frameOf(2));
   fireEvent.click(await screen.findByRole("button", { name: "Restart vim" }));
-  const alert = screen.getByRole("alertdialog", { name: "Restart vim?" });
+  const alert = screen.getByRole("alertdialog", { name: "Restart vim?", description: "work t1 is killed and started again with the same command, size and working directory." });
 
-  expect(document.getElementById(alert.getAttribute("aria-describedby") ?? "")?.textContent).toBe("work t1 is killed and started again with the same command, size and working directory.");
   expect(alert.outerHTML).toMatchSnapshot();
   expect(within(alert).queryByRole("button", { name: "Close" })).toBeNull();
-  fireEvent.click(document.querySelector(".fixed.inset-0.isolate") ?? document.body);
+  fireEvent.click(screen.getByTestId("backdrop"));
   fireEvent.click(within(alert).getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("alertdialog")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Restart vim" }));
@@ -92,15 +86,14 @@ test("restarting a running program asks first in an alert that only its buttons 
 test("Tab skips controls that are not shown, unless focus is already on one", async () => {
   await shownApp();
   const dialog = newSession();
-  const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE));
-  const [first] = focusables;
-  const unshown = focusables.at(-1);
+  const [first] = within(dialog).getAllByRole("radio");
+  const unshown = within(dialog).getByRole("button", { name: "Close" });
 
   Object.defineProperty(unshown, "offsetParent", { value: null });
-  focusables.at(-2)?.focus();
-  expect([fireEvent.keyDown(dialog, { key: "Tab" }), document.activeElement]).toEqual([false, first]);
-  unshown?.focus();
-  expect([fireEvent.keyDown(dialog, { key: "Tab" }), document.activeElement]).toEqual([false, first]);
+  within(dialog).getByRole("button", { name: "Create" }).focus();
+  expect([fireEvent.keyDown(dialog, { key: "Tab" }), focused(first)]).toEqual([false, true]);
+  unshown.focus();
+  expect([fireEvent.keyDown(dialog, { key: "Tab" }), focused(first)]).toEqual([false, true]);
   expect(fireEvent.keyDown(dialog, { key: "Escape" })).toBe(false);
 });
 
@@ -114,7 +107,7 @@ test("opening and closing move focus without scrolling, and a submitted form sta
 
   expect(fireEvent.submit(within(dialog).getByRole("button", { name: "Create" }))).toBe(false);
   fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
-  expect([focus.mock.calls.at(0), focus.mock.calls.at(-1), document.activeElement]).toEqual([[{ preventScroll: true }], [{ preventScroll: true }], opener]);
+  expect([focus.mock.calls.at(0), focus.mock.calls.at(-1), focused(opener)]).toEqual([[{ preventScroll: true }], [{ preventScroll: true }], true]);
 });
 
 test("a dialog whose opener has gone returns focus to the main content", async () => {
@@ -129,5 +122,5 @@ test("a dialog whose opener has gone returns focus to the main content", async (
     await Promise.resolve();
   });
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
-  expect(document.activeElement?.id).toBe("main-content");
+  expect(focused(screen.getByRole("main"))).toBe(true);
 });

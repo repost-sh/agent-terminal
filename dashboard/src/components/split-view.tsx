@@ -55,7 +55,7 @@ const SplitGrid = (props: GridProps) => {
   const count = view.cells.length === 4 ? 4 : 2;
 
   return (
-    <div className={cn("split-grid grid min-h-0 flex-1 grid-cols-2 gap-px bg-border", count === 4 ? "grid-rows-2" : "grid-rows-1")}>
+    <div role="group" aria-label="Terminals" className={cn("split-grid grid min-h-0 flex-1 grid-cols-2 gap-px bg-border", count === 4 ? "grid-rows-2" : "grid-rows-1")}>
       {shownCells(view.sessions, view.cells).map((entry, at) =>
         entry ? (
           <SplitCell
@@ -93,11 +93,11 @@ export const SplitView = (props: SplitViewProps) => {
   return (
     <>
       {focused ? <div ref={setToolbarSlot} className="flex shrink-0 flex-col" /> : <Toolbar layout={props.cells.length === 4 ? 4 : 2} onLayout={actions.layout} />}
-      <div className="h-px shrink-0 bg-border" role="none" />
+      <div data-testid="divider" className="h-px shrink-0 bg-border" role="none" />
       <SplitGrid view={props} slots={{ status: statusSlot, toolbar: toolbarSlot }} actions={actions} />
       {focused && (
         <>
-          <div className="h-px shrink-0 bg-border" role="none" />
+          <div data-testid="divider" className="h-px shrink-0 bg-border" role="none" />
           <div ref={setStatusSlot} className="flex shrink-0 flex-col" />
         </>
       )}

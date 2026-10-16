@@ -70,6 +70,7 @@ const followTooltips = (element: HTMLDivElement) => {
 export const TooltipLayer = () => (
   <div
     ref={followTooltips}
+    role="tooltip"
     hidden
     aria-hidden="true"
     className="pointer-events-none fixed z-[70] w-fit max-w-xs rounded-md bg-foreground px-2 py-1 text-[11px] text-background shadow-md"

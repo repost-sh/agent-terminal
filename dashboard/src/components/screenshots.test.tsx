@@ -46,7 +46,7 @@ test("the panel lists each screenshot with its tab, frame, time and maker", asyn
     "b.pngt1 · frame 4 · 03:04:05dashboard",
     "c.pngt1 · frame 5 · 03:04:05dashboard",
   ]);
-  expect(items[0]?.querySelector("img")?.parentElement?.getAttribute("style")).toBe("aspect-ratio: 960 / 640;");
+  expect(within(items[0] ?? document.body).getByRole("presentation").matches('[style="aspect-ratio: 960 / 640;"] > img')).toBe(true);
 });
 
 test("the lightbox steps through the screenshots and copies a path", async () => {
@@ -76,7 +76,7 @@ const compareWith = async (pair: Pair) => {
   const select = within(lightbox()).getByLabelText("Compare with");
   const [older, newer] = pair.shown.frame < pair.other.frame ? [pair.shown, pair.other] : [pair.other, pair.shown];
 
-  expect(document.activeElement).toBe(select);
+  expect(select).toHaveFocus();
   fireEvent.change(select, { target: { value: "" } });
   await act(async () => {
     fireEvent.change(select, { target: { value: pair.other.path } });
@@ -101,7 +101,7 @@ test("comparing two screenshots shows both and the cells that changed", async ()
   expect(await within(lightbox()).findByText("2 cells changed")).toBeTruthy();
   expect(within(lightbox()).getByRole("heading").textContent).toBe("b.png compared");
   expect(within(lightbox()).getAllByRole("img").map((image) => image.getAttribute("alt"))).toEqual(["a.png, frame 3", "b.png, frame 4"]);
-  expect(Array.from(lightbox().querySelectorAll<HTMLElement>("[data-changed]")).map((box) => box.style.width)).toEqual(["10%", "10%"]);
+  expect(within(lightbox()).getAllByTestId("changed-cells").map((box) => box.style.width)).toEqual(["10%", "10%"]);
   fireEvent.click(within(lightbox()).getByRole("button", { name: "Back to screenshot" }));
   await compareWith({ shown: b, other: c });
   expect(await within(lightbox()).findByText("Different sizes: no cell comparison")).toBeTruthy();

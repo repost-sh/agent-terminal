@@ -5,7 +5,7 @@ import { App } from "./app";
 import { startDaemon } from "./fake-daemon/daemon";
 import { navigate } from "./lib/route";
 
-const named = () => [document.title, screen.getByRole("heading", { level: 1 }).textContent, document.querySelector('[aria-live="assertive"][aria-atomic="true"]')?.textContent];
+const named = () => [document.title, screen.getByRole("heading", { level: 1 }).textContent, screen.getByRole("alert", { name: "Screen" }).textContent];
 
 test("the page names each screen in its title, its heading and what it tells a screen reader", async () => {
   const daemon = startDaemon([]);

@@ -123,7 +123,7 @@ test("a call without output shows nothing more when clicked", async () => {
 
   await pushed(daemon, { entries: [entryOf("press x")], pending: [{ time: at(9), command: "wait --idle" }] });
   fireEvent.click(screen.getByRole("button", { name: /press x/ }));
-  expect([list().querySelector("pre"), calls().length]).toEqual([null, 2]);
+  expect([within(list()).queryByRole("group", { name: "Output" }), calls().length]).toEqual([null, 2]);
 });
 
 const scrolledTo = (element: HTMLElement) => {
@@ -163,7 +163,8 @@ test("a following list scrolls to each new call, to a call that grows, and back 
     fireEvent.click(screen.getByRole("button", { name: "Jump to latest" }));
     await Promise.resolve();
   });
-  expect([writes.at(-1), document.activeElement]).toEqual([1000, screen.getByRole("button", { name: "Follow" })]);
+  expect(writes.at(-1)).toBe(1000);
+  expect(screen.getByRole("button", { name: "Follow" })).toHaveFocus();
 });
 
 test("a closed list stops watching its calls", async () => {

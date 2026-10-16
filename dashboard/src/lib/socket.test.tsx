@@ -24,7 +24,7 @@ const after = async (ms: number) => {
   });
 };
 
-const status = () => document.getElementById("status-region")?.textContent ?? "";
+const status = () => screen.getByRole("group", { name: "Status" }).textContent;
 
 const reopened = async (daemon: FakeDaemon, ms: number) => {
   await after(ms - 1);

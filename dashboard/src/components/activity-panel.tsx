@@ -126,7 +126,9 @@ const RowDetails = (props: RowProps) => {
     <>
       {entry.screenshots && <Thumbnails session={props.session} paths={entry.screenshots} />}
       {props.expanded && entry.output !== "" && (
-        <pre className="mb-1.5 max-h-48 overflow-auto text-[10px] leading-snug text-muted-foreground">{entry.output}</pre>
+        <pre role="group" aria-label="Output" className="mb-1.5 max-h-48 overflow-auto text-[10px] leading-snug text-muted-foreground">
+          {entry.output}
+        </pre>
       )}
     </>
   );

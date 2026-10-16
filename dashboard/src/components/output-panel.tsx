@@ -12,7 +12,7 @@ const LINE = "min-h-[1lh] whitespace-pre-wrap break-all";
 interface StyledLineProps { line: Line }
 
 const StyledLine = memo(({ line }: StyledLineProps) => (
-  <div className={LINE}>
+  <div role="listitem" className={LINE}>
     {line.runs.map((run, index) => (
       <span key={index} style={runStyle(run.style)}>
         {run.text}
@@ -43,16 +43,22 @@ const FoundLine = ({ text, query }: FoundLineProps) => {
 
   parts.push(text.slice(from));
 
-  return <div className={LINE}>{parts}</div>;
+  return (
+    <div role="listitem" className={LINE}>
+      {parts}
+    </div>
+  );
 };
 
 interface MarkDividerProps { name: string }
 
 const MarkDivider = ({ name }: MarkDividerProps) => (
-  <div role="separator" aria-label={`mark ${name}`} className="my-1.5 flex items-center gap-2 font-sans text-[10px] text-muted-foreground">
-    <span className="h-px flex-1 bg-border" />
-    mark: {name}
-    <span className="h-px flex-1 bg-border" />
+  <div role="listitem">
+    <div role="separator" aria-label={`mark ${name}`} className="my-1.5 flex items-center gap-2 font-sans text-[10px] text-muted-foreground">
+      <span className="h-px flex-1 bg-border" />
+      mark: {name}
+      <span className="h-px flex-1 bg-border" />
+    </div>
   </div>
 );
 
@@ -79,7 +85,7 @@ const SearchBox = ({ typed, onType }: SearchProps) => (
 interface LinesProps { label: string; items: Item[]; query: string }
 
 const OutputLines = (props: LinesProps) => (
-  <div role="group" aria-label={props.label} className="min-h-0 flex-1 overflow-y-auto px-3 py-2 font-mono text-[11px] leading-relaxed">
+  <div role="list" aria-label={props.label} className="min-h-0 flex-1 overflow-y-auto px-3 py-2 font-mono text-[11px] leading-relaxed">
     {props.items.map((item, index) =>
       item.kind === "mark" ? (
         <MarkDivider key={index} name={item.name} />

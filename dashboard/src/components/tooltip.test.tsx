@@ -17,13 +17,7 @@ const page = () => {
     </>,
   );
 
-  const tip = document.querySelector<HTMLDivElement>("[aria-hidden='true'].fixed");
-
-  if (!tip) {
-    throw new Error("the tooltip layer is missing");
-  }
-
-  return tip;
+  return screen.getByRole("tooltip", { hidden: true });
 };
 
 test("hovering a control shows its tooltip under it, kept on screen", () => {

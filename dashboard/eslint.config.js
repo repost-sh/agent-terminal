@@ -5,6 +5,7 @@ import js from "@eslint/js";
 import stylistic from "@stylistic/eslint-plugin";
 import betterMaxParams from "eslint-plugin-better-max-params";
 import reactHooks from "eslint-plugin-react-hooks";
+import testingLibrary from "eslint-plugin-testing-library";
 import unusedImports from "eslint-plugin-unused-imports";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
@@ -61,6 +62,8 @@ const restrictedSyntax = [
       "try/catch/finally is not allowed. Use `settle` from src/lib/settle.ts, which turns a throwing call or a rejecting promise into a Result.",
   },
 ];
+
+const TESTS = ["src/**/*.test.{ts,tsx}"];
 
 const LINTED = ["src/**/*.{ts,tsx}", "vite.config.ts", "vitest.config.ts", "eslint.config.js", "eslint/**/*.ts", "gauntlet/**/*.ts"];
 
@@ -150,6 +153,15 @@ export default defineConfig(
       "local/no-ignored-artifact-paths": ["error", { paths: scratchFolders }],
       "local/no-redundant-props-alias": "error",
       "local/layers": "error",
+    },
+  },
+  {
+    files: TESTS,
+    plugins: { "testing-library": testingLibrary },
+    rules: {
+      "testing-library/no-container": "error",
+      "testing-library/no-node-access": "error",
+      "testing-library/prefer-screen-queries": "error",
     },
   },
 );

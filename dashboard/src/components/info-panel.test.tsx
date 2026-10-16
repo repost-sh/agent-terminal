@@ -36,8 +36,12 @@ const shownInfo = async () => {
   return daemon;
 };
 
-const rows = () =>
-  Array.from(screen.getByRole("tabpanel").querySelectorAll("dt")).map((term) => `${term.textContent}: ${String(term.nextElementSibling?.textContent)}`);
+const rows = () => {
+  const panel = within(screen.getByRole("tabpanel"));
+  const definitions = panel.getAllByRole("definition");
+
+  return panel.getAllByRole("term").map((term, index) => `${term.textContent}: ${String(definitions[index]?.textContent)}`);
+};
 
 const pushed = async (daemon: FakeDaemon, change: Partial<TabSetup>) => {
   await daemon.push(INFO, { type: "info", ...setup(change) });

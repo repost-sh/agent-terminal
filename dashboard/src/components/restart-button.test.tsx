@@ -46,6 +46,6 @@ test("restarting an exited program skips the question and hands focus to taking 
   expect(await screen.findByText("vim restarted")).toBeTruthy();
   await daemon.push(STREAM, frameOf(2));
   await vi.waitFor(() => {
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Take control" }));
+    expect(screen.getByRole("button", { name: "Take control" })).toHaveFocus();
   });
 });

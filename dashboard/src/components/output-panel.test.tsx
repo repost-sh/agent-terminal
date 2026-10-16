@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
 
 import { App } from "../app";
@@ -26,17 +26,21 @@ const pushed = async (daemon: FakeDaemon, update: Update) => {
   await daemon.push(OUTPUT, { type: "output", reset: update.reset ?? false, styled: update.segments, raw: update.raw ?? update.segments });
 };
 
-const lines = () => Array.from(screen.getByRole("group", { name: "Output of work t1" }).children).map((line) => line.getAttribute("aria-label") ?? line.textContent);
+const output = () => within(screen.getByRole("list", { name: "Output of work t1" }));
+
+const lines = () => output().getAllByRole("listitem").map((line) => within(line).queryByRole("separator")?.getAttribute("aria-label") ?? line.textContent);
+
+const panel = () => within(screen.getByRole("tabpanel"));
+
+const run = (text: string) => output().getByText((_, element) => element?.tagName === "SPAN" && element.textContent === text);
 
 test("output reads as styled lines with marks between them, and raw shows the bytes", async () => {
   const daemon = await shownOutput();
 
   expect(screen.getByText("No output yet")).toBeTruthy();
   await pushed(daemon, { segments: [{ text: "one\nt" }, { mark: "build" }, { text: "\x1b[31mtwo\tend\x7f" }] });
-  expect([lines(), screen.getByRole("group", { name: "Output of work t1" }).firstElementChild?.className]).toEqual([["one", "t", "mark build", "two\tend\x7f"], "min-h-[1lh] whitespace-pre-wrap break-all"]);
-  const runs = Array.from(screen.getByRole("group", { name: "Output of work t1" }).querySelectorAll("span"));
-
-  expect(runs.filter((run) => run.textContent).map((run) => [run.textContent, run.style.color])).toEqual([
+  expect([lines(), output().getAllByRole("listitem")[0]?.className]).toEqual([["one", "t", "mark build", "two\tend\x7f"], "min-h-[1lh] whitespace-pre-wrap break-all"]);
+  expect(["one", "t", "two\tend\x7f"].map((text) => [text, run(text).style.color])).toEqual([
     ["one", ""],
     ["t", ""],
     ["two\tend\x7f", "var(--ansi-1)"],
@@ -65,14 +69,14 @@ test("search counts and marks every occurrence, ignoring case", async () => {
   const search = screen.getByRole("textbox", { name: "Search the output" });
 
   fireEvent.change(search, { target: { value: " alpha " } });
-  expect([screen.getByRole("status").textContent, lines(), search.getAttribute("spellcheck")]).toEqual(["3 matches", ["Alpha beta", "ALPHA alpha", "mark x"], "false"]);
-  expect(Array.from(document.querySelectorAll("mark")).map((mark) => mark.textContent)).toEqual(["Alpha", "ALPHA", "alpha"]);
+  expect([panel().getByRole("status").textContent, lines(), search.getAttribute("spellcheck")]).toEqual(["3 matches", ["Alpha beta", "ALPHA alpha", "mark x"], "false"]);
+  expect(output().getAllByRole("mark").map((mark) => mark.textContent)).toEqual(["Alpha", "ALPHA", "alpha"]);
   fireEvent.change(search, { target: { value: "beta" } });
-  expect(screen.getByRole("status").textContent).toBe("1 match");
+  expect(panel().getByRole("status").textContent).toBe("1 match");
   fireEvent.change(search, { target: { value: "gamma" } });
-  expect(screen.getByRole("status").textContent).toBe("0 matches");
+  expect(panel().getByRole("status").textContent).toBe("0 matches");
   fireEvent.change(search, { target: { value: "  " } });
-  expect(screen.queryByRole("status")).toBeNull();
+  expect(panel().queryByRole("status")).toBeNull();
 });
 
 test("an open line continues across updates, in styled and in raw output", async () => {
@@ -91,5 +95,5 @@ test("a line drawn in several styles is searched as one text", async () => {
 
   await pushed(daemon, { segments: [{ text: "\x1b[31mal\x1b[0mpha\n" }] });
   fireEvent.change(screen.getByRole("textbox", { name: "Search the output" }), { target: { value: "alpha" } });
-  expect(screen.getByRole("status").textContent).toBe("1 match");
+  expect(panel().getByRole("status").textContent).toBe("1 match");
 });

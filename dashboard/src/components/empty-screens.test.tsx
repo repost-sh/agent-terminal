@@ -22,8 +22,8 @@ test("a lost daemon says how to start it on the dashboard's port, and Retry asks
   const retry = vi.fn();
   const started = (url: string) => {
     servedAt(url);
-    const { container, unmount } = render(<Disconnected onRetry={retry} />);
-    const said = [container.querySelector("code")?.textContent, screen.getByText(/is not running/).textContent];
+    const { unmount } = render(<Disconnected onRetry={retry} />);
+    const said = [screen.getByRole("code").textContent, screen.getByText(/is not running/).textContent];
 
     unmount();
 

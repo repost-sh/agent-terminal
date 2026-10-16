@@ -142,7 +142,7 @@ export const Viewport = (props: ViewportProps) => {
   const look = frameLook(props);
 
   return (
-    <div id={props.exit ? "viewport-region" : undefined} ref={box} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+    <div id={props.exit ? "viewport-region" : undefined} data-testid="viewport" ref={box} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
       {look.loading && <WaitingForFirstFrame />}
       <HeldRing held={props.held ?? null} compact={Boolean(props.compact)}>
         <div role="group" aria-label={props.label} className={cn("term-frame", look.dim && "is-dim", look.loading && "opacity-0")}>

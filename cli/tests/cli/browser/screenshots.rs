@@ -236,7 +236,7 @@ fn copy_path_copies_it_and_escape_returns_to_the_thumbnail(browser: &Browser, sh
 
 fn changed_marks() -> String {
     format!(
-        "JSON.stringify([...document.querySelectorAll({})].map((figure) => figure.querySelectorAll('[data-changed]').length))",
+        "JSON.stringify([...document.querySelectorAll({})].map((figure) => figure.querySelectorAll('[data-testid=changed-cells]').length))",
         js_string(&format!("{LIGHTBOX} figure"))
     )
 }

@@ -8,7 +8,7 @@ import { frameOf, sessionInfo, tabInfo } from "../fake-daemon/messages";
 const streamOf = (session: string) => `/api/session/${session}/t1/stream`;
 const controlOf = (session: string) => `/api/session/${session}/t1/control`;
 
-const announced = () => document.querySelector('[aria-live="polite"][aria-atomic="true"]')?.textContent;
+const announced = () => screen.getByRole("status", { name: "Announcements" }).textContent;
 
 const liveApp = async (session: string) => {
   const daemon = startDaemon([sessionInfo(session, [tabInfo("t1", { program: "vim" })])]);
@@ -39,7 +39,7 @@ test("taking control focuses the terminal, and its keys and pastes reach the pro
 
   expect(screen.getByRole("button", { name: "Release control" }).outerHTML).toMatchSnapshot();
 
-  expect([document.activeElement, announced()]).toEqual([terminal, "You have control of keys t1"]);
+  expect([terminal.matches(":focus"), announced()]).toEqual([true, "You have control of keys t1"]);
   expect(screen.getByText("Keys go to vim · ctrl+p ctrl+q moves focus out")).toBeTruthy();
   const keys = [
     { key: "a" },
@@ -86,7 +86,7 @@ test("ctrl+p ctrl+q leaves the terminal, while ctrl+p then another key sends bot
   expect(daemon.sent(controlOf("chord"))).toEqual([{ pressed: "Ctrl+p" }, { typed: "x" }]);
   fireEvent.keyDown(terminal, { key: "p", code: "KeyP", ctrlKey: true });
   fireEvent.keyDown(terminal, { key: "q", code: "KeyQ", ctrlKey: true });
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Release control" }));
+  expect(screen.getByRole("button", { name: "Release control" })).toHaveFocus();
   expect(daemon.sent(controlOf("chord"))).toHaveLength(2);
   fireEvent.click(screen.getByRole("button", { name: "Release control" }));
   expect(announced()).toBe("Control returned to the agent");

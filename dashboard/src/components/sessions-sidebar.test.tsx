@@ -69,7 +69,7 @@ test("the sidebar draws each tab's state, marks the current session and tab, and
 
   expect(screen.getByRole("complementary", { name: "Sessions" }).outerHTML).toMatchSnapshot();
   fireEvent.click(solo());
-  expect([solo().outerHTML, document.getElementById(solo().getAttribute("aria-controls") ?? "")?.hidden]).toMatchSnapshot();
+  expect([solo().outerHTML, within(sidebar()).queryByRole("link", { name: /solo t1/ }) === null]).toMatchSnapshot();
 });
 
 test("closing all sessions needs sessions to close", async () => {

@@ -4,7 +4,7 @@ import { expect, test, vi } from "vitest";
 import { toast } from "../lib/toasts";
 import { Toaster } from "./toaster";
 
-const shown = () => Array.from(screen.getByRole("region", { name: "Notifications" }).querySelectorAll(".toast")).map((entry) => entry.textContent);
+const shown = () => within(screen.getByRole("region", { name: "Notifications" })).queryAllByText(/^(one|two|three|four|careful|saved)$/).map((title) => title.textContent);
 
 test("the newest three toasts show, errors as alerts, and each one closes", () => {
   render(<Toaster />);
@@ -14,10 +14,10 @@ test("the newest three toasts show, errors as alerts, and each one closes", () =
     toast("warning", { title: "three" });
     toast("error", { title: "four" });
   });
-  expect(shown()).toEqual(["four", "three", "twodetail"]);
+  expect(shown()).toEqual(["four", "three", "two"]);
   expect([screen.getByRole("alert").textContent, within(screen.getByRole("region", { name: "Notifications" })).getAllByRole("status").map((entry) => entry.textContent)]).toEqual(["four", ["three", "twodetail"]]);
   fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Close notification" }));
-  expect(shown()).toEqual(["three", "twodetail"]);
+  expect(shown()).toEqual(["three", "two"]);
   for (const button of screen.getAllByRole("button", { name: "Close notification" })) {
     fireEvent.click(button);
   }

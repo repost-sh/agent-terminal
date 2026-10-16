@@ -15,7 +15,7 @@ const shownApp = async (daemon: FakeDaemon) => {
 
 const exitNote = (text: string) => screen.findByText((_, element) => element?.tagName === "SPAN" && element.textContent === text);
 
-const status = () => document.getElementById("status-region")?.textContent ?? "";
+const status = () => screen.getByRole("group", { name: "Status" }).textContent;
 
 const screenRows = () => within(screen.getByRole("list", { name: "Screen" })).getAllByRole("listitem").map((row) => row.textContent);
 
@@ -73,11 +73,15 @@ test("restarting an exited program asks the daemon and announces it", async () =
   expect(await screen.findByText("make restarted")).toBeTruthy();
 });
 
-const statusBar = () => [
-  document.getElementById("status-region")?.children[1]?.textContent,
-  Array.from(document.querySelectorAll('#status-region [data-slot="badge"]'), (chip) => chip.textContent),
-  document.getElementById("control-hint"),
-];
+const statusBar = () => {
+  const bar = within(screen.getByRole("group", { name: "Status" }));
+
+  return [
+    bar.getByText(/^(Connected|Exited|Live)$/).textContent,
+    within(bar.getByRole("list", { name: "Details" })).queryAllByRole("listitem").map((chip) => chip.textContent),
+    bar.queryByText(/^Keys go to /),
+  ];
+};
 
 test("the status bar says Connected with only the size until a frame is drawn, and Exited once the program ends", async () => {
   const daemon = startDaemon([sessionInfo("work", [tabInfo("t1", { cols: 100, rows: 30 })])]);
@@ -103,7 +107,7 @@ test("choosing the layout already shown keeps the tab, and a new layout takes fo
   fireEvent.click(screen.getByRole("button", { name: "Single terminal" }));
   expect(location.pathname).toBe("/s/work/t1");
   fireEvent.click(screen.getByRole("button", { name: "Two terminals side by side" }));
-  expect([location.pathname, document.activeElement]).toEqual(["/split/work:t1,work:t2", screen.getByRole("button", { name: "Two terminals side by side" })]);
+  expect([location.pathname, screen.getByRole("button", { name: "Two terminals side by side" }).matches(":focus")]).toEqual(["/split/work:t1,work:t2", true]);
 });
 
 test("closing a tab moves to the next open tab, even one of the same name in another session, and closing the last goes home", async () => {

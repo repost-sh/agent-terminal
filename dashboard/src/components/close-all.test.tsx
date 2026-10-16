@@ -27,12 +27,12 @@ test("closing all sessions counts what it kills, asks, and closes them on confir
   const dialog = closeAllDialog();
 
   expect(within(dialog).getByText("This will close 2 sessions and kill 2 running processes. This action cannot be undone.")).toBeTruthy();
-  expect(document.activeElement?.textContent).toBe("Cancel");
+  expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
   expect(dialog.outerHTML).toMatchSnapshot();
   fireEvent.click(within(dialog).getByRole("button", { name: "Close all" }));
   expect(await screen.findByText("Closed 2 sessions")).toBeTruthy();
   expect(screen.queryByRole("alertdialog")).toBeNull();
-  expect([location.pathname, document.activeElement?.id]).toEqual(["/", "main-content"]);
+  expect([location.pathname, screen.getByRole("main").matches(":focus")]).toEqual(["/", true]);
   expect(await screen.findByRole("list", { name: "Commands to get started" })).toBeTruthy();
 });
 
@@ -50,7 +50,7 @@ test("a refused close-all keeps the dialog and says why, and cancel puts focus b
   expect(screen.getByText("500")).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("alertdialog")).toBeNull();
-  expect(document.activeElement).toBe(trigger);
+  expect(trigger).toHaveFocus();
 });
 
 test("one session with one running process reads in the singular", async () => {

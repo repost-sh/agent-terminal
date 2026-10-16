@@ -8,10 +8,10 @@ export const Announcers = ({ title }: AnnouncersProps) => {
 
   return (
     <>
-      <div className="sr-only" aria-live="assertive" aria-atomic="true">
+      <div className="sr-only" role="alert" aria-label="Screen" aria-live="assertive" aria-atomic="true">
         {title}
       </div>
-      <div className="sr-only" aria-live="polite" aria-atomic="true">
+      <div className="sr-only" role="status" aria-label="Announcements" aria-live="polite" aria-atomic="true">
         <span key={times}>{text}</span>
       </div>
     </>

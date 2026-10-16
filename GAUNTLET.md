@@ -111,11 +111,11 @@ Black-box Gherkin features in `cli/acceptance/features` drive the built binary. 
 
 ### Dashboard lint
 
-`eslint --max-warnings 0` with the sealed config. On offense: fix the code each finding names.
+`eslint --max-warnings 0` with the sealed config. In the dashboard's tests, `eslint-plugin-testing-library` holds `no-container`, `no-node-access` and `prefer-screen-queries` at error: a test finds what it checks the way a user does, by role, accessible name, label or text through `screen` or `within`, and asserts focus with `toHaveFocus()`. On offense: fix the code each finding names; an element with no role a user could find it by gets the role or name it lacks, and a purely decorative one a `data-testid`.
 
 ### Sealed ESLint config
 
-`dashboard/eslint/sealed-config.test.ts`: every linted file gets every required rule and preset rule at error, inline config stays off, and both TypeScript projects keep every strict flag. On offense: restore the rule in `eslint.config.js` and fix the code it flags.
+`dashboard/eslint/sealed-config.test.ts`: every linted file gets every required rule and preset rule at error, every test file gets the three testing-library rules at error, inline config stays off, and both TypeScript projects keep every strict flag. On offense: restore the rule in `eslint.config.js` and fix the code it flags.
 
 ### Dashboard types
 

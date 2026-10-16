@@ -46,9 +46,11 @@ test("a program that is not a shell, or a shell without integration, says how to
   await pushed(daemon, { integration: false });
   expect([within(panel()).getByText("Shell integration is off for this tab"), counted()]).toEqual([within(panel()).getByText("Shell integration is off for this tab"), "Commands"]);
   expect(within(panel()).getByText("agent-terminal --session 'my work' shell")).toBeTruthy();
-  expect(within(panel()).getByRole("heading", { name: "Commands" }).parentElement?.outerHTML).toMatchSnapshot();
+  expect(panel().outerHTML).toMatchSnapshot();
   await pushed(daemon, {});
-  expect([within(panel()).getByText("No commands yet").parentElement?.outerHTML, counted()]).toEqual(['<div class="px-6 py-8 text-center text-xs text-muted-foreground"><p>No commands yet</p></div>', "Commands0"]);
+  const empty = within(panel()).getByText((_, element) => element?.tagName === "DIV" && element.textContent === "No commands yet");
+
+  expect([empty.outerHTML, counted()]).toEqual(['<div class="px-6 py-8 text-center text-xs text-muted-foreground"><p>No commands yet</p></div>', "Commands0"]);
 });
 
 test("commands list their result, short path, duration and start time", async () => {
@@ -116,17 +118,14 @@ test("each result has its own mark, a failed command its own background, and an 
   const looks = () =>
     within(screen.getByRole("list", { name: "Commands in my work t1" }))
       .getAllByRole("listitem")
-      .map((row) => [row.className, row.querySelector("button > span")?.className, row.querySelector("button > span:last-child")?.outerHTML]);
-  const SIGN = (sign: string) => `<span class="ml-auto shrink-0 font-mono text-muted-foreground" aria-hidden="true">${sign}</span>`;
+      .map((row) => [row.className, within(row).getByRole("button").outerHTML]);
 
-  expect(looks()).toEqual([
-    ["border-b border-border", "w-12 shrink-0 font-mono text-green-600 dark:text-success", SIGN("+")],
-    ["border-b border-border bg-destructive/5", "w-12 shrink-0 font-mono text-destructive", SIGN("+")],
-    ["border-b border-border", "w-12 shrink-0 font-mono text-muted-foreground", SIGN("+")],
-    ["border-b border-border", "w-12 shrink-0 font-mono text-muted-foreground", SIGN("+")],
-  ]);
+  expect(looks()).toMatchSnapshot();
   daemon.answer("GET /api/session/my%20work/t1/commands/2", () => ({ status: 200, body: { output: "failed" } }));
   await opened(/step 2/);
-  expect(looks()[1]).toEqual(["border-b border-border bg-destructive/5 bg-muted/60", "w-12 shrink-0 font-mono text-destructive", SIGN("-")]);
-  expect((await within(panel()).findByText("failed")).closest("div.max-h-64")?.className).toBe("mb-1.5 max-h-64 overflow-auto rounded-md bg-muted/50 px-2 py-1.5 font-mono text-[10px] leading-snug");
+  expect(looks()[1]).toMatchSnapshot();
+  await within(panel()).findByText("failed");
+  const [output] = within(panel()).getAllByText((_, element) => element?.tagName === "DIV" && element.textContent === "failed");
+
+  expect(output?.className).toBe("mb-1.5 max-h-64 overflow-auto rounded-md bg-muted/50 px-2 py-1.5 font-mono text-[10px] leading-snug");
 });

@@ -61,7 +61,7 @@ export const StatusBar = (props: StatusBarProps) => {
   const hint = props.hint ?? null;
 
   return (
-    <div id="status-region" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
+    <div id="status-region" role="group" aria-label="Status" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
       <Dot tone={status.tone} />
       <span className="text-xs text-muted-foreground">{status.label}</span>
       <span className="font-mono text-xs break-all text-muted-foreground/60">{tabStreamUrl(props.session, props.tab.tab)}</span>
@@ -71,11 +71,13 @@ export const StatusBar = (props: StatusBarProps) => {
             {hint}
           </span>
         )}
-        {chipsOf(props).map((chip) => (
-          <Badge key={chip} variant="outline">
-            {chip}
-          </Badge>
-        ))}
+        <ul aria-label="Details" className="contents">
+          {chipsOf(props).map((chip) => (
+            <li key={chip} className="contents">
+              <Badge variant="outline">{chip}</Badge>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );

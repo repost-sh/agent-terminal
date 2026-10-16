@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
 import { App } from "../app";
@@ -29,8 +29,10 @@ class CapturingObserver {
   }
 }
 
-const resize = (box: DOMRect, watched = document.getElementById("viewport-region")) => {
-  const watching = observers.filter((observer) => watched && observer.targets.includes(watched));
+const viewport = () => screen.getByTestId("viewport");
+
+const resize = (box: DOMRect, watched = (observer: CapturingObserver) => observer.targets.includes(viewport())) => {
+  const watching = observers.filter(watched);
 
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(box);
   expect(watching).toHaveLength(1);
@@ -41,11 +43,7 @@ const resize = (box: DOMRect, watched = document.getElementById("viewport-region
   });
 };
 
-const fontSize = () => {
-  const styles = Array.from(document.querySelectorAll("style"), (style) => style.textContent).join("\n");
-
-  return /\.xterm-rows \{[^}]*font-size: ([\d.]+px)/.exec(styles)?.[1];
-};
+const fontSize = () => /\.xterm-rows \{[^}]*font-size: ([\d.]+px)/.exec(screen.getByRole("group", { name: /live frame/ }).textContent)?.[1];
 
 test("the terminal's font shrinks to fit its area in quarter-pixel steps, and never grows past 13px", async () => {
   vi.stubGlobal("ResizeObserver", CapturingObserver);
@@ -55,9 +53,7 @@ test("the terminal's font shrinks to fit its area in quarter-pixel steps, and ne
   await daemon.serve();
   await daemon.connected(STREAM);
   await daemon.push(STREAM, frameOf(1, { paint: "x" }));
-  const area = document.getElementById("viewport-region");
-
-  Object.defineProperties(area, { clientWidth: { value: 432 }, clientHeight: { value: 332 } });
+  Object.defineProperties(viewport(), { clientWidth: { value: 432 }, clientHeight: { value: 332 } });
   expect(fontSize()).toBe("13px");
   const fitted = [new DOMRect(0, 0, 0, 0), new DOMRect(0, 0, 0, 600), new DOMRect(0, 0, 800, 600), new DOMRect(0, 0, 400, 300), new DOMRect(0, 0, 100, 75), new DOMRect(0, 0, 800, 300), new DOMRect(0, 0, 100, 75), new DOMRect(0, 0, 400, 600), new DOMRect(0, 0, 8000, 6000)].map((box) => {
     resize(box);
@@ -66,7 +62,9 @@ test("the terminal's font shrinks to fit its area in quarter-pixel steps, and ne
   });
 
   expect(fitted).toEqual(["13px", "13px", "6.5px", "6.5px", "13px", "6.5px", "13px", "6.5px", "4px"]);
-  resize(new DOMRect(0, 0, 100, 75), document.querySelector<HTMLElement>(".xterm-screen"));
+  const frameOfTab = screen.getByRole("group", { name: /live frame/ });
+
+  resize(new DOMRect(0, 0, 100, 75), (observer) => observer.targets.some((target) => target !== frameOfTab && frameOfTab.contains(target)));
   expect(fontSize()).toBe("13px");
 });
 
@@ -77,8 +75,8 @@ test("leaving a tab stops watching its size and closes its stream", async () => 
   render(<App />);
   await daemon.serve();
   await daemon.connected(STREAM);
-  const area = document.getElementById("viewport-region");
-  const watching = observers.filter((observer) => area && observer.targets.includes(area));
+  const area = viewport();
+  const watching = observers.filter((observer) => observer.targets.includes(area));
 
   await act(async () => {
     navigate("/s/work/t2");
@@ -97,13 +95,13 @@ test("a terminal hides until its first frame, dims once its program exits or its
   await daemon.connected(STREAM);
   expect(frame().className).toBe("term-frame opacity-0");
   await daemon.push(STREAM, frameOf(0, { exited: true, exit_code: 2 }));
-  const exitBar = await screen.findByText((_, element) => element?.parentElement?.id === "viewport-region" && element.getAttribute("role") === "status");
+  const exitBar = await within(viewport()).findByRole("status");
 
   expect([frame().className, screen.queryByText("Waiting for first frame...")]).toEqual(["term-frame is-dim", null]);
   expect(exitBar.outerHTML).toMatchSnapshot();
   await daemon.push(STREAM, frameOf(1, { exited: true, exit_code: 0 }));
   await screen.findByRole("group", { name: /live frame 1/ });
-  expect(exitBar.firstElementChild?.innerHTML).toBe('<span class="font-mono">make</span> exited with code <span class="font-mono">0</span>');
+  expect(within(exitBar).getByText(/exited with code/).innerHTML).toBe('<span class="font-mono">make</span> exited with code <span class="font-mono">0</span>');
 });
 
 test("a frame that has not drawn yet waits, and a reconnecting stream dims the frame", async () => {

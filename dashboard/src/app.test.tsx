@@ -56,7 +56,7 @@ test("a lost daemon is retried three times, then shown as down until Retry recon
   expect(["Close all sessions", "New session"].map((name) => screen.getByRole<HTMLButtonElement>("button", { name }).disabled)).toEqual([true, true]);
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await daemon.serve();
-  expect(document.querySelector('[aria-live="polite"][aria-atomic="true"]')?.textContent).toBe("Connected");
+  expect(screen.getByRole("status", { name: "Announcements" }).textContent).toBe("Connected");
   expect(location.pathname).toBe("/s/work/t1");
 });
 
@@ -79,16 +79,16 @@ test("a skip link leads to the main content, which takes focus only by script", 
 
 test("the page behind an open dialog is inert", async () => {
   const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
-  const { container } = render(<App />);
 
+  render(<App />);
   await daemon.serve();
-  const shell = container.querySelector(".shell");
+  const behind = () => screen.getByRole("complementary", { name: "Sessions", hidden: true }).matches("[inert] *");
 
-  expect(shell?.hasAttribute("inert")).toBe(false);
+  expect(behind()).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "New session" }));
-  expect(shell?.hasAttribute("inert")).toBe(true);
+  expect(behind()).toBe(true);
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-  expect(shell?.hasAttribute("inert")).toBe(false);
+  expect(behind()).toBe(false);
 });
 
 test("Retry goes home first, so a reconnected dashboard opens the first tab", async () => {

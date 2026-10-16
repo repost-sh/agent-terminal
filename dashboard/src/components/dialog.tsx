@@ -168,7 +168,7 @@ export const Dialog = (props: DialogProps) => {
 
   return (
     <div>
-      <div className={OVERLAY} onClick={alert ? undefined : () => {
+      <div data-testid="backdrop" className={OVERLAY} onClick={alert ? undefined : () => {
         closeDialog();
       }} />
       <div

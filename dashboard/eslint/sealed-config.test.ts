@@ -49,6 +49,12 @@ const REQUIRED: Record<string, unknown[]> = {
   "local/layers": [],
 };
 
+const REQUIRED_IN_TESTS: Record<string, unknown[]> = {
+  "testing-library/no-container": [],
+  "testing-library/no-node-access": [],
+  "testing-library/prefer-screen-queries": [],
+};
+
 const REPLACED = ["no-unused-vars", "@typescript-eslint/no-unused-vars"];
 
 const STRICT_FLAGS = [
@@ -159,6 +165,21 @@ void test("every linted file is linted with the sealed rules at error", async ()
     offenses.push(...requiredOffenses(checked), ...presetOffenses(checked, preset), ...syntaxOffenses(checked), ...replacedOffenses(checked), ...warnings(checked));
   }
 
+  assert.deepEqual(offenses, [], `${offenses.join("\n")}\n${FIX}`);
+});
+
+void test("every test file is linted with the testing-library rules at error", async () => {
+  const eslint = new ESLint({ cwd: ROOT });
+  const tests = globSync("src/**/*.test.{ts,tsx}", { cwd: ROOT });
+  const offenses: string[] = [];
+
+  for (const file of tests) {
+    const rules = ((await eslint.calculateConfigForFile(file)) as Linter.Config).rules ?? {};
+
+    offenses.push(...Object.entries(REQUIRED_IN_TESTS).filter(([rule, options]) => !errorWith(rules[rule], options)).map(([rule]) => `${file}: ${rule} is ${JSON.stringify(rules[rule])}`));
+  }
+
+  assert.ok(tests.length > 20, `${String(tests.length)} test files`);
   assert.deepEqual(offenses, [], `${offenses.join("\n")}\n${FIX}`);
 });
 

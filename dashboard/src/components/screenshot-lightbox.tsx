@@ -26,7 +26,7 @@ const ChangedBoxes = ({ shot, boxes }: ChangedProps) =>
   boxes.map((box, index) => (
     <span
       key={index}
-      data-changed=""
+      data-testid="changed-cells"
       className="shot-changed absolute"
       style={{
         left: share(box.x, shot.width),
@@ -236,7 +236,7 @@ const Stepper = ({ box }: PickerProps) => {
   const at = box.current.index;
 
   return (
-    <div className="flex flex-1 items-center gap-1">
+    <div role="group" aria-label="Step through the screenshots" className="flex flex-1 items-center gap-1">
       <IconButton look={{ label: "Previous screenshot", icon: ChevronLeft }} ref={focusWhenShown("shot-prev")} disabled={at <= 0 || comparing} onClick={() => {
         box.step(-1);
       }} />
