@@ -18,14 +18,14 @@ const complexitiesByEslint = async (files: string[]) => {
   const eslint = new ESLint({
     cwd: ROOT,
     overrideConfigFile: true,
-    overrideConfig: [{ files: ["**/*.ts", "**/*.tsx"], languageOptions: { parser: tseslint.parser }, rules: { complexity: ["error", 0] } }],
+    overrideConfig: [{ files: ["**/*.ts", "**/*.tsx"], languageOptions: { parser: tseslint.parser }, rules: { complexity: ["error", { max: 0, variant: "modified" }] } }],
   });
   const results = await eslint.lintFiles(files);
 
   return results.map((result) => result.messages.map((message) => Number(/complexity of (\d+)/.exec(message.message)?.[1])).sort());
 };
 
-void test("complexity is counted exactly as ESLint's complexity rule counts it, on every product file", async () => {
+void test("complexity is counted as ESLint's modified complexity counts it, a switch as one decision, on every product file", async () => {
   const files = productFiles(ROOT);
   const ours = files.map((file) => functionsIn(readFileSync(join(ROOT, file), "utf8"), file).map((found) => found.complexity).sort());
 
@@ -98,11 +98,40 @@ void test("functions over the ceiling are offenses and test code is not scored",
 
   assert.equal(verdict.passed, false);
   assert.deepEqual(verdict.lines, [
-    "src/lib/risky.ts:1: risky has CRAP 20.0 (complexity 4, 0% of its statements covered), over 6: cover every branch through the dashboard's tests, or split it into simpler functions that are each covered → GAUNTLET.md#crap",
+    "src/lib/risky.ts:1: risky ran under no test: none of its 1 statements ran: cover every branch through the dashboard's tests, or split it into simpler functions that are each covered → GAUNTLET.md#crap",
     "1 offense(s)",
   ]);
   coverage[join(root, "src/lib/risky.ts")] = covered(1);
   assert.deepEqual(checkCrap(root, coverage), { lines: ["2 functions at CRAP 6 or under"], passed: true });
+});
+
+const DISPATCH = `export const named = (kind: string) => {
+  switch (kind) {
+    case "a":
+      return 1;
+    case "b":
+      return 2;
+    case "c":
+      return 3;
+    default:
+      return 4;
+  }
+};
+`;
+
+void test("a switch is one decision, and a function no test runs fails however simple it is", () => {
+  const [named] = functionsIn(DISPATCH, "dispatch.ts");
+  const statements = (hits: number) => ({ statementMap: { a: { start: { line: 2, column: 2 } }, b: { start: { line: 4, column: 6 } } }, s: { a: hits, b: 0 } });
+  const root = scratchFolder("crap-dispatch-");
+
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src/dispatch.ts"), DISPATCH);
+  assert.equal(named?.complexity, 2);
+  assert.deepEqual(checkCrap(root, { [join(root, "src/dispatch.ts")]: statements(0) }).lines, [
+    "src/dispatch.ts:1: named ran under no test: none of its 2 statements ran: cover every branch through the dashboard's tests, or split it into simpler functions that are each covered → GAUNTLET.md#crap",
+    "1 offense(s)",
+  ]);
+  assert.equal(checkCrap(root, { [join(root, "src/dispatch.ts")]: statements(1) }).passed, true);
 });
 
 void test("a file that does not parse is an error naming it", () => {

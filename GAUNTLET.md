@@ -91,7 +91,7 @@ At least 90% of lines covered per crate (`cargo llvm-cov` with the browser tests
 
 ### CRAP
 
-CRAP(f) = complexity² × (1 − coverage)³ + complexity, at most 6 for every function: Rust through `at-gauntlet crap` (each `if`, loop, `match`, match guard, `&&`, `||` and `let … else` is a decision) and the dashboard through `gauntlet/crap.ts`. A fully covered function passes up to complexity 6. On offense: cover every branch, or split the function into simpler ones that are each covered.
+CRAP(f) = complexity² × (1 − coverage)³ + complexity, at most 6 for every function: Rust through `at-gauntlet crap`, the dashboard through `gauntlet/crap.ts`. Complexity has one definition in both: 1 plus one per decision, where each `if`, loop, `&&`, `||` and `let … else` (Rust) or conditional, `??` and optional chain (TypeScript) is a decision, a `match` or `switch` counts once however many arms it has, and each match guard counts one more. For the dashboard that is ESLint's modified complexity, so a dispatch stays one readable `match` or `switch`. Coverage is the share of a function's code that ran: its llvm-cov code regions in Rust (`cargo llvm-cov report --json`), its statements in the dashboard, so an arm that never ran counts against its function even on a line that did. A function none of whose regions or statements ran fails whatever its complexity: one `match` scores exactly 6 with no test at all. A fully covered function passes up to complexity 6. On offense: cover every branch, or split the function into simpler ones that are each covered.
 
 ### Mutation
 

@@ -30,20 +30,25 @@ const statementsOf = (file: FileCoverage | undefined): Statement[] =>
 
 const coveredShare = (owned: Statement[]) => (owned.length ? owned.filter((statement) => statement.hits > 0).length / owned.length : 0);
 
-export interface Scored { found: Found; covered: number; crap: number }
+export interface Scored { found: Found; covered: number; crap: number; statements: number }
 
 export const scoreFile = (functions: Found[], file: FileCoverage | undefined): Scored[] => {
   const statements = statementsOf(file);
 
   return functions.map((found) => {
-    const covered = coveredShare(statements.filter((statement) => innermost(functions, statement.start) === found));
+    const owned = statements.filter((statement) => innermost(functions, statement.start) === found);
+    const covered = coveredShare(owned);
 
-    return { found, covered, crap: scoreOf(found.complexity, covered) };
+    return { found, covered, crap: scoreOf(found.complexity, covered), statements: owned.length };
   });
 };
 
+const untested = (scored: Scored) => scored.statements > 0 && scored.covered === 0;
+
 const offense = (path: string, scored: Scored) =>
-  `${path}:${String(scored.found.start.line)}: ${scored.found.name} has CRAP ${scored.crap.toFixed(1)} (complexity ${String(scored.found.complexity)}, ${(scored.covered * 100).toFixed(0)}% of its statements covered), over ${String(CEILING)}: ${FIX}`;
+  untested(scored)
+    ? `${path}:${String(scored.found.start.line)}: ${scored.found.name} ran under no test: none of its ${String(scored.statements)} statements ran: ${FIX}`
+    : `${path}:${String(scored.found.start.line)}: ${scored.found.name} has CRAP ${scored.crap.toFixed(1)} (complexity ${String(scored.found.complexity)}, ${(scored.covered * 100).toFixed(0)}% of its statements covered), over ${String(CEILING)}: ${FIX}`;
 
 export const productFiles = (root: string) => globSync("src/**/*.{ts,tsx}", { cwd: root, exclude: TEST_CODE }).sort();
 
@@ -57,7 +62,7 @@ export const checkCrap = (root: string, coverage: Coverage): Verdict => {
     const absolute = join(root, path);
     const results = scoreFile(functionsIn(readFileSync(absolute, "utf8"), path), coverage[absolute]);
 
-    offenses.push(...results.filter((result) => result.crap > CEILING).map((result) => offense(path, result)));
+    offenses.push(...results.filter((result) => untested(result) || result.crap > CEILING).map((result) => offense(path, result)));
     scored += results.length;
   }
 

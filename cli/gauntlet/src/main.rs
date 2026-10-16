@@ -7,6 +7,7 @@ mod mutation;
 mod offenses;
 mod params;
 mod properties;
+mod regions;
 mod rust;
 mod workspace;
 
@@ -18,7 +19,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::offenses::Verdict;
 
-const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props\n       at-gauntlet architecture\n       at-gauntlet params\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet mutation <outcomes.json>...\n       at-gauntlet faults <outcomes.json> <regex>...";
+const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <coverage.json>\n       at-gauntlet props\n       at-gauntlet architecture\n       at-gauntlet params\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet mutation <outcomes.json>...\n       at-gauntlet faults <outcomes.json> <regex>...";
 
 const FAILED: u8 = 2;
 
@@ -38,34 +39,29 @@ fn main() -> ExitCode {
 }
 
 fn run(args: &[String]) -> Result<Verdict> {
-    match args {
-        [gate, reports @ ..] if gate == "mutation" && !reports.is_empty() => {
-            mutation::check(&reports.iter().map(Path::new).collect::<Vec<_>>())
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        ["mutation", first, rest @ ..] => {
+            mutation::check(&std::iter::once(first).chain(rest).map(Path::new).collect::<Vec<_>>())
         }
-        [gate, report, faults @ ..] if gate == "faults" && !faults.is_empty() => {
-            mutation::check_faults(Path::new(report), &faults.iter().map(String::as_str).collect::<Vec<_>>())
+        ["faults", report, first, rest @ ..] => {
+            mutation::check_faults(Path::new(report), &std::iter::once(first).chain(rest).copied().collect::<Vec<_>>())
+        }
+        ["coverage", report] => {
+            let lines = lcov::read(Path::new(report))?;
+            coverage::check(&load()?, &lines)
+        }
+        ["crap", report] => {
+            let regions = regions::read(Path::new(report))?;
+            crap::check(&load()?, &regions)
         }
         [gate] => unmeasured(gate)?(&load()?),
-        [gate, report] => {
-            let check = measured(gate)?;
-            let lines = lcov::read(Path::new(report))?;
-            check(&load()?, &lines)
-        }
+        [gate, _] => bail!("unknown gate {gate}\n{USAGE}"),
         _ => bail!("{USAGE}"),
     }
 }
 
-type MeasuredCheck = fn(&workspace::Workspace, &lcov::Lines) -> Result<Verdict>;
-
 type StaticCheck = fn(&workspace::Workspace) -> Result<Verdict>;
-
-fn measured(gate: &str) -> Result<MeasuredCheck> {
-    match gate {
-        "coverage" => Ok(coverage::check),
-        "crap" => Ok(crap::check),
-        other => bail!("unknown gate {other}\n{USAGE}"),
-    }
-}
 
 fn unmeasured(gate: &str) -> Result<StaticCheck> {
     match gate {

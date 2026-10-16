@@ -15,7 +15,7 @@ const BRANCHES = [
   "WhileStatement",
   "DoWhileStatement",
   "AssignmentPattern",
-  "SwitchCase[test]",
+  "SwitchStatement",
 ];
 
 const LOGICAL_ASSIGNMENTS = new Set(["&&=", "||=", "??="]);

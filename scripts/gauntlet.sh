@@ -39,8 +39,9 @@ coverage() {
   step "fix the error cargo-llvm-cov printed → GAUNTLET.md#coverage-floor" cargo llvm-cov clean --workspace
   step "fix the code the failing test names → GAUNTLET.md#rust-tests" cargo llvm-cov --workspace --all-targets --features browser-tests --no-report
   step "fix the error cargo-llvm-cov printed → GAUNTLET.md#coverage-floor" cargo llvm-cov report --lcov --no-default-ignore-filename-regex --output-path target/lcov.info
+  step "fix the error cargo-llvm-cov printed → GAUNTLET.md#crap" cargo llvm-cov report --json --no-default-ignore-filename-regex --output-path target/coverage.json
   step "test the uncovered behaviour through the crate's real surface → GAUNTLET.md#coverage-floor" cargo run --quiet -p at-gauntlet -- coverage target/lcov.info
-  step "cover every branch of each function it names, or split the function → GAUNTLET.md#crap" cargo run --quiet -p at-gauntlet -- crap target/lcov.info
+  step "cover every branch of each function it names, or split the function → GAUNTLET.md#crap" cargo run --quiet -p at-gauntlet -- crap target/coverage.json
 }
 
 MUTANTS_VERSION=27.1.0

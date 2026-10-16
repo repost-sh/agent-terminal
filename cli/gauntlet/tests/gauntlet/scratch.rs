@@ -115,6 +115,20 @@ pub(crate) fn lcov(records: &[(&Path, &[(u32, u64)])]) -> String {
     report
 }
 
+pub(crate) fn regions(records: &[(&Path, &[(u32, u64)])]) -> String {
+    let functions: Vec<serde_json::Value> = records
+        .iter()
+        .map(|(file, counts)| {
+            let regions: Vec<[u64; 8]> = (1..)
+                .zip(counts.iter())
+                .map(|(column, &(line, count))| [u64::from(line), column, u64::from(line), column + 1, count, 0, 0, 0])
+                .collect();
+            serde_json::json!({ "name": "f", "filenames": [file], "regions": regions })
+        })
+        .collect();
+    serde_json::json!({ "data": [{ "functions": functions }], "type": "llvm.coverage.json.export" }).to_string()
+}
+
 pub(crate) fn hits(lines: std::ops::RangeInclusive<u32>, covered: impl Fn(u32) -> bool) -> Vec<(u32, u64)> {
     lines.map(|line| (line, u64::from(covered(line)))).collect()
 }
