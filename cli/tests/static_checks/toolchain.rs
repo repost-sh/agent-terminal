@@ -64,11 +64,22 @@ fn marks_a_module_declaration(code: &str, line: usize, attribute: &str) -> bool 
     attribute == "#[cfg(test)]" && next.starts_with("mod ") && next.ends_with(';')
 }
 
-fn cfg_test_offenses(relative: &str, code: &str) -> Vec<String> {
+fn declares_unit_tests(code: &str, line: usize, attribute: &str) -> bool {
+    let next = code.lines().skip(line).map(str::trim).find(|text| !text.is_empty()).unwrap_or_default();
+    attribute == "#[cfg(test)]" && next == "mod tests;"
+}
+
+fn allowed(relative: &str, code: &str, (line, attribute): (usize, &str)) -> bool {
     let in_a_root = TEST_ROOTS.contains(&relative);
+    let in_a_crate_source = Path::new(relative).components().any(|part| part.as_os_str() == "src");
+    (in_a_root && marks_a_module_declaration(code, line, attribute))
+        || (in_a_crate_source && declares_unit_tests(code, line, attribute))
+}
+
+fn cfg_test_offenses(relative: &str, code: &str) -> Vec<String> {
     test_attributes(code)
         .into_iter()
-        .filter(|(line, attribute)| !(in_a_root && marks_a_module_declaration(code, *line, attribute)))
+        .filter(|(line, attribute)| !allowed(relative, code, (*line, attribute)))
         .map(|(line, attribute)| format!("{relative}:{line}: `{attribute}` makes code count as a test"))
         .collect()
 }
@@ -83,6 +94,27 @@ fn cfg_test_only_marks_the_modules_of_the_test_crate_roots() {
         }
     }
     offenses.assert_none();
+}
+
+#[test]
+fn a_crate_source_file_may_declare_only_its_unit_tests_file_as_test_code() {
+    assert_eq!(
+        cfg_test_offenses("src/native/render/diff.rs", "fn a() {}\n#[cfg(test)]\nmod tests;\n"),
+        Vec::<String>::new()
+    );
+    assert_eq!(cfg_test_offenses("perf/src/load.rs", "#[cfg(test)]\nmod tests;\n"), Vec::<String>::new());
+    assert_eq!(
+        cfg_test_offenses("src/key.rs", "#[cfg(test)]\nmod tests {\n}\n"),
+        ["src/key.rs:1: `#[cfg(test)]` makes code count as a test"]
+    );
+    assert_eq!(
+        cfg_test_offenses("src/key.rs", "#[cfg(test)]\nmod helpers;\n"),
+        ["src/key.rs:1: `#[cfg(test)]` makes code count as a test"]
+    );
+    assert_eq!(
+        cfg_test_offenses("tests/cli/upgrade/mod.rs", "#[cfg(test)]\nmod tests;\n"),
+        ["tests/cli/upgrade/mod.rs:1: `#[cfg(test)]` makes code count as a test"]
+    );
 }
 
 #[test]

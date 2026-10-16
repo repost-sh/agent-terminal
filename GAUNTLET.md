@@ -39,7 +39,7 @@ A static check (`cli/tests/static_checks/lint_table.rs`): the workspace lint tab
 
 ### Sealed toolchain
 
-A static check (`toolchain.rs`): no `RUSTFLAGS`, `cap-lints`, `-A` flag, `CLIPPY_CONF_DIR` or `--no-verify` in build configuration, scripts or test roots, so lints are set only where the lint table says. On offense: remove the flag and fix the code it hid.
+A static check (`toolchain.rs`): no `RUSTFLAGS`, `cap-lints`, `-A` flag, `CLIPPY_CONF_DIR` or `--no-verify` in build configuration, scripts or test roots, so lints are set only where the lint table says. Test code gets the lint allowances in `clippy.toml`, so `#[cfg(test)]` may mark only a test root's `mod` lines and, in a crate's `src/`, a module's `mod tests;`: its unit tests, in the `tests.rs` beside its `mod.rs`. On offense: remove the flag and fix the code it hid.
 
 ### Banned tokens
 
