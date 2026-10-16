@@ -33,7 +33,7 @@ test("output reads as styled lines with marks between them, and raw shows the by
 
   expect(screen.getByText("No output yet")).toBeTruthy();
   await pushed(daemon, { segments: [{ text: "one\nt" }, { mark: "build" }, { text: "\x1b[31mtwo\tend\x7f" }] });
-  expect(lines()).toEqual(["one", "t", "mark build", "two\tend\x7f"]);
+  expect([lines(), screen.getByRole("group", { name: "Output of work t1" }).firstElementChild?.className]).toEqual([["one", "t", "mark build", "two\tend\x7f"], "min-h-[1lh] whitespace-pre-wrap break-all"]);
   const runs = Array.from(screen.getByRole("group", { name: "Output of work t1" }).querySelectorAll("span"));
 
   expect(runs.filter((run) => run.textContent).map((run) => [run.textContent, run.style.color])).toEqual([

@@ -113,6 +113,15 @@ test("a refused take says so, a refused key names the program, and the agent's r
   expect([announced(), screen.queryByRole("application")]).toEqual(["Control returned to the agent", null]);
 });
 
+test("control cannot be taken while the stream reconnects", async () => {
+  const daemon = await liveApp("reconnecting");
+
+  await screen.findByRole("group", { name: /live frame 1/ });
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Take control" }).disabled).toBe(false);
+  await daemon.hangUp(streamOf("reconnecting"));
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Take control" }).disabled).toBe(true);
+});
+
 test("control ends when the daemon closes the socket, and a second take is ignored while one is pending", async () => {
   const daemon = await liveApp("dropped");
 
