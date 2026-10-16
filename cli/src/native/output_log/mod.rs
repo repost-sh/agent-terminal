@@ -181,3 +181,6 @@ fn kept_between(kept: &Kept, from: u64, to: Option<u64>) -> String {
         KEPT_BYTES / (1024 * 1024)
     )
 }
+
+#[cfg(test)]
+mod tests;

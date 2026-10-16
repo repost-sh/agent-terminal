@@ -470,3 +470,6 @@ pub(crate) fn file_name(session: &str) -> String {
     })
     .to_string()
 }
+
+#[cfg(test)]
+mod tests;

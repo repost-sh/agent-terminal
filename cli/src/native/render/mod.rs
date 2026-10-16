@@ -364,14 +364,14 @@ impl Canvas {
     }
 
     fn blend(&mut self, x: u32, y: u32, mask: &Mask, color: Rgb) {
-        let (stride, height) = (self.pixmap.width(), self.pixmap.height());
+        let stride = self.pixmap.width();
         let data = self.pixmap.data_mut();
         let covered = (0_i64..)
             .zip(mask.rows())
             .flat_map(|(down, row)| (0_i64..).zip(row).map(move |(across, alpha)| (across, down, *alpha)));
         for (across, down, alpha) in covered.filter(|(_, _, alpha)| *alpha != 0) {
             let px = shifted(x, mask.left, across).filter(|&px| px < stride);
-            let py = shifted(y, mask.top, down).filter(|&py| py < height);
+            let py = shifted(y, mask.top, down);
             if let Some(pixel) = px.zip(py).and_then(|(px, py)| pixel(data, stride, px, py)) {
                 blended(pixel, color, alpha);
             }

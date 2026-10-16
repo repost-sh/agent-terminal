@@ -441,3 +441,39 @@ fn a_legend_entry_writes_its_tag_over_the_fill_and_its_kind_and_label_after_it()
     );
     assert!(tag > 10 && button > 100 && space == 0, "tag {tag}, button {button}, space {space}");
 }
+
+#[test]
+fn a_letter_running_past_the_pictures_edge_is_cut_off_instead_of_wrapping() {
+    let mut canvas = Canvas::new(3, 3, Rgb(0, 0, 0)).unwrap();
+    let mask = super::fonts::Mask { left: 1, top: 1, width: 3, height: 3, alpha: vec![255; 9] };
+    canvas.blend(0, 0, &mask, Rgb(255, 255, 255));
+    let lit: Vec<u8> = canvas.pixmap.data().chunks(4).map(|pixel| pixel[0]).collect();
+    assert_eq!(lit, [0, 0, 0, 0, 255, 255, 0, 255, 255]);
+}
+
+#[test]
+fn a_ref_tag_writes_its_name_one_outline_width_inside_its_fill() {
+    let screen = grid(&["    ", "    "]);
+    let layout = Layout::new(&screen, RowRange { first: 1, last: 2 }, 2).unwrap();
+    let placed = Placed::new(&layout, &reference("1", [2, 2], [1, 4])).unwrap();
+    let picture = image(
+        &Drawing { grid: &screen, rows: RowRange { first: 1, last: 2 }, look: plain(2, false) },
+        &[reference("1", [2, 2], [1, 4])],
+    )
+    .unwrap();
+    let colours = palette(Theme::Dark);
+    let tag = &placed.tag;
+    let letter = super::fonts::GLYPHS
+        .lock()
+        .unwrap()
+        .mask(&super::fonts::Letters { text: "1", face: super::fonts::Face::Regular, span: 1 }, &tag.cell)
+        .unwrap();
+    let first_lit = (tag.x..tag.x + tag.width)
+        .find(|&x| (tag.y..tag.y + u32::from(tag.cell.height)).any(|y| rgb(&picture, x, y) != colours.refs[0]))
+        .unwrap();
+    let inked = (0..letter.width).find(|&col| letter.rows().any(|row| row[usize::try_from(col).unwrap()] > 0)).unwrap();
+    assert_eq!(
+        i64::from(first_lit),
+        i64::from(tag.x) + i64::from(placed.line) + i64::from(letter.left) + i64::from(inked)
+    );
+}

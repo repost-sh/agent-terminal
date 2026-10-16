@@ -121,3 +121,6 @@ fn hex_byte(chars: &mut Chars<'_>) -> Result<u8, String> {
         .and_then(|hex| u8::from_str_radix(hex, 16).ok())
         .ok_or_else(|| format!(r"\x needs two hex digits, got \x{hex}"))
 }
+
+#[cfg(test)]
+mod tests;

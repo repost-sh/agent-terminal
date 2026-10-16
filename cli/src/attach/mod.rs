@@ -487,3 +487,6 @@ fn split_around<'a>(haystack: &'a [u8], needle: &[u8]) -> Option<(&'a [u8], &'a 
     let (before, found) = haystack.split_at_checked(at)?;
     Some((before, found.strip_prefix(needle)?))
 }
+
+#[cfg(test)]
+mod tests;
