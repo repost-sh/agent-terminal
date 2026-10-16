@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use super::{Browser, Dashboard};
-use crate::support::{AgentTerminal, open_redraw};
+use crate::support::{AgentTerminal, Redraw, open_redraw};
 
 const STREAMING: Duration = Duration::from_secs(20);
 const MIN_PAINTS_PER_SEC: f64 = 30.0;
@@ -27,7 +27,7 @@ const MEASURE_FIVE_SECONDS: &str = r#"new Promise((done) => {
 #[test]
 fn a_tab_that_redraws_sixty_times_a_second_leaves_the_dashboard_responsive_and_on_the_latest_frame() {
     let at = AgentTerminal::new();
-    open_redraw(&at, "default", "60", "--partial");
+    open_redraw(&at, &Redraw { session: "default", hz: "60", repaint: "--partial" });
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/s/default/t1"));
     browser.wait_for_screen("forwarding");

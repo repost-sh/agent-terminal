@@ -13,8 +13,8 @@ use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 use crate::native::refs::{Decoration, Glyph, Grid};
 use crate::protocol::{Look, Ref, RowRange};
-pub(crate) use diff::{CellBox, changed_cells, compare};
-use fonts::{CellSize, Face, GLYPHS, Glyphs, Mask};
+pub(crate) use diff::{CellBox, compare};
+use fonts::{CellSize, Face, GLYPHS, Glyphs, Letters, Mask};
 use theme::{Palette, Rgb};
 pub(crate) use vector::{html, svg};
 
@@ -151,12 +151,24 @@ pub(crate) struct Cells {
     pub rows: RowRange,
 }
 
-pub(crate) fn cells(grid: &Grid, rows: RowRange, look: Look) -> Result<Cells> {
-    let span = Span::of(grid, rows)?;
-    Ok(Cells { scale: look.scale.max(1), cols: span.cols, rows: RowRange { first: span.first + 1, last: span.last } })
+#[derive(Clone, Copy)]
+pub(crate) struct Drawing<'a> {
+    pub grid: &'a Grid,
+    pub rows: RowRange,
+    pub look: Look,
 }
 
-pub(crate) fn image(grid: &Grid, rows: RowRange, look: Look, refs: &[Ref]) -> Result<Image> {
+pub(crate) fn cells(drawing: &Drawing<'_>) -> Result<Cells> {
+    let span = Span::of(drawing.grid, drawing.rows)?;
+    Ok(Cells {
+        scale: drawing.look.scale.max(1),
+        cols: span.cols,
+        rows: RowRange { first: span.first + 1, last: span.last },
+    })
+}
+
+pub(crate) fn image(drawing: &Drawing<'_>, refs: &[Ref]) -> Result<Image> {
+    let Drawing { grid, rows, look } = *drawing;
     let palette = theme::palette(look.theme);
     let layout = Layout::new(grid, rows, look.scale)?;
     let shown: Vec<(usize, &Ref)> = refs.iter().enumerate().filter(|(_, r)| layout.shows(r)).collect();
@@ -272,7 +284,7 @@ impl Canvas {
         }
         if !glyph.text.is_empty() && glyph.text != " " {
             let face = Face::styled(glyph.emphasis.bold, glyph.emphasis.italic);
-            match glyphs.mask(&glyph.text, face, cell, place.span) {
+            match glyphs.mask(&Letters { text: &glyph.text, face, span: place.span }, cell) {
                 Some(mask) => self.blend(x, y, &mask, fg),
                 None => self.missing(x, y, width, cell, fg),
             }
@@ -305,7 +317,9 @@ impl Canvas {
             if c == ' ' {
                 continue;
             }
-            if let Some(mask) = glyphs.mask(c.encode_utf8(&mut [0u8; 4]), Face::Regular, cell, 1) {
+            if let Some(mask) =
+                glyphs.mask(&Letters { text: c.encode_utf8(&mut [0u8; 4]), face: Face::Regular, span: 1 }, cell)
+            {
                 self.blend(place.x + step * u32::from(cell.width), place.y, &mask, color);
             }
         }

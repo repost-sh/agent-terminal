@@ -38,7 +38,7 @@ pub(crate) fn check(workspace: &Workspace, lines: &Lines) -> Result<Verdict> {
             passes.push(shown);
         }
     }
-    Ok(Verdict::of(&RULE, &offenses, passes))
+    Ok(RULE.verdict(&offenses, passes))
 }
 
 fn tally(workspace: &Workspace, member: &Member, lines: &Lines) -> Result<Tally> {

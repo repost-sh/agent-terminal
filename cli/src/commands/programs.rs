@@ -39,7 +39,7 @@ impl ProgramCommand {
     pub(super) fn request(self, context: Context) -> Result<Request, String> {
         let Context { target, timeout, .. } = context;
         match self {
-            ProgramCommand::Open(args) => open(target.session, args, timeout),
+            ProgramCommand::Open(args) => args.request(target.session, timeout),
             ProgramCommand::Shell(args) => shell(target.session, args, timeout),
             ProgramCommand::Exec { line, check } => {
                 if line.trim().is_empty() {
@@ -205,19 +205,21 @@ fn your_shell(env: &[(String, String)]) -> Result<(Shell, String), String> {
     Ok((shell, program))
 }
 
-pub(super) fn open(session: String, args: OpenArgs, timeout_ms: u64) -> Result<Request, String> {
-    let current = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
-    let cwd = args.cwd.map_or_else(|| current.clone(), |cwd| current.join(cwd));
-    let env = environment(args.env);
-    let mut command = args.command.into_iter();
-    Ok(Request::Open(request::Open {
-        session,
-        program: command.next().ok_or("open needs a program to run, e.g. open htop")?,
-        args: command.collect(),
-        size: args.size,
-        cwd,
-        env,
-        wait: (!args.no_wait).then(|| args.wait.until()),
-        timeout_ms,
-    }))
+impl OpenArgs {
+    pub(super) fn request(self, session: String, timeout_ms: u64) -> Result<Request, String> {
+        let current = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
+        let cwd = self.cwd.map_or_else(|| current.clone(), |cwd| current.join(cwd));
+        let env = environment(self.env);
+        let mut command = self.command.into_iter();
+        Ok(Request::Open(request::Open {
+            session,
+            program: command.next().ok_or("open needs a program to run, e.g. open htop")?,
+            args: command.collect(),
+            size: self.size,
+            cwd,
+            env,
+            wait: (!self.no_wait).then(|| self.wait.until()),
+            timeout_ms,
+        }))
+    }
 }

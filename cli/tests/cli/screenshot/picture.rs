@@ -79,8 +79,22 @@ impl Cell<'_> {
         self.pixels(0..CELL_WIDTH, 0..CELL_HEIGHT)
     }
 
-    pub(super) fn inked(&self, xs: std::ops::Range<u32>, ys: std::ops::Range<u32>, background: Rgb) -> bool {
-        self.pixels(xs, ys).into_iter().any(|pixel| !close_to(pixel, background))
+    pub(super) fn patch(&self, xs: std::ops::Range<u32>, ys: std::ops::Range<u32>) -> Patch<'_> {
+        Patch { cell: self, xs, ys }
+    }
+
+    #[track_caller]
+    pub(super) fn assert_lines(&self, ends: [bool; 4], what: &str) {
+        let (mid_x, mid_y) = (CELL_WIDTH / 2, CELL_HEIGHT / 2);
+        let edges = [
+            ("top", mid_x - 1..mid_x + 2, 0..1),
+            ("right", CELL_WIDTH - 1..CELL_WIDTH, mid_y - 2..mid_y + 3),
+            ("bottom", mid_x - 1..mid_x + 2, CELL_HEIGHT - 1..CELL_HEIGHT),
+            ("left", 0..1, mid_y - 2..mid_y + 3),
+        ];
+        for ((edge, xs, ys), reaches) in edges.into_iter().zip(ends) {
+            assert_eq!(self.patch(xs, ys).inked(BACKGROUND), reaches, "{what}: a line reaches its {edge} edge");
+        }
     }
 
     pub(super) fn has(&self, color: Rgb) -> bool {
@@ -92,33 +106,29 @@ impl Cell<'_> {
     }
 }
 
-#[track_caller]
-pub(super) fn assert_filled(
-    cell: &Cell<'_>,
+pub(super) struct Patch<'a> {
+    cell: &'a Cell<'a>,
     xs: std::ops::Range<u32>,
     ys: std::ops::Range<u32>,
-    color: Rgb,
-    what: &str,
-) {
-    let off: Vec<Rgb> = cell.pixels(xs, ys).into_iter().filter(|pixel| !close_to(*pixel, color)).collect();
-    assert!(off.is_empty(), "{what}: {} pixels are not {color:?}, e.g. {:?}", off.len(), off.first());
 }
 
-#[track_caller]
-pub(super) fn assert_lines(cell: &Cell<'_>, ends: [bool; 4], what: &str) {
-    let (mid_x, mid_y) = (CELL_WIDTH / 2, CELL_HEIGHT / 2);
-    let edges = [
-        ("top", mid_x - 1..mid_x + 2, 0..1),
-        ("right", CELL_WIDTH - 1..CELL_WIDTH, mid_y - 2..mid_y + 3),
-        ("bottom", mid_x - 1..mid_x + 2, CELL_HEIGHT - 1..CELL_HEIGHT),
-        ("left", 0..1, mid_y - 2..mid_y + 3),
-    ];
-    for ((edge, xs, ys), reaches) in edges.into_iter().zip(ends) {
-        assert_eq!(cell.inked(xs, ys, BACKGROUND), reaches, "{what}: a line reaches its {edge} edge");
+impl Patch<'_> {
+    fn pixels(&self) -> Vec<Rgb> {
+        self.cell.pixels(self.xs.clone(), self.ys.clone())
+    }
+
+    pub(super) fn inked(&self, background: Rgb) -> bool {
+        self.pixels().into_iter().any(|pixel| !close_to(pixel, background))
+    }
+
+    #[track_caller]
+    pub(super) fn assert_filled(&self, color: Rgb, what: &str) {
+        let off: Vec<Rgb> = self.pixels().into_iter().filter(|pixel| !close_to(*pixel, color)).collect();
+        assert!(off.is_empty(), "{what}: {} pixels are not {color:?}, e.g. {:?}", off.len(), off.first());
     }
 }
 
-pub(super) fn pixel(path: &Path, x: u32, y: u32) -> [u8; 3] {
+pub(super) fn pixel(path: &Path, (x, y): (u32, u32)) -> [u8; 3] {
     let picture = picture(path);
     let at = ((y * picture.width + x) * 3) as usize;
     [picture.rgb[at], picture.rgb[at + 1], picture.rgb[at + 2]]

@@ -16,24 +16,33 @@ const WHEEL_DOWN: u32 = 65;
 const X10_LAST: u16 = 223;
 const UTF8_LAST: u16 = 2015;
 
-pub(crate) fn encode(action: Action, row: u16, col: u16, reporting: MouseReporting) -> Result<Vec<u8>, String> {
-    if !reported(action, reporting.tracking) {
-        return Ok(Vec::new());
-    }
-    let code = match action {
-        Action::Release(_) if reporting.encoding != MouseMode::Sgr => NO_BUTTON,
-        Action::Press(button) | Action::Release(button) => button_code(button),
-        Action::Move { held } => MOTION + held.map_or(NO_BUTTON, button_code),
-        Action::Wheel(Direction::Up) => WHEEL_UP,
-        Action::Wheel(Direction::Down) => WHEEL_DOWN,
-    };
-    match reporting.encoding {
-        MouseMode::Sgr => {
-            let end = if matches!(action, Action::Release(_)) { 'm' } else { 'M' };
-            Ok(format!("\x1b[<{code};{col};{row}{end}").into_bytes())
+pub(crate) struct Event {
+    pub action: Action,
+    pub row: u16,
+    pub col: u16,
+}
+
+impl Event {
+    pub(crate) fn encode(&self, reporting: MouseReporting) -> Result<Vec<u8>, String> {
+        let Self { action, row, col } = *self;
+        if !reported(action, reporting.tracking) {
+            return Ok(Vec::new());
         }
-        MouseMode::X10 => x10(code, row, col),
-        MouseMode::Utf8 => utf8(code, row, col),
+        let code = match action {
+            Action::Release(_) if reporting.encoding != MouseMode::Sgr => NO_BUTTON,
+            Action::Press(button) | Action::Release(button) => button_code(button),
+            Action::Move { held } => MOTION + held.map_or(NO_BUTTON, button_code),
+            Action::Wheel(Direction::Up) => WHEEL_UP,
+            Action::Wheel(Direction::Down) => WHEEL_DOWN,
+        };
+        match reporting.encoding {
+            MouseMode::Sgr => {
+                let end = if matches!(action, Action::Release(_)) { 'm' } else { 'M' };
+                Ok(format!("\x1b[<{code};{col};{row}{end}").into_bytes())
+            }
+            MouseMode::X10 => x10(code, row, col),
+            MouseMode::Utf8 => utf8(code, row, col),
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::native::terminal::Terminal;
+use crate::native::terminal::Labelled;
 use crate::protocol::{ErrorBody, TabId};
 
 pub(super) fn stopping() -> ErrorBody {
@@ -15,10 +15,12 @@ pub(super) fn no_tab(session: &str, id: TabId) -> ErrorBody {
     ErrorBody::failure(format!("no tab {id} in session {session}; list tabs with `agent-terminal tab`"))
 }
 
-pub(super) fn no_integration(session: &str, tab: &str, terminal: &Terminal) -> ErrorBody {
+pub(super) fn no_integration(at: &Labelled<'_>) -> ErrorBody {
     ErrorBody::failure(format!(
-        "{session} {tab} runs {} without shell integration, so it keeps no command history; exec, history and wait --command work in a tab opened with `agent-terminal shell`",
-        terminal.program()
+        "{} {} runs {} without shell integration, so it keeps no command history; exec, history and wait --command work in a tab opened with `agent-terminal shell`",
+        at.session,
+        at.tab,
+        at.terminal.program()
     ))
 }
 

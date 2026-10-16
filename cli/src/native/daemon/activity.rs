@@ -2,7 +2,7 @@ use std::sync::{Arc, PoisonError};
 use std::time::{Instant, SystemTime};
 
 use super::Daemon;
-use crate::native::store::{ActivityEntry, Pending, SessionFolder};
+use crate::native::store::{ActivityEntry, Pending, SessionFolder, Typed};
 use crate::output;
 use crate::protocol::{Addressed, ErrorBody, Input, Reply, Request, TabId, Target, request};
 
@@ -28,7 +28,8 @@ impl Daemon {
         };
         let time = SystemTime::now();
         let folder = sessions.get(session).map(|s| Arc::clone(&s.folder));
-        let pending = folder.as_ref().map(|folder| folder.begin(time, tab.map(|id| id.to_string()), &typed));
+        let pending =
+            folder.as_ref().map(|folder| folder.begin(&Typed { time, words: &typed }, tab.map(|id| id.to_string())));
         Some(Logged {
             session: session.to_string(),
             tab,
@@ -60,7 +61,7 @@ impl Daemon {
     }
 
     fn entry(&self, logged: &Logged, handled: &Result<Reply, ErrorBody>) -> ActivityEntry {
-        let mut entry = ActivityEntry::at(logged.time, &logged.typed, logged.started.elapsed());
+        let mut entry = ActivityEntry::at(&Typed { time: logged.time, words: &logged.typed }, logged.started.elapsed());
         entry.raw = logged.raw;
         let shown = match handled {
             Ok(Reply::Snapshot(snapshot)) => Some(snapshot),

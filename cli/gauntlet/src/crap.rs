@@ -51,5 +51,5 @@ pub(crate) fn check(workspace: &Workspace, lines: &Lines) -> Result<Verdict> {
         }
         scored += found.len();
     }
-    Ok(Verdict::of(&RULE, &offenses, vec![format!("{scored} functions at CRAP {CEILING} or under")]))
+    Ok(RULE.verdict(&offenses, vec![format!("{scored} functions at CRAP {CEILING} or under")]))
 }

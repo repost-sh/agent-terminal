@@ -13,6 +13,12 @@ pub(super) enum End {
     Finish,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct Side {
+    pub(super) axis: Axis,
+    pub(super) end: End,
+}
+
 pub(super) struct Junction {
     pub(super) width: u16,
     pub(super) height: u16,
@@ -43,7 +49,7 @@ impl Junction {
         Canvas::across(self.size(axis), 3 * self.thin)
     }
 
-    pub(super) fn crossing(&self, axis: Axis, weight: u8, near: bool, end: End) -> u16 {
+    fn crossing(&self, Side { axis, end }: Side, weight: u8, near: bool) -> u16 {
         let (double, t) = (self.double(axis), self.thin);
         match (end, weight == DOUBLE, near) {
             (End::Start, true, true) => double + 2 * t,
@@ -55,12 +61,12 @@ impl Junction {
         }
     }
 
-    pub(super) fn pick(&self, axis: Axis, [near, middle, far]: [u8; 3], end: End) -> u16 {
+    pub(super) fn pick(&self, side: Side, [near, middle, far]: [u8; 3]) -> u16 {
         match (near, middle, far) {
-            (NONE, NONE, NONE) => self.center(axis),
-            (NONE, NONE, far) => self.crossing(axis, far, false, end),
-            (NONE, _, _) => self.center(axis),
-            (near, _, _) => self.crossing(axis, near, true, end),
+            (NONE, NONE, NONE) => self.center(side.axis),
+            (NONE, NONE, far) => self.crossing(side, far, false),
+            (NONE, _, _) => self.center(side.axis),
+            (near, _, _) => self.crossing(side, near, true),
         }
     }
 
@@ -74,7 +80,7 @@ impl Junction {
         }
     }
 
-    pub(super) fn meet(&self, axis: Axis, opposite: u8, [one, other]: [u8; 2], end: End) -> u16 {
+    pub(super) fn meet(&self, Side { axis, end }: Side, [opposite, one, other]: [u8; 3]) -> u16 {
         if opposite != NONE && opposite != DOUBLE {
             return self.center(axis);
         }

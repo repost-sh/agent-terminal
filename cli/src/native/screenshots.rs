@@ -5,10 +5,10 @@ use std::time::SystemTime;
 use anyhow::{Context, Result, anyhow};
 
 use crate::home::home;
-use crate::native::render::{self, Cells};
+use crate::native::render::{self, Cells, Drawing};
 use crate::native::store::{self, ScreenshotEntry};
-use crate::native::terminal::Terminal;
-use crate::protocol::{Ref, Screenshot, ScreenshotDiff, ScreenshotFormat, Shot};
+use crate::native::terminal::{Labelled, Terminal};
+use crate::protocol::{Ref, Screenshot, ScreenshotDiff, ScreenshotFormat, Shot, request};
 
 struct Drawn {
     frame: u64,
@@ -23,7 +23,8 @@ pub(crate) struct Taken {
     pub listed: Option<ScreenshotEntry>,
 }
 
-pub(crate) fn take(session: &str, tab: &str, terminal: &Terminal, shot: &Shot, by: Option<String>) -> Result<Taken> {
+pub(crate) fn take(at: &Labelled<'_>, shot: &Shot) -> Result<Taken> {
+    let Labelled { session, tab, terminal } = *at;
     let drawn = draw(terminal, shot)?;
     let path = destination(shot, || format!("{}-{tab}-{}.{}", store::file_name(session), drawn.frame, shot.format))?;
     store::write_whole(&path, &drawn.bytes)?;
@@ -32,7 +33,7 @@ pub(crate) fn take(session: &str, tab: &str, terminal: &Terminal, shot: &Shot, b
         tab: tab.to_string(),
         frame: drawn.frame,
         path: path.clone(),
-        by,
+        by: None,
         width,
         height,
         cells,
@@ -57,13 +58,13 @@ fn draw(terminal: &Terminal, shot: &Shot) -> Result<Drawn> {
         ScreenshotFormat::Svg => {
             let capture = terminal.capture(shot.rows, shot.annotate).map_err(|e| anyhow!(e))?;
             let refs = capture.refs.as_deref().unwrap_or_default();
-            let svg = render::svg(&capture.grid, capture.rows, shot.look, refs)?;
+            let svg = render::svg(&Drawing { grid: &capture.grid, rows: capture.rows, look: shot.look }, refs)?;
             let size = Some((svg.width, svg.height));
             Ok(Drawn { frame: capture.frame, bytes: svg.text.into_bytes(), size, refs: capture.refs, cells: None })
         }
         ScreenshotFormat::Html => {
             let capture = terminal.capture(shot.rows, false).map_err(|e| anyhow!(e))?;
-            let html = render::html(&capture.grid, capture.rows, shot.look)?;
+            let html = render::html(&Drawing { grid: &capture.grid, rows: capture.rows, look: shot.look })?;
             Ok(Drawn { frame: capture.frame, bytes: html.into_bytes(), size: None, refs: None, cells: None })
         }
     }
@@ -79,9 +80,10 @@ fn text(terminal: &Terminal, shot: &Shot) -> Result<Drawn> {
 fn png(terminal: &Terminal, shot: &Shot) -> Result<Drawn> {
     let capture = terminal.capture(shot.rows, shot.annotate).map_err(|e| anyhow!(e))?;
     let refs = capture.refs.as_deref().unwrap_or_default();
-    let image = render::image(&capture.grid, capture.rows, shot.look, refs)?;
+    let drawing = Drawing { grid: &capture.grid, rows: capture.rows, look: shot.look };
+    let image = render::image(&drawing, refs)?;
     let size = Some((image.width(), image.height()));
-    let cells = Some(render::cells(&capture.grid, capture.rows, shot.look)?);
+    let cells = Some(render::cells(&drawing)?);
     Ok(Drawn { frame: capture.frame, bytes: image.png()?, size, refs: capture.refs, cells })
 }
 
@@ -92,20 +94,15 @@ fn destination(shot: &Shot, name: impl FnOnce() -> String) -> Result<PathBuf> {
     }
 }
 
-pub(crate) fn diff(
-    session: &str,
-    tab: &str,
-    terminal: &Terminal,
-    baseline: PathBuf,
-    shot: &Shot,
-    threshold: f64,
-) -> Result<ScreenshotDiff> {
+pub(crate) fn diff(at: &Labelled<'_>, diff: request::DiffScreenshot) -> Result<ScreenshotDiff> {
+    let Labelled { session, tab, terminal } = *at;
+    let request::DiffScreenshot { baseline, shot, threshold, .. } = diff;
     let png = std::fs::read(&baseline).with_context(|| format!("read the baseline {}", baseline.display()))?;
     let capture = terminal.capture(shot.rows, false).map_err(|e| anyhow!(e))?;
-    let image = render::image(&capture.grid, capture.rows, shot.look, &[])?;
+    let image = render::image(&Drawing { grid: &capture.grid, rows: capture.rows, look: shot.look }, &[])?;
     let compared =
         render::compare(&png, &image).with_context(|| format!("the baseline {} is not a PNG", baseline.display()))?;
-    let path = destination(shot, || format!("{}-{tab}-{}-diff.png", store::file_name(session), capture.frame))?;
+    let path = destination(&shot, || format!("{}-{tab}-{}-diff.png", store::file_name(session), capture.frame))?;
     store::write_whole(&path, &compared.image.png()?)?;
     Ok(ScreenshotDiff {
         session: session.to_string(),

@@ -18,6 +18,12 @@ fn product(files: &[(&str, &str)]) -> Run {
     Scratch::package("agent-terminal", files).architecture()
 }
 
+fn product_needing(dependencies: &str) -> Scratch {
+    let manifest =
+        format!("[package]\nname = \"agent-terminal\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n{dependencies}");
+    Scratch::package("agent-terminal", &[("main.rs", "fn main() {}\n")]).with("Cargo.toml", &manifest)
+}
+
 fn crossing(file: &str, from: &str, to: &str) -> String {
     format!("agent-terminal/src/{file}: {from} ({}) uses {to} ({}): {CROSSES}\n1 offense(s)\n", layer(from), layer(to))
 }
@@ -184,38 +190,31 @@ fn a_module_that_does_not_parse_is_an_error_naming_it() {
 
 #[test]
 fn the_product_takes_black_box_test_crates_as_dev_dependencies_only() {
-    let run = Scratch::package("at-acceptance", &[("lib.rs", "")])
-        .member("at-perf", "[dependencies]\nserde = \"1\"\n", &[("lib.rs", "")])
-        .member(
-            "agent-terminal",
-            "[dev-dependencies]\nat-acceptance = { path = \"../at-acceptance\" }\n",
-            &[("main.rs", "fn main() {}\n")],
-        )
+    let run = product_needing("[dev-dependencies]\nat-acceptance = { path = \"../at-acceptance\" }\n")
+        .member("at-acceptance", "")
+        .member("at-perf", "[dependencies]\nserde = \"1\"\n")
         .architecture();
     assert_eq!((run.code, run.stdout.as_str(), run.stderr.as_str()), (0, PASSED, ""));
 }
 
 #[test]
 fn crates_that_depend_across_their_roles_fail() {
-    let run = Scratch::package("at-acceptance", &[("lib.rs", "")])
-        .member("at-perf", "", &[("lib.rs", "")])
-        .member("at-gauntlet", "", &[("lib.rs", "")])
-        .member(
-            "at-fixtures",
-            "[dev-dependencies]\nat-perf = { path = \"../at-perf\" }\n\n[build-dependencies]\nat-acceptance = { path = \"../at-acceptance\" }\n",
-            &[("lib.rs", "")],
-        )
-        .member(
-            "agent-terminal",
-            "[dependencies]\nat-perf = { path = \"../at-perf\" }\n\n[dev-dependencies]\nat-gauntlet = { path = \"../at-gauntlet\" }\n",
-            &[("main.rs", "fn main() {}\n")],
-        )
-        .architecture();
+    let run = product_needing(
+        "[dependencies]\nat-perf = { path = \"../at-perf\" }\n\n[dev-dependencies]\nat-gauntlet = { path = \"../at-gauntlet\" }\n",
+    )
+    .member("at-acceptance", "")
+    .member("at-perf", "")
+    .member("at-gauntlet", "")
+    .member(
+        "at-fixtures",
+        "[dev-dependencies]\nat-perf = { path = \"../at-perf\" }\n\n[build-dependencies]\nat-acceptance = { path = \"../at-acceptance\" }\n",
+    )
+    .architecture();
     let expected = [
-        "at-fixtures (black-box tests): a dev dependency on at-perf (black-box tests)",
-        "at-fixtures (black-box tests): a build dependency on at-acceptance (black-box tests)",
         "agent-terminal (product): a normal dependency on at-perf (black-box tests)",
         "agent-terminal (product): a dev dependency on at-gauntlet (tooling)",
+        "at-fixtures (black-box tests): a dev dependency on at-perf (black-box tests)",
+        "at-fixtures (black-box tests): a build dependency on at-acceptance (black-box tests)",
     ]
     .map(|offense| format!("{offense}: {ACROSS}\n"))
     .concat();
@@ -224,9 +223,7 @@ fn crates_that_depend_across_their_roles_fail() {
 
 #[test]
 fn a_crate_without_a_role_fails() {
-    let run = Scratch::package("agent-terminal", &[("main.rs", "fn main() {}\n")])
-        .member("app", "", &[("lib.rs", "")])
-        .architecture();
+    let run = Scratch::package("agent-terminal", &[("main.rs", "fn main() {}\n")]).member("app", "").architecture();
     assert_eq!((run.code, run.stdout), (2, format!("app: the crate has no role: {NO_ROLE}\n1 offense(s)\n")));
 }
 

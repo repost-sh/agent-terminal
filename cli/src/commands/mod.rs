@@ -97,12 +97,13 @@ fn dispatch(cli: Cli) -> io::Result<i32> {
         Command::Tools(tools::ToolCommand::Daemon { action: tools::DaemonAction::Run }) => {
             return daemon_run(idle_timeout);
         }
-        Command::Tools(tools::ToolCommand::Skills { action }) => return skills::run(action, json, Cli::command()),
+        Command::Tools(tools::ToolCommand::Skills { action }) => {
+            return action.unwrap_or(skills::Action::List).run(json, Cli::command());
+        }
         Command::Tools(tools::ToolCommand::Install { .. }) => return skills::install(json),
         Command::Tools(tools::ToolCommand::Mcp) => return mcp::run(Cli::command()),
         Command::Tools(tools::ToolCommand::Attach { read_only }) => {
-            let target = Target { session: cli.global.session, tab: cli.global.tab };
-            return attach::run(target, read_only, json, &Launch { idle_timeout });
+            return attach::run(read_only, cli.global);
         }
         Command::Tools(tools::ToolCommand::Version) => return output::version(json),
         Command::Tools(tools::ToolCommand::Doctor { fix }) => return doctor::run(fix, json),

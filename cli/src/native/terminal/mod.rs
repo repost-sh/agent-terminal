@@ -64,15 +64,25 @@ pub(crate) struct Continued {
     first_command: u32,
 }
 
+pub(crate) struct Starting {
+    pub command: pty::Command,
+    pub shell: Option<Shell>,
+    pub spawned: Spawned,
+    pub command_log: CommandLog,
+    pub lifecycle: Changes,
+    pub continued: Option<Continued>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Labelled<'a> {
+    pub session: &'a str,
+    pub tab: &'a str,
+    pub terminal: &'a Terminal,
+}
+
 impl Terminal {
-    pub(crate) fn start(
-        command: pty::Command,
-        shell: Option<Shell>,
-        spawned: Spawned,
-        command_log: CommandLog,
-        lifecycle: Changes,
-        continued: Option<Continued>,
-    ) -> Arc<Self> {
+    pub(crate) fn start(starting: Starting) -> Arc<Self> {
+        let Starting { command, shell, spawned, command_log, lifecycle, continued } = starting;
         let cwd = command.cwd.to_string_lossy().into_owned();
         let Continued { frame, first_command } = continued.unwrap_or(Continued { frame: 0, first_command: 1 });
         let commands = shell.map(|_| Commands::new(cwd.clone(), first_command));
@@ -81,7 +91,7 @@ impl Terminal {
             pid: spawned.pid,
             cwd,
             started: SystemTime::now(),
-            state: Mutex::new(State::new(Screen::new(command.size), frame, commands)),
+            state: Mutex::new(State { frame, commands, ..State::new(Screen::new(command.size)) }),
             changed: Condvar::new(),
             input_turn: Mutex::new(()),
             writer: Mutex::new(spawned.writer),
@@ -95,7 +105,7 @@ impl Terminal {
             history: Changes::default(),
             lifecycle,
         });
-        program_output::follow(&terminal, spawned.reader, spawned.wait);
+        terminal.follow_output(spawned.reader, spawned.wait);
         terminal
     }
 
@@ -130,12 +140,12 @@ impl Terminal {
 
     pub(crate) fn picture(&self) -> Picture {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        Picture::of(&state.screen, state.frame, state.status)
+        Picture::of(&state)
     }
 
     pub(crate) fn glance(&self) -> Glance {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        Glance::of(&state.screen, state.frame, state.status)
+        Glance::of(&state)
     }
 
     pub(crate) fn continued(&self) -> Continued {

@@ -29,11 +29,19 @@ fn app_route(path: &str) -> Response {
 
 fn send(file: &'static File<'static>, cache: &'static str) -> Response {
     let extension = file.path().extension().and_then(|e| e.to_str()).unwrap_or_default();
-    respond(extension, cache, file.contents())
+    Asset { extension, cache, bytes: file.contents() }.into_response()
 }
 
-pub(super) fn respond(extension: &str, cache: &'static str, bytes: &'static [u8]) -> Response {
-    ([(CONTENT_TYPE, content_type(extension)), (CACHE_CONTROL, cache)], bytes).into_response()
+pub(super) struct Asset {
+    pub extension: &'static str,
+    pub cache: &'static str,
+    pub bytes: &'static [u8],
+}
+
+impl IntoResponse for Asset {
+    fn into_response(self) -> Response {
+        ([(CONTENT_TYPE, content_type(self.extension)), (CACHE_CONTROL, self.cache)], self.bytes).into_response()
+    }
 }
 
 fn content_type(extension: &str) -> &'static str {

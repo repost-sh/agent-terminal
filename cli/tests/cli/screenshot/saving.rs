@@ -1,5 +1,5 @@
 use super::picture::png_size;
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, Call, fixture};
 
 #[test]
 fn screenshot_saves_a_png_of_the_screen_named_after_session_tab_and_frame() {
@@ -45,7 +45,11 @@ fn screenshots_go_to_the_screenshot_dir_its_variable_or_the_path_given() {
 
     let by_option = at.run_in(&work, &["--screenshot-dir", "shots", "screenshot"]).success();
     let from_variable = at
-        .run_with(&["screenshot"], "", &[("AGENT_TERMINAL_SCREENSHOT_DIR", &work.join("env").to_string_lossy())])
+        .run_with(&Call {
+            args: &["screenshot"],
+            stdin: "",
+            env: &[("AGENT_TERMINAL_SCREENSHOT_DIR", &work.join("env").to_string_lossy())],
+        })
         .success();
     let given = at.run_in(&work, &["--screenshot-dir", "shots", "screenshot", "evidence/first.png"]).success();
 

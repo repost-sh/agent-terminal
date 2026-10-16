@@ -1,14 +1,13 @@
 use std::sync::PoisonError;
 
-use super::Terminal;
 use super::state::{Listed, Shown, State};
+use super::{Labelled, Terminal};
 use crate::native::output_log::Output;
 use crate::native::refs::{self, Found, Grid};
-use crate::native::screen::Screen;
 use crate::native::wait;
 use crate::protocol::{
     Baseline, Cell, Cursor, DiffBase, Exit, Fact, Get, Match, Ref, RowChange, RowRange, Scrollback, Size, Snapshot,
-    SnapshotDiff, SnapshotOptions,
+    SnapshotDiff, SnapshotOptions, request,
 };
 
 pub(crate) struct Capture {
@@ -24,26 +23,24 @@ struct Rendered<'a> {
     range: RowRange,
 }
 
-impl Terminal {
-    pub(crate) fn snapshot(&self, session: &str, tab: &str) -> Snapshot {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+impl Labelled<'_> {
+    pub(crate) fn snapshot(&self) -> Snapshot {
+        let mut state = self.terminal.state.lock().unwrap_or_else(PoisonError::into_inner);
         let rows = state.screen.view().size.rows;
         let range = RowRange { first: 1, last: rows };
-        self.render(&mut state, &Rendered { session, tab, range }, &SnapshotOptions::default(), None)
+        let rendered = Rendered { session: self.session, tab: self.tab, range };
+        self.terminal.render(&mut state, &rendered, &SnapshotOptions::default(), None)
     }
 
-    pub(crate) fn snapshot_with(
-        &self,
-        session: &str,
-        tab: &str,
-        options: &SnapshotOptions,
-    ) -> Result<Snapshot, String> {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+    pub(crate) fn snapshot_with(&self, options: &SnapshotOptions) -> Result<Snapshot, String> {
+        let mut state = self.terminal.state.lock().unwrap_or_else(PoisonError::into_inner);
         let range = row_range(state.screen.size(), options.rows)?;
         let refs = options.refs.then(|| list_refs(&mut state)).transpose()?;
-        Ok(self.render(&mut state, &Rendered { session, tab, range }, options, refs))
+        Ok(self.terminal.render(&mut state, &Rendered { session: self.session, tab: self.tab, range }, options, refs))
     }
+}
 
+impl Terminal {
     pub(crate) fn capture(&self, rows: Option<RowRange>, refs: bool) -> Result<Capture, String> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let rows = row_range(state.screen.size(), rows)?;
@@ -113,18 +110,18 @@ impl Terminal {
             Get::Title => Fact::Title(state.screen.title()),
             Get::Cwd => Fact::Cwd(state.screen.reported_cwd().unwrap_or_else(|| self.cwd.clone())),
             Get::Modes => Fact::Modes(state.screen.modes()),
-            Get::Cell { row, col } => Fact::Cell(cell_at(&state.screen, row, col)?),
+            Get::Cell { row, col } => Fact::Cell(state.screen.cell_at(row, col)?),
         })
     }
 
-    pub(crate) fn find(&self, text: &str, regex: bool, all: bool) -> Result<Vec<Match>, String> {
-        let pattern = wait::compile(text, regex)?;
+    pub(crate) fn find(&self, find: &request::Find) -> Result<Vec<Match>, String> {
+        let pattern = wait::compile(&find.text, find.regex)?;
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let first = if all { -lines(state.screen.scrollback_len()) } else { 0 };
-        let matches = matches_on(&state.screen, &pattern, first);
+        let first = if find.all { -lines(state.screen.scrollback_len()) } else { 0 };
+        let matches = state.screen.matches(&pattern, first);
         if matches.is_empty() {
-            let place = if all { "on the screen or in its scrollback" } else { "on the screen" };
-            return Err(format!("{text:?} is not {place}"));
+            let place = if find.all { "on the screen or in its scrollback" } else { "on the screen" };
+            return Err(format!("{:?} is not {place}", find.text));
         }
         Ok(matches)
     }
@@ -160,9 +157,9 @@ impl Terminal {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).log.output_since(raw, styled)
     }
 
-    pub(crate) fn printed(&self, since: Option<&str>, raw: bool) -> Result<String, String> {
+    pub(crate) fn printed(&self, asked: &request::Output) -> Result<String, String> {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.log.since(since, raw, state.frame)
+        state.log.since(asked, state.frame)
     }
 
     pub(crate) fn lines(&self) -> Vec<String> {
@@ -170,7 +167,7 @@ impl Terminal {
     }
 
     pub(crate) fn cell(&self, row: u16, col: u16) -> Result<Cell, String> {
-        cell_at(&self.state.lock().unwrap_or_else(PoisonError::into_inner).screen, row, col)
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).screen.cell_at(row, col)
     }
 }
 
@@ -188,22 +185,6 @@ fn changed_rows(before: &[String], after: &[String]) -> Result<Vec<RowChange>, S
             Ok(RowChange { row, before, after })
         })
         .collect()
-}
-
-pub(super) fn matches_on(screen: &Screen, pattern: &regex::Regex, first: i32) -> Vec<Match> {
-    let mut matches = Vec::new();
-    for line in first..i32::from(screen.size().rows) {
-        let (row, columns) = screen.located_row(line);
-        let found = pattern.find_iter(&row).filter(|m| !m.is_empty());
-        matches.extend(found.filter_map(|found| {
-            Some(Match {
-                row: if line < 0 { line } else { line + 1 },
-                col: columns.get(found.start())? + 1,
-                text: found.as_str().to_string(),
-            })
-        }));
-    }
-    matches
 }
 
 fn row_range(size: Size, rows: Option<RowRange>) -> Result<RowRange, String> {
@@ -243,11 +224,4 @@ fn listed_ref(index: usize, found: &Found, frame: u64) -> Ref {
         frame,
         url: found.url().map(str::to_string),
     }
-}
-
-pub(super) fn cell_at(screen: &Screen, row: u16, col: u16) -> Result<Cell, String> {
-    screen.cell(row, col).ok_or_else(|| {
-        let size = screen.view().size;
-        format!("cell {row},{col} is outside the {}x{} screen", size.cols, size.rows)
-    })
 }

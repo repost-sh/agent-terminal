@@ -1,6 +1,6 @@
 use clap::{Subcommand, ValueEnum};
 
-use super::programs::{self, OpenArgs, WaitArgs};
+use super::programs::{OpenArgs, WaitArgs};
 use super::values::parse_size;
 use super::{Context, ON_ITS_OWN};
 use crate::protocol::request;
@@ -72,9 +72,7 @@ impl TabCommand {
     pub(super) fn request(self, context: Context) -> Result<Request, String> {
         let Context { target, timeout, .. } = context;
         Ok(match self {
-            TabCommand::Tab { action: Some(TabAction::New(args)), .. } => {
-                programs::open(target.session, args, timeout)?
-            }
+            TabCommand::Tab { action: Some(TabAction::New(args)), .. } => args.request(target.session, timeout)?,
             TabCommand::Session { action: Some(SessionAction::List) } => Request::Sessions,
             TabCommand::Session { action: None | Some(SessionAction::Id { .. }) } => return Err(ON_ITS_OWN.into()),
             TabCommand::Tab { id: Some(tab), .. } => {

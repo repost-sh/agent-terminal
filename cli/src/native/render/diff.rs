@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use anyhow::{Context, Result};
 use num_traits::ToPrimitive;
 use serde::Serialize;
@@ -48,38 +50,47 @@ fn same(a: Option<[u8; 3]>, b: Option<[u8; 3]>) -> bool {
     }
 }
 
-pub(crate) fn changed_cells(older: &[u8], newer: &[u8], cells: Cells) -> Result<ChangedCells> {
-    let (older, newer) = (Pixmap::decode_png(older)?, Pixmap::decode_png(newer)?);
-    let cell = CellSize::at(cells.scale)?;
-    let (width, height) = (u32::from(cell.width), u32::from(cell.height));
-    let pad = PAD * u32::from(cells.scale.max(1));
-    let rows = u32::from(cells.rows.last.saturating_sub(cells.rows.first)) + 1;
-    let differs = |col: u32, row: u32| {
-        let (left, top) = (pad + col * width, pad + row * height);
-        (top..top + height).any(|y| (left..left + width).any(|x| !same(color(&older, x, y), color(&newer, x, y))))
-    };
-    let mut changed = ChangedCells { count: 0, boxes: Vec::new() };
-    for row in 0..rows {
-        let mut run: Option<u32> = None;
-        for col in 0..=u32::from(cells.cols) {
-            let differing = col < u32::from(cells.cols) && differs(col, row);
-            match (run, differing) {
-                (None, true) => run = Some(col),
-                (Some(first), false) => {
-                    changed.count += col - first;
-                    changed.boxes.push(CellBox {
-                        x: pad + first * width,
-                        y: pad + row * height,
-                        width: (col - first) * width,
-                        height,
-                    });
-                    run = None;
-                }
-                _ => {}
+impl Cells {
+    pub(crate) fn changed_between(self, older: &[u8], newer: &[u8]) -> Result<ChangedCells> {
+        let (older, newer) = (Pixmap::decode_png(older)?, Pixmap::decode_png(newer)?);
+        let cell = CellSize::at(self.scale)?;
+        let (width, height) = (u32::from(cell.width), u32::from(cell.height));
+        let pad = PAD * u32::from(self.scale.max(1));
+        let rows = u32::from(self.rows.last.saturating_sub(self.rows.first)) + 1;
+        let differs = |col: u32, row: u32| {
+            let (left, top) = (pad + col * width, pad + row * height);
+            (top..top + height).any(|y| (left..left + width).any(|x| !same(color(&older, x, y), color(&newer, x, y))))
+        };
+        let mut changed = ChangedCells { count: 0, boxes: Vec::new() };
+        for row in 0..rows {
+            for run in runs(u32::from(self.cols), |col| differs(col, row)) {
+                changed.count += run.end - run.start;
+                changed.boxes.push(CellBox {
+                    x: pad + run.start * width,
+                    y: pad + row * height,
+                    width: (run.end - run.start) * width,
+                    height,
+                });
             }
         }
+        Ok(changed)
     }
-    Ok(changed)
+}
+
+fn runs(cols: u32, differs: impl Fn(u32) -> bool) -> Vec<Range<u32>> {
+    let mut found = Vec::new();
+    let mut run: Option<u32> = None;
+    for col in 0..=cols {
+        match (run, col < cols && differs(col)) {
+            (None, true) => run = Some(col),
+            (Some(first), false) => {
+                found.push(first..col);
+                run = None;
+            }
+            _ => {}
+        }
+    }
+    found
 }
 
 pub(crate) fn compare(baseline: &[u8], current: &Image) -> Result<Compared> {

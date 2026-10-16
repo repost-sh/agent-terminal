@@ -9,6 +9,8 @@ mod gherkin;
 #[cfg(test)]
 mod mutation;
 #[cfg(test)]
+mod params;
+#[cfg(test)]
 mod props;
 #[cfg(test)]
 mod scratch;

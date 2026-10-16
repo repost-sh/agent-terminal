@@ -55,27 +55,24 @@ pub(crate) enum Verdict {
     Never,
 }
 
+pub(crate) struct Seen<'a> {
+    pub screen: &'a Screen,
+    pub frame: u64,
+    pub last_change: Instant,
+    pub last_output: Instant,
+    pub exited: bool,
+    pub prompt: Option<PromptState>,
+}
+
 pub(crate) struct Moment<'a> {
     now: Instant,
-    screen: &'a Screen,
-    frame: u64,
-    last_change: Instant,
-    last_output: Instant,
-    exited: bool,
-    prompt: Option<PromptState>,
+    seen: Seen<'a>,
     view: OnceCell<ScreenView>,
 }
 
 impl<'a> Moment<'a> {
-    pub(crate) fn new(
-        screen: &'a Screen,
-        frame: u64,
-        last_change: Instant,
-        last_output: Instant,
-        exited: bool,
-        prompt: Option<PromptState>,
-    ) -> Self {
-        Self { now: Instant::now(), screen, frame, last_change, last_output, exited, prompt, view: OnceCell::new() }
+    pub(crate) fn new(seen: Seen<'a>) -> Self {
+        Self { now: Instant::now(), seen, view: OnceCell::new() }
     }
 
     pub(crate) fn now(&self) -> Instant {
@@ -83,7 +80,7 @@ impl<'a> Moment<'a> {
     }
 
     fn view(&self) -> &ScreenView {
-        self.view.get_or_init(|| self.screen.view())
+        self.view.get_or_init(|| self.seen.screen.view())
     }
 }
 
@@ -116,21 +113,24 @@ impl Condition {
             Condition::Text(pattern) => while_running(pattern.found(&moment.view().lines), moment),
             Condition::Gone(pattern) => while_running(!pattern.found(&moment.view().lines), moment),
             Condition::Stable(quiet, since) => {
-                quiet_for(latest(moment.last_change, *since) + *quiet, now, moment.exited)
+                quiet_for(latest(moment.seen.last_change, *since) + *quiet, now, moment.seen.exited)
             }
-            Condition::Idle(quiet, since) => quiet_for(latest(moment.last_output, *since) + *quiet, now, moment.exited),
-            Condition::Exit => while_running(moment.exited, moment),
+            Condition::Idle(quiet, since) => {
+                quiet_for(latest(moment.seen.last_output, *since) + *quiet, now, moment.seen.exited)
+            }
+            Condition::Exit => while_running(moment.seen.exited, moment),
             Condition::Cursor(row, col) => {
                 let (line, column) = moment.view().cursor;
                 while_running((line + 1, column + 1) == (*row, *col), moment)
             }
-            Condition::Frame(frame) => while_running(moment.frame >= *frame, moment),
+            Condition::Frame(frame) => while_running(moment.seen.frame >= *frame, moment),
             Condition::Elapsed(until) if now >= *until => Verdict::Met,
             Condition::Elapsed(until) => Verdict::Pending(Some(*until)),
-            Condition::Command => while_running(moment.prompt.is_some_and(|prompt| prompt.ready), moment),
-            Condition::PromptAfter(prompts) => {
-                while_running(moment.prompt.is_some_and(|prompt| prompt.ready && prompt.prompts > *prompts), moment)
-            }
+            Condition::Command => while_running(moment.seen.prompt.is_some_and(|prompt| prompt.ready), moment),
+            Condition::PromptAfter(prompts) => while_running(
+                moment.seen.prompt.is_some_and(|prompt| prompt.ready && prompt.prompts > *prompts),
+                moment,
+            ),
         }
     }
 }
@@ -138,7 +138,7 @@ impl Condition {
 fn while_running(met: bool, moment: &Moment<'_>) -> Verdict {
     if met {
         Verdict::Met
-    } else if moment.exited {
+    } else if moment.seen.exited {
         Verdict::Never
     } else {
         Verdict::Pending(None)

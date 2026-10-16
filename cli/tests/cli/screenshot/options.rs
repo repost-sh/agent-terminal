@@ -1,8 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::picture::{pixel, png_size};
-use super::screen::Screen;
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, Screen, Shown, fixture};
 
 const DARK_BACKGROUND: [u8; 3] = [0x11, 0x11, 0x13];
 const DARK_FOREGROUND: [u8; 3] = [0xd4, 0xd4, 0xd8];
@@ -36,13 +35,13 @@ fn scale_and_rows_change_the_size(at: &AgentTerminal, work: &Path) {
 
 fn theme_and_cursor_change_the_pixels(at: &AgentTerminal, work: &Path) {
     let dark = shot(at, work, "dark.png", &[]);
-    assert_eq!(pixel(&dark, 0, 0), DARK_BACKGROUND);
-    assert_eq!(pixel(&shot(at, work, "light.png", &["--theme", "light"]), 0, 0), LIGHT_BACKGROUND);
+    assert_eq!(pixel(&dark, (0, 0)), DARK_BACKGROUND);
+    assert_eq!(pixel(&shot(at, work, "light.png", &["--theme", "light"]), (0, 0)), LIGHT_BACKGROUND);
 
     let in_cursor_cell = (10 + 4, 10 + 3 * 20 + 10);
-    assert_eq!(pixel(&dark, in_cursor_cell.0, in_cursor_cell.1), DARK_FOREGROUND);
+    assert_eq!(pixel(&dark, (in_cursor_cell.0, in_cursor_cell.1)), DARK_FOREGROUND);
     let no_cursor = shot(at, work, "no-cursor.png", &["--no-cursor"]);
-    assert_eq!(pixel(&no_cursor, in_cursor_cell.0, in_cursor_cell.1), DARK_BACKGROUND);
+    assert_eq!(pixel(&no_cursor, (in_cursor_cell.0, in_cursor_cell.1)), DARK_BACKGROUND);
 }
 
 fn file(screen: &Screen, name: &str) -> String {
@@ -56,7 +55,8 @@ fn read(screen: &Screen, name: &str) -> String {
 #[test]
 fn other_formats_follow_the_extension_or_the_format_option() {
     let at = AgentTerminal::new();
-    let screen = Screen::open(&at, "20x3", "\x1b[?25l\x1b[31mred\x1b[0m plain\nsecond", "second");
+    let screen =
+        Screen::open(&at, &Shown { size: "20x3", bytes: "\x1b[?25l\x1b[31mred\x1b[0m plain\nsecond", wait: "second" });
 
     at.run(&["screenshot", &file(&screen, "screen.txt")]).success();
     at.run(&["screenshot", "--format", "ansi", &file(&screen, "screen.ans")]).success();
@@ -93,7 +93,7 @@ fn the_svg_file_draws_the_coloured_text(screen: &Screen, svg: &serde_json::Value
 fn html_keeps_each_style_and_trims_only_trailing_space_on_the_plain_background() {
     let at = AgentTerminal::new();
     let bytes = "\x1b[?25l\x1b[41mbg\x1b[0m \x1b[1mbold\x1b[0m \x1b[3mital\x1b[0m \x1b[4;9mlines\x1b[0m\n\x1b[44mblue  \x1b[0m\nplain";
-    let screen = Screen::open(&at, "30x3", bytes, "plain");
+    let screen = Screen::open(&at, &Shown { size: "30x3", bytes, wait: "plain" });
     at.run(&["screenshot", &file(&screen, "styles.html")]).success();
     let html = read(&screen, "styles.html");
     let page = html.split("<pre>").nth(1).unwrap_or_default();

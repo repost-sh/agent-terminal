@@ -1,6 +1,7 @@
 mod colour;
 mod modes;
 mod rows;
+mod search;
 mod stream;
 
 use std::hash::{DefaultHasher, Hash, Hasher};

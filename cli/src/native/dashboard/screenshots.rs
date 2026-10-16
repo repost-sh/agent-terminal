@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
-use super::Backend;
 use super::follow::Follow;
-use super::stream::{send, send_changed};
+use super::route::SessionRoute;
+use super::stream::{LastSent, send};
 use crate::native::log;
-use crate::native::render::{self, CellBox};
+use crate::native::render::CellBox;
 use crate::native::store::{ScreenshotEntry, SessionFolder};
 use anyhow::Context;
 use axum::Json;
 use axum::extract::ws::{WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
@@ -21,20 +20,18 @@ enum Update {
     Closed,
 }
 
-pub(super) async fn stream(
-    ws: WebSocketUpgrade,
-    State(backend): State<Arc<dyn Backend>>,
-    Path(session): Path<String>,
-) -> Response {
-    ws.on_upgrade(move |socket| follow_screenshots(socket, backend, session))
+pub(super) async fn stream(ws: WebSocketUpgrade, route: SessionRoute) -> Response {
+    ws.on_upgrade(move |socket| follow_screenshots(socket, route))
 }
 
-async fn follow_screenshots(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String) {
+async fn follow_screenshots(mut socket: WebSocket, route: SessionRoute) {
+    let SessionRoute { backend, session } = route;
     let looking = Arc::clone(&backend);
     let named = session.clone();
     let lookup = Box::new(move || looking.folder(&named));
-    let mut follow = Follow::new(&backend, lookup, |folder: &SessionFolder| Some(folder.screenshots_listed()));
-    let mut sent = String::new();
+    let mut follow =
+        Follow::new(backend.changes(), lookup).signal(|folder: &SessionFolder| Some(folder.screenshots_listed()));
+    let mut sent = LastSent::default();
     loop {
         let Some((folder, _)) = follow.next() else {
             send(&mut socket, &Update::Closed).await;
@@ -43,7 +40,7 @@ async fn follow_screenshots(mut socket: WebSocket, backend: Arc<dyn Backend>, se
         let Some(update) = screenshots_update(folder, &session).await else {
             return;
         };
-        if !send_changed(&mut socket, &mut sent, update).await || !follow.changed(&mut socket).await {
+        if !sent.send(&mut socket, update).await || !follow.changed(&mut socket).await {
             return;
         }
     }
@@ -77,11 +74,8 @@ struct Compared {
     boxes: Vec<CellBox>,
 }
 
-pub(super) async fn compare(
-    State(backend): State<Arc<dyn Backend>>,
-    Path(session): Path<String>,
-    Json(Pair { paths }): Json<Pair>,
-) -> Response {
+pub(super) async fn compare(route: SessionRoute, Json(Pair { paths }): Json<Pair>) -> Response {
+    let SessionRoute { backend, session } = route;
     let Some(folder) = backend.folder(&session) else {
         return not_listed(&paths[0], &session);
     };
@@ -110,7 +104,7 @@ fn compared(folder: &SessionFolder, session: &str, paths: &[String; 2]) -> Respo
     };
     let changed = read(older)
         .and_then(|older_png| Ok((older_png, read(newer)?)))
-        .and_then(|(older_png, newer_png)| render::changed_cells(&older_png, &newer_png, older.cells));
+        .and_then(|(older_png, newer_png)| older.cells.changed_between(&older_png, &newer_png));
     match changed {
         Ok(changed) => Json(Compared { changed: Some(changed.count), boxes: changed.boxes }).into_response(),
         Err(e) => (StatusCode::NOT_FOUND, format!("{e:#}")).into_response(),

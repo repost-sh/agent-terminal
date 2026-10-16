@@ -21,23 +21,30 @@ impl Scratch {
 
     pub(crate) fn package(name: &str, files: &[(&str, &str)]) -> Self {
         let dir = tempfile::tempdir().expect("scratch workspace");
-        Self { dir, name: name.to_string(), members: Vec::new() }.member(name, "", files)
+        let mut scratch = Self { dir, name: name.to_string(), members: Vec::new() };
+        scratch.manifest(name, "");
+        for (path, code) in files {
+            write(&scratch.dir.path().join(name).join("src").join(path), code);
+        }
+        scratch
     }
 
-    pub(crate) fn member(mut self, name: &str, manifest: &str, files: &[(&str, &str)]) -> Self {
+    pub(crate) fn member(mut self, name: &str, manifest: &str) -> Self {
+        self.manifest(name, manifest);
+        write(&self.dir.path().join(name).join("src/lib.rs"), "");
+        self
+    }
+
+    fn manifest(&mut self, name: &str, manifest: &str) {
         write(
             &self.dir.path().join(name).join("Cargo.toml"),
             &format!("[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\n{manifest}"),
         );
-        for (path, code) in files {
-            write(&self.dir.path().join(name).join("src").join(path), code);
-        }
         self.members.push(format!("{name:?}"));
         write(
             &self.dir.path().join("Cargo.toml"),
             &format!("[workspace]\nmembers = [{}]\nresolver = \"3\"\n", self.members.join(", ")),
         );
-        self
     }
 
     pub(crate) fn with(self, path: &str, code: &str) -> Self {
@@ -59,6 +66,10 @@ impl Scratch {
 
     pub(crate) fn props(&self) -> Run {
         run(self.dir.path(), &["props"])
+    }
+
+    pub(crate) fn params(&self) -> Run {
+        run(self.dir.path(), &["params"])
     }
 
     pub(crate) fn architecture(&self) -> Run {

@@ -4,10 +4,9 @@ use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use super::Backend;
+use super::route::TabRoute;
 use super::stream::hung_up;
 use crate::native::terminal::Terminal;
-use crate::protocol::TabId;
 
 type Lookup<T> = Box<dyn Fn() -> Option<Arc<T>> + Send + Sync>;
 
@@ -32,24 +31,20 @@ pub(super) struct Follow<T> {
 }
 
 impl Follow<Terminal> {
-    pub(super) fn tab(
-        backend: &Arc<dyn Backend>,
-        session: String,
-        id: TabId,
-        signal: fn(&Terminal) -> Option<watch::Receiver<u64>>,
-    ) -> Self {
-        let looking = Arc::clone(backend);
-        Self::new(backend, Box::new(move || looking.terminal(&session, id)), signal)
+    pub(super) fn tab(route: &TabRoute) -> Self {
+        let (looking, session, id) = (Arc::clone(&route.backend), route.session.clone(), route.id);
+        Self::new(route.backend.changes(), Box::new(move || looking.terminal(&session, id)))
     }
 }
 
 impl<T> Follow<T> {
-    pub(super) fn new(
-        backend: &Arc<dyn Backend>,
-        lookup: Lookup<T>,
-        signal: fn(&T) -> Option<watch::Receiver<u64>>,
-    ) -> Self {
-        Self { lookup, signal, lifecycle: backend.changes(), extra: None, watched: None }
+    pub(super) fn new(lifecycle: watch::Receiver<u64>, lookup: Lookup<T>) -> Self {
+        Self { lookup, signal: |_| None, lifecycle, extra: None, watched: None }
+    }
+
+    pub(super) fn signal(mut self, signal: fn(&T) -> Option<watch::Receiver<u64>>) -> Self {
+        self.signal = signal;
+        self
     }
 
     pub(super) fn and(mut self, extra: Option<watch::Receiver<u64>>) -> Self {

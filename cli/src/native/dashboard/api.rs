@@ -9,7 +9,7 @@ use axum::response::{IntoResponse, Response};
 use serde_json::Value;
 use tokio::sync::watch;
 
-use super::stream::{hung_up, send_changed};
+use super::stream::{LastSent, hung_up};
 use super::{Backend, tab_id};
 use crate::native::log;
 use crate::protocol::request;
@@ -28,13 +28,13 @@ pub(super) async fn sessions_stream(ws: WebSocketUpgrade, State(backend): State<
 
 async fn follow_sessions(mut socket: WebSocket, backend: Arc<dyn Backend>) {
     let mut lifecycle = backend.changes();
-    let mut sent = String::new();
+    let mut sent = LastSent::default();
     loop {
         lifecycle.borrow_and_update();
         let Some(listed) = encoded_sessions(backend.as_ref()) else {
             return;
         };
-        if !send_changed(&mut socket, &mut sent, listed).await {
+        if !sent.send(&mut socket, listed).await {
             return;
         }
         if !still_open(&mut lifecycle, &mut socket).await {

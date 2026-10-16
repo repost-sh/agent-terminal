@@ -9,7 +9,7 @@ use super::state::State;
 use super::{Status, Terminal};
 use crate::native::commands::{Change, Commands, Point};
 use crate::native::log;
-use crate::native::output_log::{Offsets, OutputLog};
+use crate::native::output_log::{Chunk, Offsets, OutputLog};
 use crate::native::screen::{At, ShellReport};
 
 type Wait = Box<dyn FnOnce() -> Result<i32> + Send>;
@@ -21,14 +21,14 @@ struct Reported {
     shown: u64,
 }
 
-pub(super) fn follow(terminal: &Arc<Terminal>, reader: Box<dyn Read + Send>, wait: Wait) {
-    let reading = Arc::clone(terminal);
-    let output_done = std::thread::spawn(move || reading.pump(reader));
-    let waiting = Arc::clone(terminal);
-    std::thread::spawn(move || waiting.wait_for_exit(wait, output_done));
-}
-
 impl Terminal {
+    pub(super) fn follow_output(self: &Arc<Self>, reader: Box<dyn Read + Send>, wait: Wait) {
+        let reading = Arc::clone(self);
+        let output_done = std::thread::spawn(move || reading.pump(reader));
+        let waiting = Arc::clone(self);
+        std::thread::spawn(move || waiting.wait_for_exit(wait, output_done));
+    }
+
     fn pump(&self, mut reader: Box<dyn Read + Send>) {
         let mut buffer = vec![0u8; 64 * 1024];
         while let Some(read) = self.read_output(&mut reader, &mut buffer) {
@@ -84,7 +84,9 @@ impl Terminal {
         let reports = state.screen.take_shell_reports();
         let started = state.frame;
         let start = state.log.end();
-        state.log.record(started, bytes, printed.text.as_bytes(), printed.styled.as_bytes());
+        state
+            .log
+            .record(started, &Chunk { raw: bytes, text: printed.text.as_bytes(), styled: printed.styled.as_bytes() });
         let now = Instant::now();
         state.last_output = now;
         state.advance(now);

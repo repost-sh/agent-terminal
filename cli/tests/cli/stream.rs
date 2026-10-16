@@ -2,7 +2,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::support::{AgentTerminal, DashboardSocket, dashboard, frame_number, open_redraw};
+use crate::support::{AgentTerminal, DashboardSocket, Redraw, dashboard, frame_number, open_redraw};
 
 const STREAM: &str = "/api/session/default/t1/stream";
 const COUNTED: Duration = Duration::from_secs(5);
@@ -27,7 +27,7 @@ fn watch_and_acknowledge(mut socket: DashboardSocket, window_closed: &mpsc::Send
 #[test]
 fn a_fast_tab_is_delivered_at_most_thirty_times_a_second_to_each_viewer_and_ends_on_its_latest_frame() {
     let at = AgentTerminal::new();
-    open_redraw(&at, "default", "120", "--partial");
+    open_redraw(&at, &Redraw { session: "default", hz: "120", repaint: "--partial" });
     let port = dashboard(&at);
     let (window_closed, closed) = mpsc::channel();
     let viewers: Vec<_> = (0..2)
@@ -52,7 +52,7 @@ fn a_fast_tab_is_delivered_at_most_thirty_times_a_second_to_each_viewer_and_ends
 #[test]
 fn a_viewer_that_stops_acknowledging_receives_two_frames_and_then_one_per_acknowledgement() {
     let at = AgentTerminal::new();
-    open_redraw(&at, "default", "120", "--partial");
+    open_redraw(&at, &Redraw { session: "default", hz: "120", repaint: "--partial" });
     let mut socket = DashboardSocket::open(dashboard(&at), STREAM);
 
     let mut received = Vec::new();

@@ -25,10 +25,10 @@ use tokio::sync::watch;
 
 use crate::home::{home, socket_path, version_path};
 use crate::native::changes::Changes;
-use crate::native::control::{Control, Hold};
+use crate::native::control::{Control, TabHold};
 use crate::native::dashboard::{self, Backend};
 use crate::native::log;
-use crate::native::store::{ActivityEntry, SessionFolder};
+use crate::native::store::{ActivityEntry, SessionFolder, Typed};
 use crate::native::terminal::Terminal;
 use crate::protocol::{ErrorBody, HumanInput, Reply, Request, SessionInfo, Sessions, TabId, Target};
 use lifecycle::Activity;
@@ -202,16 +202,24 @@ impl Backend for Daemon {
         self.changes.subscribe()
     }
 
-    fn take_control(&self, session: &str, tab: TabId) -> Result<Hold, ErrorBody> {
-        self.tab(&Target::tab(session, tab)).map(|(_, tab)| tab.control.take())
+    fn take_control(&self, session: &str, tab: TabId) -> Result<TabHold, ErrorBody> {
+        self.tab(&Target::tab(session, tab)).map(|(_, entry)| TabHold {
+            session: session.to_string(),
+            tab,
+            hold: entry.control.take(),
+        })
     }
 
-    fn holds(&self, session: &str, tab: TabId, hold: &Hold) -> bool {
+    fn holds(&self, taken: &TabHold) -> bool {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        sessions.get(session).and_then(|entry| entry.tabs.get(&tab)).is_some_and(|tab| hold.holds(&tab.control))
+        sessions
+            .get(&taken.session)
+            .and_then(|entry| entry.tabs.get(&taken.tab))
+            .is_some_and(|tab| taken.hold.holds(&tab.control))
     }
 
-    fn type_as_human(&self, session: &str, tab: TabId, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody> {
+    fn type_as_human(&self, taken: &TabHold, input: &HumanInput) -> Result<(), ErrorBody> {
+        let (session, tab, hold) = (taken.session.as_str(), taken.tab, &taken.hold);
         let time = SystemTime::now();
         let started = Instant::now();
         let (folder, terminal) = {
@@ -227,7 +235,7 @@ impl Backend for Daemon {
             error.message = format!("{session} {tab}: {}", error.message);
             error
         });
-        let mut entry = ActivityEntry::at(time, &input.call(), started.elapsed());
+        let mut entry = ActivityEntry::at(&Typed { time, words: &input.call() }, started.elapsed());
         entry.tab = Some(tab.to_string());
         entry.frame = Some(terminal.frame());
         entry.human = Some(input.clone());

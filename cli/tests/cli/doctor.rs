@@ -1,5 +1,5 @@
 use crate::skills::{put_stub, shipped, stub_in, stub_of_version};
-use crate::support::{AgentTerminal, Run, VERSION};
+use crate::support::{AgentTerminal, Call, Run, VERSION};
 
 const FONTS: &str = "ok       fonts    JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in\n";
 
@@ -21,7 +21,7 @@ fn no_skill(at: &AgentTerminal) -> String {
 }
 
 fn doctor(at: &AgentTerminal, args: &[&str]) -> Run {
-    at.run_with(args, "", &[("SHELL", "/bin/zsh"), ("HOME", &user(at).to_string_lossy())])
+    at.run_with(&Call { args, stdin: "", env: &[("SHELL", "/bin/zsh"), ("HOME", &user(at).to_string_lossy())] })
 }
 
 #[test]
@@ -113,8 +113,12 @@ fn doctor_checks_the_shell_integration_scripts_and_fix_brings_them_up_to_date() 
     let at = AgentTerminal::new();
     let scripts = at.home().join("shell");
     let script = scripts.join("bash/agent-terminal.bash");
-    at.run_with(&["shell", "--shell", "bash", "--size", "40x5"], "", &[("HOME", &at.home().to_string_lossy())])
-        .success();
+    at.run_with(&Call {
+        args: &["shell", "--shell", "bash", "--size", "40x5"],
+        stdin: "",
+        env: &[("HOME", &at.home().to_string_lossy())],
+    })
+    .success();
     let shipped = std::fs::read_to_string(&script).expect("shell writes the bash integration script");
     let up_to_date = format!(
         "ok       shell    zsh (your SHELL) has shell integration; the scripts in {} are up to date",
@@ -256,15 +260,15 @@ fn doctor_says_how_to_fix_a_socket_path_the_system_cannot_use() {
     let at = AgentTerminal::new();
     let home = at.home().join("x".repeat(120));
     let socket = home.join("daemon.sock");
-    let run = at.run_with(
-        &["doctor"],
-        "",
-        &[
+    let run = at.run_with(&Call {
+        args: &["doctor"],
+        stdin: "",
+        env: &[
             ("AGENT_TERMINAL_HOME", &home.to_string_lossy()),
             ("SHELL", "/bin/zsh"),
             ("HOME", &user(&at).to_string_lossy()),
         ],
-    );
+    });
     assert_eq!(run.code(), 1);
     let stdout = run.stdout();
     let lines: Vec<&str> = stdout.lines().collect();

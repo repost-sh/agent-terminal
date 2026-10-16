@@ -5,7 +5,7 @@ mod weights;
 use tiny_skia::{LineCap, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 use super::fonts::Mask;
-use junction::{Axis, End, Junction};
+use junction::{Axis, End, Junction, Side};
 use weights::{DOUBLE, LINES, NONE};
 
 fn dashes(c: char) -> Option<u8> {
@@ -17,12 +17,18 @@ fn dashes(c: char) -> Option<u8> {
     }
 }
 
-pub(super) fn mask(c: char, width: u16, height: u16, scale: u8) -> Option<Mask> {
+pub(super) struct BoxCell {
+    pub(super) width: u16,
+    pub(super) height: u16,
+    pub(super) scale: u8,
+}
+
+pub(super) fn mask(c: char, cell: &BoxCell) -> Option<Mask> {
     let code = u32::from(c);
     if !(0x2500..=0x259f).contains(&code) {
         return None;
     }
-    let mut canvas = Canvas::new(width, height, scale)?;
+    let mut canvas = Canvas::new(cell.width, cell.height, cell.scale)?;
     match code {
         0x2580..=0x259f => canvas.block(c),
         0x256d..=0x2570 => canvas.arc(c),
@@ -99,49 +105,53 @@ impl Canvas {
     }
 
     fn right(&mut self, j: &Junction, [up, right, down, left]: [u8; 4]) {
+        let side = Side { axis: Axis::Across, end: End::Start };
         if right == DOUBLE {
-            let top = j.pick(Axis::Across, [up, left, down], End::Start);
-            let bottom = j.pick(Axis::Across, [down, left, up], End::Start);
+            let top = j.pick(side, [up, left, down]);
+            let bottom = j.pick(side, [down, left, up]);
             self.span_x(top, j.width, j.double(Axis::Down), j.thin);
             self.span_x(bottom, j.width, j.double(Axis::Down) + 2 * j.thin, j.thin);
         } else {
-            let start = j.meet(Axis::Across, left, [up, down], End::Start);
+            let start = j.meet(side, [left, up, down]);
             self.span_x(start, j.width, j.single(Axis::Down, right), j.thick(right));
         }
     }
 
     fn left(&mut self, j: &Junction, [up, right, down, left]: [u8; 4]) {
+        let side = Side { axis: Axis::Across, end: End::Finish };
         if left == DOUBLE {
-            let top = j.pick(Axis::Across, [up, right, down], End::Finish);
-            let bottom = j.pick(Axis::Across, [down, right, up], End::Finish);
+            let top = j.pick(side, [up, right, down]);
+            let bottom = j.pick(side, [down, right, up]);
             self.span_x(0, top, j.double(Axis::Down), j.thin);
             self.span_x(0, bottom, j.double(Axis::Down) + 2 * j.thin, j.thin);
         } else {
-            let end = j.meet(Axis::Across, right, [up, down], End::Finish);
+            let end = j.meet(side, [right, up, down]);
             self.span_x(0, end, j.single(Axis::Down, left), j.thick(left));
         }
     }
 
     fn up(&mut self, j: &Junction, [up, right, down, left]: [u8; 4]) {
+        let side = Side { axis: Axis::Down, end: End::Finish };
         if up == DOUBLE {
-            let left_line = j.pick(Axis::Down, [left, down, right], End::Finish);
-            let right_line = j.pick(Axis::Down, [right, down, left], End::Finish);
+            let left_line = j.pick(side, [left, down, right]);
+            let right_line = j.pick(side, [right, down, left]);
             self.span_y(0, left_line, j.double(Axis::Across), j.thin);
             self.span_y(0, right_line, j.double(Axis::Across) + 2 * j.thin, j.thin);
         } else {
-            let end = j.meet(Axis::Down, down, [left, right], End::Finish);
+            let end = j.meet(side, [down, left, right]);
             self.span_y(0, end, j.single(Axis::Across, up), j.thick(up));
         }
     }
 
     fn down(&mut self, j: &Junction, [up, right, down, left]: [u8; 4]) {
+        let side = Side { axis: Axis::Down, end: End::Start };
         if down == DOUBLE {
-            let left_line = j.pick(Axis::Down, [left, up, right], End::Start);
-            let right_line = j.pick(Axis::Down, [right, up, left], End::Start);
+            let left_line = j.pick(side, [left, up, right]);
+            let right_line = j.pick(side, [right, up, left]);
             self.span_y(left_line, j.height, j.double(Axis::Across), j.thin);
             self.span_y(right_line, j.height, j.double(Axis::Across) + 2 * j.thin, j.thin);
         } else {
-            let start = j.meet(Axis::Down, up, [left, right], End::Start);
+            let start = j.meet(side, [up, left, right]);
             self.span_y(start, j.height, j.single(Axis::Across, down), j.thick(down));
         }
     }

@@ -2,7 +2,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use crate::native::changes::Changes;
-use crate::protocol::Owner;
+use crate::protocol::{Owner, TabId};
 
 pub(crate) struct Control {
     holders: Mutex<Holders>,
@@ -18,6 +18,12 @@ struct Holders {
 }
 
 pub(crate) struct Hold(Arc<Control>);
+
+pub(crate) struct TabHold {
+    pub session: String,
+    pub tab: TabId,
+    pub hold: Hold,
+}
 
 pub(crate) enum Handed {
     Back,

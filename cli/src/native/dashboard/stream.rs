@@ -1,15 +1,11 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use super::follow::{Event, Follow, Wake};
-use super::{Backend, tab_id};
+use super::route::TabRoute;
 use crate::native::log;
 use crate::native::terminal::{Glance, Picture, Terminal};
-use crate::protocol::TabId;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
@@ -44,15 +40,8 @@ impl Shown {
     }
 }
 
-pub(super) async fn tab(
-    ws: WebSocketUpgrade,
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    match tab_id(&tab) {
-        Some(id) => ws.on_upgrade(move |socket| follow_tab(socket, backend, session, id)),
-        None => (StatusCode::NOT_FOUND, format!("{tab} is not a tab id; tabs are t1, t2, ...")).into_response(),
-    }
+pub(super) async fn tab(ws: WebSocketUpgrade, route: TabRoute) -> Response {
+    ws.on_upgrade(move |socket| follow_tab(socket, route))
 }
 
 #[derive(Default)]
@@ -91,8 +80,8 @@ impl Pace {
     }
 }
 
-async fn follow_tab(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
-    let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.frames()));
+async fn follow_tab(mut socket: WebSocket, route: TabRoute) {
+    let mut follow = Follow::tab(&route).signal(|terminal| Some(terminal.frames()));
     let mut pace = Pace::default();
     loop {
         let Some((terminal, replaced)) = follow.next() else {
@@ -153,15 +142,20 @@ pub(super) async fn send(socket: &mut WebSocket, update: &impl Serialize) -> boo
     }
 }
 
-pub(super) async fn send_changed(socket: &mut WebSocket, sent: &mut String, update: String) -> bool {
-    if update == *sent {
-        return true;
+#[derive(Default)]
+pub(super) struct LastSent(String);
+
+impl LastSent {
+    pub(super) async fn send(&mut self, socket: &mut WebSocket, update: String) -> bool {
+        if update == self.0 {
+            return true;
+        }
+        if socket.send(Message::text(update.clone())).await.is_err() {
+            return false;
+        }
+        self.0 = update;
+        true
     }
-    if socket.send(Message::text(update.clone())).await.is_err() {
-        return false;
-    }
-    *sent = update;
-    true
 }
 
 pub(super) fn hung_up(received: Option<&Result<Message, axum::Error>>) -> bool {

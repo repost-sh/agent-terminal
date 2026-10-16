@@ -92,13 +92,15 @@ impl Skill {
     }
 }
 
-pub(crate) fn run(action: Option<Action>, json: bool, cli: clap::Command) -> io::Result<i32> {
-    let printed = match action.unwrap_or(Action::List) {
-        Action::List => list(json),
-        Action::Get { name, full } => get(&name, full, json, cli),
-        Action::Path { name } => path(name.as_deref(), json),
-    };
-    finish(printed, json)
+impl Action {
+    pub(crate) fn run(self, json: bool, cli: clap::Command) -> io::Result<i32> {
+        let printed = match self {
+            Action::List => list(json),
+            Action::Get { name, full } => get(&name, full, json, cli),
+            Action::Path { name } => path(name.as_deref(), json),
+        };
+        finish(printed, json)
+    }
 }
 
 pub(crate) fn install(json: bool) -> io::Result<i32> {

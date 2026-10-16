@@ -7,12 +7,12 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::watch;
 
 use super::Daemon;
-use crate::native::control::{Control, Hold};
+use crate::native::control::{Control, TabHold};
 use crate::native::dashboard::Backend;
 use crate::native::log;
 use crate::native::terminal::{Picture, Status, Terminal};
 use crate::protocol::{
-    self, AttachEvent, AttachInput, Attached, HumanInput, Mirror, Reply, Response, Size, TabId, Target,
+    self, AttachEvent, AttachInput, Attached, HumanInput, Mirror, Reply, Response, Size, TabId, request,
 };
 
 struct Watched {
@@ -32,15 +32,21 @@ struct Mirroring<'a> {
     session: &'a str,
     id: TabId,
     control: &'a Arc<Control>,
-    hold: Option<&'a Hold>,
+    hold: Option<&'a TabHold>,
 }
 
 impl Daemon {
-    pub(super) fn attach(&self, mut stream: UnixStream, target: &Target, read_only: bool) {
+    pub(super) fn attach(&self, mut stream: UnixStream, attach: &request::Attach) {
+        let request::Attach { target, read_only } = attach;
+        let read_only = *read_only;
         let session = target.session.as_str();
         match self.tab(target) {
             Ok((id, attached)) => {
-                let hold = (!read_only).then(|| attached.control.take());
+                let hold = (!read_only).then(|| TabHold {
+                    session: session.to_string(),
+                    tab: id,
+                    hold: attached.control.take(),
+                });
                 let reply = Reply::Attached(Attached {
                     session: session.to_string(),
                     tab: id.to_string(),
@@ -112,7 +118,7 @@ impl Mirroring<'_> {
         let Some(hold) = self.hold else {
             return;
         };
-        if let Err(refused) = self.daemon.type_as_human(self.session, self.id, hold, input) {
+        if let Err(refused) = self.daemon.type_as_human(hold, input) {
             log::note(format_args!("attach: {}", refused.message));
         }
     }

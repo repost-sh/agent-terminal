@@ -5,6 +5,7 @@ use clap::{CommandFactory, FromArgMatches};
 
 use super::tools::BatchArgs;
 use super::{Cli, argv, request as single};
+use crate::batch::NotValid;
 use crate::output;
 use crate::protocol::request;
 use crate::protocol::{BatchStep, Request, TabId};
@@ -32,7 +33,7 @@ pub(super) fn request(args: &BatchArgs, defaults: &Defaults<'_>) -> Result<Reque
     let mut steps = Vec::new();
     for (index, call) in crate::batch::calls(&args.commands)?.into_iter().enumerate() {
         let request = step(parser.clone(), &call)
-            .map_err(|reason| crate::batch::not_valid(index, &output::call_line(&call), &reason))?;
+            .map_err(|reason| NotValid { index, call: &output::call_line(&call), reason: &reason }.to_string())?;
         steps.push(BatchStep { args: call, request });
     }
     Ok(Request::Batch(request::Batch { steps, bail: args.bail }))

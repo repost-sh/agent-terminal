@@ -1,22 +1,21 @@
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::watch;
 
+use super::Backend;
 use super::follow::first;
+use super::route::TabRoute;
 use super::stream::send;
-use super::{Backend, tab_id};
 use crate::global_options::without_global_options;
-use crate::native::control::Hold;
+use crate::native::control::TabHold;
 use crate::native::log;
 use crate::native::store::SessionFolder;
 use crate::output::call_line;
-use crate::protocol::{HumanInput, TabId};
+use crate::protocol::HumanInput;
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -27,15 +26,8 @@ enum ControlUpdate {
     Closed,
 }
 
-pub(super) async fn take(
-    ws: WebSocketUpgrade,
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    match tab_id(&tab) {
-        Some(id) => ws.on_upgrade(move |socket| hold(socket, backend, session, id)),
-        None => (StatusCode::NOT_FOUND, format!("{tab} is not a tab id; tabs are t1, t2, ...")).into_response(),
-    }
+pub(super) async fn take(ws: WebSocketUpgrade, route: TabRoute) -> Response {
+    ws.on_upgrade(move |socket| hold(socket, route))
 }
 
 struct Refusals {
@@ -104,9 +96,7 @@ async fn logged(refusals: Option<&mut Refusals>) -> Result<(), watch::error::Rec
 
 struct Holding {
     backend: Arc<dyn Backend>,
-    session: String,
-    id: TabId,
-    hold: Arc<Hold>,
+    hold: Arc<TabHold>,
     refusals: Option<Refusals>,
 }
 
@@ -116,24 +106,20 @@ enum Next {
     Received(Option<Result<Message, axum::Error>>),
 }
 
-async fn hold(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
-    let Some(hold) = take_control(&mut socket, &backend, &session, id).await else {
+async fn hold(mut socket: WebSocket, route: TabRoute) {
+    let Some(hold) = take_control(&mut socket, &route).await else {
         return;
     };
-    let mut holding = Holding::start(backend, session, id, hold).await;
+    let mut holding = Holding::start(route.backend, hold).await;
     if send(&mut socket, &ControlUpdate::Held).await {
         holding.run(&mut socket).await;
     }
 }
 
-async fn take_control(
-    socket: &mut WebSocket,
-    backend: &Arc<dyn Backend>,
-    session: &str,
-    id: TabId,
-) -> Option<Arc<Hold>> {
+async fn take_control(socket: &mut WebSocket, route: &TabRoute) -> Option<Arc<TabHold>> {
+    let TabRoute { backend, session, id } = route;
     let taking = {
-        let (backend, session) = (Arc::clone(backend), session.to_string());
+        let (backend, session, id) = (Arc::clone(backend), session.clone(), *id);
         tokio::task::spawn_blocking(move || backend.take_control(&session, id)).await
     };
     match taking {
@@ -150,12 +136,12 @@ async fn take_control(
 }
 
 impl Holding {
-    async fn start(backend: Arc<dyn Backend>, session: String, id: TabId, hold: Arc<Hold>) -> Self {
-        let refusals = match backend.folder(&session) {
-            Some(folder) => Refusals::start(folder, id.to_string()).await,
+    async fn start(backend: Arc<dyn Backend>, hold: Arc<TabHold>) -> Self {
+        let refusals = match backend.folder(&hold.session) {
+            Some(folder) => Refusals::start(folder, hold.tab.to_string()).await,
             None => None,
         };
-        Self { backend, session, id, hold, refusals }
+        Self { backend, hold, refusals }
     }
 
     async fn run(&mut self, socket: &mut WebSocket) {
@@ -165,7 +151,7 @@ impl Holding {
 
     async fn step(&mut self, lifecycle: &mut watch::Receiver<u64>, socket: &mut WebSocket) -> bool {
         lifecycle.borrow_and_update();
-        if self.backend.holds(&self.session, self.id, &self.hold) {
+        if self.backend.holds(&self.hold) {
             return self.act(lifecycle, socket).await;
         }
         send(socket, &ControlUpdate::Closed).await;
@@ -214,9 +200,8 @@ impl Holding {
 
     async fn type_keys(&self, text: &str) -> Result<(), String> {
         let input = serde_json::from_str::<HumanInput>(text).map_err(|e| format!("{text} is not a key: {e}"))?;
-        let (backend, session, hold, id) =
-            (Arc::clone(&self.backend), self.session.clone(), Arc::clone(&self.hold), self.id);
-        match tokio::task::spawn_blocking(move || backend.type_as_human(&session, id, &hold, &input)).await {
+        let (backend, hold) = (Arc::clone(&self.backend), Arc::clone(&self.hold));
+        match tokio::task::spawn_blocking(move || backend.type_as_human(&hold, &input)).await {
             Ok(typed) => typed.map_err(|refused| refused.message),
             Err(e) => Err(format!("sending the key failed: {e}")),
         }

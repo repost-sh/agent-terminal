@@ -7,6 +7,7 @@ mod follow;
 mod fonts;
 mod guard;
 mod open;
+mod route;
 mod screenshots;
 mod stream;
 
@@ -20,11 +21,11 @@ use axum::Router;
 use axum::routing::{get, post};
 use tokio::sync::{oneshot, watch};
 
-use crate::native::control::Hold;
+use crate::native::control::TabHold;
 use crate::native::log;
 use crate::native::store::SessionFolder;
 use crate::native::terminal::Terminal;
-use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions, TabId};
+use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions, TabId, request};
 
 pub(crate) trait Backend: Send + Sync + 'static {
     fn call(&self, request: Request) -> Result<Reply, ErrorBody>;
@@ -32,9 +33,9 @@ pub(crate) trait Backend: Send + Sync + 'static {
     fn terminal(&self, session: &str, tab: TabId) -> Option<Arc<Terminal>>;
     fn folder(&self, session: &str) -> Option<Arc<SessionFolder>>;
     fn changes(&self) -> watch::Receiver<u64>;
-    fn take_control(&self, session: &str, tab: TabId) -> Result<Hold, ErrorBody>;
-    fn holds(&self, session: &str, tab: TabId, hold: &Hold) -> bool;
-    fn type_as_human(&self, session: &str, tab: TabId, hold: &Hold, input: &HumanInput) -> Result<(), ErrorBody>;
+    fn take_control(&self, session: &str, tab: TabId) -> Result<TabHold, ErrorBody>;
+    fn holds(&self, taken: &TabHold) -> bool;
+    fn type_as_human(&self, taken: &TabHold, input: &HumanInput) -> Result<(), ErrorBody>;
 }
 
 pub(crate) struct Server {
@@ -45,7 +46,8 @@ pub(crate) struct Server {
 }
 
 impl Server {
-    pub(crate) fn start(port: u16, origins: Vec<String>, backend: Arc<dyn Backend>) -> Result<Self> {
+    pub(crate) fn start(start: request::DashboardStart, backend: Arc<dyn Backend>) -> Result<Self> {
+        let request::DashboardStart { port, origins } = start;
         let v4 = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).map_err(|e| refused(port, e))?;
         let port = v4.local_addr().context("read the dashboard's port")?.port();
         let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, port))
@@ -139,7 +141,7 @@ async fn serve(app: Router, v4: TcpListener, v6: Option<TcpListener>, stopped: o
 }
 
 fn router(pages: guard::Pages, backend: Arc<dyn Backend>) -> Router {
-    Router::new()
+    let routes = Router::new()
         .route("/api/sessions", get(api::sessions).post(open::open))
         .route("/api/sessions/stream", get(api::sessions_stream))
         .route("/api/sessions/close", post(api::close_all))
@@ -158,8 +160,8 @@ fn router(pages: guard::Pages, backend: Arc<dyn Backend>) -> Router {
         .route("/api/session/{session}/{tab}/commands/{id}", get(commands::output))
         .route("/fonts/{name}", get(fonts::serve))
         .fallback(assets::serve)
-        .with_state(backend)
-        .layer(axum::middleware::from_fn_with_state(Arc::new(pages), guard::same_origin))
+        .with_state(backend);
+    guard::guarded(routes, pages)
 }
 
 fn tab_id(tab: &str) -> Option<TabId> {

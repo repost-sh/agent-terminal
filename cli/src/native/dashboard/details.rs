@@ -1,15 +1,16 @@
 use std::sync::{Arc, Weak};
 
+use super::Backend;
 use super::follow::Follow;
+use super::route::TabRoute;
 use super::stream::send;
-use super::{Backend, tab_id};
 use crate::native::log;
 use crate::native::output_log::{Marked, Output, Slice};
 use crate::native::pty;
 use crate::native::store::{PendingCall, SessionFolder};
 use crate::native::terminal::Terminal;
 use crate::output::call_line;
-use crate::protocol::{Modes, Shell, TabId};
+use crate::protocol::{Modes, Shell};
 use axum::extract::ws::{WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -71,30 +72,23 @@ struct EnvVar {
     value: Option<String>,
 }
 
-pub(super) async fn activity(
-    ws: WebSocketUpgrade,
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    match tab_id(&tab) {
-        Some(id) => ws.on_upgrade(move |socket| follow_activity(socket, backend, session, id)),
-        None => not_a_tab(&tab),
-    }
+pub(super) async fn activity(ws: WebSocketUpgrade, route: TabRoute) -> Response {
+    ws.on_upgrade(move |socket| follow_activity(socket, route))
 }
 
-async fn follow_activity(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
-    let tab = id.to_string();
-    let folder = backend.folder(&session);
+async fn follow_activity(mut socket: WebSocket, route: TabRoute) {
+    let (session, tab) = (route.session.as_str(), route.id.to_string());
+    let folder = route.backend.folder(session);
     let logged = folder.as_ref().map(|folder| folder.logged());
     let folder = folder.as_ref().map_or_else(Weak::new, Arc::downgrade);
-    let mut follow = Follow::tab(&backend, session.clone(), id, |_| None).and(logged);
+    let mut follow = Follow::tab(&route).and(logged);
     let mut reported = Reported::default();
     loop {
         let (Some(_), Some(folder)) = (follow.next(), folder.upgrade()) else {
             send(&mut socket, &ActivityUpdate::Closed).await;
             return;
         };
-        let Some(read) = read_activity(folder, reported.offset, &session, &tab).await else {
+        let Some(read) = read_activity(folder, reported.offset, session, &tab).await else {
             return;
         };
         if !(reported.report(&mut socket, read).await && follow.changed(&mut socket).await) {
@@ -141,15 +135,8 @@ async fn read_activity(folder: Arc<SessionFolder>, offset: u64, session: &str, t
     Some(Read { entries, end, pending })
 }
 
-pub(super) async fn output(
-    ws: WebSocketUpgrade,
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    match tab_id(&tab) {
-        Some(id) => ws.on_upgrade(move |socket| follow_output(socket, backend, session, id)),
-        None => not_a_tab(&tab),
-    }
+pub(super) async fn output(ws: WebSocketUpgrade, route: TabRoute) -> Response {
+    ws.on_upgrade(move |socket| follow_output(socket, route))
 }
 
 #[derive(Default)]
@@ -248,8 +235,8 @@ impl Streamed {
     }
 }
 
-async fn follow_output(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
-    let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.frames()));
+async fn follow_output(mut socket: WebSocket, route: TabRoute) {
+    let mut follow = Follow::tab(&route).signal(|terminal| Some(terminal.frames()));
     let mut streamed: Option<Streamed> = None;
     while let Some((terminal, replaced)) = follow.next() {
         let update = output_update(&terminal, &mut streamed, replaced);
@@ -288,19 +275,12 @@ fn output_update(terminal: &Terminal, streamed: &mut Option<Streamed>, replaced:
     (reset || !raw.is_empty() || !styled.is_empty()).then_some(OutputUpdate::Output { reset, styled, raw })
 }
 
-pub(super) async fn info(
-    ws: WebSocketUpgrade,
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    match tab_id(&tab) {
-        Some(id) => ws.on_upgrade(move |socket| follow_info(socket, backend, session, id)),
-        None => not_a_tab(&tab),
-    }
+pub(super) async fn info(ws: WebSocketUpgrade, route: TabRoute) -> Response {
+    ws.on_upgrade(move |socket| follow_info(socket, route))
 }
 
-async fn follow_info(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
-    let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.frames()));
+async fn follow_info(mut socket: WebSocket, route: TabRoute) {
+    let mut follow = Follow::tab(&route).signal(|terminal| Some(terminal.frames()));
     let mut sent: Option<Info> = None;
     while let Some((terminal, _)) = follow.next() {
         if !(send_new(&mut socket, &mut sent, info_of(&terminal)).await && follow.changed(&mut socket).await) {
@@ -385,8 +365,4 @@ fn listed_png(folder: &SessionFolder, wanted: &str) -> anyhow::Result<Option<Vec
         return Ok(None);
     }
     Ok(Some(std::fs::read(wanted)?))
-}
-
-fn not_a_tab(tab: &str) -> Response {
-    (StatusCode::NOT_FOUND, format!("{tab} is not a tab id; tabs are t1, t2, ...")).into_response()
 }

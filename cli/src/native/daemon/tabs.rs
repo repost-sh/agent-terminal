@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 
 use super::refusals::{error_body, no_tab, no_terminal};
-use super::waiting::{condition, timed_out};
+use super::waiting::{Until, condition};
 use super::{Daemon, Session, Tab};
 use crate::home::home;
 use crate::native::control::Control;
@@ -12,7 +12,7 @@ use crate::native::log;
 use crate::native::pty;
 use crate::native::shell;
 use crate::native::store::SessionFolder;
-use crate::native::terminal::{HANG_UP_GRACE, Settled, Terminal};
+use crate::native::terminal::{HANG_UP_GRACE, Labelled, Settled, Starting, Terminal};
 use crate::protocol::{Closed, ErrorBody, Reply, SessionInfo, Shell, TabId, TabRef, Target, Wait, request};
 
 const KILLED_WITHIN: Duration = Duration::from_secs(5);
@@ -56,7 +56,14 @@ impl Daemon {
         };
         let tab = folder.next_tab();
         let command_log = folder.command_log(&tab.to_string());
-        let terminal = Terminal::start(command, shell, spawned, command_log, self.changes.clone(), None);
+        let terminal = Terminal::start(Starting {
+            command,
+            shell,
+            spawned,
+            command_log,
+            lifecycle: self.changes.clone(),
+            continued: None,
+        });
         {
             let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
             let entry = sessions.entry(session.to_string()).or_insert_with(|| Session::new(Arc::clone(&folder)));
@@ -103,8 +110,14 @@ impl Daemon {
         let command = old.rerun();
         let spawned = pty::spawn(&command).map_err(|e| error_body(&e))?;
         let continued = old.continued();
-        let terminal =
-            Terminal::start(command, old.shell(), spawned, old.command_log(), self.changes.clone(), Some(continued));
+        let terminal = Terminal::start(Starting {
+            command,
+            shell: old.shell(),
+            spawned,
+            command_log: old.command_log(),
+            lifecycle: self.changes.clone(),
+            continued: Some(continued),
+        });
         self.replace(session, tab, &old, &terminal)?;
         self.changes.notify();
         drop(restarting);
@@ -216,16 +229,16 @@ fn first_screen(
 ) -> Result<Reply, ErrorBody> {
     match wait {
         Some(wait) => settle(session, tab, terminal, wait, timeout_ms),
-        None => Ok(Reply::Snapshot(terminal.snapshot(session, &tab.to_string()))),
+        None => Ok(Reply::Snapshot(Labelled { session, tab: &tab.to_string(), terminal }.snapshot())),
     }
 }
 
 fn settle(session: &str, tab: TabId, terminal: &Terminal, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
     let tab = tab.to_string();
     let settled = terminal.wait(condition(wait)?.counted_from(Instant::now()), Duration::from_millis(timeout_ms));
-    let snapshot = terminal.snapshot(session, &tab);
+    let snapshot = Labelled { session, tab: &tab, terminal }.snapshot();
     match settled {
         Settled::Met { .. } | Settled::Exited => Ok(Reply::Snapshot(snapshot)),
-        Settled::TimedOut => Err(timed_out(wait, timeout_ms, snapshot)),
+        Settled::TimedOut => Err(Until { wait, timeout_ms }.timed_out(snapshot)),
     }
 }

@@ -6,7 +6,7 @@ use crate::native::commands::Commands;
 use crate::native::output_log::OutputLog;
 use crate::native::refs::Found;
 use crate::native::screen::Screen;
-use crate::native::wait::{Condition, Moment, Verdict};
+use crate::native::wait::{Condition, Moment, Seen, Verdict};
 use crate::protocol::MouseButton;
 
 pub(super) struct State {
@@ -43,12 +43,12 @@ pub(super) struct Watch {
 }
 
 impl State {
-    pub(super) fn new(screen: Screen, frame: u64, commands: Option<Commands>) -> Self {
+    pub(super) fn new(screen: Screen) -> Self {
         let started = Instant::now();
         Self {
             look: screen.fingerprint(),
             screen,
-            frame,
+            frame: 0,
             last_change: started,
             last_output: started,
             status: Status::Running,
@@ -58,13 +58,20 @@ impl State {
             mouse_held: None,
             watches: Vec::new(),
             next_watch: 0,
-            commands,
+            commands: None,
         }
     }
 
     pub(super) fn moment(&self) -> Moment<'_> {
         let prompt = self.commands.as_ref().map(Commands::prompt);
-        Moment::new(&self.screen, self.frame, self.last_change, self.last_output, self.status.exited(), prompt)
+        Moment::new(Seen {
+            screen: &self.screen,
+            frame: self.frame,
+            last_change: self.last_change,
+            last_output: self.last_output,
+            exited: self.status.exited(),
+            prompt,
+        })
     }
 
     pub(super) fn refresh(&mut self, now: Instant) {
@@ -87,7 +94,14 @@ impl State {
             return;
         }
         let prompt = commands.as_ref().map(Commands::prompt);
-        let moment = Moment::new(screen, *frame, *last_change, *last_output, status.exited(), prompt);
+        let moment = Moment::new(Seen {
+            screen,
+            frame: *frame,
+            last_change: *last_change,
+            last_output: *last_output,
+            exited: status.exited(),
+            prompt,
+        });
         for watch in watches.iter_mut().filter(|watch| watch.met.is_none()) {
             if let Verdict::Met = watch.condition.judge(&moment, watch.deadline) {
                 watch.met = Some(*frame);

@@ -17,7 +17,7 @@ use crate::native::changes::Changes;
 use crate::native::log;
 use crate::native::render::Cells;
 use crate::output::call_line;
-use crate::protocol::{CommandRecord, HumanInput, TabId};
+use crate::protocol::{CommandRecord, HumanInput, TabId, request};
 
 pub(crate) struct SessionFolder {
     path: PathBuf,
@@ -102,12 +102,17 @@ pub(crate) struct ScreenshotEntry {
     pub cells: Cells,
 }
 
+pub(crate) struct Typed<'a> {
+    pub time: SystemTime,
+    pub words: &'a [String],
+}
+
 impl ActivityEntry {
-    pub(crate) fn at(time: SystemTime, typed: &[String], duration: Duration) -> Self {
+    pub(crate) fn at(typed: &Typed<'_>, duration: Duration) -> Self {
         Self {
-            time: humantime::format_rfc3339_millis(time).to_string(),
+            time: humantime::format_rfc3339_millis(typed.time).to_string(),
             tab: None,
-            command: call_line(typed),
+            command: call_line(typed.words),
             duration_ms: u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
             exit: 0,
             error: None,
@@ -156,12 +161,12 @@ impl SessionFolder {
         next
     }
 
-    pub(crate) fn begin(self: &Arc<Self>, time: SystemTime, tab: Option<String>, typed: &[String]) -> Pending {
+    pub(crate) fn begin(self: &Arc<Self>, typed: &Typed<'_>, tab: Option<String>) -> Pending {
         let mut calls = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
         let id = calls.next;
         calls.next += 1;
-        let time = humantime::format_rfc3339_millis(time).to_string();
-        calls.pending.push((id, PendingCall { time, tab, command: call_line(typed) }));
+        let time = humantime::format_rfc3339_millis(typed.time).to_string();
+        calls.pending.push((id, PendingCall { time, tab, command: call_line(typed.words) }));
         drop(calls);
         self.logged.notify();
         Pending { folder: Arc::clone(self), id }
@@ -326,7 +331,8 @@ pub(crate) struct Exported {
     pub missing: Vec<PathBuf>,
 }
 
-pub(crate) fn export(home: &Path, session: &str, to: &Path) -> Result<Exported> {
+pub(crate) fn export(home: &Path, export: &request::TraceExport) -> Result<Exported> {
+    let (session, to) = (export.session.as_str(), export.path.as_path());
     let folder = folder(home, session);
     if !folder.is_dir() {
         bail!(

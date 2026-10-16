@@ -7,7 +7,7 @@ use swash::FontRef;
 use swash::scale::{Render, ScaleContext, Source};
 use swash::zeno::{Format, Vector};
 
-use super::boxes;
+use super::boxes::{self, BoxCell};
 
 const FONT_PX: f32 = 15.0;
 
@@ -77,6 +77,13 @@ impl Face {
     fn is_text(self) -> bool {
         matches!(self, Face::Regular | Face::Bold | Face::Italic | Face::BoldItalic)
     }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Letters<'a> {
+    pub text: &'a str,
+    pub face: Face,
+    pub span: u16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -189,12 +196,13 @@ impl Glyphs {
         self.font(face).is_some_and(|font| font.charmap().map(c) != 0)
     }
 
-    pub(crate) fn mask(&mut self, text: &str, style: Face, cell: &CellSize, span: u16) -> Option<Arc<Mask>> {
-        let key = Key { text: text.to_string(), face: style, px: cell.px.to_bits(), span };
+    pub(crate) fn mask(&mut self, letters: &Letters<'_>, cell: &CellSize) -> Option<Arc<Mask>> {
+        let Letters { text, face, span } = *letters;
+        let key = Key { text: text.to_string(), face, px: cell.px.to_bits(), span };
         if let Some(found) = self.masks.get(&key) {
             return found.clone();
         }
-        let drawn = self.draw(text, style, cell, span).map(Arc::new);
+        let drawn = self.draw(text, face, cell, span).map(Arc::new);
         self.masks.insert(key, drawn.clone());
         drawn
     }
@@ -204,7 +212,7 @@ impl Glyphs {
         let first = chars.next()?;
         let scale = (cell.px / FONT_PX).round().clamp(0.0, 255.0).to_u8().unwrap_or_default();
         if text.chars().count() == 1
-            && let Some(mask) = boxes::mask(first, cell.width * span, cell.height, scale)
+            && let Some(mask) = boxes::mask(first, &BoxCell { width: cell.width * span, height: cell.height, scale })
         {
             return Some(mask);
         }

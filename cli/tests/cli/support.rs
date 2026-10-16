@@ -16,6 +16,39 @@ pub(crate) struct AgentTerminal {
     home: tempfile::TempDir,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct Call<'a> {
+    pub args: &'a [&'a str],
+    pub stdin: &'a str,
+    pub env: &'a [(&'a str, &'a str)],
+}
+
+pub(crate) struct Shown<'a> {
+    pub size: &'a str,
+    pub bytes: &'a str,
+    pub wait: &'a str,
+}
+
+pub(crate) struct Screen {
+    dir: tempfile::TempDir,
+}
+
+impl Screen {
+    pub(crate) fn open(at: &AgentTerminal, shown: &Shown<'_>) -> Self {
+        let dir = scratch("screen-");
+        let path = dir.path().join("screen");
+        std::fs::write(&path, shown.bytes).expect("write the screen");
+        let path = path.to_string_lossy().into_owned();
+        at.run(&["open", "--size", shown.size, "--wait", shown.wait, "sh", "-c", "cat \"$1\"; read _", "sh", &path])
+            .success();
+        Self { dir }
+    }
+
+    pub(crate) fn file(&self, name: &str) -> PathBuf {
+        self.dir.path().join(name)
+    }
+}
+
 impl AgentTerminal {
     pub(crate) fn new() -> Self {
         let home = scratch("at-");
@@ -44,11 +77,12 @@ impl AgentTerminal {
         Run(self.command(args).current_dir(dir).output().expect("run agent-terminal"))
     }
 
-    pub(crate) fn run_with(&self, args: &[&str], stdin: &str, env: &[(&str, &str)]) -> Run {
-        self.run_program(Path::new(env!("CARGO_BIN_EXE_agent-terminal")), args, stdin, env)
+    pub(crate) fn run_with(&self, call: &Call<'_>) -> Run {
+        self.run_program(Path::new(env!("CARGO_BIN_EXE_agent-terminal")), call)
     }
 
-    pub(crate) fn run_program(&self, program: &Path, args: &[&str], stdin: &str, env: &[(&str, &str)]) -> Run {
+    pub(crate) fn run_program(&self, program: &Path, call: &Call<'_>) -> Run {
+        let Call { args, stdin, env } = *call;
         let mut child = Command::new(program)
             .args(args)
             .env("AGENT_TERMINAL_HOME", self.home.path())
@@ -248,7 +282,14 @@ pub(crate) fn frame_number(message: &serde_json::Value) -> u64 {
     message["frame"].as_u64().expect("a frame number")
 }
 
-pub(crate) fn open_redraw(at: &AgentTerminal, session: &str, hz: &str, repaint: &str) {
+pub(crate) struct Redraw<'a> {
+    pub session: &'a str,
+    pub hz: &'a str,
+    pub repaint: &'a str,
+}
+
+pub(crate) fn open_redraw(at: &AgentTerminal, redraw: &Redraw<'_>) {
+    let Redraw { session, hz, repaint } = *redraw;
     at.run(&[
         "--session",
         session,

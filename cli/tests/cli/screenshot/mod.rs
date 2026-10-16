@@ -5,4 +5,3 @@ mod lines;
 mod options;
 mod picture;
 mod saving;
-mod screen;

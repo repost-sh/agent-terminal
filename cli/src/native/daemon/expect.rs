@@ -1,5 +1,5 @@
 use super::Daemon;
-use crate::native::terminal::{Status, Terminal};
+use crate::native::terminal::{Labelled, Status};
 use crate::native::wait::Pattern;
 use crate::protocol::{
     Checked, ErrorBody, Expect, Reply, RowRange, Snapshot, SnapshotOptions, Style, TextMatch, request,
@@ -9,7 +9,7 @@ impl Daemon {
     pub(super) fn expect(&self, expect: &request::Expect) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&expect.target)?;
         let tab = id.to_string();
-        let checking = Checking { terminal: &terminal, session: &expect.target.session, tab: &tab };
+        let checking = Checking { at: Labelled { session: &expect.target.session, tab: &tab, terminal: &terminal } };
         let fact = match &expect.expect {
             Expect::Text(text) => checking.on_screen(text)?,
             Expect::Gone(text) => checking.gone(text)?,
@@ -21,30 +21,28 @@ impl Daemon {
 }
 
 struct Checking<'a> {
-    terminal: &'a Terminal,
-    session: &'a str,
-    tab: &'a str,
+    at: Labelled<'a>,
 }
 
 impl Checking<'_> {
     fn place(&self) -> String {
-        format!("{} {}", self.session, self.tab)
+        format!("{} {}", self.at.session, self.at.tab)
     }
 
     fn excerpt(&self, rows: Option<RowRange>) -> Result<Snapshot, ErrorBody> {
         let options = SnapshotOptions { rows, ..SnapshotOptions::default() };
-        self.terminal.snapshot_with(self.session, self.tab, &options).map_err(ErrorBody::failure)
+        self.at.snapshot_with(&options).map_err(ErrorBody::failure)
     }
 
     fn on_screen(&self, text: &TextMatch) -> Result<String, ErrorBody> {
-        if !Pattern::new(text).map_err(ErrorBody::failure)?.found(&self.terminal.lines()) {
+        if !Pattern::new(text).map_err(ErrorBody::failure)?.found(&self.at.terminal.lines()) {
             return Err(assertion(format!("{text} is not on screen in {}", self.place()), self.excerpt(None)?));
         }
         Ok(format!("{text} is on screen"))
     }
 
     fn gone(&self, text: &TextMatch) -> Result<String, ErrorBody> {
-        let rows = Pattern::new(text).map_err(ErrorBody::failure)?.rows_found(&self.terminal.lines());
+        let rows = Pattern::new(text).map_err(ErrorBody::failure)?.rows_found(&self.at.terminal.lines());
         if let (Some(&first), Some(&last)) = (rows.first(), rows.last()) {
             let which = if first == last { format!("row {first}") } else { format!("rows {first}-{last}") };
             let shown = self.excerpt(Some(RowRange { first, last }))?;
@@ -54,15 +52,15 @@ impl Checking<'_> {
     }
 
     fn exited_with(&self, code: i32) -> Result<String, ErrorBody> {
-        match self.terminal.status() {
+        match self.at.terminal.status() {
             Status::Exited(Some(exited)) if exited == code => {
-                Ok(format!("{} exited with code {code}", self.terminal.program()))
+                Ok(format!("{} exited with code {code}", self.at.terminal.program()))
             }
-            Status::Exited(_) => Err(exited_otherwise(code, self.terminal.snapshot(self.session, self.tab))),
+            Status::Exited(_) => Err(exited_otherwise(code, self.at.snapshot())),
             Status::Running => {
                 let message = format!(
                     "{} in {} is still running, so it has not exited with code {code}",
-                    self.terminal.program(),
+                    self.at.terminal.program(),
                     self.place()
                 );
                 Err(assertion(message, self.excerpt(None)?))
@@ -71,7 +69,7 @@ impl Checking<'_> {
     }
 
     fn cell(&self, row: u16, col: u16, style: &[Style]) -> Result<String, ErrorBody> {
-        let cell = self.terminal.cell(row, col).map_err(ErrorBody::failure)?;
+        let cell = self.at.terminal.cell(row, col).map_err(ErrorBody::failure)?;
         let missing: Vec<&Style> = style.iter().filter(|style| !style.holds(&cell)).collect();
         if !missing.is_empty() {
             let message = format!("cell {row},{col} in {} is not {}: it is {cell}", self.place(), listed(&missing));
@@ -82,7 +80,7 @@ impl Checking<'_> {
 }
 
 fn assertion(message: String, snapshot: Snapshot) -> ErrorBody {
-    ErrorBody::with_screen(crate::exit::ASSERTION, message, snapshot)
+    ErrorBody::new(crate::exit::ASSERTION, message).with_screen(snapshot)
 }
 
 fn listed(styles: &[&Style]) -> String {

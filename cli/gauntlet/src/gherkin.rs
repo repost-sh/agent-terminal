@@ -34,7 +34,7 @@ pub(crate) fn check(workspace: &Workspace) -> Result<Verdict> {
         }
         offenses.extend(found);
     }
-    Ok(Verdict::of(&RULE, &offenses, passes))
+    Ok(RULE.verdict(&offenses, passes))
 }
 
 pub(crate) fn write_ir(workspace: &Workspace) -> Result<Verdict> {

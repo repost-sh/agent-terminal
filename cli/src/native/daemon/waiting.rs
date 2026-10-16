@@ -5,7 +5,7 @@ use super::refusals::{error_body, human_has_control, no_integration};
 use super::{Daemon, Tab};
 use crate::native::commands::Submitted;
 use crate::native::control::{Control, Handed};
-use crate::native::terminal::{Settled, Status, Terminal};
+use crate::native::terminal::{Labelled, Settled, Status, Terminal};
 use crate::native::wait::Condition;
 use crate::protocol::{
     CommandOutput, ErrorBody, Reply, RowRange, Snapshot, Target, TextMatch, Wait, WaitOutcome, request,
@@ -61,14 +61,15 @@ impl Daemon {
         let timeout_ms = longest(&wait, timeout_ms);
         let (id, terminal) = self.target(&target)?;
         let (session, tab) = (target.session, id.to_string());
+        let at = Labelled { session: &session, tab: &tab, terminal: &terminal };
         if matches!(wait, Wait::Command) && terminal.shell().is_none() {
-            return Err(no_integration(&session, &tab, &terminal));
+            return Err(no_integration(&at));
         }
         let condition = condition(&wait)?;
         let started = Instant::now();
         let missed = Missed { assert, wait: &wait, timeout_ms, session: &session, tab: &tab };
-        let frame = wait_for(&terminal, &session, &tab, &wait, condition, timeout_ms)
-            .map_err(|error| failed(error, &missed))?;
+        let frame =
+            Until { wait: &wait, timeout_ms }.wait_on(&at, condition).map_err(|error| failed(error, &missed))?;
         let waited_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let exit_code = exit_code_after(&wait, &terminal);
         Ok(Reply::Waited(WaitOutcome { session, tab, until: describe(&wait), waited_ms, frame, exit_code }))
@@ -106,13 +107,12 @@ impl Daemon {
     pub(super) fn exec(&self, exec: request::Exec) -> Result<Reply, ErrorBody> {
         let (id, Tab { terminal, control }) = self.tab(&exec.target)?;
         let (session, tab) = (exec.target.session, id.to_string());
+        let at = Labelled { session: &session, tab: &tab, terminal: &terminal };
         if terminal.shell().is_none() {
-            return Err(no_integration(&session, &tab, &terminal));
+            return Err(no_integration(&at));
         }
         let running = Running {
-            terminal: &terminal,
-            session: &session,
-            tab: &tab,
+            at,
             line: &exec.line,
             timeout_ms: exec.timeout_ms,
             deadline: Instant::now() + Duration::from_millis(exec.timeout_ms),
@@ -122,16 +122,14 @@ impl Daemon {
         let (record, output) = terminal.command(submitted.first_id).ok_or_else(|| {
             let message =
                 format!("the shell in {session} {tab} ran no command for `{}`; the screen shows why", exec.line);
-            ErrorBody::with_screen(crate::exit::ERROR, message, terminal.snapshot(&session, &tab))
+            ErrorBody::new(crate::exit::ERROR, message).with_screen(running.snapshot())
         })?;
         Ok(Reply::Command(CommandOutput { session, tab, record, output, check: exec.check }))
     }
 }
 
 struct Running<'a> {
-    terminal: &'a Terminal,
-    session: &'a str,
-    tab: &'a str,
+    at: Labelled<'a>,
     line: &'a str,
     timeout_ms: u64,
     deadline: Instant,
@@ -143,21 +141,22 @@ impl Running<'_> {
     }
 
     fn snapshot(&self) -> Snapshot {
-        self.terminal.snapshot(self.session, self.tab)
+        self.at.snapshot()
     }
 
     fn submit(&self, control: &Control) -> Result<Submitted, ErrorBody> {
         loop {
             let submitted = {
-                let _turn = control.agent().ok_or_else(|| human_has_control(self.session, self.tab))?;
-                self.terminal
+                let _turn = control.agent().ok_or_else(|| human_has_control(self.at.session, self.at.tab))?;
+                self.at
+                    .terminal
                     .submit(self.line)
-                    .map_err(|e| error_body(&e.context(format!("{} {}", self.session, self.tab))))?
+                    .map_err(|e| error_body(&e.context(format!("{} {}", self.at.session, self.at.tab))))?
             };
             if let Some(submitted) = submitted {
                 return Ok(submitted);
             }
-            match self.terminal.wait(Condition::Command, self.left()) {
+            match self.at.terminal.wait(Condition::Command, self.left()) {
                 Settled::Met { .. } => {}
                 Settled::Exited => return Err(exited_while_waiting(&Wait::Command, self.snapshot())),
                 Settled::TimedOut => return Err(self.shell_busy()),
@@ -166,19 +165,19 @@ impl Running<'_> {
     }
 
     fn shell_busy(&self) -> ErrorBody {
-        let waiting = match self.terminal.running_command() {
+        let waiting = match self.at.terminal.running_command() {
             Some(running) => format!("`{running}` to finish"),
             None => "the shell prompt".to_string(),
         };
         let message = format!(
             "timed out after {} ms waiting for {waiting} in {} {}, so `{}` did not run (read the screen with `agent-terminal snapshot`, interrupt a command with `agent-terminal signal INT`)",
-            self.timeout_ms, self.session, self.tab, self.line
+            self.timeout_ms, self.at.session, self.at.tab, self.line
         );
-        ErrorBody::with_screen(crate::exit::TIMEOUT, message, self.snapshot())
+        ErrorBody::new(crate::exit::TIMEOUT, message).with_screen(self.snapshot())
     }
 
     fn finish(&self, submitted: &Submitted) -> Result<(), ErrorBody> {
-        match self.terminal.wait(Condition::PromptAfter(submitted.prompts), self.left()) {
+        match self.at.terminal.wait(Condition::PromptAfter(submitted.prompts), self.left()) {
             Settled::Met { .. } => Ok(()),
             Settled::Exited => Err(exited_while_waiting(&Wait::Command, self.snapshot())),
             Settled::TimedOut => Err(self.still_running(submitted.first_id)),
@@ -188,9 +187,9 @@ impl Running<'_> {
     fn still_running(&self, id: u32) -> ErrorBody {
         let waited = format!(
             "timed out after {} ms waiting for `{}` to finish in {} {}",
-            self.timeout_ms, self.line, self.session, self.tab
+            self.timeout_ms, self.line, self.at.session, self.at.tab
         );
-        let message = match self.terminal.command(id) {
+        let message = match self.at.terminal.command(id) {
             Some(_) => format!(
                 "{waited}; it is still running as command {id} (wait for it with `agent-terminal wait --command`, read its output with `agent-terminal history show {id}`, interrupt it with `agent-terminal signal INT`)"
             ),
@@ -198,7 +197,7 @@ impl Running<'_> {
                 "{waited}; the shell has not started a command for it, so the line may be unfinished (read the screen with `agent-terminal snapshot`, cancel the line with `agent-terminal press Ctrl+c`)"
             ),
         };
-        ErrorBody::with_screen(crate::exit::TIMEOUT, message, self.snapshot())
+        ErrorBody::new(crate::exit::TIMEOUT, message).with_screen(self.snapshot())
     }
 }
 
@@ -206,23 +205,34 @@ pub(super) fn condition(wait: &Wait) -> Result<Condition, ErrorBody> {
     Condition::new(wait).map_err(ErrorBody::failure)
 }
 
-pub(super) fn wait_for(
-    terminal: &Terminal,
-    session: &str,
-    tab: &str,
-    wait: &Wait,
-    condition: Condition,
-    timeout_ms: u64,
-) -> Result<u64, ErrorBody> {
-    match terminal.wait(condition, Duration::from_millis(timeout_ms)) {
-        Settled::Met { frame } => match (wait, terminal.status()) {
-            (Wait::Exit { code: Some(expected) }, Status::Exited(code)) if code != Some(*expected) => {
-                Err(exited_otherwise(*expected, terminal.snapshot(session, tab)))
-            }
-            _ => Ok(frame),
-        },
-        Settled::Exited => Err(exited_while_waiting(wait, terminal.snapshot(session, tab))),
-        Settled::TimedOut => Err(timed_out(wait, timeout_ms, terminal.snapshot(session, tab))),
+pub(super) struct Until<'a> {
+    pub wait: &'a Wait,
+    pub timeout_ms: u64,
+}
+
+impl Until<'_> {
+    pub(super) fn wait_on(&self, at: &Labelled<'_>, condition: Condition) -> Result<u64, ErrorBody> {
+        match at.terminal.wait(condition, Duration::from_millis(self.timeout_ms)) {
+            Settled::Met { frame } => match (self.wait, at.terminal.status()) {
+                (Wait::Exit { code: Some(expected) }, Status::Exited(code)) if code != Some(*expected) => {
+                    Err(exited_otherwise(*expected, at.snapshot()))
+                }
+                _ => Ok(frame),
+            },
+            Settled::Exited => Err(exited_while_waiting(self.wait, at.snapshot())),
+            Settled::TimedOut => Err(self.timed_out(at.snapshot())),
+        }
+    }
+
+    pub(super) fn timed_out(&self, snapshot: Snapshot) -> ErrorBody {
+        let message = format!(
+            "timed out after {} ms waiting for {}; {} {} is still running (read it with `agent-terminal snapshot`, stop it with `agent-terminal close`)",
+            self.timeout_ms,
+            describe(self.wait),
+            snapshot.session,
+            snapshot.tab
+        );
+        ErrorBody::new(crate::exit::TIMEOUT, message).with_screen(snapshot)
     }
 }
 
@@ -235,17 +245,7 @@ fn exited_while_waiting(wait: &Wait, snapshot: Snapshot) -> ErrorBody {
         snapshot.session,
         snapshot.tab
     );
-    ErrorBody::with_screen(crate::exit::EXITED, message, snapshot)
-}
-
-pub(super) fn timed_out(wait: &Wait, timeout_ms: u64, snapshot: Snapshot) -> ErrorBody {
-    let message = format!(
-        "timed out after {timeout_ms} ms waiting for {}; {} {} is still running (read it with `agent-terminal snapshot`, stop it with `agent-terminal close`)",
-        describe(wait),
-        snapshot.session,
-        snapshot.tab
-    );
-    ErrorBody::with_screen(crate::exit::TIMEOUT, message, snapshot)
+    ErrorBody::new(crate::exit::EXITED, message).with_screen(snapshot)
 }
 
 fn describe(wait: &Wait) -> String {

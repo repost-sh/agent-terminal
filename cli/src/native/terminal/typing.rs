@@ -4,7 +4,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 
-use super::reading::{cell_at, matches_on};
 use super::state::State;
 use super::{Status, Terminal};
 use crate::key::{Key, KeyCode, Mods};
@@ -85,9 +84,12 @@ impl Terminal {
             let mut state = self.running()?;
             let reporting = state.screen.mouse_reporting().ok_or_else(no_mouse)?;
             let (row, col) = click_target(&state, click.target)?;
-            let press = mouse::encode(Action::Press(click.button), row, col, reporting).map_err(anyhow::Error::msg)?;
-            let release =
-                mouse::encode(Action::Release(click.button), row, col, reporting).map_err(anyhow::Error::msg)?;
+            let press = mouse::Event { action: Action::Press(click.button), row, col }
+                .encode(reporting)
+                .map_err(anyhow::Error::msg)?;
+            let release = mouse::Event { action: Action::Release(click.button), row, col }
+                .encode(reporting)
+                .map_err(anyhow::Error::msg)?;
             state.mouse_held = None;
             (row, col, [press, release].concat().repeat(if click.double { 2 } else { 1 }))
         };
@@ -107,14 +109,14 @@ impl Terminal {
             let mut state = self.running()?;
             let reporting = state.screen.mouse_reporting().ok_or_else(no_mouse)?;
             let (row, col) = event.at();
-            cell_at(&state.screen, row, col).map_err(anyhow::Error::msg)?;
+            state.screen.cell_at(row, col).map_err(anyhow::Error::msg)?;
             let action = match event {
                 MouseEvent::Move { .. } => Action::Move { held: state.mouse_held },
                 MouseEvent::Down { button, .. } => Action::Press(button),
                 MouseEvent::Up { button, .. } => Action::Release(button),
                 MouseEvent::Wheel { direction, .. } => Action::Wheel(direction),
             };
-            let bytes = mouse::encode(action, row, col, reporting).map_err(anyhow::Error::msg)?;
+            let bytes = mouse::Event { action, row, col }.encode(reporting).map_err(anyhow::Error::msg)?;
             match event {
                 MouseEvent::Down { button, .. } => state.mouse_held = Some(button),
                 MouseEvent::Up { .. } => state.mouse_held = None,
@@ -134,7 +136,9 @@ impl Terminal {
             if let Some(reporting) = state.screen.mouse_reporting().filter(|_| !keys) {
                 let size = state.screen.size();
                 let (row, col) = (size.rows.div_ceil(2), size.cols.div_ceil(2));
-                let notch = mouse::encode(Action::Wheel(direction), row, col, reporting).map_err(anyhow::Error::msg)?;
+                let notch = mouse::Event { action: Action::Wheel(direction), row, col }
+                    .encode(reporting)
+                    .map_err(anyhow::Error::msg)?;
                 (notch, ScrollBy::Wheel)
             } else {
                 (page_key(direction, &state)?, ScrollBy::Keys)
@@ -228,12 +232,12 @@ fn no_mouse() -> anyhow::Error {
 fn click_target(state: &State, target: &ClickTarget) -> Result<(u16, u16)> {
     match target {
         ClickTarget::Cell { row, col } => {
-            cell_at(&state.screen, *row, *col).map_err(anyhow::Error::msg)?;
+            state.screen.cell_at(*row, *col).map_err(anyhow::Error::msg)?;
             Ok((*row, *col))
         }
         ClickTarget::Text(text) => {
             let pattern = wait::compile(text, false).map_err(anyhow::Error::msg)?;
-            let found = matches_on(&state.screen, &pattern, 0).into_iter().next();
+            let found = state.screen.matches(&pattern, 0).into_iter().next();
             let found = found.ok_or_else(|| anyhow!("{text:?} is not on the screen"))?;
             Ok((u16::try_from(found.row).context("the row of the text")?, found.col))
         }

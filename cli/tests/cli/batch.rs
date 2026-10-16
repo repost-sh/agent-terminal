@@ -1,4 +1,4 @@
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, Call, fixture};
 
 #[test]
 fn batch_runs_commands_in_order_and_prints_each_output_and_exit_code() {
@@ -133,9 +133,16 @@ fn commands_act_on_the_tab_of_the_batch_unless_they_name_their_own() {
 fn the_session_variable_applies_to_the_batch_unless_the_batch_names_a_session() {
     let at = AgentTerminal::new();
     let from_env = [("AGENT_TERMINAL_SESSION", "from-env")];
-    let run = at.run_with(&["batch", "open --size 20x2 cat", "close"], "", &from_env).success();
+    let run =
+        at.run_with(&Call { args: &["batch", "open --size 20x2 cat", "close"], stdin: "", env: &from_env }).success();
     assert!(run.stdout().ends_with("closed from-env t1\n"), "{}", run.stdout());
-    let run = at.run_with(&["--session", "qa", "batch", "open --size 20x2 cat", "close"], "", &from_env).success();
+    let run = at
+        .run_with(&Call {
+            args: &["--session", "qa", "batch", "open --size 20x2 cat", "close"],
+            stdin: "",
+            env: &from_env,
+        })
+        .success();
     assert!(run.stdout().ends_with("closed qa t1\n"), "{}", run.stdout());
 }
 
@@ -143,7 +150,7 @@ fn the_session_variable_applies_to_the_batch_unless_the_batch_names_a_session() 
 fn batch_reads_a_json_array_of_commands_from_stdin() {
     let at = AgentTerminal::new();
     let stdin = r#"[["open", "--size", "20x2", "--wait", "a b", "sh", "-c", "echo \"a b\"; read _"], "close"]"#;
-    let run = at.run_with(&["batch"], stdin, &[]).success();
+    let run = at.run_with(&Call { args: &["batch"], stdin, env: &[] }).success();
     insta::assert_snapshot!(run.screen(), @r#"
     [1] open --size 20x2 --wait 'a b' sh -c 'echo "a b"; read _' · exit 0
     default t1 · sh · 20x2 · cursor 2,1 · frame N
@@ -161,11 +168,11 @@ fn batch_without_commands_says_how_to_pass_them() {
     let needs_commands =
         "error: batch needs commands: pass each one as a quoted argument, or pipe a JSON array to stdin\n";
     for stdin in ["", " \n", "[]"] {
-        let run = at.run_with(&["batch"], stdin, &[]);
+        let run = at.run_with(&Call { args: &["batch"], stdin, env: &[] });
         assert_eq!((run.code(), run.stderr().as_str()), (1, needs_commands), "stdin {stdin:?}");
     }
 
-    let run = at.run_with(&["batch"], "open htop", &[]);
+    let run = at.run_with(&Call { args: &["batch"], stdin: "open htop", env: &[] });
     assert_eq!(run.code(), 1);
     assert!(
         run.stderr().starts_with(
@@ -255,7 +262,7 @@ fn batch_runs_any_command_the_daemon_serves() {
         ["close"]
     ])
     .to_string();
-    let out = at.run_with(&["batch"], &stdin, &[]).success().screen();
+    let out = at.run_with(&Call { args: &["batch"], stdin: &stdin, env: &[] }).success().screen();
     let blocks: Vec<&str> = out.split("\n\n").collect();
     assert_eq!(
         blocks[1..],

@@ -21,8 +21,8 @@ impl ErrorBody {
         Self::new(crate::exit::ERROR, message)
     }
 
-    pub(crate) fn with_screen(code: i32, message: impl Into<String>, snapshot: Snapshot) -> Self {
-        Self { snapshot: Some(Box::new(snapshot)), ..Self::new(code, message) }
+    pub(crate) fn with_screen(self, snapshot: Snapshot) -> Self {
+        Self { snapshot: Some(Box::new(snapshot)), ..self }
     }
 
     pub(crate) fn other_version(message: impl Into<String>, other_version: OtherVersion) -> Self {

@@ -1,8 +1,10 @@
 use super::Daemon;
+use super::input::Shooting;
 use super::refusals::{error_body, no_integration};
 use crate::home::home;
 use crate::native::screenshots;
 use crate::native::store;
+use crate::native::terminal::Labelled;
 use crate::protocol::{
     CommandOutput, CommandRecord, ErrorBody, Export, History, Marked, Matches, Printed, Reply, request,
 };
@@ -10,8 +12,8 @@ use crate::protocol::{
 impl Daemon {
     pub(super) fn snapshot(&self, snapshot: &request::Snapshot) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&snapshot.target)?;
-        terminal
-            .snapshot_with(&snapshot.target.session, &id.to_string(), &snapshot.options)
+        Labelled { session: &snapshot.target.session, tab: &id.to_string(), terminal: &terminal }
+            .snapshot_with(&snapshot.options)
             .map(Reply::Snapshot)
             .map_err(ErrorBody::failure)
     }
@@ -23,7 +25,7 @@ impl Daemon {
 
     pub(super) fn find(&self, find: &request::Find) -> Result<Reply, ErrorBody> {
         let (_, terminal) = self.target(&find.target)?;
-        let matches = terminal.find(&find.text, find.regex, find.all).map_err(ErrorBody::failure)?;
+        let matches = terminal.find(find).map_err(ErrorBody::failure)?;
         Ok(Reply::Matches(Matches { matches }))
     }
 
@@ -35,7 +37,7 @@ impl Daemon {
 
     pub(super) fn output(&self, output: &request::Output) -> Result<Reply, ErrorBody> {
         let (_, terminal) = self.target(&output.target)?;
-        let output = terminal.printed(output.since.as_deref(), output.raw).map_err(ErrorBody::failure)?;
+        let output = terminal.printed(output).map_err(ErrorBody::failure)?;
         Ok(Reply::Printed(Printed { output }))
     }
 
@@ -50,13 +52,14 @@ impl Daemon {
         typed: Option<&[String]>,
     ) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&screenshot.target)?;
-        self.screenshot(&screenshot.target.session, &id.to_string(), &terminal, &screenshot.shot, typed)
-            .map(Reply::Screenshot)
+        let at = Labelled { session: &screenshot.target.session, tab: &id.to_string(), terminal: &terminal };
+        self.screenshot(&Shooting { at, shot: &screenshot.shot, typed }).map(Reply::Screenshot)
     }
 
     pub(super) fn diff_screenshot(&self, diff: request::DiffScreenshot) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&diff.target)?;
-        screenshots::diff(&diff.target.session, &id.to_string(), &terminal, diff.baseline, &diff.shot, diff.threshold)
+        let session = diff.target.session.clone();
+        screenshots::diff(&Labelled { session: &session, tab: &id.to_string(), terminal: &terminal }, diff)
             .map(Reply::ScreenshotDiff)
             .map_err(|e| error_body(&e))
     }
@@ -64,7 +67,9 @@ impl Daemon {
     pub(super) fn history(&self, history: request::History) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&history.target)?;
         let (session, tab) = (history.target.session, id.to_string());
-        let mut commands = terminal.commands().ok_or_else(|| no_integration(&session, &tab, &terminal))?;
+        let mut commands = terminal
+            .commands()
+            .ok_or_else(|| no_integration(&Labelled { session: &session, tab: &tab, terminal: &terminal }))?;
         let total = commands.len();
         if history.failed {
             commands.retain(CommandRecord::failed);
@@ -79,7 +84,7 @@ impl Daemon {
         let (tab_id, terminal) = self.target(&show.target)?;
         let (session, tab, id) = (show.target.session, tab_id.to_string(), show.id);
         if terminal.shell().is_none() {
-            return Err(no_integration(&session, &tab, &terminal));
+            return Err(no_integration(&Labelled { session: &session, tab: &tab, terminal: &terminal }));
         }
         let (record, output) = terminal.command(id).ok_or_else(|| {
             ErrorBody::failure(format!("no command {id} in {session} {tab}; list them with `agent-terminal history`"))
@@ -89,8 +94,8 @@ impl Daemon {
 }
 
 pub(super) fn trace_export(export: request::TraceExport) -> Result<Reply, ErrorBody> {
+    let exported = home().and_then(|home| store::export(&home, &export)).map_err(|e| error_body(&e))?;
     let request::TraceExport { session, path } = export;
-    let exported = home().and_then(|home| store::export(&home, &session, &path)).map_err(|e| error_body(&e))?;
     Ok(Reply::Exported(Export {
         session,
         path,

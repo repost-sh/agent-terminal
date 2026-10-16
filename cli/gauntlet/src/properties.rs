@@ -19,7 +19,7 @@ pub(crate) fn check(workspace: &Workspace) -> Result<Verdict> {
             offenses.push(format!("{}: no property test", member.name));
         }
     }
-    Ok(Verdict::of(&RULE, &offenses, passes))
+    Ok(RULE.verdict(&offenses, passes))
 }
 
 fn has_one(member: &Member) -> Result<bool> {

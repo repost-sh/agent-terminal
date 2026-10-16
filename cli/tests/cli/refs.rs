@@ -1,4 +1,4 @@
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, Screen, Shown, fixture};
 
 #[test]
 fn snapshot_i_lists_refs_for_panels_the_selected_row_and_key_hints() {
@@ -47,35 +47,22 @@ fn snapshot_i_json_gives_each_ref_its_place_area_and_frame() {
     assert!(at.run(&["--json", "snapshot"]).success().json().get("refs").is_none());
 }
 
-struct Screen {
-    _dir: tempfile::TempDir,
-}
-
-impl Screen {
-    fn open(at: &AgentTerminal, size: &str, bytes: &str, wait: &str) -> Self {
-        let dir = crate::support::scratch("screen-");
-        let path = dir.path().join("screen");
-        std::fs::write(&path, bytes).expect("write the screen");
-        let path = path.to_string_lossy().into_owned();
-        at.run(&["open", "--size", size, "--wait", wait, "sh", "-c", "cat \"$1\"; read _", "sh", &path]).success();
-        Self { _dir: dir }
-    }
-}
-
 #[test]
 fn box_titles_are_panels() {
     let at = AgentTerminal::new();
     let _screen = Screen::open(
         &at,
-        "30x7",
-        "\x1b[?25l\
+        &Shown {
+            size: "30x7",
+            bytes: "\x1b[?25l\
          ┌─ Status ──┐ ╭─ Log ─────╮\n\
          │ ok        │ │ started   │\n\
          └───────────┘ ╰───────────╯\n\
          ╔═ Help ═══╗  ┌──────┐\n\
          ║ press ?  ║  │ none │\n\
          ╚══════════╝  └──────┘",
-        "└──────┘",
+            wait: "└──────┘",
+        },
     );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
     default t1 · sh · 30x7 · cursor hidden · frame N
@@ -98,14 +85,16 @@ fn inverse_and_highlighted_spans_are_selected() {
     let at = AgentTerminal::new();
     let _screen = Screen::open(
         &at,
-        "30x6",
-        "\x1b[?25l\
+        &Shown {
+            size: "30x6",
+            bytes: "\x1b[?25l\
          Files\n\
          \x1b[7m  notes.txt         \x1b[0m\n\
          \x20 todo.txt\n\
          \x1b[44m  Build  \x1b[0m  \x1b[1mbold only\x1b[0m\n\
          x\x1b[7my\x1b[0m end",
-        "y end",
+            wait: "y end",
+        },
     );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
     default t1 · sh · 30x6 · cursor hidden · frame N
@@ -126,8 +115,14 @@ fn inverse_and_highlighted_spans_are_selected() {
 #[test]
 fn a_background_painted_everywhere_is_not_a_selection() {
     let at = AgentTerminal::new();
-    let _screen =
-        Screen::open(&at, "20x3", "\x1b[?25l\x1b[44m\x1b[2J\x1b[H  one\n\x1b[7m two \x1b[27m\nthree", "three");
+    let _screen = Screen::open(
+        &at,
+        &Shown {
+            size: "20x3",
+            bytes: "\x1b[?25l\x1b[44m\x1b[2J\x1b[H  one\n\x1b[7m two \x1b[27m\nthree",
+            wait: "three",
+        },
+    );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
     default t1 · sh · 20x3 · cursor hidden · frame N
     1│  one
@@ -143,12 +138,14 @@ fn padded_bracket_and_angle_labels_are_buttons() {
     let at = AgentTerminal::new();
     let _screen = Screen::open(
         &at,
-        "40x4",
-        "\x1b[?25l\
+        &Shown {
+            size: "40x4",
+            bytes: "\x1b[?25l\
          Save changes?\n\
          \x20 [ OK ]  [ Cancel ]  < Yes >  <  No  >\n\
          status [x] <space> [INFO] [ ]",
-        "[INFO] [ ]",
+            wait: "[INFO] [ ]",
+        },
     );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
     default t1 · sh · 40x4 · cursor hidden · frame N
@@ -171,10 +168,12 @@ fn osc_8_hyperlinks_are_links_with_their_url() {
     let at = AgentTerminal::new();
     let _screen = Screen::open(
         &at,
-        "30x3",
-        "\x1b[?25lSee \x1b]8;;https://example.com/docs\x1b\\the docs\x1b]8;;\x1b\\ or \
+        &Shown {
+            size: "30x3",
+            bytes: "\x1b[?25lSee \x1b]8;;https://example.com/docs\x1b\\the docs\x1b]8;;\x1b\\ or \
          \x1b]8;id=x;https://example.com/faq\x1b\\FAQ\x1b]8;;\x1b\\.",
-        "FAQ.",
+            wait: "FAQ.",
+        },
     );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
     default t1 · sh · 30x3 · cursor hidden · frame N
@@ -195,14 +194,16 @@ fn rows_of_key_bindings_are_hints() {
     let at = AgentTerminal::new();
     let _screen = Screen::open(
         &at,
-        "60x6",
-        "\x1b[?25l\
+        &Shown {
+            size: "60x6",
+            bytes: "\x1b[?25l\
          Error: file not found\n\
          Size: 80x24  Mode: insert\n\
          ^G Help    ^O Write Out    ^X Exit\n\
          ↑/k up • ↓/j down • q quit\n\
          Stage: <space> | Commit: c | Keybindings: ?",
-        "Keybindings: ?",
+            wait: "Keybindings: ?",
+        },
     );
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
     default t1 · sh · 60x6 · cursor hidden · frame N
@@ -230,11 +231,13 @@ fn the_text_around_a_visible_cursor_is_the_input() {
     let at = AgentTerminal::new();
     let _screen = Screen::open(
         &at,
-        "30x4",
-        "┌─ Login ────────────┐\n\
+        &Shown {
+            size: "30x4",
+            bytes: "┌─ Login ────────────┐\n\
          │ Name: john         │\n\
          └────────────────────┘\x1b[2;13H",
-        "Name: john",
+            wait: "Name: john",
+        },
     );
     at.run(&["wait", "--cursor", "2,13"]).success();
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
@@ -252,7 +255,7 @@ fn the_text_around_a_visible_cursor_is_the_input() {
 #[test]
 fn a_screen_with_nothing_to_act_on_has_no_refs() {
     let at = AgentTerminal::new();
-    let _screen = Screen::open(&at, "20x2", "\x1b[?25ljust text", "just text");
+    let _screen = Screen::open(&at, &Shown { size: "20x2", bytes: "\x1b[?25ljust text", wait: "just text" });
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r"
     default t1 · sh · 20x2 · cursor hidden · frame N
     1│just text

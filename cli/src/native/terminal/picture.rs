@@ -1,5 +1,5 @@
 use super::Status;
-use crate::native::screen::Screen;
+use super::state::State;
 use crate::protocol::Size;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -13,14 +13,15 @@ pub(crate) struct Glance {
 }
 
 impl Glance {
-    pub(super) fn of(screen: &Screen, frame: u64, status: Status) -> Self {
+    pub(super) fn of(state: &State) -> Self {
+        let State { screen, frame, status, .. } = state;
         Self {
-            frame,
+            frame: *frame,
             size: screen.size(),
             alt_screen: screen.alt_screen(),
             mouse: screen.mouse().map(crate::native::screen::MouseMode::as_str),
             bracketed_paste: screen.keyboard_modes().bracketed_paste,
-            status,
+            status: *status,
         }
     }
 }
@@ -33,8 +34,9 @@ pub(crate) struct Picture {
 }
 
 impl Picture {
-    pub(crate) fn of(screen: &Screen, frame: u64, status: Status) -> Self {
-        let glance = Glance::of(screen, frame, status);
+    pub(super) fn of(state: &State) -> Self {
+        let glance = Glance::of(state);
+        let screen = &state.screen;
         let (line, column) = screen.cursor();
         Self {
             rows: screen.rows(0..i32::from(glance.size.rows), true),
@@ -52,8 +54,7 @@ impl Picture {
             }
         }
         paint.push_str(&crate::paint::cursor(
-            self.cursor.0,
-            self.cursor.1,
+            [self.cursor.0, self.cursor.1],
             self.cursor_visible && !self.glance.status.exited(),
         ));
         paint

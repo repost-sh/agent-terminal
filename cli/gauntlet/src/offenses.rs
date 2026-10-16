@@ -10,12 +10,14 @@ pub(crate) struct Verdict {
     pub(crate) passed: bool,
 }
 
-impl Verdict {
-    pub(crate) fn of(rule: &Rule, offenses: &[String], passes: Vec<String>) -> Self {
-        let broken: Vec<(String, &Rule)> = offenses.iter().map(|offense| (offense.clone(), rule)).collect();
-        Self::of_rules(&broken, passes)
+impl Rule {
+    pub(crate) fn verdict(&self, offenses: &[String], passes: Vec<String>) -> Verdict {
+        let broken: Vec<(String, &Rule)> = offenses.iter().map(|offense| (offense.clone(), self)).collect();
+        Verdict::of_rules(&broken, passes)
     }
+}
 
+impl Verdict {
     pub(crate) fn of_rules(offenses: &[(String, &Rule)], passes: Vec<String>) -> Self {
         if offenses.is_empty() {
             return Self { lines: passes, passed: true };

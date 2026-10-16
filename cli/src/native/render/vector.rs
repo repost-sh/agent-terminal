@@ -3,9 +3,9 @@ use std::fmt::{self, Write as _};
 use anyhow::Result;
 
 use super::theme::{self, Palette, Rgb};
-use super::{Entry, Layout, Placed, cell_colors, legend_lines, span_of};
+use super::{Drawing, Entry, Layout, Placed, cell_colors, legend_lines, span_of};
 use crate::native::refs::{Decoration, Glyph, Grid};
-use crate::protocol::{Look, Ref, RowRange};
+use crate::protocol::Ref;
 
 const FONT_FAMILY: &str = "'JetBrains Mono', 'JetBrainsMono Nerd Font', ui-monospace, Menlo, Consolas, monospace";
 
@@ -92,7 +92,8 @@ fn escaped(text: &str) -> String {
     out
 }
 
-pub(crate) fn svg(grid: &Grid, rows: RowRange, look: Look, refs: &[Ref]) -> Result<Svg> {
+pub(crate) fn svg(drawing: &Drawing<'_>, refs: &[Ref]) -> Result<Svg> {
+    let Drawing { grid, rows, look } = *drawing;
     let palette = theme::palette(look.theme);
     let layout = Layout::new(grid, rows, look.scale)?;
     let shown: Vec<(usize, &Ref)> = refs.iter().enumerate().filter(|(_, r)| layout.shows(r)).collect();
@@ -222,7 +223,8 @@ fn write_legend(f: &mut fmt::Formatter<'_>, layout: &Layout, palette: &Palette, 
     Ok(())
 }
 
-pub(crate) fn html(grid: &Grid, rows: RowRange, look: Look) -> Result<String> {
+pub(crate) fn html(drawing: &Drawing<'_>) -> Result<String> {
+    let Drawing { grid, rows, look } = *drawing;
     let palette = theme::palette(look.theme);
     let layout = Layout::new(grid, rows, look.scale)?;
     let body = fmt::from_fn(|f| {

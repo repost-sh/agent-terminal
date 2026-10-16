@@ -1,6 +1,5 @@
 use super::picture::{BACKGROUND, Cell, Picture, picture};
-use super::screen::Screen;
-use crate::support::AgentTerminal;
+use crate::support::{AgentTerminal, Screen, Shown};
 
 const LINES: &str = "\x1b[?25l┄ ┆ ┈ ┊ ╌ ╎ ┅ ┇\n╟ ╓ ╢ ╖ ╤ ╕ ╧ ╛";
 
@@ -8,14 +7,14 @@ const MIDDLE_ROW: u32 = 9;
 const MIDDLE_COL: u32 = 4;
 
 fn lines_picture(at: &AgentTerminal) -> Picture {
-    let screen = Screen::open(at, "16x2", LINES, "╛");
+    let screen = Screen::open(at, &Shown { size: "16x2", bytes: LINES, wait: "╛" });
     let path = screen.file("lines.png");
     at.run(&["screenshot", &path.to_string_lossy()]).success();
     picture(&path)
 }
 
 fn inked(cell: &Cell<'_>, x: u32, y: u32) -> bool {
-    cell.inked(x..x + 1, y..y + 1, BACKGROUND)
+    cell.patch(x..x + 1, y..y + 1).inked(BACKGROUND)
 }
 
 fn dashes(cell: &Cell<'_>, across: bool) -> usize {

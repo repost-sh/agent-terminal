@@ -8,6 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use rustix::termios::{self, OptionalActions};
 
 use crate::connection::{self, Launch};
+use crate::global_options::GlobalOptions;
 use crate::key::{Key, KeyCode, Mods};
 use crate::output;
 use crate::protocol::request;
@@ -32,14 +33,17 @@ enum Unopened {
     Failed(anyhow::Error),
 }
 
-pub(crate) fn run(target: Target, read_only: bool, json: bool, launch: &Launch) -> io::Result<i32> {
+pub(crate) fn run(read_only: bool, global: GlobalOptions) -> io::Result<i32> {
+    let json = global.json;
+    let target = Target { session: global.session, tab: global.tab };
+    let launch = Launch { idle_timeout: global.idle_timeout };
     if !on_a_terminal() {
         return output::refuse(
             "attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead",
             json,
         );
     }
-    let (attached, stream) = match open(target, read_only, launch) {
+    let (attached, stream) = match open(target, read_only, &launch) {
         Ok(opened) => opened,
         Err(Unopened::Refused(refusal)) => return output::error(&refusal, json),
         Err(Unopened::Failed(e)) => return output::refuse(&format!("{e:#}"), json),
@@ -208,7 +212,7 @@ impl Painter {
         }
         let [row, col] = screen.cursor;
         let on_screen = row <= window.ws_row && col <= window.ws_col;
-        paint.push_str(&crate::paint::cursor(row, col, screen.cursor_visible && !screen.exited && on_screen));
+        paint.push_str(&crate::paint::cursor([row, col], screen.cursor_visible && !screen.exited && on_screen));
         show(&paint)
     }
 

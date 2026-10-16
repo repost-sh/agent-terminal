@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::skills::stub_in;
-use crate::support::{AgentTerminal, Run};
+use crate::support::{AgentTerminal, Call, Run};
 
 pub(super) struct Install {
     at: AgentTerminal,
@@ -65,7 +65,7 @@ impl Install {
             ("GLOBAL_BIN", &*self.global_bin.to_string_lossy()),
             ("HOME", &*self.user.to_string_lossy()),
         ];
-        self.at.run_program(&self.binary, args, "", &env)
+        self.at.run_program(&self.binary, &Call { args, stdin: "", env: &env })
     }
 
     pub(super) fn calls(&self) -> String {

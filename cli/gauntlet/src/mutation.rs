@@ -81,7 +81,7 @@ pub(crate) fn check_faults(report: &Path, faults: &[&str]) -> Result<Verdict> {
         }
     }
     let passed = format!("the acceptance suite caught all {} faults", faults.len());
-    Ok(Verdict::of(&FAULTS, &offenses, vec![passed]))
+    Ok(FAULTS.verdict(&offenses, vec![passed]))
 }
 
 pub(crate) fn check(reports: &[&Path]) -> Result<Verdict> {
@@ -94,7 +94,7 @@ pub(crate) fn check(reports: &[&Path]) -> Result<Verdict> {
         "{} mutants: {} caught, {} unviable, {} timed out, none missed",
         tally.total, tally.caught, tally.unviable, tally.timeouts
     );
-    Ok(Verdict::of(&RULE, &tally.offenses, vec![passed]))
+    Ok(RULE.verdict(&tally.offenses, vec![passed]))
 }
 
 impl Tally {

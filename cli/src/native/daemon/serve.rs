@@ -13,7 +13,7 @@ impl Daemon {
             return;
         };
         match call.request {
-            Request::Attach(attach) if busy.is_some() => self.attach(stream, &attach.target, attach.read_only),
+            Request::Attach(attach) if busy.is_some() => self.attach(stream, &attach),
             request => self.answer(&mut stream, request, call.typed, busy.is_some()),
         }
     }

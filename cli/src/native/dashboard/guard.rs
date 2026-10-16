@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use axum::Router;
 use axum::extract::{Request, State};
 use axum::http::header::{HOST, ORIGIN};
 use axum::http::{HeaderMap, StatusCode};
@@ -13,7 +14,11 @@ pub(super) struct Pages {
     pub origins: Vec<String>,
 }
 
-pub(super) async fn same_origin(State(pages): State<Arc<Pages>>, request: Request, next: Next) -> Response {
+pub(super) fn guarded(routes: Router, pages: Pages) -> Router {
+    routes.layer(axum::middleware::from_fn_with_state(Arc::new(pages), same_origin))
+}
+
+async fn same_origin(State(pages): State<Arc<Pages>>, request: Request, next: Next) -> Response {
     if from_our_pages(request.headers(), &pages) {
         return next.run(request).await;
     }

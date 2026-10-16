@@ -67,6 +67,6 @@ fn the_diff_image_marks_only_what_changed(work: &Path) {
     let marked = work.join("changes.png");
     let beta_row = (10 + 10, 10 + 2 * 20 + 10);
     let untouched = (10 + 30 * 9 + 4, 10 + 6 * 20 + 10);
-    assert_eq!(pixel(&marked, beta_row.0, beta_row.1), CHANGED);
-    assert_ne!(pixel(&marked, untouched.0, untouched.1), CHANGED);
+    assert_eq!(pixel(&marked, (beta_row.0, beta_row.1)), CHANGED);
+    assert_ne!(pixel(&marked, (untouched.0, untouched.1)), CHANGED);
 }
