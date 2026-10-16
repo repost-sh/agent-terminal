@@ -21,15 +21,6 @@ pub(crate) enum IfNotRunning {
     Answer(Box<Reply>),
 }
 
-pub(crate) fn started_build() -> Result<Option<String>> {
-    let running = running_build(&home()?)?;
-    if running.as_deref() == Some(BUILD) {
-        return Ok(running);
-    }
-    let _lock = start_lock(&home()?)?;
-    running_build(&home()?)
-}
-
 enum Reached {
     Daemon(UnixStream),
     NotRunning,
@@ -139,18 +130,6 @@ fn start_lock(home: &std::path::Path) -> Result<std::fs::File> {
     let lock = std::fs::File::create(&lock_path).with_context(|| format!("create {}", lock_path.display()))?;
     lock.lock().with_context(|| format!("lock {}", lock_path.display()))?;
     Ok(lock)
-}
-
-pub(crate) fn remove_stale_socket() -> Result<bool> {
-    let _lock = start_lock(&home()?)?;
-    let socket = socket_path()?;
-    match UnixStream::connect(&socket) {
-        Err(e) if e.kind() == ErrorKind::ConnectionRefused => {
-            std::fs::remove_file(&socket).with_context(|| format!("remove {}", socket.display()))?;
-            Ok(true)
-        }
-        _ => Ok(false),
-    }
 }
 
 fn is_not_running(error: &std::io::Error) -> bool {

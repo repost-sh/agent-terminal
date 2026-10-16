@@ -2,7 +2,6 @@ mod attach;
 mod batch;
 mod commands;
 mod connection;
-mod doctor;
 mod exit;
 mod failure;
 mod global_options;

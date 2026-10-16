@@ -46,13 +46,10 @@ case $(cat "$out") in
   *) fail "agent-terminal --json version printed '$(cat "$out")', expected {\"build\":\"$version+<commit>\",\"version\":\"$version\"}" ;;
 esac
 
-run env HOME="$work/home" agent-terminal install --skills
-stub=$work/home/.claude/skills/agent-terminal/SKILL.md
-grep -qx "  version: \"$version\"" "$stub" || fail "the skill stub install --skills wrote does not carry version $version: $(grep -n 'version:' "$stub" || true)"
-
-agent-terminal doctor --json < /dev/null > "$out" 2>&1 || true
-grep -qF '{"message":"not running; the next command starts it","name":"daemon","status":"ok"}' "$out" ||
-  fail "this check needs a machine with no agent-terminal daemon; agent-terminal doctor --json printed $(cat "$out")"
+account_home=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)
+[ -n "$account_home" ] || account_home=$(eval echo "~$(id -un)")
+socket=$account_home/.agent-terminal/daemon.sock
+[ ! -e "$socket" ] || fail "this check needs a machine with no agent-terminal daemon; $socket exists"
 
 run agent-terminal session new install-check
 run agent-terminal --session install-check open --name printer --size 40x10 --wait "line 3" "$fixture" --lines 3 --hold

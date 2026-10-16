@@ -1,6 +1,5 @@
 use super::install::Install;
 use super::installers::{INSTALLS, Installed, NPM_INSTALLED_BINARY};
-use crate::skills::{put_stub, stub_of_version};
 use crate::support::VERSION;
 
 #[test]
@@ -18,7 +17,6 @@ fn upgrade_reinstalls_with_the_installer(installed: &Installed) {
     assert_eq!(install.calls(), installed.calls);
     assert_eq!(run.stdout(), format!("upgraded agent-terminal {VERSION} to 9.9.9 with {}\n", installed.installer));
     assert!(run.stderr().contains("changed 1 package"), "the installer's output goes to stderr: {}", run.stderr());
-    assert!(!install.stub().exists(), "no skill stub was installed, so upgrade writes none");
 }
 
 fn upgrade_in_json_reinstalls_with_the_installer(installed: &Installed) {
@@ -33,7 +31,6 @@ fn upgrade_in_json_reinstalls_with_the_installer(installed: &Installed) {
             "from": VERSION,
             "latest": "9.9.9",
             "to": "9.9.9",
-            "stub_refreshed": false,
         })
     );
 }
@@ -42,7 +39,6 @@ fn upgrade_in_json_reinstalls_with_the_installer(installed: &Installed) {
 fn upgrade_does_not_reinstall_when_the_running_version_is_the_latest() {
     let install = Install::new(NPM_INSTALLED_BINARY);
     install.answering("npm", &[("view @repost/agent-terminal version", &format!("echo {VERSION}"))]);
-    put_stub(&install.user, &stub_of_version("0.0.1"));
 
     let run = install.upgrade(&["upgrade"]).success();
     assert_eq!(run.stdout(), format!("agent-terminal {VERSION} is already the latest version\n"));
@@ -54,11 +50,9 @@ fn upgrade_does_not_reinstall_when_the_running_version_is_the_latest() {
             "from": VERSION,
             "latest": VERSION,
             "to": VERSION,
-            "stub_refreshed": false,
         })
     );
     assert_eq!(install.calls(), "npm view @repost/agent-terminal version\n".repeat(2));
-    assert_eq!(std::fs::read_to_string(install.stub()).unwrap(), stub_of_version("0.0.1"));
 }
 
 #[test]

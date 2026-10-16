@@ -165,13 +165,6 @@ pub(crate) fn environment(command: &Command) -> Vec<(String, String)> {
     env
 }
 
-pub(crate) fn check() -> Result<()> {
-    native_pty_system()
-        .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-        .map(drop)
-        .context("open a pseudo-terminal")
-}
-
 fn resolve(program: &str, cwd: &Path, path_var: &str) -> Result<PathBuf> {
     let found = if program.contains('/') {
         Some(cwd.join(program)).filter(|path| is_executable(path))

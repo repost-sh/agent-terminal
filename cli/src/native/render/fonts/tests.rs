@@ -27,17 +27,6 @@ fn each_style_has_its_own_face_and_only_the_four_text_faces_are_text() {
     assert_eq!(styles, [Face::Regular, Face::Bold, Face::Italic, Face::BoldItalic]);
     assert_eq!(Face::ALL.map(Face::is_text), [true, true, true, true, false, false]);
     assert_eq!(
-        Face::ALL.map(Face::name),
-        [
-            "JetBrains Mono",
-            "JetBrains Mono Bold",
-            "JetBrains Mono Italic",
-            "JetBrains Mono Bold Italic",
-            "Symbols Nerd Font Mono",
-            "Noto Emoji"
-        ]
-    );
-    assert_eq!(
         Face::ALL.map(Face::file_name),
         [
             "JetBrainsMonoNL-Regular.ttf",

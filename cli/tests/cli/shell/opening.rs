@@ -91,7 +91,7 @@ fn shell_says_when_the_first_prompt_never_comes() {
     assert_eq!(
         run.stderr().lines().next(),
         Some(
-            "error: timed out after 500 ms waiting for the first prompt of bash in work shell; its startup files may be waiting for input or the shell integration did not load (read the screen with `agent-terminal snapshot`, check with `agent-terminal doctor`)"
+            "error: timed out after 500 ms waiting for the first prompt of bash in work shell; its startup files may be waiting for input or the shell integration did not load (read the screen with `agent-terminal snapshot`)"
         )
     );
     assert!(run.stderr().contains("│starting\n"), "{}", run.stderr());

@@ -17,7 +17,6 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::attach;
 use crate::connection::{self, IfNotRunning};
-use crate::doctor;
 use crate::global_options::{GlobalOptions, NAME_THE_SESSION};
 use crate::mcp;
 use crate::native::daemon;
@@ -117,13 +116,11 @@ fn dispatch(cli: Cli) -> io::Result<i32> {
         Command::Tools(tools::ToolCommand::Skills { action }) => {
             return action.unwrap_or(skills::Action::List).run(json, Cli::command());
         }
-        Command::Tools(tools::ToolCommand::Install { .. }) => return skills::install(json),
         Command::Tools(tools::ToolCommand::Mcp) => return mcp::run(Cli::command()),
         Command::Tools(tools::ToolCommand::Attach { read_only }) => {
             return attach::run(read_only, cli.global);
         }
         Command::Tools(tools::ToolCommand::Version) => return output::version(json),
-        Command::Tools(tools::ToolCommand::Doctor { fix }) => return doctor::run(fix, json),
         Command::Tools(tools::ToolCommand::Upgrade) => return upgrade::run(json),
         Command::Tools(tools::ToolCommand::Batch(args)) => {
             let defaults = batch::Defaults {

@@ -73,7 +73,6 @@ fn skills_get_core_full_appends_the_full_command_reference() {
         &["close", "-h"],
         &["skills", "-h"],
         &["skills", "get", "-h"],
-        &["install", "-h"],
     ] {
         let text = at.run(help).success().stdout();
         assert!(reference.contains(&text), "the reference lacks `agent-terminal {}`:\n{text}", help.join(" "));

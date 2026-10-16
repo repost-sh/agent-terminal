@@ -21,7 +21,6 @@ pub(super) const MODULES: &[(&str, Layer)] = &[
     ("batch", Layer::Client),
     ("commands", Layer::Client),
     ("connection", Layer::Client),
-    ("doctor", Layer::Client),
     ("mcp", Layer::Client),
     ("skills", Layer::Client),
     ("upgrade", Layer::Client),

@@ -20,13 +20,6 @@ const SCRIPTS: [Script; 4] = [
     Script { shell: Shell::Fish, path: "fish/agent-terminal.fish", text: include_str!("agent-terminal.fish") },
 ];
 
-pub(crate) struct Audit {
-    pub folder: PathBuf,
-    pub current: usize,
-    pub outdated: Vec<PathBuf>,
-    pub leftovers: Vec<PathBuf>,
-}
-
 pub(crate) struct Scripts<'a> {
     pub home: &'a Path,
 }
@@ -66,37 +59,6 @@ impl Scripts<'_> {
         Ok(command)
     }
 
-    pub(crate) fn audit(&self) -> Result<Audit> {
-        let folder = self.folder()?;
-        let mut audit = Audit { folder: folder.clone(), current: 0, outdated: Vec::new(), leftovers: Vec::new() };
-        for entry in entries(&folder)? {
-            if is_shell_folder(&entry) {
-                audit_scripts(&mut audit, &entry)?;
-            } else {
-                audit.leftovers.push(entry);
-            }
-        }
-        Ok(audit)
-    }
-
-    pub(crate) fn repair(&self) -> Result<Audit> {
-        let _lock = self.lock()?;
-        let found = self.audit()?;
-        for leftover in &found.leftovers {
-            let removed =
-                if leftover.is_dir() { std::fs::remove_dir_all(leftover) } else { std::fs::remove_file(leftover) };
-            removed.with_context(|| format!("remove {}", leftover.display()))?;
-        }
-        for outdated in &found.outdated {
-            let script = SCRIPTS
-                .iter()
-                .find(|script| found.folder.join(script.path) == *outdated)
-                .with_context(|| format!("{} is not a shell integration script", outdated.display()))?;
-            write_if_changed(&found.folder, script)?;
-        }
-        Ok(found)
-    }
-
     fn lock(&self) -> Result<File> {
         std::fs::create_dir_all(self.home).with_context(|| format!("create {}", self.home.display()))?;
         let path = self.home.join("shell.lock");
@@ -104,22 +66,6 @@ impl Scripts<'_> {
         lock.lock().with_context(|| format!("lock {}", path.display()))?;
         Ok(lock)
     }
-}
-
-fn is_shell_folder(entry: &Path) -> bool {
-    let name = entry.file_name().and_then(|name| name.to_str());
-    Shell::ALL.iter().any(|shell| name == Some(shell.name())) && entry.is_dir()
-}
-
-fn audit_scripts(audit: &mut Audit, shell_folder: &Path) -> Result<()> {
-    for file in entries(shell_folder)? {
-        match SCRIPTS.iter().find(|script| audit.folder.join(script.path) == file) {
-            Some(script) if read(&file)?.as_deref() == Some(script.text) => audit.current += 1,
-            Some(_) => audit.outdated.push(file),
-            None => audit.leftovers.push(file),
-        }
-    }
-    Ok(())
 }
 
 fn write_if_changed(folder: &Path, script: &Script) -> Result<()> {
@@ -140,20 +86,6 @@ fn read(path: &Path) -> Result<Option<String>> {
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e).with_context(|| format!("read {}", path.display())),
     }
-}
-
-fn entries(dir: &Path) -> Result<Vec<PathBuf>> {
-    let listing = match std::fs::read_dir(dir) {
-        Ok(listing) => listing,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e).with_context(|| format!("list {}", dir.display())),
-    };
-    let mut paths = Vec::new();
-    for entry in listing {
-        paths.push(entry.with_context(|| format!("list {}", dir.display()))?.path());
-    }
-    paths.sort();
-    Ok(paths)
 }
 
 fn text(path: &Path) -> String {

@@ -1,19 +1,7 @@
-use std::path::Path;
-
 use clap::Command;
 
-use super::{
-    SKILLS, Stub, find, get, install_stub_at, installed_stub_at, list, path_in, repair_stub_at, stamped_version,
-};
+use super::{SKILLS, find, get, list, path_in};
 use crate::version::VERSION;
-
-fn stub_of_version(version: &str) -> String {
-    format!("---\nname: agent-terminal\ndescription: x\nmetadata:\n  version: \"{version}\"\n---\nbody\n")
-}
-
-fn stub(home: &Path) -> std::path::PathBuf {
-    home.join(".claude/skills/agent-terminal/SKILL.md")
-}
 
 #[test]
 fn the_list_names_each_skill_but_the_stub_with_the_first_sentence_of_its_description() {
@@ -70,88 +58,6 @@ fn every_built_in_skill_has_frontmatter_a_description_and_its_files() {
 }
 
 #[test]
-fn a_stubs_version_is_read_from_its_metadata() {
-    assert_eq!(stamped_version(&stub_of_version("1.2.3")).map(|v| v.to_string()), Some("1.2.3".to_string()));
-    assert_eq!(
-        stamped_version("---\nmetadata:\n  other: 1\n  version: 2.0.0\n---\n").map(|v| v.to_string()),
-        Some("2.0.0".to_string())
-    );
-    let unversioned = [
-        "no frontmatter",
-        "---\nname: x\n---\n",
-        "---\nmetadata:\n  version: \"x\"\n---\n",
-        "---\nmetadata:\nversion: 1.0.0\n---\n",
-    ];
-    assert!(unversioned.iter().all(|text| stamped_version(text).is_none()));
-}
-
-#[test]
-fn the_installed_stub_is_missing_current_older_newer_or_unversioned() {
-    let home = tempfile::tempdir().unwrap();
-    let kind = |contents: Option<&str>| {
-        if let Some(contents) = contents {
-            std::fs::create_dir_all(stub(home.path()).parent().unwrap()).unwrap();
-            std::fs::write(stub(home.path()), contents).unwrap();
-        }
-        match installed_stub_at(stub(home.path())).unwrap().stub {
-            Stub::Missing => "missing".to_string(),
-            Stub::Current => "current".to_string(),
-            Stub::Older(version) => format!("older {version}"),
-            Stub::Newer(version) => format!("newer {version}"),
-            Stub::Unversioned => "unversioned".to_string(),
-        }
-    };
-    assert_eq!(
-        [
-            kind(None),
-            kind(Some(&stub_of_version(VERSION))),
-            kind(Some(&stub_of_version("0.0.1"))),
-            kind(Some(&stub_of_version("99.0.0"))),
-            kind(Some("plain"))
-        ],
-        ["missing", "current", "older 0.0.1", "newer 99.0.0", "unversioned"]
-    );
-}
-
-#[test]
-fn installing_writes_this_versions_stub_unless_a_newer_one_is_there() {
-    let home = tempfile::tempdir().unwrap();
-    let fresh = install_stub_at(stub(home.path())).unwrap();
-    assert_eq!((fresh.installed, fresh.version.as_str()), (true, VERSION));
-    assert_eq!(
-        stamped_version(&std::fs::read_to_string(stub(home.path())).unwrap()).map(|v| v.to_string()),
-        Some(VERSION.to_string())
-    );
-    std::fs::write(stub(home.path()), stub_of_version("99.0.0")).unwrap();
-    let kept = install_stub_at(stub(home.path())).unwrap();
-    assert_eq!((kept.installed, kept.version.as_str()), (false, "99.0.0"));
-    std::fs::write(stub(home.path()), format!("{}{}", stub_of_version("0.0.1"), "x".repeat(10_000))).unwrap();
-    assert!(install_stub_at(stub(home.path())).unwrap().installed);
-    assert!(!std::fs::read_to_string(stub(home.path())).unwrap().contains("xxxx"));
-}
-
-#[test]
-fn a_repair_rewrites_only_an_older_or_unversioned_stub() {
-    let home = tempfile::tempdir().unwrap();
-    assert!(!repair_stub_at(stub(home.path())).unwrap().rewritten);
-    std::fs::create_dir_all(stub(home.path()).parent().unwrap()).unwrap();
-    let repaired = |contents: &str| {
-        std::fs::write(stub(home.path()), contents).unwrap();
-        let rewritten = repair_stub_at(stub(home.path())).unwrap().rewritten;
-        (rewritten, std::fs::read_to_string(stub(home.path())).unwrap() == contents)
-    };
-    assert_eq!(
-        [
-            repaired(&stub_of_version("0.0.1")),
-            repaired("plain"),
-            repaired(&stub_of_version("99.0.0")),
-            repaired(&stub_of_version(VERSION))
-        ],
-        [(true, false), (true, false), (false, true), (false, true)]
-    );
-}
-
-#[test]
 fn the_skill_path_writes_every_skill_for_this_version_and_drops_older_versions() {
     let home = tempfile::tempdir().unwrap();
     let cache = home.path().join("skills");
@@ -179,16 +85,6 @@ fn the_skill_path_writes_every_skill_for_this_version_and_drops_older_versions()
             && root.join("agent-terminal/SKILL.md").is_file()
     );
     assert!(path_in(home.path(), Some("nope"), false).is_err());
-}
-
-#[test]
-fn a_stub_that_cannot_be_opened_is_an_error_rather_than_missing() {
-    let home = tempfile::tempdir().unwrap();
-    let file = home.path().join("file");
-    std::fs::write(&file, "").unwrap();
-    let inside = file.join("SKILL.md");
-    let refused = installed_stub_at(inside.clone()).err().map(|e| e.to_string());
-    assert_eq!(refused, Some(format!("open {}", inside.display())));
 }
 
 #[test]

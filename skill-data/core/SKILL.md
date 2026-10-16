@@ -186,7 +186,7 @@ Close what you opened: `agent-terminal close` closes one tab, and the session st
 - **Nothing appears after `open`.** A header ending `nothing printed yet` means the program has drawn nothing so far; wait for its text with `agent-terminal wait "..."`. Otherwise check `agent-terminal get exit-code` and `output`: the program may have exited at once (exit 5 on the next command).
 - **Keys do nothing.** The app may want different keys in its current mode; check `get modes`, and read its own key hints. Try `--wait-stable` instead of a fixed text.
 - **Text wraps strangely.** The terminal is too narrow: `resize 160x40`.
-- **The screen is a mess of symbols.** Fonts in screenshots are bundled, but a missing glyph shows as `□`; run `agent-terminal doctor`.
+- **The screen is a mess of symbols.** Screenshots draw with fonts bundled in agent-terminal; a `□` is a glyph none of them has.
 - **A wait times out.** Read the screen it printed. The text may differ in case or spacing; use `--regex`.
 
 ## Full reference
