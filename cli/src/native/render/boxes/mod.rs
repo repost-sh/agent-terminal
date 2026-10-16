@@ -237,3 +237,6 @@ fn dash_ends(length: f32, count: u8) -> impl Iterator<Item = (f32, f32)> {
         (start, end)
     })
 }
+
+#[cfg(test)]
+mod tests;

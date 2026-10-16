@@ -290,3 +290,6 @@ impl Screen {
         mouse_encoding(*self.term.mode())
     }
 }
+
+#[cfg(test)]
+mod tests;

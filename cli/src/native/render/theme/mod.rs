@@ -129,3 +129,6 @@ impl Palette {
         self.refs.get(index % self.refs.len()).copied().unwrap_or(first)
     }
 }
+
+#[cfg(test)]
+mod tests;

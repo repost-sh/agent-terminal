@@ -224,3 +224,6 @@ fn control_byte(c: char) -> Option<u8> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests;

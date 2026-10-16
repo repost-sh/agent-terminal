@@ -471,3 +471,6 @@ impl Placed {
         Rect::from_ltrb(left, top, right, bottom)
     }
 }
+
+#[cfg(test)]
+mod tests;

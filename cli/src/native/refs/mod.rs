@@ -378,3 +378,6 @@ fn hints(grid: &Grid) -> Result<Vec<Found>, String> {
     }
     Ok(found)
 }
+
+#[cfg(test)]
+mod tests;
