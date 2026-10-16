@@ -1,15 +1,15 @@
 use std::fmt;
 
 use super::count;
-use crate::protocol::{BlankRows, DiffBase, Ref, RefKind, Snapshot, SnapshotDiff, Switch};
+use crate::protocol::{DiffBase, Ref, RefKind, Snapshot, SnapshotDiff, Squeeze, Switch};
 
 const SHORTEST_SQUEEZED_RUN: usize = 3;
 
-pub(crate) fn screen(s: &Snapshot) -> String {
-    fmt::from_fn(|f| write_screen(f, s)).to_string()
+pub(crate) fn screen(s: &Snapshot, squeeze: &Squeeze) -> String {
+    fmt::from_fn(|f| write_screen(f, s, squeeze)).to_string()
 }
 
-fn write_screen(f: &mut fmt::Formatter<'_>, s: &Snapshot) -> fmt::Result {
+fn write_screen(f: &mut fmt::Formatter<'_>, s: &Snapshot, squeeze: &Squeeze) -> fmt::Result {
     writeln!(f, "{}", header(s).join(" · "))?;
     let scrollback = s.scrollback.as_deref().unwrap_or_default();
     let width = label_width(s, scrollback);
@@ -17,7 +17,7 @@ fn write_screen(f: &mut fmt::Formatter<'_>, s: &Snapshot) -> fmt::Result {
         let label = format!("-{}", scrollback.len() - i);
         writeln!(f, "{label:>width$}│{line}")?;
     }
-    write_rows(f, s, width)?;
+    write_rows(f, s, width, squeeze)?;
     match &s.refs {
         Some(refs) => write_refs(f, refs),
         None => Ok(()),
@@ -51,12 +51,12 @@ fn label_width(s: &Snapshot, scrollback: &[String]) -> usize {
     s.rows.to_string().len().max(scrollback_width)
 }
 
-fn write_rows(f: &mut fmt::Formatter<'_>, s: &Snapshot, width: usize) -> fmt::Result {
+fn write_rows(f: &mut fmt::Formatter<'_>, s: &Snapshot, width: usize, squeeze: &Squeeze) -> fmt::Result {
     let shown = s.lines.iter().rposition(|line| !line.is_empty()).map_or(0, |i| i + 1);
     let (printed, trailing) = s.lines.split_at(shown);
     let mut row = usize::from(s.first_row);
     for run in printed.chunk_by(|above, below| above.is_empty() == below.is_empty()) {
-        if s.blank_rows == BlankRows::Squeezed && is_squeezed(run) {
+        if *squeeze == Squeeze::On && is_squeezed(run) {
             write_blank(f, width, row, run.len())?;
         } else {
             write_numbered(f, width, row, run)?;
@@ -70,7 +70,7 @@ fn write_rows(f: &mut fmt::Formatter<'_>, s: &Snapshot, width: usize) -> fmt::Re
 }
 
 fn is_squeezed(run: &[String]) -> bool {
-    run.len() >= SHORTEST_SQUEEZED_RUN && run.iter().all(String::is_empty)
+    run.len() >= SHORTEST_SQUEEZED_RUN && run.first().is_some_and(String::is_empty)
 }
 
 fn write_numbered(f: &mut fmt::Formatter<'_>, width: usize, first: usize, lines: &[String]) -> fmt::Result {

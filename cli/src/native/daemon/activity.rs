@@ -4,12 +4,13 @@ use std::time::{Instant, SystemTime};
 use super::Daemon;
 use crate::native::store::{ActivityEntry, Pending, SessionFolder, TabId, Typed};
 use crate::output;
-use crate::protocol::{Addressed, ErrorBody, Input, Name, Reply, Request, request};
+use crate::protocol::{Addressed, ErrorBody, Input, Name, Reply, Request, Squeeze, request};
 
 pub(super) struct Logged {
     session: Name,
     tab: Option<(TabId, Name)>,
     raw: bool,
+    squeeze: Squeeze,
     folder: Option<Arc<SessionFolder>>,
     pending: Option<Pending>,
     pub(super) typed: Vec<String>,
@@ -35,6 +36,7 @@ impl Daemon {
             session: session.clone(),
             tab,
             raw: matches!(request, Request::Input(request::Deliver { input: Input::Send { .. }, .. })),
+            squeeze: request.squeeze(),
             folder,
             pending,
             typed,
@@ -79,17 +81,17 @@ impl Daemon {
         entry.frame = shown
             .map(|snapshot| snapshot.frame)
             .or_else(|| self.terminal_of(&logged.session, entry.tab_id?).map(|terminal| terminal.frame()));
-        record_outcome(&mut entry, handled);
+        record_outcome(&mut entry, handled, &logged.squeeze);
         entry.screenshots = screenshots(handled);
         entry
     }
 }
 
-fn record_outcome(entry: &mut ActivityEntry, handled: &Result<Reply, ErrorBody>) {
+fn record_outcome(entry: &mut ActivityEntry, handled: &Result<Reply, ErrorBody>, squeeze: &Squeeze) {
     match handled {
         Ok(reply) => {
             entry.exit = reply.exit_code();
-            entry.printed(output::reply_text(reply));
+            entry.printed(output::reply_text(reply, squeeze));
         }
         Err(failure) => {
             entry.exit = failure.code;

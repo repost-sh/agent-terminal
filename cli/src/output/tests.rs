@@ -1,4 +1,4 @@
-use crate::protocol::Reply;
+use crate::protocol::{Reply, Squeeze};
 
 use super::{reply_data, reply_text};
 
@@ -8,7 +8,7 @@ fn replied(replies: &[(&str, &str)]) -> String {
         .map(|(reply, data)| {
             let data: serde_json::Value = serde_json::from_str(data).unwrap();
             let reply: Reply = serde_json::from_value(serde_json::json!({ "reply": reply, "data": data })).unwrap();
-            reply_text(&reply)
+            reply_text(&reply, &Squeeze::Off)
         })
         .collect::<Vec<_>>()
         .join("\n~\n")
@@ -67,20 +67,17 @@ fn scrollback_rows_come_above_the_screen_with_negative_numbers() {
 }
 
 #[test]
-fn squeezing_shapes_the_text_and_leaves_the_json_as_it_is() {
-    let replies = |blank_rows: &str| -> [Reply; 2] {
-        let shown = format!(
-            r#"{{"alt_screen":false,"cols":30,"cursor":[1,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"frame":1,"lines":["a","","","","b"],"mouse":null,"program":"sh","rows":5,"session":"rec","tab":"app","blank_rows":"{blank_rows}"}}"#
-        );
-        let delivered = format!(
-            r#"{{"input":"paste","bytes":1,"bracketed":false,"session":"rec","tab":"app","snapshot":{shown}}}"#
-        );
-        [("Snapshot", shown), ("Delivered", delivered)]
-            .map(|(reply, data)| serde_json::from_str(&format!(r#"{{"reply":"{reply}","data":{data}}}"#)).unwrap())
-    };
-    let (squeezed, kept) = (replies("squeezed"), replies("kept"));
-    assert_ne!(reply_text(&squeezed[0]), reply_text(&kept[0]));
-    assert_eq!(squeezed.map(|reply| reply_data(&reply).unwrap()), kept.map(|reply| reply_data(&reply).unwrap()));
+fn squeezing_shapes_the_text_of_a_screen_and_of_the_screen_after_input_and_leaves_the_json_as_it_is() {
+    let shown = r#"{"alt_screen":false,"cols":30,"cursor":[1,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"frame":1,"lines":["a","","","","b"],"mouse":null,"program":"sh","rows":5,"session":"rec","tab":"app"}"#;
+    let delivered =
+        format!(r#"{{"input":"paste","bytes":1,"bracketed":false,"session":"rec","tab":"app","snapshot":{shown}}}"#);
+    let replies: [Reply; 2] = [("Snapshot", shown.to_string()), ("Delivered", delivered)]
+        .map(|(reply, data)| serde_json::from_str(&format!(r#"{{"reply":"{reply}","data":{data}}}"#)).unwrap());
+    for reply in &replies {
+        let (squeezed, kept) = (reply_text(reply, &Squeeze::On), reply_text(reply, &Squeeze::Off));
+        assert!(squeezed.contains("…│ (rows 2-4 blank)") && !kept.contains("blank"), "{squeezed}\n{kept}");
+        assert!(!reply_data(reply).unwrap().to_string().contains("blank"));
+    }
 }
 
 #[test]

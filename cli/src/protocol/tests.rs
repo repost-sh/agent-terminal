@@ -4,8 +4,8 @@ use serde_json::json;
 
 use super::{
     Addressed, Cell, ClickTarget, CommandRecord, Direction, ErrorBody, Modes, MouseButton, MouseEvent, Name,
-    OtherVersion, Reply, Request, ScreenshotFormat, Shell, Size, Snapshot, Style, TextMatch, Theme, read, read_body,
-    write,
+    OtherVersion, Reply, Request, ScreenshotFormat, Shell, Size, Snapshot, Squeeze, Style, TextMatch, Theme, read,
+    read_body, write,
 };
 
 struct FailingOnce<'a> {
@@ -251,6 +251,20 @@ fn a_screenshot_format_and_theme_are_named_in_any_case() {
     assert_eq!(
         ["Light", "dark", "dim"].map(str::parse::<Theme>),
         [Ok(Theme::Light), Ok(Theme::Dark), Err("unknown theme dim; use dark or light".into())]
+    );
+}
+
+#[test]
+fn only_a_snapshot_asked_with_squeeze_blank_is_squeezed_and_a_batch_squeezes_step_by_step() {
+    let options = |squeeze_blank: bool| json!({ "rows": null, "scrollback": "none", "ansi": false, "refs": false, "squeeze_blank": squeeze_blank });
+    let snapshot = |squeeze_blank| json!({ "command": "snapshot", "session": "w", "tab": null, "options": options(squeeze_blank) });
+    let typed = json!({ "command": "input", "session": "w", "tab": null, "input": { "kind": "type", "text": "x", "delay_ms": 0 }, "wait": null, "snapshot": options(true), "timeout_ms": 1 });
+    let steps = [snapshot(true), snapshot(false), json!({ "command": "sessions" })];
+    let batch = json!({ "command": "batch", "bail": false, "steps": steps.map(|request| json!({ "args": [], "request": request })) });
+    let squeeze = |request: serde_json::Value| serde_json::from_value::<Request>(request).unwrap().squeeze();
+    assert_eq!(
+        [snapshot(true), snapshot(false), typed, batch].map(squeeze),
+        [Squeeze::On, Squeeze::Off, Squeeze::On, Squeeze::PerStep(vec![Squeeze::On, Squeeze::Off, Squeeze::Off])]
     );
 }
 

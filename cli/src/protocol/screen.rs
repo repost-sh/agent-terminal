@@ -21,6 +21,13 @@ pub(crate) struct SnapshotOptions {
     pub squeeze_blank: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Squeeze {
+    Off,
+    On,
+    PerStep(Vec<Squeeze>),
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RowRange {
     pub first: u16,
@@ -91,22 +98,6 @@ pub(crate) struct Snapshot {
     pub refs: Option<Vec<Ref>>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub nothing_printed: bool,
-    #[serde(default, skip_serializing_if = "BlankRows::are_kept")]
-    pub blank_rows: BlankRows,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum BlankRows {
-    #[default]
-    Kept,
-    Squeezed,
-}
-
-impl BlankRows {
-    pub(crate) fn are_kept(&self) -> bool {
-        *self == Self::Kept
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

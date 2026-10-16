@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 
 use super::replies::reply_text;
 use super::{error_text, reply_data};
-use crate::protocol::{BatchOutcome, Response};
+use crate::protocol::{BatchOutcome, Response, Squeeze};
 
 pub(super) fn batch_json(outcomes: &[BatchOutcome]) -> serde_json::Result<Value> {
     outcomes.iter().map(batch_entry).collect()
@@ -26,7 +26,15 @@ fn batch_entry(outcome: &BatchOutcome) -> serde_json::Result<Value> {
     Ok(Value::Object(entry))
 }
 
-pub(super) fn write_batch(f: &mut fmt::Formatter<'_>, outcomes: &[BatchOutcome]) -> fmt::Result {
+pub(super) fn batch_text(outcomes: &[BatchOutcome], squeeze: &Squeeze) -> String {
+    let steps = match squeeze {
+        Squeeze::PerStep(steps) => steps.as_slice(),
+        Squeeze::Off | Squeeze::On => &[],
+    };
+    fmt::from_fn(|f| write_batch(f, outcomes, steps)).to_string()
+}
+
+fn write_batch(f: &mut fmt::Formatter<'_>, outcomes: &[BatchOutcome], steps: &[Squeeze]) -> fmt::Result {
     for (index, outcome) in outcomes.iter().enumerate() {
         if index > 0 {
             f.write_char('\n')?;
@@ -38,7 +46,7 @@ pub(super) fn write_batch(f: &mut fmt::Formatter<'_>, outcomes: &[BatchOutcome])
         };
         writeln!(f, "{call} · exit {}", response.exit_code())?;
         match response {
-            Response::Ok(ok) => f.write_str(&reply_text(ok))?,
+            Response::Ok(ok) => f.write_str(&reply_text(ok, steps.get(index).unwrap_or(&Squeeze::Off)))?,
             Response::Err(error) => f.write_str(&error_text(error))?,
         }
     }

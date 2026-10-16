@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Baseline, Name, Shot, Size, SnapshotOptions, Target};
+use super::{Baseline, Name, Shot, Size, SnapshotOptions, Squeeze, Target};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Call {
@@ -321,6 +321,18 @@ impl Request {
             | Request::DiffScreenshot(DiffScreenshot { target, .. })
             | Request::RenameTab(RenameTab { target, .. })
             | Request::WaitControl(WaitControl { target, .. }) => Addressed::Tab(&target.session, target.tab.as_ref()),
+        }
+    }
+
+    pub(crate) fn squeeze(&self) -> Squeeze {
+        match self {
+            Request::Snapshot(Snapshot { options, .. }) | Request::Input(Deliver { snapshot: Some(options), .. })
+                if options.squeeze_blank =>
+            {
+                Squeeze::On
+            }
+            Request::Batch(batch) => Squeeze::PerStep(batch.steps.iter().map(|step| step.request.squeeze()).collect()),
+            _ => Squeeze::Off,
         }
     }
 }

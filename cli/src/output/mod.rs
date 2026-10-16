@@ -17,7 +17,7 @@ pub(crate) use replies::reply_text;
 pub(crate) use saved_screen::saved_rows;
 pub(crate) use screen::screen;
 
-use crate::protocol::{ErrorBody, Reply};
+use crate::protocol::{ErrorBody, Reply, Squeeze};
 use crate::version::{BUILD, COMMIT, VERSION};
 
 pub(crate) fn print(text: &str) -> io::Result<()> {
@@ -45,9 +45,14 @@ fn unless_the_reader_left(written: io::Result<()>) -> io::Result<()> {
     }
 }
 
-pub(crate) fn reply(reply: &Reply, json: bool) -> io::Result<()> {
-    if !json {
-        return print(&reply_text(reply));
+pub(crate) enum Format {
+    Json,
+    Text(Squeeze),
+}
+
+pub(crate) fn reply(reply: &Reply, format: &Format) -> io::Result<()> {
+    if let Format::Text(squeeze) = format {
+        return print(&reply_text(reply, squeeze));
     }
     match reply {
         Reply::Stopped | Reply::KeptRunning(_) => Ok(()),
@@ -58,16 +63,7 @@ pub(crate) fn reply(reply: &Reply, json: bool) -> io::Result<()> {
 
 pub(super) fn reply_data(reply: &Reply) -> serde_json::Result<Value> {
     let mut whole = serde_json::to_value(reply)?;
-    let mut data = whole.get_mut("data").map(Value::take).unwrap_or_default();
-    let shown = match reply {
-        Reply::Snapshot(_) => Some(&mut data),
-        Reply::Delivered(_) => data.get_mut("snapshot"),
-        _ => None,
-    };
-    if let Some(Value::Object(screen)) = shown {
-        screen.remove("blank_rows");
-    }
-    Ok(data)
+    Ok(whole.get_mut("data").map(Value::take).unwrap_or_default())
 }
 
 pub(crate) fn session(name: &str, json: bool) -> io::Result<()> {
@@ -93,7 +89,7 @@ pub(crate) fn error(error: &ErrorBody, json: bool) -> io::Result<i32> {
 }
 
 pub(crate) fn error_text(error: &ErrorBody) -> String {
-    let shown = error.snapshot.as_deref().map(screen).unwrap_or_default();
+    let shown = error.snapshot.as_deref().map(|snapshot| screen(snapshot, &Squeeze::Off)).unwrap_or_default();
     format!("error: {}\n{shown}", error.message)
 }
 

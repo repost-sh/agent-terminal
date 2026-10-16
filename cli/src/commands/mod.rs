@@ -186,6 +186,7 @@ fn send(request: Request, json: bool) -> io::Result<i32> {
         Request::Sessions => IfNotRunning::Answer(Box::new(Reply::Sessions(Sessions::default()))),
         _ => IfNotRunning::Start,
     };
+    let format = if json { output::Format::Json } else { output::Format::Text(request.squeeze()) };
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     let response = match connection::send(&Call { typed: Some(typed), request }, if_not_running) {
         Ok(response) => response,
@@ -194,7 +195,7 @@ fn send(request: Request, json: bool) -> io::Result<i32> {
     match response {
         Response::Err(error) => output::error(&error, json),
         Response::Ok(reply) => {
-            output::reply(&reply, json)?;
+            output::reply(&reply, &format)?;
             Ok(reply.exit_code())
         }
     }
