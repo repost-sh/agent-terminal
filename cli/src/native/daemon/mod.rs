@@ -142,11 +142,6 @@ impl Daemon {
         sessions.get(session).and_then(|entry| entry.named(tab)).map(|(id, _)| *id)
     }
 
-    fn name_of(&self, session: &str, id: TabId) -> Option<Name> {
-        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        sessions.get(session).and_then(|entry| entry.tabs.get(&id)).map(|tab| tab.name.clone())
-    }
-
     fn terminal_under(&self, session: &str, id: TabId, control: &Arc<Control>) -> Option<Arc<Terminal>> {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         let tab = sessions.get(session).and_then(|entry| entry.tabs.get(&id))?;

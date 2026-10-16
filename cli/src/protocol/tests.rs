@@ -273,6 +273,7 @@ fn a_request_addresses_a_tab_by_its_name() {
     let addressed = |request: serde_json::Value| match serde_json::from_value::<Request>(request) {
         Ok(request) => match request.addressed() {
             Addressed::Tab(session, tab) => format!("{session} {}", tab.map_or("(current)", |tab| &**tab)),
+            Addressed::Opens(session, tab) => format!("{session} opens {tab}"),
             Addressed::Session(session) => session.to_string(),
             Addressed::Nothing => "nothing".to_string(),
         },
@@ -284,12 +285,16 @@ fn a_request_addresses_a_tab_by_its_name() {
             addressed(json!({ "command": "rename-tab", "session": "work", "tab": null, "name": "web" })),
             addressed(json!({ "command": "switch-tab", "session": "work", "tab": "web" })),
             addressed(json!({ "command": "snapshot", "session": "work", "tab": "T1" })),
+            addressed(
+                json!({ "command": "open", "session": "work", "tab": "api", "program": "sh", "args": [], "size": { "cols": 2, "rows": 2 }, "cwd": "/", "env": [], "wait": null, "timeout_ms": 1 })
+            ),
         ],
         [
             "work api",
             "work (current)",
             "work web",
-            "\"T1\" is not a name: a name is 1 to 24 characters of a-z, 0-9 and -, starting with a letter or digit, such as repost-forward"
+            "\"T1\" is not a name: a name is 1 to 24 characters of a-z, 0-9 and -, starting with a letter or digit, such as repost-forward",
+            "work opens api"
         ]
     );
 }

@@ -13,6 +13,7 @@ pub(crate) struct Call {
 pub(crate) enum Addressed<'a> {
     Nothing,
     Session(&'a Name),
+    Opens(&'a Name, &'a Name),
     Tab(&'a Name, Option<&'a Name>),
 }
 
@@ -296,9 +297,10 @@ impl Request {
             | Request::DashboardStart(_)
             | Request::DashboardStop
             | Request::Attach(_) => Addressed::Nothing,
-            Request::Open(Open { session, .. })
-            | Request::Shell(OpenShell { session, .. })
-            | Request::Tabs(Tabs { session })
+            Request::Open(Open { session, tab, .. }) | Request::Shell(OpenShell { session, tab, .. }) => {
+                Addressed::Opens(session, tab)
+            }
+            Request::Tabs(Tabs { session })
             | Request::Close(Close::Session { session })
             | Request::TraceExport(TraceExport { session, .. }) => Addressed::Session(session),
             Request::SwitchTab(SwitchTab { session, tab }) => Addressed::Tab(session, Some(tab)),
