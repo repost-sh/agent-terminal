@@ -1,7 +1,8 @@
 use super::Daemon;
 use super::lifecycle::OTHER_CALLS_WITHIN;
 use super::reading::trace_export;
-use super::refusals::attach_on_its_own;
+use super::refusals::{attach_on_its_own, known_session};
+use crate::native::dashboard::Backend;
 use crate::protocol::{DashboardStopped, ErrorBody, Reply, Request};
 
 impl Daemon {
@@ -30,8 +31,8 @@ impl Daemon {
             Request::Output(output) => self.output(&output),
             Request::DiffSnapshot(diff) => self.diff_snapshot(diff),
             Request::TraceExport(export) => {
-                self.folder_of(&export.session)?;
-                trace_export(&self.home, export)
+                let folder = known_session(&export.session, self.folder(&export.session))?;
+                trace_export(&folder, export)
             }
             Request::Shell(shell) => self.open_shell(shell),
             Request::Exec(exec) => self.exec(exec),

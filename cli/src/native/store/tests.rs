@@ -204,7 +204,7 @@ fn a_whole_write_lands_in_one_step_and_leaves_no_partial_file() {
     assert!(write_whole(Path::new("/"), b"x").is_err());
 }
 
-fn exported_session(home: &Path) -> (PathBuf, PathBuf) {
+fn exported_session(home: &Path) -> (SessionFolder, PathBuf, PathBuf) {
     let started = SessionFolder::start(home, "my-work").unwrap();
     let shots = home.join("shots");
     std::fs::create_dir_all(shots.join("other")).unwrap();
@@ -219,15 +219,15 @@ fn exported_session(home: &Path) -> (PathBuf, PathBuf) {
     std::fs::create_dir_all(session.join("sub")).unwrap();
     std::fs::write(session.join("sub/notes.txt"), "kept\npartial").unwrap();
     std::fs::write(session.join("t1.commands.jsonl"), "{}\nhalf").unwrap();
-    (shots, home.join("out/trace.zip"))
+    (started, shots, home.join("out/trace.zip"))
 }
 
 #[test]
 fn an_export_zips_the_folder_with_whole_lines_and_each_screenshot_once() {
     let home = home();
-    let (shots, to) = exported_session(home.path());
+    let (started, shots, to) = exported_session(home.path());
     let exported =
-        export(home.path(), &request::TraceExport { session: "my-work".parse().unwrap(), path: to.clone() }).unwrap();
+        export(&started, &request::TraceExport { session: "my-work".parse().unwrap(), path: to.clone() }).unwrap();
     let mut zip = zip::ZipArchive::new(std::fs::File::open(&to).unwrap()).unwrap();
     let mut read = |name: &str| {
         let mut text = String::new();
@@ -244,21 +244,5 @@ fn an_export_zips_the_folder_with_whole_lines_and_each_screenshot_once() {
     assert_eq!(
         (exported.files, exported.missing, exported.bytes),
         (6, vec![shots.join("gone.png")], std::fs::metadata(&to).unwrap().len())
-    );
-}
-
-#[test]
-fn a_session_with_no_folder_has_nothing_to_export() {
-    let home = home();
-    let missing = export(
-        home.path(),
-        &request::TraceExport { session: "never".parse().unwrap(), path: home.path().join("t.zip") },
-    );
-    assert_eq!(
-        missing.err().map(|e| e.to_string()),
-        Some(
-            "session never has nothing to export; open a terminal in it first with `agent-terminal open --name <name> <program>`"
-                .to_string()
-        )
     );
 }

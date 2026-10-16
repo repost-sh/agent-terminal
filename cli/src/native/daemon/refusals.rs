@@ -1,31 +1,33 @@
 use std::time::Duration;
 
+use super::Session;
 use crate::native::terminal::Labelled;
 use crate::output;
-use crate::protocol::{ErrorBody, SessionInfo};
+use crate::protocol::{ErrorBody, Name};
 
 pub(super) fn stopping() -> ErrorBody {
     ErrorBody::failure("the daemon is stopping; run the command again to start a new one")
 }
 
-pub(super) fn no_session(session: &str) -> ErrorBody {
-    ErrorBody::failure(format!("no session {session}; create it with `agent-terminal session new {session}`"))
+pub(super) fn known_session<T>(session: &str, found: Option<T>) -> Result<T, ErrorBody> {
+    found.ok_or_else(|| {
+        ErrorBody::failure(format!("no session {session}; create it with `agent-terminal session new {session}`"))
+    })
 }
 
-pub(super) fn taken(held: &SessionInfo, open_for: Duration) -> ErrorBody {
-    let names: Vec<&str> = held.tabs.iter().map(|tab| &*tab.tab).collect();
+pub(super) fn taken(session: &Name, held: &Session) -> ErrorBody {
+    let names: Vec<&str> = held.tabs.values().map(|tab| &*tab.name).collect();
     let tabs = match names.len() {
         0 => "no tabs".to_string(),
         k => format!("{}: {}", output::count(k, "tab"), names.join(", ")),
     };
     ErrorBody::failure(format!(
-        "session {} is taken: open for {}, {tabs}; pick another name for this conversation",
-        held.session,
-        age(open_for)
+        "session {session} is taken: open for {}, {tabs}; pick another name for this conversation",
+        age(held.created.elapsed())
     ))
 }
 
-fn age(open_for: Duration) -> String {
+pub(super) fn age(open_for: Duration) -> String {
     let seconds = open_for.as_secs();
     match seconds {
         0..60 => format!("{seconds}s"),

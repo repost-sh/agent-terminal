@@ -1,10 +1,8 @@
-use std::path::Path;
-
 use super::Daemon;
 use super::input::Shooting;
 use super::refusals::{error_body, no_integration};
 use crate::native::screenshots;
-use crate::native::store;
+use crate::native::store::{self, SessionFolder};
 use crate::native::terminal::Labelled;
 use crate::protocol::{
     CommandOutput, CommandRecord, ErrorBody, Export, History, Marked, Matches, Printed, Reply, request,
@@ -94,8 +92,8 @@ impl Daemon {
     }
 }
 
-pub(super) fn trace_export(home: &Path, export: request::TraceExport) -> Result<Reply, ErrorBody> {
-    let exported = store::export(home, &export).map_err(|e| error_body(&e))?;
+pub(super) fn trace_export(folder: &SessionFolder, export: request::TraceExport) -> Result<Reply, ErrorBody> {
+    let exported = store::export(folder, &export).map_err(|e| error_body(&e))?;
     let request::TraceExport { session, path } = export;
     Ok(Reply::Exported(Export {
         session,

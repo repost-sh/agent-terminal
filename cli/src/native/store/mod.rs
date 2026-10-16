@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use zip::ZipWriter;
@@ -341,17 +341,11 @@ pub(crate) struct Exported {
     pub missing: Vec<PathBuf>,
 }
 
-pub(crate) fn export(home: &Path, export: &request::TraceExport) -> Result<Exported> {
-    let (session, to): (&str, _) = (&export.session, export.path.as_path());
-    let folder = folder(home, session);
-    if !folder.is_dir() {
-        bail!(
-            "session {session} has nothing to export; open a terminal in it first with `agent-terminal open --name <name> <program>`"
-        );
-    }
-    let mut zip = SessionZip::new(file_name(session));
-    let files = zip.add_folder(&folder)?;
-    let (added, missing) = zip.add_screenshots(&folder)?;
+pub(crate) fn export(folder: &SessionFolder, export: &request::TraceExport) -> Result<Exported> {
+    let to = export.path.as_path();
+    let mut zip = SessionZip::new(file_name(&export.session));
+    let files = zip.add_folder(&folder.path)?;
+    let (added, missing) = zip.add_screenshots(&folder.path)?;
     let zipped = zip.writer.finish()?.into_inner();
     if let Some(parent) = to.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;

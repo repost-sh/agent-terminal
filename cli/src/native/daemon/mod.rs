@@ -35,7 +35,7 @@ use crate::native::store::{ActivityEntry, SessionFolder, TabId, Typed};
 use crate::native::terminal::Terminal;
 use crate::protocol::{ErrorBody, HumanInput, Name, Reply, Request, SessionInfo, Sessions, TabInfo, Target};
 use lifecycle::Activity;
-use refusals::{error_body, no_session, no_tab, no_terminal, stopping};
+use refusals::{error_body, known_session, no_tab, no_terminal, stopping};
 
 pub(crate) const READY: &str = "ready";
 
@@ -137,11 +137,6 @@ impl Daemon {
             .map(|tab| Arc::clone(&tab.terminal))
     }
 
-    fn id_of(&self, session: &str, tab: &str) -> Option<TabId> {
-        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        sessions.get(session).and_then(|entry| entry.named(tab)).map(|(id, _)| *id)
-    }
-
     fn terminal_under(&self, session: &str, id: TabId, control: &Arc<Control>) -> Option<Arc<Terminal>> {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         let tab = sessions.get(session).and_then(|entry| entry.tabs.get(&id))?;
@@ -158,7 +153,7 @@ impl Daemon {
 
     fn tab_in(&self, session: &str, tab: Option<&str>) -> Result<(TabId, Tab), ErrorBody> {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        let entry = sessions.get(session).ok_or_else(|| no_session(session))?;
+        let entry = known_session(session, sessions.get(session))?;
         entry.find(session, tab).map(|(id, tab)| (id, tab.clone()))
     }
 }
@@ -180,7 +175,8 @@ impl Backend for Daemon {
     }
 
     fn tab_id(&self, session: &str, tab: &str) -> Option<TabId> {
-        self.id_of(session, tab)
+        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        sessions.get(session).and_then(|entry| entry.named(tab)).map(|(id, _)| *id)
     }
 
     fn folder(&self, session: &str) -> Option<Arc<SessionFolder>> {

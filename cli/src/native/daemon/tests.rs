@@ -7,10 +7,9 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::Daemon;
-use super::refusals::taken;
+use super::refusals::age;
 use crate::home::DAEMON_LOCK;
 use crate::protocol;
-use crate::protocol::SessionInfo;
 
 pub(super) struct Running {
     pub daemon: Arc<Daemon>,
@@ -160,29 +159,18 @@ fn a_session_name_is_taken_until_close_all_ends_its_session() {
 
 #[test]
 fn a_taken_name_says_how_long_its_session_has_been_open_and_which_tabs_it_has() {
-    let held = |tabs: &[&str]| -> SessionInfo {
-        let tabs: Vec<Value> = tabs
-            .iter()
-            .map(|tab| json!({ "tab": tab, "program": "sh", "command": "sh", "cwd": "/", "cols": 2, "rows": 2, "exited": false, "exit_code": null, "control": "agent" }))
-            .collect();
-        serde_json::from_value(json!({ "session": "api", "current": null, "tabs": tabs })).unwrap()
-    };
-    let ages = [0, 59, 60, 3599, 3600, 7322].map(|seconds| taken(&held(&[]), Duration::from_secs(seconds)).message);
     assert_eq!(
-        ages.map(|message| message.trim_end_matches(", no tabs; pick another name for this conversation").to_string()),
-        [
-            "session api is taken: open for 0s",
-            "session api is taken: open for 59s",
-            "session api is taken: open for 1m",
-            "session api is taken: open for 59m",
-            "session api is taken: open for 1h 0m",
-            "session api is taken: open for 2h 2m"
-        ]
+        [0, 59, 60, 3599, 3600, 7322].map(|seconds| age(Duration::from_secs(seconds))),
+        ["0s", "59s", "1m", "59m", "1h 0m", "2h 2m"]
     );
-    assert_eq!(
-        taken(&held(&["app", "web", "db"]), Duration::from_secs(5)).message,
-        "session api is taken: open for 5s, 3 tabs: app, web, db; pick another name for this conversation"
-    );
+    let running = Running::new();
+    for tab in ["app", "web", "db"] {
+        running.open(tab, ECHO);
+    }
+    let (_, refused) = running.refused(&json!({ "command": "new-session", "session": "s" }));
+    let (open_for, tabs) = refused.split_once(", ").unwrap();
+    assert!(open_for.starts_with("session s is taken: open for "), "{refused}");
+    assert_eq!(tabs, "3 tabs: app, web, db; pick another name for this conversation");
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use std::sync::{Arc, PoisonError};
 use std::time::{Duration, Instant};
 
-use super::refusals::{error_body, no_session, no_tab, no_terminal, tab_taken};
+use super::refusals::{error_body, known_session, no_tab, no_terminal, tab_taken};
 use super::waiting::{Until, condition};
 use super::{Daemon, Session, Tab};
 use crate::native::control::Control;
@@ -44,7 +44,7 @@ impl Daemon {
         let Opening { session, tab, shell } = opening;
         let folder = {
             let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-            let entry = sessions.get(session).ok_or_else(|| no_session(session))?;
+            let entry = known_session(session, sessions.get(session))?;
             free(session, entry.named(&tab))?;
             Arc::clone(&entry.folder)
         };
@@ -60,7 +60,7 @@ impl Daemon {
         });
         {
             let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-            let added = sessions.get_mut(session).ok_or_else(|| no_session(session)).and_then(|entry| {
+            let added = known_session(session, sessions.get_mut(session)).and_then(|entry| {
                 free(session, entry.named(&tab))?;
                 let control = Control::new(self.changes.clone());
                 let opened = Tab { name: tab.clone(), renamed_from: None, terminal: Arc::clone(&terminal), control };
@@ -133,12 +133,12 @@ impl Daemon {
 
     pub(super) fn tabs_of(&self, session: &Name) -> Result<SessionInfo, ErrorBody> {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        sessions.get(session).map(|s| s.info(session)).ok_or_else(|| no_session(session))
+        known_session(session, sessions.get(session)).map(|s| s.info(session))
     }
 
     pub(super) fn switch_tab(&self, switch: &request::SwitchTab) -> Result<Reply, ErrorBody> {
         let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        let entry = sessions.get_mut(&switch.session).ok_or_else(|| no_session(&switch.session))?;
+        let entry = known_session(&switch.session, sessions.get_mut(&switch.session))?;
         let (id, _) = entry.find(&switch.session, Some(&switch.tab))?;
         entry.current = Some(id);
         Ok(Reply::Tabs(entry.info(&switch.session)))
@@ -148,7 +148,7 @@ impl Daemon {
         let request::RenameTab { target, name } = rename;
         let session = &target.session;
         let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        let entry = sessions.get_mut(session).ok_or_else(|| no_session(session))?;
+        let entry = known_session(session, sessions.get_mut(session))?;
         let (id, renaming) = entry.find(session, target.tab.as_deref())?;
         let old = renaming.name.clone();
         free(session, entry.named(name).filter(|(holder, _)| **holder != id))?;
@@ -182,7 +182,7 @@ impl Daemon {
     fn close(&self, target: &Target) -> Result<TabRef, ErrorBody> {
         let Target { session, tab } = target;
         let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        let entry = sessions.get_mut(session).ok_or_else(|| no_session(session))?;
+        let entry = known_session(session, sessions.get_mut(session))?;
         let (id, _) = entry.find(session, tab.as_deref())?;
         let closing = entry.tabs.remove(&id).ok_or_else(|| no_terminal(session))?;
         if entry.current == Some(id) {
@@ -197,7 +197,7 @@ impl Daemon {
 
     fn close_session(&self, name: &Name) -> Result<Closed, ErrorBody> {
         let session = self.sessions.lock().unwrap_or_else(PoisonError::into_inner).remove(name);
-        let session = session.ok_or_else(|| no_session(name))?;
+        let session = known_session(name, session)?;
         Ok(self.close_sessions([(name.clone(), session)]))
     }
 
