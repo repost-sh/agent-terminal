@@ -44,9 +44,9 @@ FAULTS=(
   'src/commands/values\.rs:.*: replace escaped -> Result<u8, String> with Ok\(0\)$'
   'src/native/daemon/mod\.rs:.*: replace Daemon::list -> Sessions with Default::default\(\)$'
   'src/native/keyboard\.rs:.*: delete match arm \(1, false\) in letter$'
-  'src/native/terminal/typing\.rs:.*: replace Terminal::type_text -> Result<Delivery> with Ok\(Default::default\(\)\)$'
+  'src/native/terminal/typing\.rs:.*: replace Terminal::press -> Result<usize> with Ok\(0\)$'
   'src/native/daemon/waiting\.rs:.*: replace wait_for -> Result<u64, ErrorBody> with Ok\(0\)$'
-  'src/native/terminal/reading\.rs:.*: replace Terminal::snapshot -> Snapshot with Default::default\(\)$'
+  'src/native/screen/rows\.rs:.*: replace plain_row -> String with "xyzzy"\.into\(\)$'
 )
 
 mutants_installed() {
@@ -99,17 +99,18 @@ acceptance_faults() {
   work="$root/cli/target/acceptance-faults"
   fresh_tree "$work/tree"
   cd "$work/tree/cli"
+  mkdir -p "$work/out"
+  cargo mutants --list -p agent-terminal >"$work/listed.txt"
   for fault in "${FAULTS[@]}"; do
-    [ "$(cargo mutants --list -p agent-terminal --re "$fault" | wc -l | tr -d ' ')" = 1 ] ||
+    [ "$(grep -c -E -- "$fault" "$work/listed.txt")" = 1 ] ||
       fail "the fault \`$fault\` names no single mutant: point it at the code that moved → GAUNTLET.md#acceptance"
     picked+=(--re "$fault")
   done
-  mkdir -p "$work/out"
-  if ! CARGO_BUILD_BUILD_DIR="$root/cli/target/mbf" cargo mutants --in-place -p agent-terminal "${picked[@]}" -o "$work/out" -- --test acceptance >"$work/out.log" 2>&1; then
+  if ! CARGO_BUILD_BUILD_DIR="$root/cli/target/mbf" cargo mutants --in-place -p agent-terminal "${picked[@]}" --minimum-test-timeout 120 -o "$work/out" -- --test acceptance >"$work/out.log" 2>&1; then
     printf 'cargo-mutants reported a fault the acceptance suite let through; the next step names it\n'
   fi
   cd "$root/cli"
-  step "add the scenario that would have caught the fault it names → GAUNTLET.md#acceptance" cargo run --quiet -p at-gauntlet -- mutation "$work/out/mutants.out/outcomes.json"
+  step "add the scenario that would have caught the fault it names → GAUNTLET.md#acceptance" cargo run --quiet -p at-gauntlet -- faults "$work/out/mutants.out/outcomes.json" "${FAULTS[@]}"
 }
 
 npm_tests() {

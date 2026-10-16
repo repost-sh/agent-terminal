@@ -16,7 +16,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::offenses::Verdict;
 
-const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet mutation <outcomes.json>...";
+const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet mutation <outcomes.json>...\n       at-gauntlet faults <outcomes.json> <regex>...";
 
 const FAILED: u8 = 2;
 
@@ -41,6 +41,12 @@ fn run(args: &[String]) -> Result<Verdict> {
         && !reports.is_empty()
     {
         return mutation::check(&reports.iter().map(Path::new).collect::<Vec<_>>());
+    }
+    if let [gate, report, faults @ ..] = args
+        && gate == "faults"
+        && !faults.is_empty()
+    {
+        return mutation::check_faults(Path::new(report), &faults.iter().map(String::as_str).collect::<Vec<_>>());
     }
     let gate = match args {
         [gate] => Gate::Static(unmeasured(gate)?),

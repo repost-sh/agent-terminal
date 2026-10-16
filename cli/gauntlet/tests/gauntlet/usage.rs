@@ -1,6 +1,6 @@
 use crate::scratch::{Scratch, run};
 
-const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet mutation <outcomes.json>...";
+const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet mutation <outcomes.json>...\n       at-gauntlet faults <outcomes.json> <regex>...";
 
 #[test]
 fn without_a_gate_and_a_report_it_prints_the_usage() {

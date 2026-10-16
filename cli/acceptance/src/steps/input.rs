@@ -1,6 +1,7 @@
 use gherkin_cargo_test::{Ctx, DataTable, StepRegistry};
 use serde_json::Value;
 
+use super::WAIT_MS;
 use super::common::{self, json};
 use super::{Steps, arg};
 use crate::programs;
@@ -38,7 +39,7 @@ fn sends(ctx: &mut Ctx<Terminal>, args: &[String], _: Option<&DataTable>) {
 
 fn received(ctx: &mut Ctx<Terminal>, args: &[String], _: Option<&DataTable>) {
     let expected = arg(args, 0);
-    let waited = ctx.world.run(&["wait", expected]).map(|ran| ran.code);
+    let waited = ctx.world.run(&["--timeout", WAIT_MS, "wait", expected]).map(|ran| ran.code);
     let snapshot = ctx.world.run(&["--json", "snapshot"]).map(|ran| json(&ran.stdout));
     let second_row =
         snapshot.as_ref().map(|snapshot| snapshot.pointer("/lines/1").and_then(Value::as_str).map(String::from));

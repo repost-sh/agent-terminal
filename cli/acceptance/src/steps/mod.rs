@@ -7,6 +7,8 @@ use gherkin_cargo_test::{Ctx, DataTable, StepRegistry};
 
 use crate::terminal::Terminal;
 
+pub(crate) const WAIT_MS: &str = "10000";
+
 pub(crate) type Step = fn(&mut Ctx<Terminal>, &[String], Option<&DataTable>);
 
 pub(crate) struct Steps<'a>(pub(crate) &'a mut StepRegistry<Terminal>);

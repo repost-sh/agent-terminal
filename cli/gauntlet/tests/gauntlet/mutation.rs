@@ -100,3 +100,43 @@ fn a_report_that_cannot_be_read_is_an_error() {
     assert!(ran.stderr.starts_with("error: parse broken.json: "), "{}", ran.stderr);
     assert_eq!(ran.code, 1);
 }
+
+const FAULTS_FIX: &str = "add the scenario that would have caught the fault, or point the fault at the code that moved → GAUNTLET.md#acceptance";
+
+fn faults(read: &Value, patterns: &[&str]) -> (i32, String) {
+    let dir = tempfile::tempdir().expect("scratch folder");
+    std::fs::write(dir.path().join("outcomes.json"), read.to_string()).expect("write the outcomes");
+    let mut args = vec!["faults", "outcomes.json"];
+    args.extend_from_slice(patterns);
+    let ran = run(dir.path(), &args);
+    (ran.code, ran.stdout)
+}
+
+#[test]
+fn every_named_fault_must_be_one_caught_mutant_and_other_mutants_do_not_count() {
+    let read = report(
+        "Success",
+        &[
+            mutant("src/a.rs:1:1: replace f with ()", "CaughtMutant"),
+            mutant("src/b.rs:2:1: replace g with ()", "MissedMutant"),
+            mutant("src/c.rs:3:1: delete field x from struct C expression in h", "MissedMutant"),
+        ],
+        3,
+    );
+    assert_eq!(
+        faults(&read, &[r"src/a\.rs:.*: replace f with \(\)$"]),
+        (0, "the acceptance suite caught all 1 faults\n".to_string())
+    );
+    assert_eq!(
+        faults(&read, &[r"src/b\.rs:.*: replace g", r"src/d\.rs:", r": replace "]),
+        (
+            2,
+            format!(
+                "src/b.rs:2:1: replace g with () got through the acceptance suite (MissedMutant): {FAULTS_FIX}\n\
+                 the fault \"src/d\\\\.rs:\" matched 0 tested mutants, not one: {FAULTS_FIX}\n\
+                 the fault \": replace \" matched 2 tested mutants, not one: {FAULTS_FIX}\n\
+                 3 offense(s)\n"
+            )
+        )
+    );
+}

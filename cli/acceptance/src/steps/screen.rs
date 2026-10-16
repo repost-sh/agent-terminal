@@ -1,6 +1,7 @@
 use gherkin_cargo_test::{Ctx, DataTable, StepRegistry};
 use serde_json::Value;
 
+use super::WAIT_MS;
 use super::common::{self, json};
 use super::{Steps, arg};
 use crate::programs;
@@ -35,7 +36,7 @@ fn open_printer(ctx: &mut Ctx<Terminal>, options: &[&str]) {
 fn printing(ctx: &mut Ctx<Terminal>, args: &[String], _: Option<&DataTable>) {
     open_printer(ctx, &["--lines", arg(args, 0)]);
     let last = format!("line {}", arg(args, 0));
-    ctx.world.setup(&["wait", &last]);
+    ctx.world.setup(&["--timeout", WAIT_MS, "wait", &last]);
 }
 
 fn printing_slowly(ctx: &mut Ctx<Terminal>, args: &[String], _: Option<&DataTable>) {
@@ -47,7 +48,7 @@ fn snapshot(ctx: &mut Ctx<Terminal>, _: &[String], _: Option<&DataTable>) {
 }
 
 fn wait_for(ctx: &mut Ctx<Terminal>, args: &[String], _: Option<&DataTable>) {
-    ctx.world.act(&["wait", arg(args, 0)]);
+    ctx.world.act(&["--timeout", WAIT_MS, "wait", arg(args, 0)]);
 }
 
 fn wait_briefly_for(ctx: &mut Ctx<Terminal>, args: &[String], _: Option<&DataTable>) {
