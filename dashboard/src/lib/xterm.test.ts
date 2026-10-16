@@ -7,7 +7,13 @@ interface Webgl { lost: (() => void) | null; disposed: boolean; activated: unkno
 
 const webgl = vi.hoisted(() => ({ made: [] as Webgl[], failing: false }));
 
-const canvas = { gpu: true, asked: [] as unknown[][], released: 0 };
+const HARDWARE = "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)";
+
+const UNMASKED_RENDERER_WEBGL = 0x9246;
+
+const RENDERER = 0x1f01;
+
+const canvas = { gpu: true, named: true, unmasked: HARDWARE as unknown, masked: "WebKit WebGL" as unknown, asked: [] as unknown[][], released: 0 };
 
 const REAL_GET_CONTEXT = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
 
@@ -21,7 +27,19 @@ const getContext = (kind: string, options?: unknown) => {
     canvas.released += 1;
   };
 
-  return canvas.gpu ? { getExtension: (name: string) => (name === "WEBGL_lose_context" ? { loseContext } : null) } : null;
+  const extensions = new Map<string, unknown>([["WEBGL_lose_context", { loseContext }]]);
+  const parameters = new Map([
+    [UNMASKED_RENDERER_WEBGL, canvas.unmasked],
+    [RENDERER, canvas.masked],
+  ]);
+
+  if (canvas.named) {
+    extensions.set("WEBGL_debug_renderer_info", { UNMASKED_RENDERER_WEBGL });
+  }
+
+  return canvas.gpu
+    ? { RENDERER, getExtension: (name: string) => extensions.get(name) ?? null, getParameter: (parameter: number) => parameters.get(parameter) ?? null }
+    : null;
 };
 
 vi.mock("@xterm/addon-webgl", () => ({
@@ -131,6 +149,9 @@ beforeEach(() => {
   webgl.made.length = 0;
   webgl.failing = false;
   canvas.gpu = true;
+  canvas.named = true;
+  canvas.unmasked = HARDWARE;
+  canvas.masked = "WebKit WebGL";
   canvas.asked.length = 0;
   canvas.released = 0;
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value: getContext, configurable: true });
@@ -174,6 +195,52 @@ test("a browser whose WebGL would run without a GPU draws the terminal with the 
   });
   expect([webgl.made, canvas.released, warn.mock.calls]).toEqual([[], 0, []]);
   shown.close();
+});
+
+const drawnWithWebgl = async () => {
+  const shown = await opened();
+
+  await vi.waitFor(() => {
+    expect(shown.used).toHaveLength(1);
+  });
+  shown.close();
+
+  return [webgl.made.length === 1, canvas.released];
+};
+
+test.each([
+  "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "llvmpipe (LLVM 15.0.7, 256 bits)",
+  "softpipe",
+  "Apple Software Renderer",
+  "Microsoft Basic Render Driver",
+])("WebGL that renders in software, as %s does, leaves the terminal to the DOM renderer", async (unmasked) => {
+  canvas.unmasked = unmasked;
+  canvas.masked = HARDWARE;
+
+  expect(await drawnWithWebgl()).toEqual([false, 1]);
+});
+
+test("without the renderer's real name, the name WebGL shows decides, and a name that is not text means a GPU", async () => {
+  canvas.named = false;
+  canvas.unmasked = "SwiftShader";
+  const masked = await drawnWithWebgl();
+
+  vi.resetModules();
+  webgl.made.length = 0;
+  canvas.masked = "SwiftShader";
+  const software = await drawnWithWebgl();
+
+  vi.resetModules();
+  webgl.made.length = 0;
+  canvas.named = true;
+  canvas.unmasked = null;
+
+  expect([masked, software, await drawnWithWebgl()]).toEqual([
+    [true, 1],
+    [false, 2],
+    [true, 3],
+  ]);
 });
 
 test("the GPU is probed once for every terminal on the page", async () => {

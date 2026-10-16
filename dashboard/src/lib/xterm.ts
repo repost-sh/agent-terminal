@@ -55,14 +55,24 @@ const fontsReady = () =>
     }
   }));
 
+const SOFTWARE_RENDERER = /swiftshader|llvmpipe|softpipe|software|basic render/i;
+
 let gpu: boolean | null = null;
+
+const rendersInSoftware = (gl: WebGL2RenderingContext) => {
+  const named = gl.getExtension("WEBGL_debug_renderer_info");
+  const renderer: unknown = gl.getParameter(named ? named.UNMASKED_RENDERER_WEBGL : gl.RENDERER);
+
+  return typeof renderer === "string" && SOFTWARE_RENDERER.test(renderer);
+};
 
 const probedGpu = () => {
   const probe = document.createElement("canvas").getContext("webgl2", { failIfMajorPerformanceCaveat: true });
+  const onHardware = probe !== null && !rendersInSoftware(probe);
 
   probe?.getExtension("WEBGL_lose_context")?.loseContext();
 
-  return probe !== null;
+  return onHardware;
 };
 
 const onGpu = () => (gpu ??= probedGpu());
