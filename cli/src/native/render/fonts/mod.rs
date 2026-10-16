@@ -308,7 +308,7 @@ fn paint(alpha: &mut [u8], stride: usize, (across, down): (usize, usize), part: 
 }
 
 fn fitted_px(face: Face, natural: f32, room: f32, px: f32) -> f32 {
-    if !face.is_text() && natural > room && natural > 0.0 { px * room / natural } else { px }
+    if face.is_text() { px } else { px * (room / natural).min(1.0) }
 }
 
 #[cfg(test)]

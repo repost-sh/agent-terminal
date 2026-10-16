@@ -85,3 +85,6 @@ fn under_home(typed: &str) -> &str {
         _ => typed,
     }
 }
+
+#[cfg(test)]
+mod tests;

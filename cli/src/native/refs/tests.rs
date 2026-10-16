@@ -91,7 +91,7 @@ fn key_hints_count_only_when_a_row_has_two_and_not_where_a_button_already_is() {
 
 #[test]
 fn a_run_on_an_uncommon_backdrop_is_selected_unless_other_refs_cover_its_letters() {
-    let mut rows = screen(&["  open file   ", " x   ", "[ OK ]  q: quit  w: write"]);
+    let mut rows = screen(&["  open file   ", " x   ", "[ OK ]  q: quit  w: write", "  abcd"]);
     for col in 2..11 {
         rows.rows[0][col].inverse = true;
     }
@@ -103,6 +103,9 @@ fn a_run_on_an_uncommon_backdrop_is_selected_unless_other_refs_cover_its_letters
         rows.rows[2][col].inverse = true;
         rows.rows[2][col].fg = Colour::Indexed(3);
     }
+    for col in 2..4 {
+        rows.rows[3][col].bg = Colour::Indexed(5);
+    }
     assert_eq!(
         lines(&rows),
         [
@@ -110,6 +113,7 @@ fn a_run_on_an_uncommon_backdrop_is_selected_unless_other_refs_cover_its_letters
             "button \"OK\" at 2,2 over 2-2 0-5",
             "hint \"q: quit\" at 2,8 over 2-2 8-14",
             "hint \"w: write\" at 2,17 over 2-2 17-24",
+            "selected \"ab\" at 3,2 over 3-3 2-3",
         ]
     );
 }
@@ -176,4 +180,11 @@ fn a_hint_inside_a_button_is_left_to_the_button() {
 fn a_panel_whose_side_breaks_off_ends_at_its_last_side_row() {
     let gap = screen(&["┌─ Gap ─┐", "│       │", "x       │", "└───────┘"]);
     assert_eq!(lines(&gap), ["panel \"Gap\" at 0,3 over 0-1 0-8"]);
+}
+
+#[test]
+fn a_link_on_a_single_letter_is_a_link_too() {
+    let mut row = screen(&["a x"]);
+    row.rows[0][2].link = Some(Link { id: "x".to_string(), url: "https://x.dev".to_string() });
+    assert_eq!(lines(&row), ["link \"x\" at 0,2 over 0-0 2-2 https://x.dev"]);
 }
