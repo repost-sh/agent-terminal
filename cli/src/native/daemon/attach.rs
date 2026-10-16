@@ -44,11 +44,8 @@ impl Daemon {
         let session = &target.session;
         match self.tab(target) {
             Ok((id, attached)) => {
-                let hold = (!read_only).then(|| TabHold {
-                    session: session.to_string(),
-                    tab: id,
-                    hold: attached.control.take(),
-                });
+                let hold =
+                    (!read_only).then(|| TabHold { session: session.clone(), tab: id, hold: attached.control.take() });
                 let reply = Reply::Attached(Attached {
                     session: session.clone(),
                     tab: attached.name.clone(),

@@ -16,7 +16,7 @@ pub(super) struct SessionRoute {
 
 pub(super) struct TabRoute {
     pub backend: Arc<dyn Backend>,
-    pub session: String,
+    pub session: Name,
     pub name: Name,
     pub id: Option<TabId>,
 }
@@ -37,7 +37,9 @@ impl FromRequestParts<Arc<dyn Backend>> for TabRoute {
     async fn from_request_parts(parts: &mut Parts, state: &Arc<dyn Backend>) -> Result<Self, Response> {
         let Path((session, tab)) =
             Path::<(String, String)>::from_request_parts(parts, state).await.map_err(IntoResponse::into_response)?;
-        let name: Name = tab.parse().map_err(|refused: String| (StatusCode::NOT_FOUND, refused).into_response())?;
+        let not_found = |refused: String| (StatusCode::NOT_FOUND, refused).into_response();
+        let session: Name = session.parse().map_err(not_found)?;
+        let name: Name = tab.parse().map_err(not_found)?;
         let id = state.tab_id(&session, &name);
         Ok(Self { backend: Arc::clone(state), session, name, id })
     }

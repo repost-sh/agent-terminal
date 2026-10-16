@@ -7,7 +7,7 @@ use super::stream::send;
 use crate::native::log;
 use crate::native::output_log::{Marked, Output, Slice};
 use crate::native::pty;
-use crate::native::store::{PendingCall, SessionFolder, TabId};
+use crate::native::store::{ActivityEntry, PendingCall, SessionFolder};
 use crate::native::terminal::Terminal;
 use crate::output::call_line;
 use crate::protocol::{Modes, Shell};
@@ -77,8 +77,7 @@ pub(super) async fn activity(ws: WebSocketUpgrade, route: TabRoute) -> Response 
 }
 
 async fn follow_activity(mut socket: WebSocket, route: TabRoute) {
-    let (session, tab) = (route.session.as_str(), Tab { name: &route.name, id: route.id });
-    let folder = route.backend.folder(session);
+    let folder = route.backend.folder(&route.session);
     let logged = folder.as_ref().map(|folder| folder.logged());
     let folder = folder.as_ref().map_or_else(Weak::new, Arc::downgrade);
     let mut follow = Follow::tab(&route).and(logged);
@@ -88,7 +87,7 @@ async fn follow_activity(mut socket: WebSocket, route: TabRoute) {
             send(&mut socket, &ActivityUpdate::Closed).await;
             return;
         };
-        let Some(read) = read_activity(folder, reported.offset, session, &tab).await else {
+        let Some(read) = read_activity(folder, reported.offset, &route).await else {
             return;
         };
         if !(reported.report(&mut socket, read).await && follow.changed(&mut socket).await) {
@@ -122,24 +121,18 @@ struct Read {
     pending: Vec<PendingCall>,
 }
 
-struct Tab<'a> {
-    name: &'a str,
-    id: Option<TabId>,
-}
-
-async fn read_activity(folder: Arc<SessionFolder>, offset: u64, session: &str, tab: &Tab<'_>) -> Option<Read> {
+async fn read_activity(folder: Arc<SessionFolder>, offset: u64, route: &TabRoute) -> Option<Read> {
     let read = match tokio::task::spawn_blocking(move || folder.activity_and_pending_since(offset)).await {
         Ok(read) => read,
         Err(e) => Err(e.into()),
     };
-    let name = tab.name;
+    let TabRoute { session, name, id, .. } = route;
     let (entries, end, pending) = read
         .inspect_err(|e| log::note(format_args!("dashboard: reading the activity of {session} {name} failed: {e:#}")))
         .ok()?;
-    let id = tab.id.and_then(|id| serde_json::to_value(id).ok());
     let entries =
-        entries.into_iter().filter(|entry| entry.get("tab_id").is_some_and(|mine| Some(mine) == id.as_ref())).collect();
-    let pending = pending.into_iter().filter(|call| call.tab_id.is_some_and(|mine| Some(mine) == tab.id)).collect();
+        entries.into_iter().filter(|entry| id.is_some_and(|id| ActivityEntry::logged_for(entry, id))).collect();
+    let pending = pending.into_iter().filter(|call| call.tab_id.is_some_and(|mine| Some(mine) == *id)).collect();
     Some(Read { entries, end, pending })
 }
 

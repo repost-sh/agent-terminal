@@ -77,7 +77,10 @@ fn the_dashboard_refuses_a_tab_that_is_not_a_tab_name() {
     let port = running.ok(&start(0, &[]))["port"].as_u64().unwrap();
     assert_eq!(
         [http(port, "GET", "/api/session/s/t1/commands/1"), http(port, "POST", "/api/session/s/Echo/close")],
-        [(404, "s t1 is not open".to_string()), (404, "s Echo is not a session and tab name".to_string())]
+        [
+            (404, "s t1 is not open".to_string()),
+            (404, format!("\"Echo\" is not a name: a name is {}, such as repost-forward", crate::protocol::NAME_RULE))
+        ]
     );
 }
 

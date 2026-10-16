@@ -187,9 +187,9 @@ impl Backend for Daemon {
         self.changes.subscribe()
     }
 
-    fn take_control(&self, session: &str, tab: &str) -> Result<TabHold, ErrorBody> {
+    fn take_control(&self, session: &Name, tab: &str) -> Result<TabHold, ErrorBody> {
         self.tab_in(session, Some(tab)).map(|(id, entry)| TabHold {
-            session: session.to_string(),
+            session: session.clone(),
             tab: id,
             hold: entry.control.take(),
         })
@@ -198,13 +198,13 @@ impl Backend for Daemon {
     fn holds(&self, taken: &TabHold) -> bool {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         sessions
-            .get(taken.session.as_str())
+            .get(&taken.session)
             .and_then(|entry| entry.tabs.get(&taken.tab))
             .is_some_and(|tab| taken.hold.holds(&tab.control))
     }
 
     fn type_as_human(&self, taken: &TabHold, input: &HumanInput) -> Result<(), ErrorBody> {
-        let (session, tab, hold) = (taken.session.as_str(), taken.tab, &taken.hold);
+        let (session, tab, hold) = (&taken.session, taken.tab, &taken.hold);
         let time = SystemTime::now();
         let started = Instant::now();
         let (folder, name, terminal) = {

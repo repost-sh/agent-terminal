@@ -95,6 +95,12 @@ pub(crate) struct ActivityEntry {
     pub human: Option<HumanInput>,
 }
 
+impl ActivityEntry {
+    pub(crate) fn logged_for(entry: &serde_json::Value, tab: TabId) -> bool {
+        entry.get("tab_id").and_then(|id| TabId::deserialize(id).ok()) == Some(tab)
+    }
+}
+
 const KEPT_OUTPUT_BYTES: usize = 64 * 1024;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

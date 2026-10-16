@@ -25,7 +25,7 @@ use crate::native::control::TabHold;
 use crate::native::log;
 use crate::native::store::{SessionFolder, TabId};
 use crate::native::terminal::Terminal;
-use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions, request};
+use crate::protocol::{Dashboard, ErrorBody, HumanInput, Name, Reply, Request, Sessions, request};
 
 pub(crate) trait Backend: Send + Sync + 'static {
     fn call(&self, request: Request) -> Result<Reply, ErrorBody>;
@@ -34,7 +34,7 @@ pub(crate) trait Backend: Send + Sync + 'static {
     fn tab_id(&self, session: &str, tab: &str) -> Option<TabId>;
     fn folder(&self, session: &str) -> Option<Arc<SessionFolder>>;
     fn changes(&self) -> watch::Receiver<u64>;
-    fn take_control(&self, session: &str, tab: &str) -> Result<TabHold, ErrorBody>;
+    fn take_control(&self, session: &Name, tab: &str) -> Result<TabHold, ErrorBody>;
     fn holds(&self, taken: &TabHold) -> bool;
     fn type_as_human(&self, taken: &TabHold, input: &HumanInput) -> Result<(), ErrorBody>;
 }

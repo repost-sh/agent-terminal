@@ -13,7 +13,7 @@ use super::stream::send;
 use crate::global_options::without_global_options;
 use crate::native::control::TabHold;
 use crate::native::log;
-use crate::native::store::SessionFolder;
+use crate::native::store::{ActivityEntry, SessionFolder, TabId};
 use crate::output::call_line;
 use crate::protocol::HumanInput;
 
@@ -34,11 +34,11 @@ struct Refusals {
     folder: Arc<SessionFolder>,
     logged: watch::Receiver<u64>,
     offset: u64,
-    tab: Value,
+    tab: TabId,
 }
 
 impl Refusals {
-    async fn start(folder: Arc<SessionFolder>, tab: Value) -> Option<Self> {
+    async fn start(folder: Arc<SessionFolder>, tab: TabId) -> Option<Self> {
         let mut logged = folder.logged();
         logged.borrow_and_update();
         let reading = Arc::clone(&folder);
@@ -82,7 +82,7 @@ impl Refusals {
     }
 
     fn refused_here(&self, entry: &Value) -> bool {
-        entry.get("tab_id").is_some_and(|tab| *tab == self.tab)
+        ActivityEntry::logged_for(entry, self.tab)
             && entry.get("exit").is_some_and(|exit| *exit == crate::exit::HUMAN_CONTROL)
     }
 }
@@ -137,9 +137,9 @@ async fn take_control(socket: &mut WebSocket, route: &TabRoute) -> Option<Arc<Ta
 
 impl Holding {
     async fn start(backend: Arc<dyn Backend>, hold: Arc<TabHold>) -> Self {
-        let refusals = match (backend.folder(&hold.session), serde_json::to_value(hold.tab)) {
-            (Some(folder), Ok(tab)) => Refusals::start(folder, tab).await,
-            _ => None,
+        let refusals = match backend.folder(&hold.session) {
+            Some(folder) => Refusals::start(folder, hold.tab).await,
+            None => None,
         };
         Self { backend, hold, refusals }
     }

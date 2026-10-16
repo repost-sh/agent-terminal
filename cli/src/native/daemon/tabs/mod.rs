@@ -18,8 +18,7 @@ const KILLED_WITHIN: Duration = Duration::from_secs(5);
 impl Daemon {
     pub(super) fn open(&self, open: request::Open) -> Result<Reply, ErrorBody> {
         let request::Open { session, tab, program, args, size, cwd, env, wait, timeout_ms } = open;
-        let opening = Opening { session: &session, tab, shell: None };
-        let (tab, terminal) = self.open_tab(opening, pty::Command { program, args, cwd, env, size })?;
+        let (tab, terminal) = self.open_tab(&session, tab, None, pty::Command { program, args, cwd, env, size })?;
         first_screen(Labelled { session: &session, tab: &tab, terminal: &terminal }, wait.as_ref(), timeout_ms)
     }
 
@@ -27,7 +26,7 @@ impl Daemon {
         let request::OpenShell { session, tab, shell: kind, program, size, cwd, env, wait, timeout_ms } = opening;
         let command = pty::Command { program, args: Vec::new(), cwd, env, size };
         let command = shell::Scripts { home: &self.home }.prepare(kind, command).map_err(|e| error_body(&e))?;
-        let (tab, terminal) = self.open_tab(Opening { session: &session, tab, shell: Some(kind) }, command)?;
+        let (tab, terminal) = self.open_tab(&session, tab, Some(kind), command)?;
         let at = Labelled { session: &session, tab: &tab, terminal: &terminal };
         first_screen(at, wait.as_ref(), timeout_ms).map_err(|mut error| {
             if matches!(wait, Some(Wait::Command)) && error.code == crate::exit::TIMEOUT {
@@ -40,8 +39,13 @@ impl Daemon {
         })
     }
 
-    fn open_tab(&self, opening: Opening<'_>, command: pty::Command) -> Result<(Name, Arc<Terminal>), ErrorBody> {
-        let Opening { session, tab, shell } = opening;
+    fn open_tab(
+        &self,
+        session: &Name,
+        tab: Name,
+        shell: Option<Shell>,
+        command: pty::Command,
+    ) -> Result<(Name, Arc<Terminal>), ErrorBody> {
         let folder = {
             let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
             let entry = known_session(session, sessions.get(session))?;
@@ -222,12 +226,6 @@ impl Daemon {
         stop_all(&terminals);
         Closed { closed, ended }
     }
-}
-
-struct Opening<'a> {
-    session: &'a Name,
-    tab: Name,
-    shell: Option<Shell>,
 }
 
 fn free(session: &Name, holder: Option<(&TabId, &Tab)>) -> Result<(), ErrorBody> {

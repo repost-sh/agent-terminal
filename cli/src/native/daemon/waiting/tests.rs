@@ -113,7 +113,7 @@ fn waiting_for_control_returns_at_once_without_a_human_and_times_out_while_one_h
         back,
         json!({ "session": "s", "tab": "echo", "until": "a human to hand back control", "waited_ms": null, "frame": null })
     );
-    let hold = running.daemon.take_control("s", "echo").unwrap();
+    let hold = running.daemon.take_control(&"s".parse().unwrap(), "echo").unwrap();
     assert_eq!(
         [running.refused(&wait_control(20, false)), running.refused(&wait_control(20, true))],
         [

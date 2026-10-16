@@ -23,12 +23,6 @@ pub(crate) struct Target {
     pub tab: Option<Name>,
 }
 
-impl Target {
-    pub(crate) fn tab(session: &Name, tab: &Name) -> Self {
-        Self { session: session.clone(), tab: Some(tab.clone()) }
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Owner {
