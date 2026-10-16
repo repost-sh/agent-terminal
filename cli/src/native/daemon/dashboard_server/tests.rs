@@ -88,17 +88,40 @@ fn the_dashboard_refuses_a_tab_that_is_not_a_tab_id() {
 fn the_dashboard_opens_and_lists_sessions_and_says_why_it_cannot_open_one() {
     let running = Running::new();
     let port = running.ok(&start(0, &[]))["port"].as_u64().unwrap();
-    assert_eq!(json_of(&http(port, "GET", "/api/sessions")), (200, json!({ "sessions": [] })));
-    let (status, reply) = opened(port, &opening("s", "/bin/sh -c 'printf ready; read x'"));
+    let (status, reply) = opened(port, &opening("n", "/bin/sh -c 'printf ready; read x'"));
     assert_eq!((status, &reply["reply"], &reply["data"]["tab"]), (200, &json!("Snapshot"), &json!("t1")));
-    assert_eq!(json_of(&http(port, "GET", "/api/sessions")).1["sessions"][0]["tabs"][0]["program"], "sh");
+    let listed = json_of(&http(port, "GET", "/api/sessions")).1;
     assert_eq!(
-        [opened(port, &opening("s", "/bin/sh")), opened(port, &opening("t", "/nope"))],
-        [
-            (422, json!({ "error": { "code": 1, "message": "A session named s already exists." } })),
-            (422, json!({ "error": { "code": 1, "message": "command not found: /nope" } }))
-        ]
+        (&listed["sessions"][0]["tabs"][0]["program"], &listed["sessions"][1]["tabs"]),
+        (&json!("sh"), &json!([]))
     );
+}
+
+#[test]
+fn the_dashboard_opens_a_tab_in_a_session_it_has_and_refuses_a_taken_name_or_a_program_that_cannot_start() {
+    let running = Running::new();
+    let port = running.ok(&start(0, &[]))["port"].as_u64().unwrap();
+    let mut in_s = opening("s", "/bin/sh -c 'printf again; read x'");
+    in_s["new_session"] = json!(false);
+    assert_eq!(opened(port, &in_s).1["data"]["tab"], "t1");
+    running.open(ECHO);
+    let (taken, refusal) = opened(port, &opening("s", "/bin/sh"));
+    let message = refusal["error"]["message"].as_str().unwrap();
+    assert_eq!(
+        (taken, message.split_once(", ").map(|(_, tabs)| tabs)),
+        (422, Some("2 tabs: t1, t2; pick another name for this conversation"))
+    );
+    assert_eq!(
+        opened(port, &opening("t", "/nope")),
+        (422, json!({ "error": { "code": 1, "message": "command not found: /nope" } }))
+    );
+    let names = json_of(&http(port, "GET", "/api/sessions")).1["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|session| session["session"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(names, [json!("s")], "a session made for a program that cannot start is ended again");
 }
 
 #[test]
@@ -118,7 +141,10 @@ fn the_dashboard_closes_a_tab_or_every_session_and_restarts_a_tab() {
         [json_of(&http(port, "POST", "/api/session/s/t1/close")), json_of(&http(port, "POST", "/api/sessions/close"))],
         [
             (200, json!({ "reply": "Closed", "data": { "closed": [{ "session": "s", "tab": "t1" }] } })),
-            (200, json!({ "reply": "Closed", "data": { "closed": [{ "session": "s", "tab": "t2" }] } }))
+            (
+                200,
+                json!({ "reply": "Closed", "data": { "closed": [{ "session": "s", "tab": "t2" }], "ended": ["s"] } })
+            )
         ]
     );
 }

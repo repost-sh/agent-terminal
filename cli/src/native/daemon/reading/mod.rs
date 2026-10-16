@@ -67,7 +67,7 @@ impl Daemon {
 
     pub(super) fn history(&self, history: request::History) -> Result<Reply, ErrorBody> {
         let (id, terminal) = self.target(&history.target)?;
-        let (session, tab) = (history.target.session, id.to_string());
+        let (session, tab) = (String::from(history.target.session), id.to_string());
         let mut commands = terminal
             .commands()
             .ok_or_else(|| no_integration(&Labelled { session: &session, tab: &tab, terminal: &terminal }))?;
@@ -83,7 +83,7 @@ impl Daemon {
 
     pub(super) fn history_show(&self, show: request::HistoryShow) -> Result<Reply, ErrorBody> {
         let (tab_id, terminal) = self.target(&show.target)?;
-        let (session, tab, id) = (show.target.session, tab_id.to_string(), show.id);
+        let (session, tab, id) = (String::from(show.target.session), tab_id.to_string(), show.id);
         if terminal.shell().is_none() {
             return Err(no_integration(&Labelled { session: &session, tab: &tab, terminal: &terminal }));
         }
@@ -98,7 +98,7 @@ pub(super) fn trace_export(home: &Path, export: request::TraceExport) -> Result<
     let exported = store::export(home, &export).map_err(|e| error_body(&e))?;
     let request::TraceExport { session, path } = export;
     Ok(Reply::Exported(Export {
-        session,
+        session: session.to_string(),
         path,
         files: exported.files,
         bytes: exported.bytes,

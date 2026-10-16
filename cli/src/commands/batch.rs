@@ -8,10 +8,10 @@ use super::{Cli, argv, parsed, request as single};
 use crate::batch::NotValid;
 use crate::output;
 use crate::protocol::request;
-use crate::protocol::{BatchStep, Request, TabId};
+use crate::protocol::{BatchStep, Name, Request, TabId};
 
 pub(super) struct Defaults<'a> {
-    pub(super) session: &'a str,
+    pub(super) session: Option<&'a Name>,
     pub(super) tab: Option<TabId>,
     pub(super) timeout: u64,
     pub(super) screenshot_dir: Option<&'a Path>,
@@ -20,7 +20,10 @@ pub(super) struct Defaults<'a> {
 pub(super) fn request(args: &BatchArgs, defaults: &Defaults<'_>) -> Result<Request, String> {
     let parser = Cli::command()
         .no_binary_name(true)
-        .mut_arg("session", |arg| arg.env(None::<&str>).default_value(defaults.session.to_string()))
+        .mut_arg("session", |arg| match defaults.session {
+            Some(session) => arg.env(None::<&str>).default_value(session.to_string()),
+            None => arg.env(None::<&str>),
+        })
         .mut_arg("tab", |arg| match defaults.tab {
             Some(id) => arg.default_value(id.to_string()),
             None => arg,

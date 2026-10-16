@@ -18,7 +18,6 @@ pub(crate) use saved_screen::saved_rows;
 pub(crate) use screen::screen;
 
 use crate::protocol::{ErrorBody, Reply};
-use crate::session_id::SessionId;
 use crate::version::{BUILD, COMMIT, VERSION};
 
 pub(crate) fn print(text: &str) -> io::Result<()> {
@@ -73,10 +72,6 @@ pub(super) fn reply_data(reply: &Reply) -> serde_json::Result<Value> {
 
 pub(crate) fn session(name: &str, json: bool) -> io::Result<()> {
     if json { print_json(&serde_json::json!({ "session": name })) } else { print(&format!("{name}\n")) }
-}
-
-pub(crate) fn session_id(id: &SessionId, json: bool) -> io::Result<()> {
-    if json { print_json(id) } else { print(&format!("{}\n", id.session)) }
 }
 
 pub(crate) fn count(n: usize, noun: &str) -> String {

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Baseline, Shot, Size, SnapshotOptions, TabId, Target};
+use super::{Baseline, Name, Shot, Size, SnapshotOptions, TabId, Target};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Call {
@@ -12,13 +12,14 @@ pub(crate) struct Call {
 
 pub(crate) enum Addressed<'a> {
     Nothing,
-    Session(&'a str),
-    Tab(&'a str, Option<TabId>),
+    Session(&'a Name),
+    Tab(&'a Name, Option<TabId>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "command", rename_all = "kebab-case")]
 pub(crate) enum Request {
+    NewSession(NewSession),
     Open(Open),
     Snapshot(Snapshot),
     Close(Close),
@@ -52,8 +53,13 @@ pub(crate) enum Request {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct NewSession {
+    pub session: Name,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Open {
-    pub session: String,
+    pub session: Name,
     pub program: String,
     pub args: Vec<String>,
     pub size: Size,
@@ -72,17 +78,10 @@ pub(crate) struct Snapshot {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub(crate) struct Close {
-    #[serde(flatten)]
-    pub target: Target,
-    pub scope: Closing,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum Closing {
-    Tab,
-    Session,
+#[serde(tag = "scope", rename_all = "kebab-case")]
+pub(crate) enum Close {
+    Tab(Target),
+    Session { session: Name },
     EverySession,
 }
 
@@ -105,12 +104,12 @@ pub(crate) struct Restart {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Tabs {
-    pub session: String,
+    pub session: Name,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct SwitchTab {
-    pub session: String,
+    pub session: Name,
     pub tab: TabId,
 }
 
@@ -190,7 +189,7 @@ pub(crate) struct DiffSnapshot {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct TraceExport {
-    pub session: String,
+    pub session: Name,
     pub path: PathBuf,
 }
 
@@ -203,7 +202,7 @@ pub(crate) struct DashboardStart {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct OpenShell {
-    pub session: String,
+    pub session: Name,
     pub shell: super::Shell,
     pub program: String,
     pub size: Size,
@@ -282,20 +281,19 @@ impl Request {
             | Request::Stop
             | Request::StopIfNoTerminals
             | Request::Batch(_)
+            | Request::NewSession(_)
+            | Request::Close(Close::EverySession)
             | Request::DashboardStart(_)
             | Request::DashboardStop
             | Request::Attach(_) => Addressed::Nothing,
             Request::Open(Open { session, .. })
             | Request::Shell(OpenShell { session, .. })
             | Request::Tabs(Tabs { session })
-            | Request::Close(Close {
-                target: Target { session, .. },
-                scope: Closing::Session | Closing::EverySession,
-            })
+            | Request::Close(Close::Session { session })
             | Request::TraceExport(TraceExport { session, .. }) => Addressed::Session(session),
             Request::SwitchTab(SwitchTab { session, tab }) => Addressed::Tab(session, Some(*tab)),
             Request::Snapshot(Snapshot { target, .. })
-            | Request::Close(Close { target, .. })
+            | Request::Close(Close::Tab(target))
             | Request::Resize(Resize { target, .. })
             | Request::Restart(Restart { target, .. })
             | Request::Input(Deliver { target, .. })

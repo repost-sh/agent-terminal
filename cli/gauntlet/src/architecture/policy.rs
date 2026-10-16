@@ -34,7 +34,6 @@ pub(super) const MODULES: &[(&str, Layer)] = &[
     ("key", Layer::Contract),
     ("paint", Layer::Contract),
     ("protocol", Layer::Contract),
-    ("session_id", Layer::Contract),
     ("version", Layer::Contract),
 ];
 

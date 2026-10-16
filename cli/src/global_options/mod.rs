@@ -2,18 +2,21 @@ use std::path::PathBuf;
 
 use clap::{ArgAction, Args};
 
-use crate::protocol::TabId;
+use crate::protocol::{Name, TabId};
+
+pub(crate) const NAME_THE_SESSION: &str = "name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)";
 
 #[derive(Args)]
 pub(crate) struct GlobalOptions {
     #[arg(
         long,
         global = true,
-        help = "Use a named session (or AGENT_TERMINAL_SESSION)",
+        help = "This conversation's session, made by `session new <name>` (or AGENT_TERMINAL_SESSION)",
         env = "AGENT_TERMINAL_SESSION",
-        default_value = "default"
+        value_name = "NAME",
+        value_parser = clap::value_parser!(Name)
     )]
-    pub session: String,
+    pub session: Option<Name>,
 
     #[arg(long, global = true, help = "JSON output")]
     pub json: bool,

@@ -30,7 +30,7 @@ fn info_shows_the_setup_modes_and_the_environment_with_secrets_masked_by_the_dae
     let at = AgentTerminal::new();
     let opened = open_a_program_with_a_secret_in_its_environment(&at);
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     browser.select_panel("Info");
     browser.wait_for_text("xterm-256color");
 
@@ -147,7 +147,7 @@ fn the_environment_shows_each_variable_sorted_with_secrets_masked(environment: &
 
 fn the_daemon_never_sends_the_secret(browser: &Browser) {
     let sent: Value = serde_json::from_str(&browser.eval(
-        "new Promise((resolve) => { const socket = new WebSocket(`ws://${location.host}/api/session/default/t1/info`); \
+        "new Promise((resolve) => { const socket = new WebSocket(`ws://${location.host}/api/session/work/t1/info`); \
             socket.onmessage = (event) => { resolve(event.data); socket.close(); }; })",
     ))
     .unwrap();

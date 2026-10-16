@@ -6,7 +6,7 @@ use super::Context;
 use super::values::{parse_env, parse_size};
 use crate::native::pty;
 use crate::protocol::request;
-use crate::protocol::{Request, Shell, Size, TextMatch, Wait};
+use crate::protocol::{Name, Request, Shell, Size, TextMatch, Wait};
 
 #[derive(Subcommand)]
 pub(super) enum ProgramCommand {
@@ -36,8 +36,9 @@ pub(super) enum ProgramCommand {
 }
 
 impl ProgramCommand {
-    pub(super) fn request(self, context: Context) -> Result<Request, String> {
-        let Context { target, timeout, .. } = context;
+    pub(super) fn request(self, context: &Context) -> Result<Request, String> {
+        let target = context.target()?;
+        let timeout = context.timeout;
         match self {
             ProgramCommand::Open(args) => args.request(target.session, timeout),
             ProgramCommand::Shell(args) => shell(target.session, args, timeout),
@@ -176,7 +177,7 @@ fn environment(extra: Vec<(String, String)>) -> Vec<(String, String)> {
     env
 }
 
-fn shell(session: String, args: ShellArgs, timeout_ms: u64) -> Result<Request, String> {
+fn shell(session: Name, args: ShellArgs, timeout_ms: u64) -> Result<Request, String> {
     let current = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
     let cwd = args.cwd.map_or_else(|| current.clone(), |cwd| current.join(cwd));
     let env = environment(args.env);
@@ -206,7 +207,7 @@ fn your_shell(env: &[(String, String)]) -> Result<(Shell, String), String> {
 }
 
 impl OpenArgs {
-    pub(super) fn request(self, session: String, timeout_ms: u64) -> Result<Request, String> {
+    pub(super) fn request(self, session: Name, timeout_ms: u64) -> Result<Request, String> {
         let current = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
         let cwd = self.cwd.map_or_else(|| current.clone(), |cwd| current.join(cwd));
         let env = environment(self.env);

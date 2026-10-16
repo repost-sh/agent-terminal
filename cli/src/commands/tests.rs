@@ -11,22 +11,21 @@ fn own_parts(mut sent: serde_json::Value) -> String {
     sent.to_string().replace(&*std::env::current_dir().unwrap().to_string_lossy(), "<here>")
 }
 
-fn requested(line: &str) -> String {
-    let words = shlex::split(line).unwrap();
-    let argv: Vec<OsString> = ["agent-terminal", "--session", "work", "--screenshot-dir", "/shots"]
-        .into_iter()
-        .map(OsString::from)
-        .chain(words.into_iter().map(OsString::from))
-        .collect();
-    let mut parser = Cli::command();
-    let sent = match argv::parse(&mut parser, &argv).and_then(parsed) {
+fn sent(words: Vec<String>) -> String {
+    let argv: Vec<OsString> = std::iter::once("agent-terminal".to_string()).chain(words).map(OsString::from).collect();
+    let mut parser = Cli::command().mut_arg("session", |arg| arg.env(None::<&str>));
+    match argv::parse(&mut parser, &argv).and_then(parsed) {
         Ok(cli) => request(cli).map_or_else(
             |refused| format!("refused: {refused}"),
             |request| own_parts(serde_json::to_value(&request).unwrap()),
         ),
         Err(e) => format!("usage: {:?}", e.kind()),
-    };
-    format!("{line} -> {sent}")
+    }
+}
+
+fn requested(line: &str) -> String {
+    let global = ["--session", "work", "--screenshot-dir", "/shots"].map(String::from);
+    format!("{line} -> {}", sent(global.into_iter().chain(shlex::split(line).unwrap()).collect()))
 }
 
 fn table(lines: &[&str]) -> String {
@@ -34,16 +33,7 @@ fn table(lines: &[&str]) -> String {
 }
 
 fn typed_alone(line: &str) -> String {
-    let argv: Vec<OsString> =
-        std::iter::once("agent-terminal".to_string()).chain(shlex::split(line).unwrap()).map(OsString::from).collect();
-    let sent = match argv::parse(&mut Cli::command(), &argv).and_then(parsed) {
-        Ok(cli) => request(cli).map_or_else(
-            |refused| format!("refused: {refused}"),
-            |request| serde_json::to_value(&request).unwrap()["scope"].to_string(),
-        ),
-        Err(e) => format!("usage: {:?}", e.kind()),
-    };
-    format!("{line} -> {sent}")
+    format!("{line} -> {}", sent(shlex::split(line).unwrap()))
 }
 
 #[test]
@@ -55,10 +45,42 @@ fn close_all_closes_the_session_typed_on_its_own_command_line_or_with_bypass_ses
         "close --all",
     ];
     insta::assert_snapshot!(lines.map(typed_alone).join("\n"), @r#"
-        close --all --session a -> "session"
-        close --all --bypass-session -> "every-session"
-        close --bypass-session --all --session a -> refused: the argument '--bypass-session' cannot be used with '--session <SESSION>': close --all --session <name> closes the tabs of that session, close --all --bypass-session closes every tab in every session
+        close --all --session a -> {"command":"close","env":null,"scope":"session","session":"a"}
+        close --all --bypass-session -> {"command":"close","env":null,"scope":"every-session"}
+        close --bypass-session --all --session a -> refused: the argument '--bypass-session' cannot be used with '--session <NAME>': close --all --session <name> closes the tabs of that session, close --all --bypass-session closes every tab in every session
         close --all -> refused: close --all closes every tab of one session, so name that session on this command line: repeat it as `--session <name>` (AGENT_TERMINAL_SESSION alone is not enough); `close --all --bypass-session` closes every tab in every session
+    "#);
+}
+
+#[test]
+fn a_session_is_created_by_session_new_and_named_on_every_command_that_acts_on_one() {
+    let lines = [
+        "session new repost-forward",
+        "session new Repost",
+        "session new a-name-longer-than-24-chars",
+        "session list",
+        "session id",
+        "close --all --bypass-session",
+        "snapshot",
+        "open htop",
+        "tab",
+        "close",
+        "--session Work snapshot",
+        "--session 9lives snapshot",
+    ];
+    insta::assert_snapshot!(lines.map(typed_alone).join("\n"), @r#"
+        session new repost-forward -> {"command":"new-session","env":null,"session":"repost-forward"}
+        session new Repost -> usage: ValueValidation
+        session new a-name-longer-than-24-chars -> usage: ValueValidation
+        session list -> {"command":"sessions","env":null}
+        session id -> usage: InvalidSubcommand
+        close --all --bypass-session -> {"command":"close","env":null,"scope":"every-session"}
+        snapshot -> refused: name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)
+        open htop -> refused: name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)
+        tab -> refused: name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)
+        close -> refused: name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)
+        --session Work snapshot -> usage: ValueValidation
+        --session 9lives snapshot -> {"command":"snapshot","env":null,"options":{"ansi":false,"refs":false,"rows":null,"scrollback":"none","squeeze_blank":false},"session":"9lives","tab":null}
     "#);
 }
 
@@ -123,8 +145,8 @@ fn shell_history_restart_and_resize_name_their_command_and_its_wait() {
         resize 80x24 -> {"command":"resize","env":null,"session":"work","size":{"cols":80,"rows":24},"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
         resize 80x24 --wait-stable -> {"command":"resize","env":null,"session":"work","size":{"cols":80,"rows":24},"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
         close -> {"command":"close","env":null,"scope":"tab","session":"work","tab":null}
-        close --all -> {"command":"close","env":null,"scope":"session","session":"work","tab":null}
-        close --all --bypass-session -> refused: the argument '--bypass-session' cannot be used with '--session <SESSION>': close --all --session <name> closes the tabs of that session, close --all --bypass-session closes every tab in every session
+        close --all -> {"command":"close","env":null,"scope":"session","session":"work"}
+        close --all --bypass-session -> refused: the argument '--bypass-session' cannot be used with '--session <NAME>': close --all --session <name> closes the tabs of that session, close --all --bypass-session closes every tab in every session
         close --bypass-session -> usage: MissingRequiredArgument
         --tab 2 close -> {"command":"close","env":null,"scope":"tab","session":"work","tab":"t2"}
     "##);

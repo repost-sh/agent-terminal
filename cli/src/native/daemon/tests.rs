@@ -2,12 +2,15 @@ use std::fs::File;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak, mpsc};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
 use super::Daemon;
+use super::refusals::taken;
 use crate::home::DAEMON_LOCK;
 use crate::protocol;
+use crate::protocol::SessionInfo;
 
 pub(super) struct Running {
     pub daemon: Arc<Daemon>,
@@ -23,7 +26,9 @@ impl Running {
         let claim = File::create(home.path().join(DAEMON_LOCK)).unwrap();
         claim.lock().unwrap();
         let daemon = Arc::new_cyclic(|me| Daemon::new(Weak::clone(me), ended, at, claim));
-        Self { daemon, home, ended: end }
+        let running = Self { daemon, home, ended: end };
+        running.ok(&json!({ "command": "new-session", "session": "s" }));
+        running
     }
 
     pub(super) fn respond(&self, typed: Option<&[&str]>, request: &Value) -> Value {
@@ -114,10 +119,63 @@ pub(super) const ECHO: &str = "printf 'ready\\n'; while read line; do printf 'go
 #[test]
 fn sessions_list_each_tab_with_its_program_size_and_owner() {
     let running = Running::new();
-    assert_eq!(running.ok(&json!({ "command": "sessions" })), json!({ "sessions": [] }));
+    assert_eq!(
+        running.ok(&json!({ "command": "sessions" })),
+        json!({ "sessions": [{ "session": "s", "current": null, "tabs": [] }] })
+    );
     running.open(ECHO);
     let listed = running.ok(&json!({ "command": "sessions" }));
     insta::assert_snapshot!(listed, @r#"{"sessions":[{"current":"t1","session":"s","tabs":[{"cols":30,"command":"/bin/sh -c \"printf 'ready\\\\n'; while read line; do printf 'got %s\\\\n' \\\"\"'$line\"; done'","control":"agent","cwd":"/","exit_code":null,"exited":false,"program":"sh","rows":4,"tab":"t1"}]}]}"#);
+}
+
+#[test]
+fn a_session_name_is_taken_until_close_all_ends_its_session() {
+    let running = Running::new();
+    let new = json!({ "command": "new-session", "session": "s" });
+    let mut held = vec![running.refused(&new).1];
+    running.open(ECHO);
+    held.push(running.refused(&new).1);
+    running.open(ECHO);
+    running.ok(&on("close", &json!({ "scope": "tab", "tab": "t1" })));
+    held.push(running.refused(&new).1);
+    let held: Vec<&str> = held.iter().map(|message| message.split_once(", ").map_or("", |(_, tabs)| tabs)).collect();
+    assert_eq!(
+        held,
+        [
+            "no tabs; pick another name for this conversation",
+            "1 tab: t1; pick another name for this conversation",
+            "1 tab: t2; pick another name for this conversation"
+        ]
+    );
+    running.ok(&json!({ "command": "close", "scope": "session", "session": "s" }));
+    assert_eq!(running.ok(&new), json!({ "session": "s" }));
+}
+
+#[test]
+fn a_taken_name_says_how_long_its_session_has_been_open_and_which_tabs_it_has() {
+    let held = |tabs: &[&str]| -> SessionInfo {
+        let tabs: Vec<Value> = tabs
+            .iter()
+            .map(|tab| json!({ "tab": tab, "program": "sh", "command": "sh", "cwd": "/", "cols": 2, "rows": 2, "exited": false, "exit_code": null, "control": "agent" }))
+            .collect();
+        serde_json::from_value(json!({ "session": "api", "current": null, "tabs": tabs })).unwrap()
+    };
+    let ages = [0, 59, 60, 3599, 3600, 7322].map(|seconds| taken(&held(&[]), Duration::from_secs(seconds)).message);
+    assert_eq!(
+        ages.map(|message| message.trim_end_matches(", no tabs; pick another name for this conversation").to_string()),
+        [
+            "session api is taken: open for 0s",
+            "session api is taken: open for 59s",
+            "session api is taken: open for 1m",
+            "session api is taken: open for 59m",
+            "session api is taken: open for 1h 0m",
+            "session api is taken: open for 2h 2m"
+        ]
+    );
+    assert_eq!(
+        taken(&held(&["t1", "t3", "t4"]), Duration::from_secs(5)).message,
+        "session api is taken: open for 5s, 3 tabs: t1, t3, t4; pick another name for this conversation"
+    );
 }
 
 #[test]
@@ -132,11 +190,14 @@ fn a_request_the_daemon_cannot_read_is_answered_with_its_build() {
 fn a_tab_or_session_that_is_not_there_is_named_in_the_refusal() {
     let running = Running::new();
     let snapshot = |tab: Option<&str>| on("snapshot", &json!({ "tab": tab }));
+    let mut elsewhere = snapshot(None);
+    elsewhere["session"] = json!("nowhere");
     assert_eq!(
-        [running.refused(&snapshot(None)), running.refused(&snapshot(Some("t3")))],
+        [running.refused(&snapshot(None)), running.refused(&snapshot(Some("t3"))), running.refused(&elsewhere)],
         [
             (1, "no terminal is open in session s; start one with `agent-terminal open <program>`".to_string()),
-            (1, "no tab t3 in session s; list tabs with `agent-terminal tab`".to_string())
+            (1, "no tab t3 in session s; list tabs with `agent-terminal tab`".to_string()),
+            (1, "no session nowhere; create it with `agent-terminal session new nowhere`".to_string())
         ]
     );
 }

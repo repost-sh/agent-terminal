@@ -29,3 +29,6 @@ fn saved_text_rows(saved: &str) -> Option<Vec<String>> {
     }
     numbered.then_some(rows)
 }
+
+#[cfg(test)]
+mod tests;

@@ -9,11 +9,11 @@ fn diff_screenshot_passes_when_the_screen_still_looks_like_the_baseline() {
     at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
     let work = at.work_folder();
     at.run_in(&work, &["screenshot", "before.png"]).success();
-    let frame = at.frame("default");
+    let frame = at.frame("work");
 
     let run = at.run_in(&work, &["diff", "screenshot", "--baseline", "before.png"]).success();
 
-    let image = at.home().join("screenshots").join(format!("default-t1-{frame}-diff.png"));
+    let image = at.home().join("screenshots").join(format!("work-t1-{frame}-diff.png"));
     assert_eq!(
         run.stdout(),
         format!(

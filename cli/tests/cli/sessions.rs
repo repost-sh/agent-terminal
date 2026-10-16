@@ -1,9 +1,40 @@
 use crate::support::{AgentTerminal, fixture};
 
 #[test]
+fn session_new_creates_an_empty_session_and_a_second_one_with_its_name_fails_naming_the_holder() {
+    let at = AgentTerminal::without_session();
+    assert_eq!(at.run(&["session", "new", "a"]).success().stdout(), "created session a\n");
+    assert_eq!(at.run(&["session", "list"]).success().stdout(), "a · no tabs\n");
+    at.run(&["--session", "a", "open", "--size", "20x2", "cat"]).success();
+    let taken = at.run(&["session", "new", "a"]);
+    let stderr = taken.stderr();
+    assert_eq!(taken.code(), 1);
+    assert!(
+        stderr.starts_with("error: session a is taken: open for ")
+            && stderr.ends_with(", 1 tab: t1; pick another name for this conversation\n"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn session_new_refuses_a_name_outside_the_rule() {
+    let unnamed = AgentTerminal::without_session().run(&["session", "new", "Not_A_Name"]);
+    assert_eq!(unnamed.code(), 1);
+    assert!(unnamed.stderr().contains("is not a name: a name is 1 to 24 characters"), "{}", unnamed.stderr());
+}
+
+#[test]
+fn session_id_is_an_unknown_subcommand() {
+    let at = AgentTerminal::without_session();
+    let id = at.run(&["session", "id"]);
+    assert_eq!(id.code(), 1);
+    assert!(id.stderr().contains("unrecognized subcommand 'id'"), "{}", id.stderr());
+}
+
+#[test]
 fn session_prints_the_current_session_name() {
     let at = AgentTerminal::new();
-    assert_eq!(at.run(&["session"]).success().stdout(), "default\n");
+    assert_eq!(at.run(&["session"]).success().stdout(), "work\n");
     assert_eq!(at.run(&["--session", "qa", "session"]).success().stdout(), "qa\n");
     assert_eq!(at.run_with_session_env("from-env", &["session"]).success().stdout(), "from-env\n");
     assert_eq!(at.run_with_session_env("from-env", &["--session", "flag", "session"]).success().stdout(), "flag\n");
@@ -14,8 +45,21 @@ fn session_prints_the_current_session_name() {
 }
 
 #[test]
+fn session_without_a_session_says_how_to_name_and_create_one() {
+    let unnamed = AgentTerminal::without_session().run(&["session"]);
+    assert_eq!(unnamed.code(), 1);
+    assert!(
+        unnamed.stderr().starts_with("error: name this conversation's session after its task"),
+        "{}",
+        unnamed.stderr()
+    );
+}
+
+#[test]
 fn sessions_never_see_each_others_terminals() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "a"]).success();
+    at.run(&["session", "new", "b"]).success();
     at.run(&[
         "--session",
         "a",
@@ -38,7 +82,7 @@ fn sessions_never_see_each_others_terminals() {
 
     let default = at.run(&["snapshot"]);
     assert_eq!(default.code(), 1);
-    assert!(default.stderr().contains("no terminal is open in session default"), "{}", default.stderr());
+    assert!(default.stderr().contains("no terminal is open in session work"), "{}", default.stderr());
 
     insta::assert_snapshot!(at.run(&["--session", "a", "snapshot"]).success().screen(), @r"
     a t1 · line-printer · 20x2 · cursor 2,1 · frame N
@@ -55,7 +99,7 @@ fn sessions_never_see_each_others_terminals() {
 
 #[test]
 fn session_list_shows_every_tab_with_its_program_size_and_status() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     open_a_with_a_running_and_an_exited_tab_and_b(&at);
 
     assert_eq!(
@@ -68,6 +112,8 @@ fn session_list_shows_every_tab_with_its_program_size_and_status() {
 }
 
 fn open_a_with_a_running_and_an_exited_tab_and_b(at: &AgentTerminal) {
+    at.run(&["session", "new", "a"]).success();
+    at.run(&["session", "new", "b"]).success();
     at.run(&[
         "--session",
         "a",
@@ -128,42 +174,8 @@ fn session_list_json_describes_every_tab(at: &AgentTerminal) {
 
 #[test]
 fn session_list_with_nothing_open_says_so_without_starting_the_daemon() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     assert_eq!(at.run(&["session", "list"]).success().stdout(), "no sessions are open\n");
     assert_eq!(at.run(&["--json", "session", "list"]).success().json(), serde_json::json!({ "sessions": [] }));
     assert!(!at.home().join("daemon.sock").exists(), "session list must not start the daemon");
-}
-
-#[test]
-fn session_id_is_stable_for_a_checkout_and_unique_across_worktrees() {
-    let at = AgentTerminal::new();
-    let main = at.home().join("main");
-    let linked = at.home().join("linked");
-    std::fs::create_dir_all(main.join(".git")).unwrap();
-    std::fs::create_dir_all(main.join("src/deep")).unwrap();
-    std::fs::create_dir_all(&linked).unwrap();
-    std::fs::write(linked.join(".git"), "gitdir: ../main/.git/worktrees/linked\n").unwrap();
-    let id = |dir: &std::path::Path| {
-        at.run_in(dir, &["session", "id", "--scope", "worktree", "--prefix", "qa"]).success().stdout()
-    };
-
-    let from_root = id(&main);
-    assert_eq!(id(&main.join("src/deep")), from_root);
-    assert_eq!(id(&main), from_root);
-    assert_ne!(id(&linked), from_root);
-    let hash = from_root.strip_prefix("qa-").and_then(|rest| rest.strip_suffix('\n')).expect("qa-<hash>");
-    assert!(hash.len() == 12 && hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "{hash}");
-    assert!(!at.home().join("daemon.sock").exists(), "session id must not start the daemon");
-}
-
-#[test]
-fn session_id_matches_agent_browser_for_the_same_folder() {
-    let at = AgentTerminal::new();
-    let root = std::path::Path::new("/");
-    assert_eq!(at.run_in(root, &["session", "id", "--prefix", "demo"]).success().stdout(), "demo-8a5edab28263\n");
-    assert_eq!(at.run_in(root, &["session", "id", "--scope", "worktree"]).success().stdout(), "8a5edab28263\n");
-    assert_eq!(
-        at.run_in(root, &["--json", "session", "id", "--scope", "worktree", "--prefix", "demo"]).success().json(),
-        serde_json::json!({ "session": "demo-8a5edab28263", "scope": "worktree", "path": "/", "hash": "8a5edab28263" })
-    );
 }

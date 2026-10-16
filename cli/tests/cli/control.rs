@@ -3,10 +3,12 @@ use crate::support::{AgentTerminal, Run, fixture};
 const BINARY: &str = env!("CARGO_BIN_EXE_agent-terminal");
 
 fn open_app(at: &AgentTerminal) {
+    at.run(&["session", "new", "app"]).success();
     at.run(&["--session", "app", "open", "--size", "40x6", "--wait", "ready", &fixture("input-echo")]).success();
 }
 
 fn attach(at: &AgentTerminal, from: &str, extra: &[&str], ready: &str) -> Run {
+    at.run(&["session", "new", from]).success();
     let mut args =
         vec!["--session", from, "open", "--size", "70x10", "--wait", ready, BINARY, "--", "--session", "app"];
     args.push("attach");
@@ -133,6 +135,7 @@ fn human_entries(at: &AgentTerminal) -> Vec<serde_json::Value> {
 #[test]
 fn an_attached_human_types_with_keys_encoded_for_the_program_and_each_key_is_logged_as_human() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "app"]).success();
     at.run(&["--session", "app", "open", "--size", "40x6", "--wait", "ready", &fixture("input-echo"), "--app-cursor"])
         .success();
     attach(&at, "human", &[], "ctrl-p ctrl-q detaches").success();
@@ -185,6 +188,7 @@ const SENT: [&str; 24] = [
 #[test]
 fn attach_turns_the_sequences_a_terminal_sends_into_keys_for_the_tab() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "app"]).success();
     at.run(&["--session", "app", "open", "--size", "160x4", "--wait", "ready", &fixture("input-echo")]).success();
     attach(&at, "human", &[], "ctrl-p ctrl-q detaches").success();
     for raw in SENT {
@@ -201,6 +205,7 @@ fn attach_turns_the_sequences_a_terminal_sends_into_keys_for_the_tab() {
 fn attach_in_a_window_no_taller_than_the_tab_has_no_room_for_the_hint() {
     let at = AgentTerminal::new();
     open_app(&at);
+    at.run(&["session", "new", "human"]).success();
     at.run(&[
         "--session",
         "human",
@@ -224,13 +229,11 @@ fn attach_in_a_window_no_taller_than_the_tab_has_no_room_for_the_hint() {
 #[test]
 fn attaching_to_a_session_that_does_not_exist_says_so() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "human"]).success();
     at.run(&["--session", "human", "open", "--size", "70x6", BINARY, "--", "--session", "nowhere", "attach"]).success();
     at.run(&["--session", "human", "wait", "--exit"]).success();
     let shown = at.run(&["--session", "human", "get", "text"]).success().stdout();
-    assert_eq!(
-        shown,
-        "error: no terminal is open in session nowhere; start one with `agent-t\nerminal open <program>`\n"
-    );
+    assert_eq!(shown, "error: no session nowhere; create it with `agent-terminal session new\nnowhere`\n");
 }
 
 #[derive(Default)]
@@ -264,6 +267,7 @@ impl HumanInput {
 #[test]
 fn attach_mirrors_the_tab_with_a_line_saying_how_to_detach() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "app"]).success();
     at.run(&["--session", "app", "open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
     attach(&at, "watcher", &["--read-only"], "read-only").success();
 
@@ -301,6 +305,7 @@ fn a_read_only_attach_leaves_control_with_the_agent_and_sends_no_keys() {
 fn exec_is_refused_while_a_human_has_control_of_the_shell() {
     let at = AgentTerminal::new();
     let home = crate::support::scratch("home-");
+    at.run(&["session", "new", "app"]).success();
     let shell = at
         .command(&["--session", "app", "shell", "--shell", "bash", "--size", "40x6"])
         .env("HOME", home.path())

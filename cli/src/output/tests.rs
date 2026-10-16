@@ -260,7 +260,10 @@ fn sessions_and_tabs_read_as_lists() {
     insta::assert_snapshot!(replied(&[
         ("Sessions", r#"{"sessions":[{"current":"t1","session":"rec","tabs":[{"cols":30,"command":"sh -c \"printf \\\"\\\\033[1mhello\\\\033[0m [ OK ]\\\\nq: quit  h: help\\\\n\\\"; read x; printf \\\"got \"'$x'\"\\\\n\\\"; sleep 30\"","control":"agent","cwd":"/home/me/work","exit_code":null,"exited":false,"program":"sh","rows":6,"tab":"t1"}]}]}"#),
         ("Sessions", r#"{"sessions":[]}"#),
+        ("Sessions", r#"{"sessions":[{"current":null,"session":"idle","tabs":[]}]}"#),
         ("Tabs", r#"{"current":"t1","session":"rec","tabs":[{"cols":30,"command":"sh -c \"printf \\\"\\\\033[1mhello\\\\033[0m [ OK ]\\\\nq: quit  h: help\\\\n\\\"; read x; printf \\\"got \"'$x'\"\\\\n\\\"; sleep 30\"","control":"agent","cwd":"/home/me/work","exit_code":null,"exited":false,"program":"sh","rows":6,"tab":"t1"}]}"#),
+        ("Tabs", r#"{"current":null,"session":"idle","tabs":[]}"#),
+        ("Created", r#"{"session":"repost-forward"}"#),
     ]), @r##"
         rec t1 · sh · 30x6 · running · current
 
@@ -268,7 +271,16 @@ fn sessions_and_tabs_read_as_lists() {
         no sessions are open
 
         ~
+        idle · no tabs
+
+        ~
         rec t1 · sh · 30x6 · running · current
+
+        ~
+        no tabs are open in session idle
+
+        ~
+        created session repost-forward
     "##);
 }
 
@@ -281,6 +293,7 @@ fn screenshots_exports_and_closes_say_where_and_what() {
         ("Closed", r#"{"closed":[{"session":"rec","tab":"t1"}]}"#),
         ("Closed", r#"{"closed":[]}"#),
         ("Closed", r#"{"closed":[{"session":"a","tab":"t1"},{"session":"b","tab":"t2"}]}"#),
+        ("Closed", r#"{"closed":[{"session":"a","tab":"t1"}],"ended":["a","b"]}"#),
     ]), @r##"
         saved /home/me/work/shots/a.png (rec t1, frame 5)
 
@@ -299,6 +312,11 @@ fn screenshots_exports_and_closes_say_where_and_what() {
         ~
         closed a t1
         closed b t2
+
+        ~
+        closed a t1
+        ended session a
+        ended session b
     "##);
 }
 
@@ -478,21 +496,4 @@ fn a_batch_in_json_gives_each_calls_result_or_error_and_its_exit() {
         super::batch::batch_json(&outcomes).unwrap().to_string(),
         r#"[{"args":["get","frame"],"exit_code":0,"result":{"frame":3}},{"args":["x"],"error":{"code":1,"message":"no"},"exit_code":1},{"args":["y"],"exit_code":null}]"#
     );
-}
-
-#[test]
-fn a_saved_screen_is_read_from_snapshot_json_or_from_numbered_text_rows() {
-    let rows = |saved: &str| super::saved_screen::saved_rows(saved);
-    let owned = |rows: &[&str]| Some(rows.iter().map(ToString::to_string).collect::<Vec<_>>());
-    assert_eq!(rows(r#"{"first_row":3,"lines":["c","d"]}"#), owned(&["", "", "c", "d"]));
-    assert_eq!(rows(r#"{"lines":["a"]}"#), owned(&["a"]));
-    assert_eq!(
-        [rows(r#"{"lines":[1]}"#), rows(r#"{"first_row":"x"}"#), rows(r#"{"first_row":-1,"lines":[]}"#)],
-        [None, None, Some(Vec::new())]
-    );
-    assert_eq!(
-        rows("work t1 · sh\n 1│one\n 3│three │ bar\n…│ (rows blank)\n 0│zero"),
-        owned(&["one", "", "three │ bar"])
-    );
-    assert_eq!(rows("no rows here"), None);
 }

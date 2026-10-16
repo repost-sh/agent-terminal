@@ -204,7 +204,7 @@ fn a_whole_write_lands_in_one_step_and_leaves_no_partial_file() {
 }
 
 fn exported_session(home: &Path) -> (PathBuf, PathBuf) {
-    let started = SessionFolder::start(home, "my work").unwrap();
+    let started = SessionFolder::start(home, "my-work").unwrap();
     let shots = home.join("shots");
     std::fs::create_dir_all(shots.join("other")).unwrap();
     std::fs::write(shots.join("a.png"), "A").unwrap();
@@ -214,7 +214,7 @@ fn exported_session(home: &Path) -> (PathBuf, PathBuf) {
     started.log(&call);
     started.keep_screenshot(&shot(&shots.join("other/a.png").to_string_lossy(), 1));
     started.keep_screenshot(&shot(&shots.join("a.png").to_string_lossy(), 2));
-    let session = folder(home, "my work");
+    let session = folder(home, "my-work");
     std::fs::create_dir_all(session.join("sub")).unwrap();
     std::fs::write(session.join("sub/notes.txt"), "kept\npartial").unwrap();
     std::fs::write(session.join("t1.commands.jsonl"), "{}\nhalf").unwrap();
@@ -226,7 +226,7 @@ fn an_export_zips_the_folder_with_whole_lines_and_each_screenshot_once() {
     let home = home();
     let (shots, to) = exported_session(home.path());
     let exported =
-        export(home.path(), &request::TraceExport { session: "my work".to_string(), path: to.clone() }).unwrap();
+        export(home.path(), &request::TraceExport { session: "my-work".parse().unwrap(), path: to.clone() }).unwrap();
     let mut zip = zip::ZipArchive::new(std::fs::File::open(&to).unwrap()).unwrap();
     let mut read = |name: &str| {
         let mut text = String::new();
@@ -234,10 +234,10 @@ fn an_export_zips_the_folder_with_whole_lines_and_each_screenshot_once() {
         text
     };
     let files = [
-        read("my%20work/sub/notes.txt"),
-        read("my%20work/t1.commands.jsonl"),
-        read("my%20work/screenshots/a.png"),
-        read("my%20work/screenshots/2-a.png"),
+        read("my-work/sub/notes.txt"),
+        read("my-work/t1.commands.jsonl"),
+        read("my-work/screenshots/a.png"),
+        read("my-work/screenshots/2-a.png"),
     ];
     assert_eq!(files, ["kept\npartial", "{}\n", "A", "B"]);
     assert_eq!(
@@ -249,8 +249,10 @@ fn an_export_zips_the_folder_with_whole_lines_and_each_screenshot_once() {
 #[test]
 fn a_session_with_no_folder_has_nothing_to_export() {
     let home = home();
-    let missing =
-        export(home.path(), &request::TraceExport { session: "never".to_string(), path: home.path().join("t.zip") });
+    let missing = export(
+        home.path(),
+        &request::TraceExport { session: "never".parse().unwrap(), path: home.path().join("t.zip") },
+    );
     assert_eq!(
         missing.err().map(|e| e.to_string()),
         Some(

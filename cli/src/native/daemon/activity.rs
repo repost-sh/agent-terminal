@@ -4,10 +4,10 @@ use std::time::{Instant, SystemTime};
 use super::Daemon;
 use crate::native::store::{ActivityEntry, Pending, SessionFolder, Typed};
 use crate::output;
-use crate::protocol::{Addressed, ErrorBody, Input, Reply, Request, TabId, Target, request};
+use crate::protocol::{Addressed, ErrorBody, Input, Name, Reply, Request, TabId, Target, request};
 
 pub(super) struct Logged {
-    session: String,
+    session: Name,
     tab: Option<TabId>,
     raw: bool,
     folder: Option<Arc<SessionFolder>>,
@@ -31,7 +31,7 @@ impl Daemon {
         let pending =
             folder.as_ref().map(|folder| folder.begin(&Typed { time, words: &typed }, tab.map(|id| id.to_string())));
         Some(Logged {
-            session: session.to_string(),
+            session: session.clone(),
             tab,
             raw: matches!(request, Request::Input(request::Deliver { input: Input::Send { .. }, .. })),
             folder,

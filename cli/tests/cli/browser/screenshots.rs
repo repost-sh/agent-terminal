@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use super::{Browser, Dashboard, js_string};
 use crate::support::AgentTerminal;
 
-const GALLERY: &str = "ul[aria-label='Screenshots of default']";
+const GALLERY: &str = "ul[aria-label='Screenshots of work']";
 const LIGHTBOX: &str = "[role=dialog]";
 const LINES: &str = "stty -echo; printf '\\033[?25lone'; read _; printf '\\ntwo'; read _";
 
@@ -124,7 +124,7 @@ fn focus_is(browser: &Browser, selector: &str) -> bool {
 fn the_screenshots_tab_lists_each_screenshot_of_the_session_live_with_the_call_that_took_it() {
     let shots = Shots::opened();
     let dashboard = Dashboard::start(&shots.at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     open_screenshots(&browser);
     browser.wait_for_text("No screenshots yet");
     assert_eq!(browser.text("[role=tabpanel] [data-slot=badge]").trim(), "0");
@@ -158,7 +158,7 @@ fn the_screenshots_tab_lists_each_screenshot_of_the_session_live_with_the_call_t
     wait_for_shots(&browser, 3);
     assert_eq!(
         gallery(&browser)[2],
-        [format!("default-t1-{after}.png"), format!("t1 · frame {after} · <time>"), "dashboard".to_string()]
+        [format!("work-t1-{after}.png"), format!("t1 · frame {after} · <time>"), "dashboard".to_string()]
     );
 }
 
@@ -168,7 +168,7 @@ fn the_lightbox_steps_through_the_screenshots_copies_the_path_and_escape_returns
     let before = shots.before();
     let after = shots.after();
     let dashboard = Dashboard::start(&shots.at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     open_screenshots(&browser);
     wait_for_shots(&browser, 2);
 
@@ -248,7 +248,7 @@ fn compare_shows_the_older_screenshot_on_the_left_and_highlights_the_cells_that_
     let after = shots.after();
     shots.at.run(&["screenshot", "--scale", "2", &shots.path("bigger.png")]).success();
     let dashboard = Dashboard::start(&shots.at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     open_screenshots(&browser);
     wait_for_shots(&browser, 3);
 
@@ -311,14 +311,14 @@ fn comparing_screenshots_of_different_sizes_marks_no_cells(browser: &Browser) {
 fn a_screenshot_thumbnail_in_activity_opens_the_lightbox_and_escape_returns_to_it() {
     let shots = Shots::opened();
     let dashboard = Dashboard::start(&shots.at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     browser.wait_until(
-        "document.querySelectorAll(\"[aria-label='Calls to default t1'] > li:not([aria-busy])\").length === 1",
+        "document.querySelectorAll(\"[aria-label='Calls to work t1'] > li:not([aria-busy])\").length === 1",
     );
     shots.before();
     shots.after();
     browser.wait_until(
-        "[...document.querySelectorAll(\"[aria-label='Calls to default t1'] button\")].some((thumbnail) => thumbnail.innerText.trim() === 'Open screenshot after.png')",
+        "[...document.querySelectorAll(\"[aria-label='Calls to work t1'] button\")].some((thumbnail) => thumbnail.innerText.trim() === 'Open screenshot after.png')",
     );
 
     browser.run(&["find", "role", "button", "click", "--name", "Open screenshot after.png", "--exact"]);

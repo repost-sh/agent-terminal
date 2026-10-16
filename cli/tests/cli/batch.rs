@@ -6,17 +6,17 @@ fn batch_runs_commands_in_order_and_prints_each_output_and_exit_code() {
     let run = at.run(&["batch", "open --size 20x3 --wait hi sh -c 'echo hi; read _'", "snapshot", "close"]).success();
     insta::assert_snapshot!(run.screen(), @r"
     [1] open --size 20x3 --wait hi sh -c 'echo hi; read _' · exit 0
-    default t1 · sh · 20x3 · cursor 2,1 · frame N
+    work t1 · sh · 20x3 · cursor 2,1 · frame N
     1│hi
     …│ (rows 2-3 blank)
 
     [2] snapshot · exit 0
-    default t1 · sh · 20x3 · cursor 2,1 · frame N
+    work t1 · sh · 20x3 · cursor 2,1 · frame N
     1│hi
     …│ (rows 2-3 blank)
 
     [3] close · exit 0
-    closed default t1
+    closed work t1
     ");
 }
 
@@ -27,12 +27,12 @@ fn options_of_open_after_the_program_are_open_options_in_a_batch_too() {
         at.run(&["batch", "open sh -c 'echo \"args: $#\"; read _' sh --size 30x3 --wait args", "close"]).success();
     insta::assert_snapshot!(run.screen(), @r#"
     [1] open sh -c 'echo "args: $#"; read _' sh --size 30x3 --wait args · exit 0
-    default t1 · sh · 30x3 · cursor 2,1 · frame N
+    work t1 · sh · 30x3 · cursor 2,1 · frame N
     1│args: 0
     …│ (rows 2-3 blank)
 
     [2] close · exit 0
-    closed default t1
+    closed work t1
     "#);
 }
 
@@ -43,17 +43,17 @@ fn a_failed_command_does_not_stop_the_batch_and_sets_its_exit_code() {
     assert_eq!(run.code(), 1);
     insta::assert_snapshot!(run.screen(), @r"
     [1] snapshot · exit 1
-    error: no terminal is open in session default; start one with `agent-terminal open <program>`
+    error: no terminal is open in session work; start one with `agent-terminal open <program>`
 
     [2] open --size 20x2 cat · exit 0
-    default t1 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
+    work t1 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
     …│ (rows 1-2 blank)
 
     [3] close · exit 0
-    closed default t1
+    closed work t1
 
     [4] close · exit 1
-    error: no terminal is open in session default; start one with `agent-terminal open <program>`
+    error: no terminal is open in session work; start one with `agent-terminal open <program>`
     ");
 }
 
@@ -64,14 +64,14 @@ fn bail_stops_at_the_first_failure() {
     assert_eq!(run.code(), 1);
     insta::assert_snapshot!(run.screen(), @r"
     [1] open --size 20x2 cat · exit 0
-    default t1 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
+    work t1 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
     …│ (rows 1-2 blank)
 
     [2] close · exit 0
-    closed default t1
+    closed work t1
 
     [3] close · exit 1
-    error: no terminal is open in session default; start one with `agent-terminal open <program>`
+    error: no terminal is open in session work; start one with `agent-terminal open <program>`
 
     [4] open --size 20x2 cat · not run
     ");
@@ -81,6 +81,8 @@ fn bail_stops_at_the_first_failure() {
 #[test]
 fn commands_take_the_session_and_timeout_of_the_batch_unless_they_set_their_own() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "qa"]).success();
+    at.run(&["session", "new", "other"]).success();
     let run = at.run(&[
         "--session",
         "qa",
@@ -119,12 +121,12 @@ fn commands_act_on_the_tab_of_the_batch_unless_they_name_their_own() {
     let run = at.run(&["--tab", "t1", "batch", "snapshot", "snapshot --tab t2"]).success();
     insta::assert_snapshot!(run.screen(), @r"
     [1] snapshot · exit 0
-    default t1 · sh · 20x2 · cursor 2,1 · frame N
+    work t1 · sh · 20x2 · cursor 2,1 · frame N
     1│one
     …│ (row 2 blank)
 
     [2] snapshot --tab t2 · exit 0
-    default t2 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
+    work t2 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
     …│ (rows 1-2 blank)
     ");
 }
@@ -132,6 +134,8 @@ fn commands_act_on_the_tab_of_the_batch_unless_they_name_their_own() {
 #[test]
 fn the_session_variable_applies_to_the_batch_unless_the_batch_names_a_session() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "from-env"]).success();
+    at.run(&["session", "new", "qa"]).success();
     let from_env = [("AGENT_TERMINAL_SESSION", "from-env")];
     let run =
         at.run_with(&Call { args: &["batch", "open --size 20x2 cat", "close"], stdin: "", env: &from_env }).success();
@@ -153,12 +157,12 @@ fn batch_reads_a_json_array_of_commands_from_stdin() {
     let run = at.run_with(&Call { args: &["batch"], stdin, env: &[] }).success();
     insta::assert_snapshot!(run.screen(), @r#"
     [1] open --size 20x2 --wait 'a b' sh -c 'echo "a b"; read _' · exit 0
-    default t1 · sh · 20x2 · cursor 2,1 · frame N
+    work t1 · sh · 20x2 · cursor 2,1 · frame N
     1│a b
     …│ (row 2 blank)
 
     [2] close · exit 0
-    closed default t1
+    closed work t1
     "#);
 }
 
@@ -226,6 +230,7 @@ fn an_unclosed_quote_stops_the_batch(at: &AgentTerminal) {
 #[test]
 fn json_output_lists_each_command_with_its_exit_code_and_result() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "other"]).success();
     let run = at.run(&["--json", "batch", "--bail", "open --size 20x2 cat", "snapshot --session other", "close"]);
     assert_eq!(run.code(), 1);
     let entries = run.json();
@@ -248,7 +253,7 @@ fn json_output_lists_each_command_with_its_exit_code_and_result() {
 fn the_first_entry_carries_its_args_exit_code_and_result(entry: &serde_json::Value) {
     assert_eq!(entry["args"], serde_json::json!(["open", "--size", "20x2", "cat"]));
     assert_eq!(entry["exit_code"], 0);
-    assert_eq!((entry["result"]["session"].as_str(), entry["result"]["tab"].as_str()), (Some("default"), Some("t1")));
+    assert_eq!((entry["result"]["session"].as_str(), entry["result"]["tab"].as_str()), (Some("work"), Some("t1")));
     assert_eq!(entry["result"]["lines"], serde_json::json!(["", ""]));
 }
 
@@ -267,9 +272,9 @@ fn batch_runs_any_command_the_daemon_serves() {
     assert_eq!(
         blocks[1..],
         [
-            "[2] type hi --wait hi · exit 0\ntyped 2 keys into default t1",
+            "[2] type hi --wait hi · exit 0\ntyped 2 keys into work t1",
             "[3] mark typed · exit 0\nmarked typed at frame N",
-            "[4] close · exit 0\nclosed default t1\n"
+            "[4] close · exit 0\nclosed work t1\n"
         ],
         "{out}"
     );
@@ -282,14 +287,14 @@ fn stopping_the_daemon_cannot_be_part_of_a_batch() {
     assert_eq!(run.code(), 1);
     insta::assert_snapshot!(run.screen(), @r"
     [1] open --size 20x2 cat · exit 0
-    default t1 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
+    work t1 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
     …│ (rows 1-2 blank)
 
     [2] daemon stop · exit 1
     error: stopping the daemon cannot be part of a batch
 
     [3] close · exit 0
-    closed default t1
+    closed work t1
     ");
 }
 

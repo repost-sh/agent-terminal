@@ -13,7 +13,6 @@ mod native;
 mod output;
 mod paint;
 mod protocol;
-mod session_id;
 mod skills;
 mod upgrade;
 mod version;

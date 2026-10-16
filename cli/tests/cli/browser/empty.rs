@@ -2,8 +2,8 @@ use super::{Browser, Dashboard};
 use crate::support::{AgentTerminal, fixture};
 
 #[test]
-fn with_no_sessions_the_dashboard_offers_the_three_commands_to_get_started() {
-    let at = AgentTerminal::new();
+fn with_no_sessions_the_dashboard_offers_the_commands_to_get_started() {
+    let at = AgentTerminal::without_session();
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/"));
 
@@ -15,10 +15,12 @@ fn with_no_sessions_the_dashboard_offers_the_three_commands_to_get_started() {
             "No active sessions",
             "No active sessions",
             "Start a terminal from the CLI, or create a session here",
-            "agent-terminal open <program>",
-            "Copy agent-terminal open <program>",
-            "agent-terminal shell",
-            "Copy agent-terminal shell",
+            "agent-terminal session new <name>",
+            "Copy agent-terminal session new <name>",
+            "agent-terminal --session <name> open <program>",
+            "Copy agent-terminal --session <name> open <program>",
+            "agent-terminal --session <name> shell",
+            "Copy agent-terminal --session <name> shell",
             "agent-terminal skills get core",
             "Copy agent-terminal skills get core",
             "New session",
@@ -33,7 +35,7 @@ fn losing_the_daemon_shows_reconnecting_then_disconnected_and_retry_reconnects()
     at.run(&["open", "--size", "30x4", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
         .success();
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     browser.wait_for_status("Live");
 
     at.run(&["daemon", "stop"]).success();

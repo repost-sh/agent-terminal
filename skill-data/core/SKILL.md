@@ -8,6 +8,17 @@ allowed-tools: Bash(agent-terminal:*), Bash(npx @repost/agent-terminal:*)
 
 agent-terminal runs programs in real terminals and lets you drive them the way a person would. You read the screen as text, press keys, wait for the screen to change, and keep screenshots as proof, taken with `screenshot` or by the input command whose `--wait` reached that screen (`--screenshot`). A human may be watching in the dashboard.
 
+## Start with your session
+
+A session is one conversation: everything this task runs (dev servers, the app under test, shells) is a tab in it. There is one daemon and one dashboard per user, shared by every agent on the machine; sessions keep agents apart. Before anything else, create yours, named after the task (1 to 24 characters of `a-z`, `0-9` and `-`):
+
+```bash
+agent-terminal session new repost-forward
+export AGENT_TERMINAL_SESSION=repost-forward
+```
+
+Every command that acts on a session needs one, and fails without it, saying how to create one. When your shell does not keep exported variables between commands, pass `--session repost-forward` on every call instead. `session new` fails when the name is taken and says who holds it: pick another name rather than sharing a session. A typo in `--session` fails rather than starting a new session.
+
 ## The core loop
 
 ```bash
@@ -20,16 +31,6 @@ agent-terminal close                           # 6. close what you opened
 ```
 
 Acting and waiting in the same call (`--wait…`, `--snapshot`) is the fastest way to work. One call per step, not three. `--snapshot` takes the same view options as `snapshot` (`--rows`, `-i`, `-s`, `--scrollback`, `--ansi`), so one call can show just the part you need: `agent-terminal press Space --wait-stable --snapshot --rows 5:14 -i`.
-
-## Always use your own session
-
-Before your first command, name a session for the whole task:
-
-```bash
-export AGENT_TERMINAL_SESSION="$(agent-terminal session id --scope worktree --prefix task)"
-```
-
-The default session is shared with every other agent on the machine. Working in it can type into someone else's program.
 
 ## Reading the screen
 
@@ -165,7 +166,7 @@ agent-terminal tab t1                        # switch
 agent-terminal restart --tab t1              # run the server again after a fix
 ```
 
-Tabs are numbered `t1`, `t2`, … in the order they open. `agent-terminal tab` lists them; `session list` lists every session.
+Tabs are numbered `t1`, `t2`, … in the order they open. `agent-terminal tab` lists them; `session list` lists every session, an empty one as `no tabs`.
 
 ## When a human takes control
 
@@ -177,7 +178,7 @@ agent-terminal wait --control --timeout 600000   # resumes when they hand it bac
 
 ## Finishing
 
-Close what you opened: `agent-terminal close`, or `agent-terminal close --all --session <name>` at the end of the task. `close --all` closes every tab of the session named on its own command line and nothing else; the exported `AGENT_TERMINAL_SESSION` alone is refused. The daemon keeps running after that until a human stops it.
+Close what you opened: `agent-terminal close` closes one tab, and the session stays, empty, holding its name. At the end of the task, `agent-terminal close --all --session <name>` closes every tab of that session and ends it, so its name is free again. `close --all` acts only on the session named on its own command line; the exported `AGENT_TERMINAL_SESSION` alone is refused. The daemon keeps running after that until a human stops it.
 
 ## Troubleshooting
 

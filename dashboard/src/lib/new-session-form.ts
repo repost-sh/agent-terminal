@@ -1,5 +1,5 @@
 import { shellWord } from "./format";
-import type { SessionInfo } from "./protocol";
+import { NAME, type SessionInfo } from "./protocol";
 
 interface Size { cols: string; rows: string }
 
@@ -12,8 +12,6 @@ export const SIZE_PRESETS: Size[] = [
 export const sizeLabel = (size: Size) => `${size.cols}x${size.rows}`;
 
 const SHELLS = ["zsh", "bash", "fish"];
-
-const NAME = /^[A-Za-z0-9_-]+$/;
 
 export type Mode = "new" | "existing";
 
@@ -72,8 +70,9 @@ const verbPart = (form: Form, shell: string | null) => (shell ? `shell --shell $
 export const cliLine = (form: Form, shell: string | null) => {
   const session = sessionOf(form) ? shellWord(sessionOf(form)) : "<name>";
   const size = sizeOf(form);
+  const created = form.mode === "new" ? `agent-terminal session new ${session} && ` : "";
 
-  return `agent-terminal --session ${session} ${verbPart(form, shell)}${cwdPart(form)} --size ${size.cols || "?"}x${size.rows || "?"}`;
+  return `${created}agent-terminal --session ${session} ${verbPart(form, shell)}${cwdPart(form)} --size ${size.cols || "?"}x${size.rows || "?"}`;
 };
 
 interface Range { low: number; high: number }
@@ -88,7 +87,7 @@ const nameRefusal = (form: Form, sessions: SessionInfo[]) => {
   }
 
   if (!NAME.test(name)) {
-    return "Use letters, numbers, - and _.";
+    return "Use up to 24 of a-z, 0-9 and -, starting with a letter or digit.";
   }
 
   return sessions.some((entry) => entry.session === name) ? `A session named ${name} already exists.` : undefined;

@@ -25,7 +25,7 @@ fn every_call_is_logged_with_its_command_duration_and_result() {
     let printer = fixture("line-printer");
     let (window, frame) = make_one_call_of_each_outcome(&at, &printer);
 
-    let log = at.activity("default");
+    let log = at.activity("work");
     the_log_names_each_command_its_exit_and_tab(&log, &printer);
     the_log_keeps_the_frame_and_the_errors(&log, frame);
     the_log_times_each_call_in_order(&log, &window);
@@ -84,7 +84,7 @@ fn raw_bytes_sent_with_send_are_flagged_raw_in_the_activity_log() {
     at.run(&["press", "Up"]).success();
     at.run(&["--json", "batch", r"send 'x\x01'"]).success();
 
-    let log = at.activity("default");
+    let log = at.activity("work");
     assert_eq!(
         field(&log, "command"),
         json!([
@@ -101,6 +101,8 @@ fn raw_bytes_sent_with_send_are_flagged_raw_in_the_activity_log() {
 fn each_session_logs_its_own_calls_and_the_tab_they_acted_on() {
     let at = AgentTerminal::new();
     let printer = fixture("line-printer");
+    at.run(&["session", "new", "qa"]).success();
+    at.run(&["session", "new", "other"]).success();
     at.run(&["--session", "qa", "open", "--wait", "line 3", &printer, "--hold"]).success();
     at.run(&["--session", "qa", "tab", "new", "--wait", "line 3", &printer, "--hold"]).success();
     at.run(&["--session", "other", "open", "--wait", "line 3", &printer, "--hold"]).success();
@@ -120,7 +122,7 @@ fn a_batch_logs_each_command_it_ran() {
     at.run(&["open", "--wait", "line 3", &printer, "--hold"]).success();
     assert_eq!(at.run(&["batch", "--bail", "mark before", "get cell 99 1", "get frame"]).code(), 1);
 
-    let log = at.activity("default");
+    let log = at.activity("work");
     assert_eq!(
         field(&log, "command"),
         json!([format!("open --wait 'line 3' {printer} --hold"), "mark before", "get cell 99 1"])
@@ -140,7 +142,7 @@ fn each_entry_keeps_what_the_call_printed() {
     let at = AgentTerminal::new();
     let printed = make_calls_that_print(&at);
 
-    let log = at.activity("default");
+    let log = at.activity("work");
     the_entries_keep_what_the_successful_calls_printed(&log, &printed);
     the_entries_keep_what_the_failed_calls_printed(&log, &printed);
 }
@@ -160,11 +162,11 @@ fn make_calls_that_print(at: &AgentTerminal) -> Printed {
 fn the_entries_keep_what_the_successful_calls_printed(log: &[Value], printed: &Printed) {
     assert_eq!(
         printed.shown.screen(),
-        "default t1 · line-printer · 40x6 · cursor 4,1 · frame N\n1│line 1\n2│line 2\n3│line 3\n…│ (rows 4-6 blank)\n"
+        "work t1 · line-printer · 40x6 · cursor 4,1 · frame N\n1│line 1\n2│line 2\n3│line 3\n…│ (rows 4-6 blank)\n"
     );
     assert_eq!(log[0]["output"], printed.opened.stdout());
     assert_eq!(log[2]["output"], printed.shown.stdout());
-    assert_eq!(log[3]["output"], "typed 2 keys into default t1\n");
+    assert_eq!(log[3]["output"], "typed 2 keys into work t1\n");
 }
 
 fn the_entries_keep_what_the_failed_calls_printed(log: &[Value], printed: &Printed) {
@@ -185,7 +187,7 @@ fn an_entry_keeps_the_first_64_kib_of_a_long_output() {
     let printed = at.run(&["output"]).success().stdout();
     assert!(printed.len() > 128 * 1024, "{} bytes", printed.len());
 
-    let output = at.activity("default")[1]["output"].as_str().unwrap().to_string();
+    let output = at.activity("work")[1]["output"].as_str().unwrap().to_string();
     let (kept, note) = output.split_at(64 * 1024);
     assert_eq!(kept, &printed[..64 * 1024]);
     assert_eq!(note, format!("\n… {} more bytes not kept\n", printed.len() - 64 * 1024));
@@ -205,7 +207,7 @@ fn every_screenshot_a_call_saves_is_linked_from_its_entry() {
     at.run(&["get", "frame"]).success();
 
     assert_eq!(failed.code(), 2);
-    let log = at.activity("default");
+    let log = at.activity("work");
     assert_eq!(
         field(&log, "screenshots"),
         json!([null, [first.to_string_lossy()], [second.to_string_lossy()], [diff.to_string_lossy()], null])

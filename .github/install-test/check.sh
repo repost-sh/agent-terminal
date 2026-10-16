@@ -54,11 +54,12 @@ agent-terminal doctor --json < /dev/null > "$out" 2>&1 || true
 grep -qF '{"message":"not running; the next command starts it","name":"daemon","status":"ok"}' "$out" ||
   fail "this check needs a machine with no agent-terminal daemon; agent-terminal doctor --json printed $(cat "$out")"
 
-run agent-terminal open --size 40x10 --wait "line 3" "$fixture" --lines 3 --hold
-run agent-terminal snapshot
-grep -q '^default t1 · line-printer · 40x10 ·' "$out" || fail "the snapshot header does not name the fixture"
+run agent-terminal session new install-check
+run agent-terminal --session install-check open --size 40x10 --wait "line 3" "$fixture" --lines 3 --hold
+run agent-terminal --session install-check snapshot
+grep -q '^install-check t1 · line-printer · 40x10 ·' "$out" || fail "the snapshot header does not name the fixture"
 grep -q '^ 3│line 3$' "$out" || fail "the snapshot does not show the fixture's third line"
-run agent-terminal close
+run agent-terminal close --all --session install-check
 run agent-terminal daemon stop
 
 echo "agent-terminal $version from $bin passed every check"

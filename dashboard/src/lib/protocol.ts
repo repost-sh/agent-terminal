@@ -1,3 +1,5 @@
+export const NAME = /^[a-z0-9][a-z0-9-]{0,23}$/;
+
 export interface TabInfo {
   tab: string;
   program: string;

@@ -189,9 +189,11 @@ fn open_tabs(plan: &Plan, daemon: &Daemon, home: &Path, case: Case) -> Result<()
     let flag = case.repaint.flag();
     for tab in 0..case.tabs {
         let stats = home.join(format!("s{tab}.stats"));
+        let session = format!("s{tab}");
+        daemon.agent().new_session(&session)?;
         daemon.agent().run(&[
             "--session",
-            &format!("s{tab}"),
+            &session,
             "open",
             "--size",
             SIZE,

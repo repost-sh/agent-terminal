@@ -332,7 +332,7 @@ pub(crate) struct Exported {
 }
 
 pub(crate) fn export(home: &Path, export: &request::TraceExport) -> Result<Exported> {
-    let (session, to) = (export.session.as_str(), export.path.as_path());
+    let (session, to): (&str, _) = (&export.session, export.path.as_path());
     let folder = folder(home, session);
     if !folder.is_dir() {
         bail!(

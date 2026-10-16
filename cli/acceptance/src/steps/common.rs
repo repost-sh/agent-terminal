@@ -6,12 +6,17 @@ use crate::terminal::Terminal;
 
 pub(crate) fn define(steps: &mut Steps<'_>) {
     steps
+        .given(r#"^the agent works in its own session "([^"]*)"$"#, works_in)
         .then(r"^the command succeeds$", the_command_succeeds)
         .then(r"^the command fails with exit code (\d+)$", the_command_fails_with);
 }
 
 pub(crate) fn json(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or(Value::Null)
+}
+
+fn works_in(ctx: &mut Ctx<Terminal>, args: &[String], _: Option<&DataTable>) {
+    ctx.world.work_in(arg(args, 0));
 }
 
 fn the_command_succeeds(ctx: &mut Ctx<Terminal>, _: &[String], _: Option<&DataTable>) {

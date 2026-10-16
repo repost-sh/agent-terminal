@@ -13,6 +13,7 @@ use crate::protocol::{
 
 pub(crate) fn reply_text(reply: &Reply) -> String {
     match reply {
+        Reply::Created(created) => format!("created session {}\n", created.session),
         Reply::Snapshot(snapshot) => screen(snapshot),
         Reply::Closed(closed) => closed_text(closed),
         Reply::Sessions(sessions) => sessions_text(sessions),
@@ -39,15 +40,27 @@ pub(crate) fn reply_text(reply: &Reply) -> String {
 }
 
 fn closed_text(closed: &Closed) -> String {
-    fmt::from_fn(|f| closed.closed.iter().try_for_each(|tab| writeln!(f, "closed {} {}", tab.session, tab.tab)))
-        .to_string()
+    fmt::from_fn(|f| {
+        closed.closed.iter().try_for_each(|tab| writeln!(f, "closed {} {}", tab.session, tab.tab))?;
+        closed.ended.iter().try_for_each(|session| writeln!(f, "ended session {session}"))
+    })
+    .to_string()
 }
 
 fn sessions_text(sessions: &Sessions) -> String {
     if sessions.sessions.is_empty() {
         return "no sessions are open\n".into();
     }
-    fmt::from_fn(|f| sessions.sessions.iter().try_for_each(|session| write_tab_lines(f, session))).to_string()
+    fmt::from_fn(|f| {
+        sessions.sessions.iter().try_for_each(|session| {
+            if session.tabs.is_empty() {
+                writeln!(f, "{} · no tabs", session.session)
+            } else {
+                write_tab_lines(f, session)
+            }
+        })
+    })
+    .to_string()
 }
 
 fn tabs_text(session: &SessionInfo) -> String {

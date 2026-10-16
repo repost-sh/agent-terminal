@@ -8,18 +8,18 @@ fn snapshot_rows_shows_only_that_range() {
     at.run(&["open", "--size", "40x10", "--wait", "line 5", &fixture("line-printer"), "--lines", "5", "--hold"])
         .success();
     insta::assert_snapshot!(at.run(&["snapshot", "--rows", "2:3"]).success().screen(), @r"
-    default t1 · line-printer · 40x10 · cursor 6,1 · frame N
+    work t1 · line-printer · 40x10 · cursor 6,1 · frame N
      2│line 2
      3│line 3
     ");
     insta::assert_snapshot!(at.run(&["snapshot", "--rows", "4:8"]).success().screen(), @r"
-    default t1 · line-printer · 40x10 · cursor 6,1 · frame N
+    work t1 · line-printer · 40x10 · cursor 6,1 · frame N
      4│line 4
      5│line 5
      …│ (rows 6-8 blank)
     ");
     insta::assert_snapshot!(at.run(&["snapshot", "--rows", "9:20"]).success().screen(), @r"
-    default t1 · line-printer · 40x10 · cursor 6,1 · frame N
+    work t1 · line-printer · 40x10 · cursor 6,1 · frame N
      …│ (rows 9-10 blank)
     ");
 
@@ -58,7 +58,7 @@ fn snapshot_scrollback_adds_lines_that_scrolled_off_the_top() {
     at.run(&["open", "--size", "30x5", "--wait", "line 8", &fixture("line-printer"), "--lines", "8", "--hold"])
         .success();
     insta::assert_snapshot!(at.run(&["snapshot", "--scrollback", "2"]).success().screen(), @r"
-    default t1 · line-printer · 30x5 · cursor 5,1 · frame N
+    work t1 · line-printer · 30x5 · cursor 5,1 · frame N
     -2│line 3
     -1│line 4
      1│line 5
@@ -68,7 +68,7 @@ fn snapshot_scrollback_adds_lines_that_scrolled_off_the_top() {
      …│ (row 5 blank)
     ");
     insta::assert_snapshot!(at.run(&["snapshot", "--scrollback"]).success().screen(), @r"
-    default t1 · line-printer · 30x5 · cursor 5,1 · frame N
+    work t1 · line-printer · 30x5 · cursor 5,1 · frame N
     -4│line 1
     -3│line 2
     -2│line 3
@@ -102,13 +102,13 @@ fn snapshot_ansi_keeps_colors_and_styles() {
     .success();
     assert_eq!(
         at.run(&["snapshot", "--ansi"]).success().screen(),
-        "default t1 · sh · 30x3 · cursor 1,16 · frame N\n\
+        "work t1 · sh · 30x3 · cursor 1,16 · frame N\n\
          1│\x1b[0;1;31mError\x1b[0m: \x1b[0;7mok\x1b[0m \x1b[0;38;5;208;48;2;0;0;255mready\x1b[0m\n\
          …│ (rows 2-3 blank)\n"
     );
     assert_eq!(
         at.run(&["snapshot"]).success().screen(),
-        "default t1 · sh · 30x3 · cursor 1,16 · frame N\n1│Error: ok ready\n…│ (rows 2-3 blank)\n"
+        "work t1 · sh · 30x3 · cursor 1,16 · frame N\n1│Error: ok ready\n…│ (rows 2-3 blank)\n"
     );
 }
 
@@ -119,7 +119,7 @@ fn snapshot_squeeze_blank_folds_each_run_of_three_or_more_blank_rows_and_keeps_r
     let at = AgentTerminal::new();
     let _screen = Screen::open(&at, &GAPPED);
     insta::assert_snapshot!(at.run(&["snapshot", "-s"]).success().screen(), @r"
-    default t1 · sh · 30x14 · cursor 12,7 · frame N
+    work t1 · sh · 30x14 · cursor 12,7 · frame N
      1│top
      …│ (rows 2-5 blank)
      6│middle
@@ -128,7 +128,7 @@ fn snapshot_squeeze_blank_folds_each_run_of_three_or_more_blank_rows_and_keeps_r
      …│ (rows 13-14 blank)
     ");
     insta::assert_snapshot!(at.run(&["snapshot", "--squeeze-blank", "--rows", "4:13"]).success().screen(), @r"
-    default t1 · sh · 30x14 · cursor 12,7 · frame N
+    work t1 · sh · 30x14 · cursor 12,7 · frame N
      4│
      5│
      6│middle
@@ -143,7 +143,7 @@ fn snapshot_squeeze_blank_prints_a_gap_of_one_or_two_blank_rows() {
     let at = AgentTerminal::new();
     let _screen = Screen::open(&at, &Shown { size: "30x6", bytes: "one\n\ntwo\n\n\nthree", wait: "three" });
     insta::assert_snapshot!(at.run(&["snapshot", "-s"]).success().screen(), @r"
-    default t1 · sh · 30x6 · cursor 6,6 · frame N
+    work t1 · sh · 30x6 · cursor 6,6 · frame N
     1│one
     2│
     3│two
@@ -168,6 +168,6 @@ fn snapshot_squeeze_blank_logs_the_folded_screen_it_printed() {
     let at = AgentTerminal::new();
     let _screen = Screen::open(&at, &GAPPED);
     let printed = at.run(&["snapshot", "-s"]).success().stdout();
-    let log = at.activity("default");
+    let log = at.activity("work");
     assert_eq!(log.last().map(|entry| entry["output"].clone()), Some(serde_json::json!(printed)));
 }

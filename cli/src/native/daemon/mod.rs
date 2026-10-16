@@ -10,6 +10,7 @@ mod lifecycle;
 mod reading;
 mod refusals;
 mod serve;
+mod sessions;
 mod tabs;
 mod waiting;
 
@@ -32,16 +33,16 @@ use crate::native::dashboard::{self, Backend};
 use crate::native::log;
 use crate::native::store::{ActivityEntry, SessionFolder, Typed};
 use crate::native::terminal::Terminal;
-use crate::protocol::{ErrorBody, HumanInput, Reply, Request, SessionInfo, Sessions, TabId, Target};
+use crate::protocol::{ErrorBody, HumanInput, Name, Reply, Request, SessionInfo, Sessions, TabId, Target};
 use lifecycle::Activity;
-use refusals::{error_body, no_tab, no_terminal, stopping};
+use refusals::{error_body, no_session, no_tab, no_terminal, stopping};
 
 pub(crate) const READY: &str = "ready";
 
 struct Daemon {
     home: PathBuf,
     claim: File,
-    sessions: Mutex<BTreeMap<String, Session>>,
+    sessions: Mutex<BTreeMap<Name, Session>>,
     restarting: Mutex<()>,
     activity: Mutex<Activity>,
     quiet: Condvar,
@@ -56,6 +57,7 @@ struct Session {
     tabs: BTreeMap<TabId, Tab>,
     current: Option<TabId>,
     folder: Arc<SessionFolder>,
+    created: Instant,
 }
 
 #[derive(Clone)]
@@ -144,13 +146,17 @@ impl Daemon {
     }
 
     fn tab(&self, target: &Target) -> Result<(TabId, Tab), ErrorBody> {
-        let Target { session, tab } = target;
+        self.tab_in(&target.session, target.tab)
+    }
+
+    fn tab_in(&self, session: &str, tab: Option<TabId>) -> Result<(TabId, Tab), ErrorBody> {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        let entry = sessions.get(session);
-        match *tab {
-            Some(id) => entry.and_then(|s| s.tabs.get(&id)).map(|t| (id, t.clone())).ok_or_else(|| no_tab(session, id)),
+        let entry = sessions.get(session).ok_or_else(|| no_session(session))?;
+        match tab {
+            Some(id) => entry.tabs.get(&id).map(|t| (id, t.clone())).ok_or_else(|| no_tab(session, id)),
             None => entry
-                .and_then(|s| s.current.and_then(|id| s.tabs.get(&id).map(|t| (id, t.clone()))))
+                .current
+                .and_then(|id| entry.tabs.get(&id).map(|t| (id, t.clone())))
                 .ok_or_else(|| no_terminal(session)),
         }
     }
@@ -181,7 +187,7 @@ impl Backend for Daemon {
     }
 
     fn take_control(&self, session: &str, tab: TabId) -> Result<TabHold, ErrorBody> {
-        self.tab(&Target::tab(session, tab)).map(|(_, entry)| TabHold {
+        self.tab_in(session, Some(tab)).map(|(_, entry)| TabHold {
             session: session.to_string(),
             tab,
             hold: entry.control.take(),
@@ -191,7 +197,7 @@ impl Backend for Daemon {
     fn holds(&self, taken: &TabHold) -> bool {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         sessions
-            .get(&taken.session)
+            .get(taken.session.as_str())
             .and_then(|entry| entry.tabs.get(&taken.tab))
             .is_some_and(|tab| taken.hold.holds(&tab.control))
     }
@@ -228,12 +234,12 @@ impl Backend for Daemon {
 
 impl Session {
     fn new(folder: Arc<SessionFolder>) -> Self {
-        Self { tabs: BTreeMap::new(), current: None, folder }
+        Self { tabs: BTreeMap::new(), current: None, folder, created: Instant::now() }
     }
 
-    fn info(&self, name: &str) -> SessionInfo {
+    fn info(&self, name: &Name) -> SessionInfo {
         SessionInfo {
-            session: name.to_string(),
+            session: name.clone(),
             current: self.current.map(|id| id.to_string()),
             tabs: self.tabs.iter().map(|(id, tab)| tab.terminal.info(&id.to_string(), tab.control.owner())).collect(),
         }

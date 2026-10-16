@@ -34,6 +34,7 @@ pub(super) enum InputCommand {
 
 impl InputCommand {
     pub(super) fn request(self, context: Context) -> Result<Request, String> {
+        let target = context.target()?;
         let (input, after) = self.input();
         let wait = after.wait();
         let screenshot = after
@@ -44,7 +45,7 @@ impl InputCommand {
             })
             .transpose()?;
         Ok(Request::Input(request::Deliver {
-            target: context.target,
+            target,
             input,
             wait,
             snapshot: after.snapshot.then(|| after.view.options()),

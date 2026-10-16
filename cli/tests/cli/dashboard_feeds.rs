@@ -3,7 +3,7 @@ use serde_json::Value;
 use crate::support::{AgentTerminal, DashboardSocket, dashboard, fixture};
 
 fn feed(port: u16, name: &str) -> DashboardSocket {
-    DashboardSocket::open(port, &format!("/api/session/default/t1/{name}"))
+    DashboardSocket::open(port, &format!("/api/session/work/t1/{name}"))
 }
 
 fn until_closed(socket: &mut DashboardSocket) -> Vec<Value> {
@@ -52,11 +52,11 @@ fn the_output_feed_decodes_text_split_across_reads_and_marks_bytes_that_are_not_
 fn an_unreadable_activity_log_ends_the_activity_feed_and_says_why_in_the_daemon_log() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "20x3", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
-    std::fs::write(at.home().join("sessions/default/activity.jsonl"), "not json\n").expect("break the activity log");
+    std::fs::write(at.home().join("sessions/work/activity.jsonl"), "not json\n").expect("break the activity log");
     let mut activity = feed(dashboard(&at), "activity");
     assert!(activity.closed());
     assert!(
-        at.daemon_log().contains("dashboard: reading the activity of default t1 failed: read "),
+        at.daemon_log().contains("dashboard: reading the activity of work t1 failed: read "),
         "{}",
         at.daemon_log()
     );

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use super::{Browser, Dashboard};
 use crate::support::{AgentTerminal, Run};
 
-const COMMANDS: &str = "ol[aria-label='Commands in default t1']";
+const COMMANDS: &str = "ol[aria-label='Commands in work t1']";
 
 struct ShellTab {
     at: AgentTerminal,
@@ -86,7 +86,7 @@ fn the_commands_tab_lists_each_command_with_its_exit_status_and_expands_to_its_o
     tab.run(&["exec", colored]).success();
     tab.run(&["exec", "echo failing; false"]).success();
     let dashboard = Dashboard::start(&tab.at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     open_commands(&browser);
 
     wait_for_listed(&browser, "echo failing; false");
@@ -134,7 +134,7 @@ fn expanding_the_second_command_shows_its_output_too(browser: &Browser) {
 fn new_commands_appear_as_they_finish_and_a_running_one_shows_as_running() {
     let tab = ShellTab::opened();
     let dashboard = Dashboard::start(&tab.at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     open_commands(&browser);
     browser.wait_for_text("No commands yet");
     assert_eq!(browser.text("#ppanel-commands [data-slot=badge]").trim(), "0");
@@ -182,6 +182,7 @@ fn tabs_without_commands_say_why_and_how_to_get_them() {
     let home = at.home().join("user");
     std::fs::create_dir_all(&home).expect("create the home folder");
     let user = [("HOME", home.as_path())];
+    at.run(&["session", "new", "qa"]).success();
     at.run_with_env(&["--session", "qa", "open", "--size", "40x6", "cat"], &user).success();
     at.run_with_env(&["--session", "qa", "tab", "new", "--size", "40x6", "--wait", "$", "bash"], &user).success();
     let dashboard = Dashboard::start(&at);

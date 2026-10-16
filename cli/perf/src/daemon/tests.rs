@@ -37,3 +37,24 @@ fn a_program_that_never_says_ready_is_killed_without_being_asked_to_stop() {
         (Some(r#"the change daemon did not start: "warming up\n""#.to_string()), false, String::new())
     );
 }
+
+const BEFORE_SESSION_NEW: &str = "#!/bin/sh\ncase \"$3\" in\n  old) echo \"error: unrecognized subcommand 'new'\" >&2; exit 1 ;;\n  taken) echo 'error: session taken is taken' >&2; exit 1 ;;\n  *) exit 0 ;;\nesac\n";
+
+#[test]
+fn a_session_is_created_unless_the_build_predates_session_new_and_a_refusal_fails() {
+    let work = tempfile::tempdir().unwrap();
+    let binary = work.path().join("sessions");
+    std::fs::write(&binary, BEFORE_SESSION_NEW).unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let agent = Agent { side: "base", binary, work: work.path().to_path_buf(), home: "home".into() };
+    let created = ["fresh", "old", "taken"].map(|name| agent.new_session(name).map_err(|error| error.to_string()));
+    assert_eq!(
+        created,
+        [
+            Ok(()),
+            Ok(()),
+            Err("`agent-terminal session new taken` failed for the base (exit status: 1): error: session taken is taken\n"
+                .to_string())
+        ]
+    );
+}

@@ -62,7 +62,7 @@ fn the_users_prompt_alias_and_variable_are_loaded(tab: &ShellTab) {
 fn a_tab_without_shell_integration_says_so() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "20x2", "cat"]).success();
-    let refusal = "error: default t1 runs cat without shell integration, so it keeps no command history; exec, history and wait --command work in a tab opened with `agent-terminal shell`\n";
+    let refusal = "error: work t1 runs cat without shell integration, so it keeps no command history; exec, history and wait --command work in a tab opened with `agent-terminal shell`\n";
     for args in [&["history"][..], &["history", "show", "1"], &["exec", "ls"], &["wait", "--command"]] {
         let run = at.run(args);
         assert_eq!(run.code(), 1, "{args:?}");
@@ -91,7 +91,7 @@ fn shell_says_when_the_first_prompt_never_comes() {
     assert_eq!(
         run.stderr().lines().next(),
         Some(
-            "error: timed out after 500 ms waiting for the first prompt of bash in default t1; its startup files may be waiting for input or the shell integration did not load (read the screen with `agent-terminal snapshot`, check with `agent-terminal doctor`)"
+            "error: timed out after 500 ms waiting for the first prompt of bash in work t1; its startup files may be waiting for input or the shell integration did not load (read the screen with `agent-terminal snapshot`, check with `agent-terminal doctor`)"
         )
     );
     assert!(run.stderr().contains("│starting\n"), "{}", run.stderr());

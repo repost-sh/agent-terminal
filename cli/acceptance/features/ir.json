@@ -13,23 +13,29 @@
               "keyword": "Given",
               "line": 3,
               "table": null,
+              "text": "the agent works in its own session \"qa\""
+            },
+            {
+              "keyword": "And",
+              "line": 4,
+              "table": null,
               "text": "a terminal running a program that echoes its input"
             },
             {
               "keyword": "When",
-              "line": 4,
+              "line": 5,
               "table": null,
               "text": "the agent types \"hello\""
             },
             {
               "keyword": "Then",
-              "line": 5,
+              "line": 6,
               "table": null,
               "text": "the command succeeds"
             },
             {
               "keyword": "And",
-              "line": 6,
+              "line": 7,
               "table": null,
               "text": "the program received \"hello\""
             }
@@ -37,30 +43,36 @@
           "tags": []
         },
         {
-          "line": 8,
+          "line": 9,
           "name": "named keys reach the program as the bytes a terminal sends",
           "steps": [
             {
               "keyword": "Given",
-              "line": 9,
+              "line": 10,
+              "table": null,
+              "text": "the agent works in its own session \"qa\""
+            },
+            {
+              "keyword": "And",
+              "line": 11,
               "table": null,
               "text": "a terminal running a program that echoes its input"
             },
             {
               "keyword": "When",
-              "line": 10,
+              "line": 12,
               "table": null,
               "text": "the agent presses \"Up\" then \"Enter\""
             },
             {
               "keyword": "Then",
-              "line": 11,
+              "line": 13,
               "table": null,
               "text": "the command succeeds"
             },
             {
               "keyword": "And",
-              "line": 12,
+              "line": 14,
               "table": null,
               "text": "the program received \"\\e[A\\r\""
             }
@@ -68,30 +80,36 @@
           "tags": []
         },
         {
-          "line": 14,
+          "line": 16,
           "name": "raw bytes reach the program exactly",
           "steps": [
             {
               "keyword": "Given",
-              "line": 15,
+              "line": 17,
+              "table": null,
+              "text": "the agent works in its own session \"qa\""
+            },
+            {
+              "keyword": "And",
+              "line": 18,
               "table": null,
               "text": "a terminal running a program that echoes its input"
             },
             {
               "keyword": "When",
-              "line": 16,
+              "line": 19,
               "table": null,
               "text": "the agent sends the bytes \"a\\x01\\t\""
             },
             {
               "keyword": "Then",
-              "line": 17,
+              "line": 20,
               "table": null,
               "text": "the command succeeds"
             },
             {
               "keyword": "And",
-              "line": 18,
+              "line": 21,
               "table": null,
               "text": "the program received \"a\\x01\\t\""
             }
@@ -113,23 +131,29 @@
               "keyword": "Given",
               "line": 3,
               "table": null,
+              "text": "the agent works in its own session \"qa\""
+            },
+            {
+              "keyword": "And",
+              "line": 4,
+              "table": null,
               "text": "a terminal running a program that prints 3 lines"
             },
             {
               "keyword": "When",
-              "line": 4,
+              "line": 5,
               "table": null,
               "text": "the agent takes a snapshot"
             },
             {
               "keyword": "Then",
-              "line": 5,
+              "line": 6,
               "table": null,
               "text": "the command succeeds"
             },
             {
               "keyword": "And",
-              "line": 6,
+              "line": 7,
               "table": null,
               "text": "the screen's first rows are \"line 1\", \"line 2\" and \"line 3\""
             }
@@ -137,30 +161,36 @@
           "tags": []
         },
         {
-          "line": 8,
+          "line": 9,
           "name": "an agent waits for text that appears later",
           "steps": [
             {
               "keyword": "Given",
-              "line": 9,
+              "line": 10,
+              "table": null,
+              "text": "the agent works in its own session \"qa\""
+            },
+            {
+              "keyword": "And",
+              "line": 11,
               "table": null,
               "text": "a terminal running a program that prints 3 lines 200 ms apart"
             },
             {
               "keyword": "When",
-              "line": 10,
+              "line": 12,
               "table": null,
               "text": "the agent waits for \"line 3\""
             },
             {
               "keyword": "Then",
-              "line": 11,
+              "line": 13,
               "table": null,
               "text": "the command succeeds"
             },
             {
               "keyword": "And",
-              "line": 12,
+              "line": 14,
               "table": null,
               "text": "the screen shows \"line 3\""
             }
@@ -168,30 +198,36 @@
           "tags": []
         },
         {
-          "line": 14,
+          "line": 16,
           "name": "a wait for text that never appears times out",
           "steps": [
             {
               "keyword": "Given",
-              "line": 15,
+              "line": 17,
+              "table": null,
+              "text": "the agent works in its own session \"qa\""
+            },
+            {
+              "keyword": "And",
+              "line": 18,
               "table": null,
               "text": "a terminal running a program that prints 3 lines"
             },
             {
               "keyword": "When",
-              "line": 16,
+              "line": 19,
               "table": null,
               "text": "the agent waits 300 ms for \"line 9\""
             },
             {
               "keyword": "Then",
-              "line": 17,
+              "line": 20,
               "table": null,
               "text": "the command fails with exit code 3"
             },
             {
               "keyword": "And",
-              "line": 18,
+              "line": 21,
               "table": null,
               "text": "the error names the text it waited for, \"line 9\""
             }
@@ -238,7 +274,7 @@
         },
         {
           "line": 8,
-          "name": "closing a session's only tab ends the session",
+          "name": "closing a session's last tab keeps the session",
           "steps": [
             {
               "keyword": "Given",
@@ -268,7 +304,69 @@
               "keyword": "And",
               "line": 13,
               "table": null,
+              "text": "the list names exactly the sessions \"play\" and \"work\""
+            }
+          ],
+          "tags": []
+        },
+        {
+          "line": 15,
+          "name": "closing every tab of a session ends the session",
+          "steps": [
+            {
+              "keyword": "Given",
+              "line": 16,
+              "table": null,
+              "text": "terminals open in the sessions \"work\" and \"play\""
+            },
+            {
+              "keyword": "When",
+              "line": 17,
+              "table": null,
+              "text": "the agent closes every tab in \"work\""
+            },
+            {
+              "keyword": "And",
+              "line": 18,
+              "table": null,
+              "text": "the agent lists the sessions"
+            },
+            {
+              "keyword": "Then",
+              "line": 19,
+              "table": null,
+              "text": "the command succeeds"
+            },
+            {
+              "keyword": "And",
+              "line": 20,
+              "table": null,
               "text": "the list names exactly the sessions \"play\""
+            }
+          ],
+          "tags": []
+        },
+        {
+          "line": 22,
+          "name": "a program opened without naming a session is refused",
+          "steps": [
+            {
+              "keyword": "When",
+              "line": 23,
+              "table": null,
+              "text": "the agent opens a program without naming a session"
+            },
+            {
+              "keyword": "Then",
+              "line": 24,
+              "table": null,
+              "text": "the command fails with exit code 1"
+            },
+            {
+              "keyword": "And",
+              "line": 25,
+              "table": null,
+              "text": "the error says to create the session first with \"agent-terminal session new\""
             }
           ],
           "tags": []

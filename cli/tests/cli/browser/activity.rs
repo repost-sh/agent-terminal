@@ -3,7 +3,7 @@ use serde_json::Value;
 use super::{Browser, Dashboard};
 use crate::support::{AgentTerminal, fixture};
 
-const CALLS: &str = "[aria-label='Calls to default t1'] > li:not([aria-busy])";
+const CALLS: &str = "[aria-label='Calls to work t1'] > li:not([aria-busy])";
 
 fn calls(browser: &Browser) -> Vec<Value> {
     let rows = browser.eval(&format!(
@@ -40,13 +40,13 @@ fn activity_lists_every_call_to_the_tab_live_with_its_time_duration_and_result()
     at.run(&["open", "--size", "40x6", "--wait", "line 3", &printer, "--hold"]).success();
     at.run(&["tab", "new", "--size", "40x6", "--wait", "line 3", &printer, "--hold"]).success();
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     wait_for_calls(&browser, 1);
 
     make_a_call_of_every_result_to_t1(&at);
     wait_for_calls(&browser, 8);
 
-    let log: Vec<Value> = at.activity("default").into_iter().filter(|entry| entry["tab"] == "t1").collect();
+    let log: Vec<Value> = at.activity("work").into_iter().filter(|entry| entry["tab"] == "t1").collect();
     each_row_shows_its_call(&browser, &log);
     assert_eq!(log[1]["command"], "--tab t1 snapshot");
     assert_eq!(browser.eval("document.querySelector('#ppanel-activity [data-slot=badge]').textContent"), "\"8\"");
@@ -107,7 +107,7 @@ fn expanding_a_call_shows_what_it_printed(browser: &Browser, log: &[Value]) {
     );
 }
 
-const LIST: &str = "document.querySelector(\"[aria-label='Calls to default t1']\")";
+const LIST: &str = "document.querySelector(\"[aria-label='Calls to work t1']\")";
 const FOLLOW: &str = "document.querySelector('#ppanel-activity button[aria-pressed]')";
 const JUMP_SHOWN: &str =
     "[...document.querySelectorAll('button')].some((b) => b.textContent === 'Jump to latest' && !b.hidden)";
@@ -121,7 +121,7 @@ fn activity_follows_new_calls_until_scrolled_up_then_offers_jump_to_latest_and_c
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "40x6", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     wait_for_calls(&browser, 1);
     let mut batch = vec!["batch"];
     batch.extend(std::iter::repeat_n("get frame", 60));
@@ -143,7 +143,7 @@ fn the_list_follows_the_latest_call(browser: &Browser) {
 }
 
 fn scrolling_up_stops_following_and_offers_jump_to_latest(at: &AgentTerminal, browser: &Browser) {
-    browser.run(&["scroll", "up", "3000", "--selector", "[aria-label='Calls to default t1']"]);
+    browser.run(&["scroll", "up", "3000", "--selector", "[aria-label='Calls to work t1']"]);
     browser.wait_until(&format!("{FOLLOW}.ariaPressed === 'false'"));
     browser.wait_for_text("Jump to latest");
     let scrolled = browser.eval(&format!("{LIST}.scrollTop"));
@@ -188,7 +188,7 @@ fn clearing_empties_the_list_until_the_next_call(at: &AgentTerminal, browser: &B
 
 fn reopening_the_tab_starts_a_new_list(at: &AgentTerminal, browser: &Browser) {
     at.run(&["close"]).success();
-    browser.wait_for_text("default t1 is not open");
+    browser.wait_for_text("work t1 is not open");
     at.run(&["open", "--size", "40x6", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     wait_for_calls(browser, 1);
     assert_eq!(calls(browser)[0]["parts"][0].as_str().unwrap().split(' ').next(), Some("open"));
@@ -199,6 +199,7 @@ fn in_a_split_activity_shows_the_calls_to_the_focused_terminal() {
     let at = AgentTerminal::new();
     let printer = fixture("line-printer");
     for session in ["qa", "web"] {
+        at.run(&["session", "new", session]).success();
         at.run(&["--session", session, "open", "--size", "30x4", "--wait", "line 3", &printer, "--hold"]).success();
     }
     at.run(&["--session", "web", "get", "frame"]).success();
@@ -222,10 +223,10 @@ fn clicking_an_activity_thumbnail_opens_the_lightbox_on_that_screenshot() {
     at.run(&["open", "--size", "40x6", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     at.run(&["screenshot", &at.home().join("shots").join("evidence.png").to_string_lossy()]).success();
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
 
     browser.wait_until(
-        "[...document.querySelectorAll(\"[aria-label='Calls to default t1'] button\")].some((thumbnail) => thumbnail.innerText.trim() === 'Open screenshot evidence.png')",
+        "[...document.querySelectorAll(\"[aria-label='Calls to work t1'] button\")].some((thumbnail) => thumbnail.innerText.trim() === 'Open screenshot evidence.png')",
     );
     browser.click_button("Open screenshot evidence.png");
     browser.wait_until("document.querySelector('[role=dialog] h2')?.innerText === 'evidence.png'");
@@ -236,7 +237,7 @@ fn a_screenshot_call_shows_the_picture_it_saved_as_a_thumbnail() {
     let at = AgentTerminal::new();
     at.run(&["open", "--size", "40x6", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     wait_for_calls(&browser, 1);
     let shot = at.home().join("shots").join("evidence.png");
     at.run(&["screenshot", &shot.to_string_lossy()]).success();

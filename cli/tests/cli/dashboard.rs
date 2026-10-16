@@ -96,6 +96,7 @@ fn the_dashboard_serves_the_screenshot_fonts() {
 #[test]
 fn the_api_lists_the_same_sessions_as_session_list() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "qa"]).success();
     at.run(&[
         "--session",
         "qa",
@@ -129,7 +130,7 @@ fn the_api_serves_a_shell_command_with_its_colors_kept() {
     at.run(&["exec", "printf '\\033[32mgreen\\033[0m plain\\n'"]).success();
     let port = start(&at);
 
-    let served = get(port, "/api/session/default/t1/commands/1", &[]);
+    let served = get(port, "/api/session/work/t1/commands/1", &[]);
     assert_eq!(served.status, 200, "{}", served.head);
     let mut served: serde_json::Value = serde_json::from_str(&served.body).expect("JSON");
     assert_eq!(served["output"], "\u{1b}[32mgreen\u{1b}[0m plain\n");
@@ -139,8 +140,8 @@ fn the_api_serves_a_shell_command_with_its_colors_kept() {
     shown["output"] = serde_json::Value::Null;
     assert_eq!(served, shown);
 
-    let missing = get(port, "/api/session/default/t1/commands/9", &[]);
-    assert_eq!((missing.status, missing.body.as_str()), (404, "no command 9 in default t1"));
+    let missing = get(port, "/api/session/work/t1/commands/9", &[]);
+    assert_eq!((missing.status, missing.body.as_str()), (404, "no command 9 in work t1"));
 }
 
 #[test]
@@ -249,10 +250,10 @@ fn the_dashboard_serves_no_file_the_session_does_not_list_as_a_screenshot() {
     at.run(&["open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
     let png = at.home().join("evidence.png");
     std::fs::write(&png, b"\x89PNG\r\n\x1a\n").expect("write a PNG file");
-    let log = at.home().join("sessions/default/activity.jsonl");
+    let log = at.home().join("sessions/work/activity.jsonl");
     let port = start(&at);
 
-    for (session, file) in [("default", &png), ("default", &log), ("other", &png)] {
+    for (session, file) in [("work", &png), ("work", &log), ("other", &png)] {
         let path = file.to_string_lossy();
         let refused = get(port, &format!("/api/session/{session}/screenshots/{}", path_segment(&path)), &[]);
         assert_eq!(refused.status, 404, "{}", refused.head);
@@ -270,14 +271,14 @@ fn a_listed_screenshot_deleted_from_disk_says_it_cannot_be_read() {
     let port = start(&at);
 
     let path = shot.to_string_lossy();
-    let missing = get(port, &format!("/api/session/default/screenshots/{}", path_segment(&path)), &[]);
+    let missing = get(port, &format!("/api/session/work/screenshots/{}", path_segment(&path)), &[]);
     assert_eq!(missing.status, 404, "{}", missing.head);
     assert!(missing.body.starts_with(&format!("cannot read the screenshot {path}: ")), "{}", missing.body);
 }
 
 #[test]
 fn opening_from_the_dashboard_without_home_needs_an_absolute_working_directory() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::unstarted();
     let started =
         at.command(&["--json", "dashboard", "start", "--port", "0"]).env_remove("HOME").output().expect("start");
     assert!(started.status.success(), "{}", String::from_utf8_lossy(&started.stderr));
@@ -301,7 +302,7 @@ fn opening_from_the_dashboard_without_home_needs_an_absolute_working_directory()
 
 #[test]
 fn a_working_directory_typed_in_the_dashboard_is_absolute_or_under_home() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::unstarted();
     let home = crate::support::scratch("home-");
     std::fs::create_dir_all(home.path().join("work/app")).expect("make folders under home");
     let started =
@@ -354,6 +355,7 @@ fn screenshots_listed(at: &AgentTerminal, session: &str) -> Vec<serde_json::Valu
 #[test]
 fn a_screenshot_taken_from_the_dashboard_is_saved_listed_without_a_call_and_served() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "qa"]).success();
     at.run(&["--session", "qa", "open", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"])
         .success();
     let frame: u64 = at.run(&["--session", "qa", "get", "frame"]).success().stdout().trim().parse().unwrap();
@@ -388,7 +390,7 @@ fn the_screenshot_is_served_and_not_logged_as_a_call(at: &AgentTerminal, port: u
 
 fn compare(port: u16, a: &str, b: &str) -> serde_json::Value {
     let pair = serde_json::json!({ "paths": [a, b] }).to_string();
-    let compared = post(port, "/api/session/default/screenshots/compare", &pair);
+    let compared = post(port, "/api/session/work/screenshots/compare", &pair);
     match compared.status {
         200 => serde_json::from_str(&compared.body).expect("JSON"),
         status => serde_json::json!({ "status": status, "error": compared.body }),
@@ -424,7 +426,7 @@ fn a_file_outside_the_session_or_a_resized_one_is_not_compared(
 ) {
     let shots = at.home().join("shots");
     let elsewhere = shots.join("elsewhere.png").to_string_lossy().into_owned();
-    let refusal = format!("{elsewhere} is not a PNG screenshot in session default");
+    let refusal = format!("{elsewhere} is not a PNG screenshot in session work");
     assert_eq!(compare(port, before, &elsewhere), serde_json::json!({ "status": 404, "error": refusal }));
 
     at.run(&["screenshot", "--scale", "2", before]).success();

@@ -78,7 +78,7 @@ fn switching_tabs_picks_the_current_one_and_refuses_one_that_is_not_there() {
 }
 
 #[test]
-fn closing_the_current_tab_makes_the_newest_left_current_and_the_last_ends_the_session() {
+fn closing_the_current_tab_makes_the_newest_left_current_and_the_last_leaves_the_session_empty() {
     let running = Running::new();
     for _ in 0..3 {
         running.open(ECHO);
@@ -95,7 +95,7 @@ fn closing_the_current_tab_makes_the_newest_left_current_and_the_last_ends_the_s
     running.ok(&close(None));
     assert_eq!(
         (tabs(&running), running.ok(&json!({ "command": "sessions" }))),
-        ("current null of ".to_string(), json!({ "sessions": [] }))
+        ("current null of ".to_string(), json!({ "sessions": [{ "session": "s", "current": null, "tabs": [] }] }))
     );
     assert_eq!(
         [running.refused(&close(None)).1, running.refused(&close(Some("t9"))).1],
@@ -109,6 +109,7 @@ fn closing_the_current_tab_makes_the_newest_left_current_and_the_last_ends_the_s
 fn two_sessions() -> Running {
     let running = Running::new();
     running.open(ECHO);
+    running.ok(&json!({ "command": "new-session", "session": "other" }));
     let mut elsewhere = open(ECHO, &text("ready"));
     elsewhere["session"] = json!("other");
     running.ok(&elsewhere);
@@ -119,18 +120,21 @@ fn two_sessions() -> Running {
 #[test]
 fn closing_a_session_closes_its_tabs_and_leaves_every_other_session_running() {
     let running = two_sessions();
-    let close = |session: &str| json!({ "command": "close", "session": session, "tab": null, "scope": "session" });
-    insta::assert_snapshot!(running.ok(&close("s")), @r#"{"closed":[{"session":"s","tab":"t1"},{"session":"s","tab":"t2"}]}"#);
+    let close = |session: &str| json!({ "command": "close", "session": session, "scope": "session" });
+    insta::assert_snapshot!(running.ok(&close("s")), @r#"{"closed":[{"session":"s","tab":"t1"},{"session":"s","tab":"t2"}],"ended":["s"]}"#);
     let sessions = running.ok(&json!({ "command": "sessions" }));
     let names: Vec<&Value> =
         sessions["sessions"].as_array().unwrap().iter().map(|session| &session["session"]).collect();
-    assert_eq!((names, running.ok(&close("s"))), (vec![&json!("other")], json!({ "closed": [] })));
+    assert_eq!(
+        (names, running.refused(&close("s"))),
+        (vec![&json!("other")], (1, "no session s; create it with `agent-terminal session new s`".to_string()))
+    );
 }
 
 #[test]
 fn closing_every_session_closes_every_tab_of_every_session() {
     let running = two_sessions();
-    insta::assert_snapshot!(running.ok(&on("close", &json!({ "scope": "every-session" }))), @r#"{"closed":[{"session":"other","tab":"t1"},{"session":"s","tab":"t1"},{"session":"s","tab":"t2"}]}"#);
+    insta::assert_snapshot!(running.ok(&json!({ "command": "close", "scope": "every-session" })), @r#"{"closed":[{"session":"other","tab":"t1"},{"session":"s","tab":"t1"},{"session":"s","tab":"t2"}],"ended":["other","s"]}"#);
     assert_eq!(running.ok(&json!({ "command": "sessions" })), json!({ "sessions": [] }));
 }
 

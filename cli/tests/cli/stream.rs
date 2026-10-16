@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use crate::support::{AgentTerminal, DashboardSocket, Redraw, dashboard, frame_number, open_redraw};
 
-const STREAM: &str = "/api/session/default/t1/stream";
+const STREAM: &str = "/api/session/work/t1/stream";
 const COUNTED: Duration = Duration::from_secs(5);
 
 fn watch_and_acknowledge(mut socket: DashboardSocket, window_closed: &mpsc::Sender<()>) -> (u32, u64) {
@@ -27,7 +27,7 @@ fn watch_and_acknowledge(mut socket: DashboardSocket, window_closed: &mpsc::Send
 #[test]
 fn a_fast_tab_is_delivered_at_most_thirty_times_a_second_to_each_viewer_and_ends_on_its_latest_frame() {
     let at = AgentTerminal::new();
-    open_redraw(&at, &Redraw { session: "default", hz: "120", repaint: "--partial" });
+    open_redraw(&at, &Redraw { session: "work", hz: "120", repaint: "--partial" });
     let port = dashboard(&at);
     let (window_closed, closed) = mpsc::channel();
     let viewers: Vec<_> = (0..2)
@@ -41,7 +41,7 @@ fn a_fast_tab_is_delivered_at_most_thirty_times_a_second_to_each_viewer_and_ends
     }
     at.run(&["signal", "KILL"]).success();
     let delivered: Vec<(u32, u64)> = viewers.into_iter().map(|viewer| viewer.join().expect("a viewer")).collect();
-    let latest = at.frame("default");
+    let latest = at.frame("work");
 
     for (counted, last_frame) in delivered {
         assert!((100..=175).contains(&counted), "a viewer received {counted} frames in {COUNTED:?}, not 100 to 175");
@@ -52,7 +52,7 @@ fn a_fast_tab_is_delivered_at_most_thirty_times_a_second_to_each_viewer_and_ends
 #[test]
 fn a_viewer_that_stops_acknowledging_receives_two_frames_and_then_one_per_acknowledgement() {
     let at = AgentTerminal::new();
-    open_redraw(&at, &Redraw { session: "default", hz: "120", repaint: "--partial" });
+    open_redraw(&at, &Redraw { session: "work", hz: "120", repaint: "--partial" });
     let mut socket = DashboardSocket::open(dashboard(&at), STREAM);
 
     let mut received = Vec::new();
@@ -81,6 +81,6 @@ fn a_single_change_on_a_quiet_terminal_is_one_message_carrying_the_current_frame
     at.run(&["type", "a"]).success();
     let typed = socket.try_next(Duration::from_secs(2)).expect("a frame for the typed key");
     assert!(typed["paint"].as_str().expect("a paint").contains('a'), "{typed}");
-    assert_eq!(frame_number(&typed), at.frame("default"));
+    assert_eq!(frame_number(&typed), at.frame("work"));
     assert_eq!(socket.try_next(Duration::from_millis(500)), None);
 }

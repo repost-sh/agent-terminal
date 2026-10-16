@@ -7,6 +7,10 @@ use serde_json::Value;
 
 use crate::log;
 
+pub(crate) const SESSION: &str = "perf";
+
+const A_BUILD_BEFORE_SESSION_NEW: &str = "unrecognized subcommand 'new'";
+
 pub(crate) struct Agent {
     pub side: &'static str,
     pub binary: PathBuf,
@@ -21,7 +25,7 @@ impl Agent {
             .args(args)
             .current_dir(&self.work)
             .env("AGENT_TERMINAL_HOME", &self.home)
-            .env_remove("AGENT_TERMINAL_SESSION")
+            .env("AGENT_TERMINAL_SESSION", SESSION)
             .env_remove("AGENT_TERMINAL_SCREENSHOT_DIR")
             .stdin(Stdio::null());
         command
@@ -39,6 +43,22 @@ impl Agent {
             String::from_utf8_lossy(&output.stdout)
         );
         Ok(output)
+    }
+
+    pub(crate) fn new_session(&self, name: &str) -> Result<()> {
+        let output = self
+            .command(&["session", "new", name])
+            .output()
+            .with_context(|| format!("run {}", self.binary.display()))?;
+        let refusal = String::from_utf8_lossy(&output.stderr);
+        ensure!(
+            output.status.success() || refusal.contains(A_BUILD_BEFORE_SESSION_NEW),
+            "`agent-terminal session new {name}` failed for the {} ({}): {}",
+            self.side,
+            output.status,
+            refusal.trim_start()
+        );
+        Ok(())
     }
 
     pub(crate) fn home(&self) -> PathBuf {

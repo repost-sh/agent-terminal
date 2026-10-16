@@ -6,7 +6,7 @@ const LISTED_ROWS: &str = "document.querySelectorAll('main [aria-label=\"Screen\
 fn open_echo(at: &AgentTerminal) -> Browser {
     at.run(&["open", "--size", "20x4", "--wait", "ready", "--", "sh", "-c", "printf \"ready\\n\"; cat"]).success();
     let dashboard = Dashboard::start(at);
-    Browser::open(&dashboard.url("/s/default/t1"))
+    Browser::open(&dashboard.url("/s/work/t1"))
 }
 
 #[test]

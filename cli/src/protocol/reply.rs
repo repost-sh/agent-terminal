@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Attached, CommandOutput, Delivered, ErrorBody, Fact, History, Matches, Screenshot, ScreenshotDiff, SessionInfo,
-    Sessions, Snapshot, SnapshotDiff,
+    Attached, CommandOutput, Delivered, ErrorBody, Fact, History, Matches, Name, Screenshot, ScreenshotDiff,
+    SessionInfo, Sessions, Snapshot, SnapshotDiff,
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -16,6 +16,7 @@ pub(crate) enum Response {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "reply", content = "data")]
 pub(crate) enum Reply {
+    Created(Created),
     Snapshot(Snapshot),
     Closed(Closed),
     Sessions(Sessions),
@@ -39,6 +40,11 @@ pub(crate) enum Reply {
     Screenshot(Screenshot),
     ScreenshotDiff(ScreenshotDiff),
     Attached(Attached),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct Created {
+    pub session: Name,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -81,6 +87,8 @@ pub(crate) struct Printed {
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Closed {
     pub closed: Vec<TabRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ended: Vec<Name>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

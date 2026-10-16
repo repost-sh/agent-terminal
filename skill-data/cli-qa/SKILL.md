@@ -15,6 +15,7 @@ Read `agent-terminal skills get core` first if you have not.
 ```bash
 mkdir -p ./cli-qa-output/screenshots
 cp "$(agent-terminal skills path cli-qa)/templates/report.md" ./cli-qa-output/report.md
+agent-terminal session new qa-<tool>
 export AGENT_TERMINAL_SESSION=qa-<tool>
 agent-terminal shell --cwd <project>
 ```

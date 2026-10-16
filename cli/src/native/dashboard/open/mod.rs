@@ -10,7 +10,7 @@ use super::Backend;
 use super::api::{call, refused};
 use crate::native::pty;
 use crate::protocol::request;
-use crate::protocol::{Request, Sessions, Shell, Size};
+use crate::protocol::{Name, Request, Shell, Size};
 
 #[derive(Deserialize)]
 pub(super) struct Opening {
@@ -24,25 +24,38 @@ pub(super) struct Opening {
 }
 
 pub(super) async fn open(State(backend): State<Arc<dyn Backend>>, Json(opening): Json<Opening>) -> Response {
-    match opening.request(&backend.sessions()) {
-        Ok(request) => call(backend, request).await,
-        Err(message) => refused(message),
+    let new_session = opening.new_session;
+    let (session, request) = match opening.request() {
+        Ok(asked) => asked,
+        Err(message) => return refused(message),
+    };
+    if new_session { open_in_new_session(backend, session, request).await } else { call(backend, request).await }
+}
+
+async fn open_in_new_session(backend: Arc<dyn Backend>, session: Name, request: Request) -> Response {
+    let created =
+        call(Arc::clone(&backend), Request::NewSession(request::NewSession { session: session.clone() })).await;
+    if !created.status().is_success() {
+        return created;
     }
+    let opened = call(Arc::clone(&backend), request).await;
+    if !opened.status().is_success() {
+        call(backend, Request::Close(request::Close::Session { session })).await;
+    }
+    opened
 }
 
 impl Opening {
-    fn request(self, open: &Sessions) -> Result<Request, String> {
+    fn request(self) -> Result<(Name, Request), String> {
         let mut words = shlex::split(&self.command).ok_or("a quote in the command is not closed")?.into_iter();
         let program = words.next().ok_or("enter a command")?;
-        if self.new_session && open.sessions.iter().any(|entry| entry.session == self.session) {
-            return Err(format!("A session named {} already exists.", self.session));
-        }
+        let session: Name = self.session.parse()?;
         let size = Size::new(self.cols, self.rows)?;
         let cwd = working_directory(&self.cwd)?;
         let env = pty::inherited(std::env::vars());
         if !self.shell_integration {
-            return Ok(Request::Open(request::Open {
-                session: self.session,
+            let open = Request::Open(request::Open {
+                session: session.clone(),
                 program,
                 args: words.collect(),
                 size,
@@ -50,12 +63,13 @@ impl Opening {
                 env,
                 wait: None,
                 timeout_ms: 0,
-            }));
+            });
+            return Ok((session, open));
         }
         let shell = Shell::of_program(&program)
             .ok_or_else(|| format!("{program} has no shell integration; it comes with zsh, bash and fish"))?;
-        Ok(Request::Shell(request::OpenShell {
-            session: self.session,
+        let shell = Request::Shell(request::OpenShell {
+            session: session.clone(),
             shell,
             program,
             size,
@@ -63,7 +77,8 @@ impl Opening {
             env,
             wait: None,
             timeout_ms: 0,
-        }))
+        });
+        Ok((session, shell))
     }
 }
 

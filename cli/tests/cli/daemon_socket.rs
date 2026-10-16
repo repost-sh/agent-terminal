@@ -18,7 +18,7 @@ fn started(at: &AgentTerminal) -> Child {
 
 #[test]
 fn a_second_daemon_is_refused_naming_the_pid_build_and_socket_of_the_one_that_runs() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     let mut first = started(&at);
     let second = at.run(&["daemon", "run"]);
     assert_eq!((second.code(), second.stdout()), (1, String::new()));
@@ -30,15 +30,20 @@ fn a_second_daemon_is_refused_naming_the_pid_build_and_socket_of_the_one_that_ru
             at.home().join("daemon.sock").display()
         )
     );
-    at.run(&["open", "--size", "20x2", "cat"]).success();
-    assert_eq!(at.run(&["get", "program"]).success().stdout(), "cat\n", "the first daemon keeps serving");
+    at.run(&["session", "new", "work"]).success();
+    at.run(&["--session", "work", "open", "--size", "20x2", "cat"]).success();
+    assert_eq!(
+        at.run(&["--session", "work", "get", "program"]).success().stdout(),
+        "cat\n",
+        "the first daemon keeps serving"
+    );
     at.run(&["daemon", "stop"]).success();
     assert!(first.wait().expect("wait for the daemon").success());
 }
 
 #[test]
 fn a_daemon_is_refused_when_one_that_takes_no_lock_answers_on_the_socket() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     std::fs::write(at.home().join("daemon.version"), "0.0.1").expect("record the other daemon's build");
     let _other = UnixListener::bind(at.home().join("daemon.sock")).expect("listen where the daemon listens");
     let refused = at.run(&["daemon", "run"]);
@@ -54,7 +59,7 @@ fn a_daemon_is_refused_when_one_that_takes_no_lock_answers_on_the_socket() {
 
 #[test]
 fn a_daemon_is_refused_while_another_holds_the_lock_before_writing_its_pid_or_build() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     let lock = std::fs::File::create(at.home().join("daemon.lock")).expect("create the lock");
     lock.try_lock().expect("hold the lock as a daemon that is starting does");
     let refused = at.run(&["daemon", "run"]);
@@ -70,10 +75,11 @@ fn a_daemon_is_refused_while_another_holds_the_lock_before_writing_its_pid_or_bu
 
 #[test]
 fn a_daemon_replaces_a_socket_nobody_listens_on() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     drop(UnixListener::bind(at.home().join("daemon.sock")).expect("leave a socket file behind"));
     let mut daemon = started(&at);
-    at.run(&["open", "--size", "20x2", "cat"]).success();
+    at.run(&["session", "new", "work"]).success();
+    at.run(&["--session", "work", "open", "--size", "20x2", "cat"]).success();
     at.run(&["daemon", "stop"]).success();
     assert!(daemon.wait().expect("wait for the daemon").success());
 }
@@ -91,7 +97,7 @@ fn read_only(home: &Path) -> impl FnOnce() {
 
 #[test]
 fn a_daemon_that_cannot_open_its_lock_says_where() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     let writable_again = read_only(at.home());
     let refused = at.run(&["daemon", "run"]);
     writable_again();
@@ -102,7 +108,7 @@ fn a_daemon_that_cannot_open_its_lock_says_where() {
 
 #[test]
 fn a_daemon_that_cannot_listen_says_where() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     std::fs::write(at.home().join("daemon.lock"), "").expect("leave the lock of an earlier daemon behind");
     let writable_again = read_only(at.home());
     let refused = at.run(&["daemon", "run"]);

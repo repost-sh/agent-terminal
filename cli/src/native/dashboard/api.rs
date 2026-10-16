@@ -13,7 +13,6 @@ use super::stream::{LastSent, hung_up};
 use super::{Backend, tab_id};
 use crate::native::log;
 use crate::protocol::request;
-use crate::protocol::request::Closing;
 use crate::protocol::{ErrorBody, Request, Sessions, Shot, Target, Wait};
 
 const RESTART_SETTLES_AFTER_MS: u64 = 300;
@@ -61,41 +60,33 @@ pub(super) async fn restart(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
-    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
+    let Some(target) = addressed(&session, &tab) else { return no_tab(&session, &tab) };
     let wait = Wait::Stable { quiet_ms: RESTART_SETTLES_AFTER_MS };
-    call(
-        backend,
-        Request::Restart(request::Restart { target: Target::tab(&session, id), wait, timeout_ms: RESTART_TIMEOUT_MS }),
-    )
-    .await
+    call(backend, Request::Restart(request::Restart { target, wait, timeout_ms: RESTART_TIMEOUT_MS })).await
 }
 
 pub(super) async fn close(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
-    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Close(request::Close { target: Target::tab(&session, id), scope: Closing::Tab })).await
+    let Some(target) = addressed(&session, &tab) else { return no_tab(&session, &tab) };
+    call(backend, Request::Close(request::Close::Tab(target))).await
 }
 
 pub(super) async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
-    call(
-        backend,
-        Request::Close(request::Close {
-            target: Target { session: String::new(), tab: None },
-            scope: Closing::EverySession,
-        }),
-    )
-    .await
+    call(backend, Request::Close(request::Close::EverySession)).await
 }
 
 pub(super) async fn screenshot(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
-    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Screenshot(request::Screenshot { target: Target::tab(&session, id), shot: Shot::default() }))
-        .await
+    let Some(target) = addressed(&session, &tab) else { return no_tab(&session, &tab) };
+    call(backend, Request::Screenshot(request::Screenshot { target, shot: Shot::default() })).await
+}
+
+fn addressed(session: &str, tab: &str) -> Option<Target> {
+    Some(Target::tab(&session.parse().ok()?, tab_id(tab)?))
 }
 
 pub(super) async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {

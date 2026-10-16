@@ -43,7 +43,7 @@ test("a first session is named for you, needs a command, and opens on its tab", 
   expect(focused(within(dialog()).getByLabelText("Command"))).toBe(true);
   typeInto("Command", "lazygit");
   typeInto("Working directory", "/srv");
-  expect(within(dialog()).getByLabelText("Same as").textContent).toBe("agent-terminal --session session-1 open lazygit --cwd /srv --size 120x40");
+  expect(within(dialog()).getByLabelText("Same as").textContent).toBe("agent-terminal session new session-1 && agent-terminal --session session-1 open lazygit --cwd /srv --size 120x40");
   submit();
   expect(await screen.findByRole("heading", { name: /session-1 t1/ })).toBeTruthy();
   expect(daemon.requests.find((request) => request.path === "/api/sessions")?.body).toEqual({
@@ -102,7 +102,7 @@ test("names are checked before anything is sent, and a refused open keeps the di
   daemon.answer("POST /api/sessions", () => ({ status: 400, body: { error: { code: 1, message: "lazygit: not found" } } }));
   fireEvent.click(screen.getByRole("button", { name: "New session" }));
   typeInto("Command", "lazygit");
-  for (const [name, refusal] of [["", "Enter a session name."], ["a b", "Use letters, numbers, - and _."], ["work", "A session named work already exists."]]) {
+  for (const [name, refusal] of [["", "Enter a session name."], ["Repost", "Use up to 24 of a-z, 0-9 and -, starting with a letter or digit."], ["work", "A session named work already exists."]]) {
     typeInto("Session name", String(name));
     submit();
     const field = within(dialog()).getByRole("textbox", { name: "Session name", description: String(refusal) });
@@ -145,7 +145,7 @@ test("the command line copies, and a refused field takes focus without scrolling
   vi.stubGlobal("navigator", { clipboard: { writeText } });
   fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: "New session" }));
   fireEvent.click(within(dialog()).getByRole("button", { name: "Copy the command line" }));
-  expect(writeText.mock.calls).toEqual([["agent-terminal --session session-1 open <program> --size 120x40"]]);
+  expect(writeText.mock.calls).toEqual([["agent-terminal session new session-1 && agent-terminal --session session-1 open <program> --size 120x40"]]);
   const focus = vi.spyOn(HTMLElement.prototype, "focus");
 
   submit();

@@ -16,8 +16,11 @@ pub(crate) const BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("AGE
 
 pub(crate) const COMMIT: &str = env!("AGENT_TERMINAL_COMMIT");
 
+pub(crate) const SESSION: &str = "work";
+
 pub(crate) struct AgentTerminal {
     home: tempfile::TempDir,
+    session: Option<&'static str>,
 }
 
 #[derive(Clone, Copy)]
@@ -55,13 +58,32 @@ impl Screen {
 
 impl AgentTerminal {
     pub(crate) fn new() -> Self {
-        let home = scratch("at-");
-        Self { home }
+        let at = Self { home: scratch("at-"), session: Some(SESSION) };
+        at.run(&["session", "new", SESSION]).success();
+        at
+    }
+
+    pub(crate) fn unstarted() -> Self {
+        Self { home: scratch("at-"), session: Some(SESSION) }
+    }
+
+    pub(crate) fn without_session() -> Self {
+        Self { home: scratch("at-"), session: None }
     }
 
     pub(crate) fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_agent-terminal"));
-        command.args(args).env("AGENT_TERMINAL_HOME", self.home.path()).env_remove("AGENT_TERMINAL_SESSION");
+        let mut command = self.agent_terminal(Path::new(env!("CARGO_BIN_EXE_agent-terminal")));
+        command.args(args);
+        command
+    }
+
+    fn agent_terminal(&self, program: &Path) -> Command {
+        let mut command = Command::new(program);
+        command.env("AGENT_TERMINAL_HOME", self.home.path());
+        match self.session {
+            Some(session) => command.env("AGENT_TERMINAL_SESSION", session),
+            None => command.env_remove("AGENT_TERMINAL_SESSION"),
+        };
         command
     }
 
@@ -87,10 +109,9 @@ impl AgentTerminal {
 
     pub(crate) fn run_program(&self, program: &Path, call: &Call<'_>) -> Run {
         let Call { args, stdin, env } = *call;
-        let mut child = Command::new(program)
+        let mut child = self
+            .agent_terminal(program)
             .args(args)
-            .env("AGENT_TERMINAL_HOME", self.home.path())
-            .env_remove("AGENT_TERMINAL_SESSION")
             .envs(env.iter().copied())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

@@ -37,6 +37,7 @@ fn get_json_reports_cursor_size_and_frame(at: &AgentTerminal, frame: u64) {
 #[test]
 fn get_exit_code_says_running_until_the_program_exits() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "running"]).success();
     at.run(&["--session", "running", "open", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
         .success();
     assert_eq!(at.run(&["--session", "running", "get", "exit-code"]).success().stdout(), "running\n");
@@ -67,6 +68,7 @@ fn get_pid_is_the_process_id_of_the_program() {
 #[test]
 fn get_title_is_the_title_the_program_set() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "untitled"]).success();
     at.run(&["--session", "untitled", "open", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
         .success();
     assert_eq!(at.run(&["--session", "untitled", "get", "title"]).success().stdout(), "");
@@ -83,6 +85,7 @@ fn get_title_is_the_title_the_program_set() {
 #[test]
 fn get_cwd_is_where_the_program_started_until_it_reports_another() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "reported"]).success();
     let home = at.home().to_string_lossy().into_owned();
     at.run(&["open", "--cwd", &home, "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"]).success();
     assert_eq!(at.run(&["get", "cwd"]).success().stdout(), format!("{home}\n"));

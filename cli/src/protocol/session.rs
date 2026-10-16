@@ -3,6 +3,8 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use super::Name;
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Size {
     pub cols: u16,
@@ -66,13 +68,13 @@ impl From<TabId> for String {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Target {
-    pub session: String,
+    pub session: Name,
     pub tab: Option<TabId>,
 }
 
 impl Target {
-    pub(crate) fn tab(session: &str, tab: TabId) -> Self {
-        Self { session: session.to_string(), tab: Some(tab) }
+    pub(crate) fn tab(session: &Name, tab: TabId) -> Self {
+        Self { session: session.clone(), tab: Some(tab) }
     }
 }
 
@@ -116,15 +118,9 @@ pub(crate) struct Sessions {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct SessionInfo {
-    pub session: String,
+    pub session: Name,
     pub current: Option<String>,
     pub tabs: Vec<TabInfo>,
-}
-
-impl SessionInfo {
-    pub(crate) fn empty(session: &str) -> Self {
-        Self { session: session.to_string(), current: None, tabs: Vec::new() }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

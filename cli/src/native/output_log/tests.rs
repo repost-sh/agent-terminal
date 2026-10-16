@@ -2,7 +2,11 @@ use super::{Chunk, KEPT_BYTES, Offsets, OutputLog};
 use crate::protocol::{Target, request};
 
 fn asked(since: Option<&str>, raw: bool) -> request::Output {
-    request::Output { target: Target { session: "s".to_string(), tab: None }, since: since.map(str::to_string), raw }
+    request::Output {
+        target: Target { session: "s".parse().unwrap(), tab: None },
+        since: since.map(str::to_string),
+        raw,
+    }
 }
 
 fn chunk<'a>(raw: &'a str, text: &'a str, styled: &'a str) -> Chunk<'a> {

@@ -48,7 +48,7 @@ fn cell(name: &str) -> String {
 
 #[test]
 fn two_up_from_a_tab_shows_it_beside_the_tab_after_it_both_live() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     let cue = open_qa_with_two_tabs_and_web(&at);
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/s/qa/t1"));
@@ -66,6 +66,7 @@ fn two_up_from_a_tab_shows_it_beside_the_tab_after_it_both_live() {
 }
 
 fn open_qa_with_two_tabs_and_web(at: &AgentTerminal) -> Cue {
+    at.run(&["session", "new", "qa"]).success();
     hold(at, &["--session", "qa", "open"], "30x4", "1");
     let cue = Cue::new();
     at.run(&[
@@ -85,6 +86,7 @@ fn open_qa_with_two_tabs_and_web(at: &AgentTerminal) -> Cue {
     ])
     .success();
     cue.print("");
+    at.run(&["session", "new", "web"]).success();
     hold(at, &["--session", "web", "open"], "30x4", "3");
     cue
 }
@@ -126,10 +128,13 @@ fn both_cells_show_their_screens(at: &AgentTerminal, browser: &Browser) {
 
 #[test]
 fn four_up_fills_with_the_current_tab_then_the_ones_after_it_and_single_returns_to_the_focused_tab() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
+    at.run(&["session", "new", "build"]).success();
     at.run(&["--session", "build", "open", "--size", "30x4", &fixture("line-printer"), "--lines", "1", "--exit", "3"])
         .success();
+    at.run(&["session", "new", "chat"]).success();
     hold(&at, &["--session", "chat", "open"], "30x4", "2");
+    at.run(&["session", "new", "qa"]).success();
     hold(&at, &["--session", "qa", "open"], "30x4", "1");
     hold(&at, &["--session", "qa", "tab", "new"], "30x4", "3");
     let dashboard = Dashboard::start(&at);
@@ -194,14 +199,16 @@ fn single_returns_to_the_focused_tab(browser: &Browser) {
 }
 
 fn open_qa_with_two_tabs_and_web_of_three_sizes(at: &AgentTerminal) {
+    at.run(&["session", "new", "qa"]).success();
     hold(at, &["--session", "qa", "open"], "30x4", "1");
     hold(at, &["--session", "qa", "tab", "new"], "32x5", "2");
+    at.run(&["session", "new", "web"]).success();
     hold(at, &["--session", "web", "open"], "34x6", "3");
 }
 
 #[test]
 fn removing_a_cell_offers_the_picker_and_picking_a_tab_fills_and_focuses_that_cell() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     open_qa_with_two_tabs_and_web_of_three_sizes(&at);
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/split/qa:t1,qa:t2"));
@@ -258,7 +265,7 @@ fn picking_a_tab_fills_and_focuses_the_cell(at: &AgentTerminal, browser: &Browse
 
 #[test]
 fn clicking_a_cell_focuses_it_and_a_tab_picked_in_the_sidebar_replaces_the_focused_cell() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     open_qa_with_two_tabs_and_web_of_three_sizes(&at);
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/split/qa:t1,qa:t2"));
@@ -296,31 +303,34 @@ fn a_tab_picked_in_the_sidebar_replaces_the_focused_cell(at: &AgentTerminal, bro
 
 #[test]
 fn maximize_shows_the_tab_alone_and_a_split_route_survives_a_reload() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
+    at.run(&["session", "new", "qa"]).success();
     hold(&at, &["--session", "qa", "open"], "30x4", "1");
-    hold(&at, &["--session", "web.app", "open"], "32x5", "2");
+    at.run(&["session", "new", "web-app"]).success();
+    hold(&at, &["--session", "web-app", "open"], "32x5", "2");
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/s/qa/t1"));
     browser.wait_for_status("Live");
 
     browser.click_button("Two terminals side by side");
-    browser.wait_until("location.pathname === '/split/qa:t1,web%2Eapp:t1'");
+    browser.wait_until("location.pathname === '/split/qa:t1,web-app:t1'");
     browser.run(&["reload"]);
-    browser.wait_for_screen_in(&cell("web.app t1 line-printer"), "line 2");
+    browser.wait_for_screen_in(&cell("web-app t1 line-printer"), "line 2");
     assert_eq!(focused(&browser), "\"qa t1 line-printer\"");
 
-    browser.run(&["find", "role", "link", "click", "--name", "Maximize web.app t1", "--exact"]);
-    browser.wait_until("location.pathname === '/s/web.app/t1'");
+    browser.run(&["find", "role", "link", "click", "--name", "Maximize web-app t1", "--exact"]);
+    browser.wait_until("location.pathname === '/s/web-app/t1'");
     assert_eq!(browser.eval("document.activeElement.id"), "\"main-content\"");
     browser.wait_for_status("32 × 5");
     browser.wait_for_screen("line 2");
     assert_eq!(layout(&browser), "\"Single terminal\"");
-    assert_eq!(browser.run(&["get", "title"]).trim(), "web.app t1 · line-printer · agent-terminal");
+    assert_eq!(browser.run(&["get", "title"]).trim(), "web-app t1 · line-printer · agent-terminal");
 }
 
 #[test]
 fn a_split_route_with_three_cells_is_not_a_page() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
+    at.run(&["session", "new", "qa"]).success();
     hold(&at, &["--session", "qa", "open"], "30x4", "1");
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/split/qa:t1,_,_"));
@@ -331,8 +341,10 @@ fn a_split_route_with_three_cells_is_not_a_page() {
 
 #[test]
 fn the_focused_cell_of_a_split_takes_the_keys_of_a_human_in_control() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
+    at.run(&["session", "new", "app"]).success();
     at.run(&["--session", "app", "open", "--size", "40x6", "--wait", "ready", &fixture("input-echo")]).success();
+    at.run(&["session", "new", "web"]).success();
     hold(&at, &["--session", "web", "open"], "30x4", "1");
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/split/app:t1,web:t1"));

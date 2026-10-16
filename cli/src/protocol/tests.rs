@@ -3,7 +3,7 @@ use std::io::{self, Read};
 use serde_json::json;
 
 use super::{
-    Cell, ClickTarget, CommandRecord, Direction, ErrorBody, Modes, MouseButton, MouseEvent, OtherVersion, Reply,
+    Cell, ClickTarget, CommandRecord, Direction, ErrorBody, Modes, MouseButton, MouseEvent, Name, OtherVersion, Reply,
     ScreenshotFormat, Shell, Size, Snapshot, Style, TabId, TextMatch, Theme, read, read_body, write,
 };
 
@@ -315,5 +315,30 @@ fn a_cell_holds_a_style_when_it_has_that_flag_or_colour() {
     assert_eq!(
         [held(&cell(true, false, false)), held(&cell(false, true, true))],
         [[true, false, false, true, false, true, false], [false, true, true, true, false, true, false]]
+    );
+}
+
+#[test]
+fn a_name_is_1_to_24_lowercase_letters_digits_and_dashes_starting_with_a_letter_or_digit() {
+    let named = |text: &str| text.parse::<Name>().is_ok();
+    assert_eq!(
+        ["repost-forward", "9lives", "a", "x-", "abcdefghijklmnopqrstuvwx"].map(named),
+        [true, true, true, true, true]
+    );
+    assert_eq!(
+        ["", "-x", "Repost", "a_b", "a b", "abcdefghijklmnopqrstuvwxy", "caf\u{e9}"].map(named),
+        [false, false, false, false, false, false, false]
+    );
+    assert_eq!(
+        "Repost".parse::<Name>().err(),
+        Some(
+            "\"Repost\" is not a name: a name is 1 to 24 characters of a-z, 0-9 and -, starting with a letter or digit, such as repost-forward"
+                .to_string()
+        )
+    );
+    let sent: Name = serde_json::from_value(json!("repost-forward")).unwrap();
+    assert_eq!(
+        (&*sent, serde_json::to_value(&sent).unwrap(), serde_json::from_value::<Name>(json!("Bad")).is_err()),
+        ("repost-forward", json!("repost-forward"), true)
     );
 }

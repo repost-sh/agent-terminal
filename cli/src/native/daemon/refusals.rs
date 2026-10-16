@@ -1,8 +1,37 @@
+use std::time::Duration;
+
 use crate::native::terminal::Labelled;
-use crate::protocol::{ErrorBody, TabId};
+use crate::output;
+use crate::protocol::{ErrorBody, SessionInfo, TabId};
 
 pub(super) fn stopping() -> ErrorBody {
     ErrorBody::failure("the daemon is stopping; run the command again to start a new one")
+}
+
+pub(super) fn no_session(session: &str) -> ErrorBody {
+    ErrorBody::failure(format!("no session {session}; create it with `agent-terminal session new {session}`"))
+}
+
+pub(super) fn taken(held: &SessionInfo, open_for: Duration) -> ErrorBody {
+    let ids: Vec<&str> = held.tabs.iter().map(|tab| tab.tab.as_str()).collect();
+    let tabs = match ids.len() {
+        0 => "no tabs".to_string(),
+        k => format!("{}: {}", output::count(k, "tab"), ids.join(", ")),
+    };
+    ErrorBody::failure(format!(
+        "session {} is taken: open for {}, {tabs}; pick another name for this conversation",
+        held.session,
+        age(open_for)
+    ))
+}
+
+fn age(open_for: Duration) -> String {
+    let seconds = open_for.as_secs();
+    match seconds {
+        0..60 => format!("{seconds}s"),
+        60..3600 => format!("{}m", seconds / 60),
+        _ => format!("{}h {}m", seconds / 3600, seconds % 3600 / 60),
+    }
 }
 
 pub(super) fn no_terminal(session: &str) -> ErrorBody {

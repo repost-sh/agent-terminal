@@ -2,6 +2,7 @@ use super::{Browser, Dashboard};
 use crate::support::{AgentTerminal, fixture};
 
 fn hold(at: &AgentTerminal, session: &str, verb: &[&str]) {
+    at.run(&["session", "new", session]).success();
     let mut args = vec!["--session", session];
     args.extend_from_slice(verb);
     let printer = fixture("line-printer");
@@ -28,7 +29,7 @@ const ALERT_CLOSED: &str = "document.querySelector('[role=alertdialog]') === nul
 
 #[test]
 fn close_all_asks_first_naming_the_sessions_and_running_processes_then_closes_everything() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     open_two_sessions_with_a_running_and_an_exited_tab(&at);
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/"));

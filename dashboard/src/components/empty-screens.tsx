@@ -7,7 +7,12 @@ import { Button, CliBlock, Dot } from "./ui";
 
 const DEFAULT_PORT = "4849";
 
-const START_COMMANDS = ["agent-terminal open <program>", "agent-terminal shell", "agent-terminal skills get core"];
+const START_COMMANDS = [
+  "agent-terminal session new <name>",
+  "agent-terminal --session <name> open <program>",
+  "agent-terminal --session <name> shell",
+  "agent-terminal skills get core",
+];
 
 export const NoSessions = () => (
   <div className="flex h-full items-center justify-center p-6">

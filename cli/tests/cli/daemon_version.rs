@@ -62,14 +62,15 @@ fn recorded_build(at: &AgentTerminal) -> String {
 
 #[test]
 fn a_command_replaces_a_daemon_of_another_build_that_has_no_terminals() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     let other = stand_in(at.home(), Some(OTHER_BUILD), Some(STOPPED));
 
-    let run = at.run(&["open", "--size", "20x2", "cat"]).success();
+    let run = at.run(&["session", "new", "work"]).success();
     assert_eq!(run.stderr(), "");
     assert_eq!(other.join().unwrap(), [stop_if_no_terminals()], "the other build gets nothing but the stop");
     assert_eq!(recorded_build(&at), BUILD);
-    assert_eq!(at.run(&["get", "program"]).success().stdout(), "cat\n");
+    at.run(&["--session", "work", "open", "--size", "20x2", "cat"]).success();
+    assert_eq!(at.run(&["--session", "work", "get", "program"]).success().stdout(), "cat\n");
 }
 
 #[test]
@@ -79,25 +80,30 @@ fn a_running_daemon_of_another_build_with_no_tab_is_replaced_by_the_next_command
     at.run(&["close"]).success();
     std::fs::write(at.home().join("daemon.version"), OTHER_BUILD).expect("make the daemon report another build");
 
-    let run = at.run(&["open", "--size", "20x2", "cat"]).success();
+    let run = at.run(&["session", "new", "work"]).success();
     assert_eq!(run.stderr(), "");
     assert_eq!(recorded_build(&at), BUILD);
     assert!(at.daemon_log().contains("a command of another build stopped this daemon, which had no terminals"));
-    assert_eq!(at.run(&["--session", "default", "close", "--all"]).success().stdout(), "closed default t1\n");
+    at.run(&["open", "--size", "20x2", "cat"]).success();
+    assert_eq!(
+        at.run(&["--session", "work", "close", "--all"]).success().stdout(),
+        "closed work t1\nended session work\n"
+    );
 }
 
 #[test]
 fn commands_started_together_replace_a_daemon_of_another_build_once() {
-    let at = AgentTerminal::new();
+    let at = &AgentTerminal::without_session();
     let other = stand_in(at.home(), Some(OTHER_BUILD), Some(STOPPED));
     std::thread::scope(|scope| {
-        let opens: Vec<_> = (0..3).map(|_| scope.spawn(|| at.run(&["open", "--size", "20x2", "cat"]).code())).collect();
-        let codes: Vec<i32> = opens.into_iter().map(|open| open.join().unwrap()).collect();
+        let news: Vec<_> =
+            ["a", "b", "c"].map(|name| scope.spawn(move || at.run(&["session", "new", name]).code())).into();
+        let codes: Vec<i32> = news.into_iter().map(|new| new.join().unwrap()).collect();
         assert_eq!(codes, vec![0; 3]);
     });
     assert_eq!(other.join().unwrap(), [stop_if_no_terminals()]);
-    let closed = at.run(&["--session", "default", "close", "--all"]).success().stdout();
-    assert_eq!(closed.lines().count(), 3, "every open must land in the same daemon:\n{closed}");
+    let listed = at.run(&["session", "list"]).success().stdout();
+    assert_eq!(listed, "a · no tabs\nb · no tabs\nc · no tabs\n", "every command must land in the same daemon");
 }
 
 #[test]
@@ -112,9 +118,13 @@ fn a_daemon_of_another_build_with_open_tabs_is_left_running_and_the_command_exit
 
     the_command_exits_6_naming_both_builds(&at, &message);
     at.run(&["daemon", "stop"]).success();
+    at.run(&["session", "new", "work"]).success();
     at.run(&["open", "--size", "20x2", "cat"]).success();
     assert_eq!(recorded_build(&at), BUILD);
-    assert_eq!(at.run(&["--session", "default", "close", "--all"]).success().stdout(), "closed default t1\n");
+    assert_eq!(
+        at.run(&["--session", "work", "close", "--all"]).success().stdout(),
+        "closed work t1\nended session work\n"
+    );
 }
 
 fn the_command_exits_6_naming_both_builds(at: &AgentTerminal, message: &str) {
@@ -139,13 +149,13 @@ fn the_command_exits_6_naming_both_builds(at: &AgentTerminal, message: &str) {
 
 #[test]
 fn a_daemon_that_records_no_build_and_cannot_stop_on_request_is_left_running() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     let other = stand_in(at.home(), None, None);
     let message = format!(
         "the daemon is an agent-terminal that does not record its build, not {BUILD} like this command, and it did not say how many terminals it has open, so it was left running; {RESTARTED}"
     );
 
-    let run = at.run(&["snapshot"]);
+    let run = at.run(&["--session", "work", "snapshot"]);
     assert_eq!((run.code(), run.stdout().as_str()), (6, ""));
     assert_eq!(run.stderr(), format!("error: {message}\n"));
     assert_eq!(other.join().unwrap(), [stop_if_no_terminals()]);
@@ -155,7 +165,7 @@ fn a_daemon_that_records_no_build_and_cannot_stop_on_request_is_left_running() {
 fn the_json_error_says_neither_build_nor_terminals_are_known(at: &AgentTerminal, message: &str) {
     std::fs::remove_file(at.home().join("daemon.sock")).expect("let the next stand-in listen");
     let other = stand_in(at.home(), None, None);
-    let run = at.run(&["--json", "snapshot"]);
+    let run = at.run(&["--session", "work", "--json", "snapshot"]);
     assert_eq!(run.code(), 6);
     assert_eq!(
         run.json(),

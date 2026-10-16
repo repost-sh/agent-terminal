@@ -165,12 +165,12 @@ async fn an_mcp_client_opens_the_fixture_tui_presses_a_key_with_a_wait_and_reads
     let opened = json_of(&opened);
     assert_eq!(
         (&opened["session"], &opened["tab"], &opened["program"]),
-        (&json!("default"), &json!("t1"), &json!("fixture-tui"))
+        (&json!("work"), &json!("t1"), &json!("fixture-tui"))
     );
 
     let pressed = call(&client, "press", json!({ "keys": ["j"], "wait": "Selected: beta.txt" })).await;
     assert_eq!(pressed.is_error, Some(false), "{}", text(&pressed));
-    assert_eq!(json_of(&pressed), json!({ "session": "default", "tab": "t1", "input": "keys", "keys": 1, "bytes": 1 }));
+    assert_eq!(json_of(&pressed), json!({ "session": "work", "tab": "t1", "input": "keys", "keys": 1, "bytes": 1 }));
 
     let snapshot = json_of(&call(&client, "snapshot", json!({})).await);
     assert_eq!(
@@ -196,6 +196,10 @@ async fn tools_take_a_session_and_default_to_agent_terminal_session() {
 
     let current = call(&client, "session", json!({})).await;
     assert_eq!(json_of(&current), json!({ "session": "from-env" }));
+    for name in ["from-env", "named"] {
+        let created = call(&client, "session_new", json!({ "name": name })).await;
+        assert_eq!(json_of(&created), json!({ "session": name }), "{}", text(&created));
+    }
 
     let named =
         call(&client, "open", json!({ "session": "named", "command": [fixture("line-printer"), "--hold"] })).await;
@@ -206,7 +210,7 @@ async fn tools_take_a_session_and_default_to_agent_terminal_session() {
     let sessions = at.run(&["session", "list", "--json"]).success().json();
     let listed: Vec<&Value> =
         sessions["sessions"].as_array().unwrap().iter().map(|session| &session["session"]).collect();
-    assert_eq!(listed, [&json!("from-env"), &json!("named")]);
+    assert_eq!(listed, [&json!("from-env"), &json!("named"), &json!("work")]);
 }
 
 #[tokio::test]
@@ -237,7 +241,7 @@ async fn a_failing_command_is_a_tool_error_carrying_the_clis_json_error() {
     assert_eq!(checked.is_error, Some(true));
     let error = json_of(&checked);
     assert_eq!(error["error"]["code"], 2);
-    assert_eq!(error["error"]["message"], "\"line 9\" is not on screen in default t1");
+    assert_eq!(error["error"]["message"], "\"line 9\" is not on screen in work t1");
 
     let cli = at.run(&["expect", "line 9", "--json"]);
     assert_eq!(cli.code(), 2);

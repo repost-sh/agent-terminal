@@ -1,20 +1,16 @@
-use std::sync::{Arc, PoisonError, Weak};
+use std::sync::{Arc, PoisonError};
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
-
-use super::refusals::{error_body, no_tab, no_terminal};
+use super::refusals::{error_body, no_session, no_tab, no_terminal};
 use super::waiting::{Until, condition};
 use super::{Daemon, Session, Tab};
 use crate::native::control::Control;
 use crate::native::log;
 use crate::native::pty;
 use crate::native::shell;
-use crate::native::store::SessionFolder;
 use crate::native::terminal::{HANG_UP_GRACE, Labelled, Settled, Starting, Terminal};
 use crate::native::wait::Condition;
-use crate::protocol::request::Closing;
-use crate::protocol::{Closed, ErrorBody, Reply, SessionInfo, Shell, TabId, TabRef, Target, Wait, request};
+use crate::protocol::{Closed, ErrorBody, Name, Reply, SessionInfo, Shell, TabId, TabRef, Target, Wait, request};
 
 const KILLED_WITHIN: Duration = Duration::from_secs(5);
 
@@ -43,18 +39,12 @@ impl Daemon {
 
     fn open_tab(
         &self,
-        session: &str,
+        session: &Name,
         command: pty::Command,
         shell: Option<Shell>,
     ) -> Result<(TabId, Arc<Terminal>), ErrorBody> {
+        let folder = self.folder_of(session)?;
         let spawned = pty::spawn(&command).map_err(|e| error_body(&e))?;
-        let folder = match self.session_folder(session) {
-            Ok(folder) => folder,
-            Err(e) => {
-                spawned.abandon();
-                return Err(error_body(&e));
-            }
-        };
         let tab = folder.next_tab();
         let command_log = folder.command_log(&tab.to_string());
         let terminal = Terminal::start(Starting {
@@ -67,24 +57,17 @@ impl Daemon {
         });
         {
             let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-            let entry = sessions.entry(session.to_string()).or_insert_with(|| Session::new(Arc::clone(&folder)));
+            let Some(entry) = sessions.get_mut(session) else {
+                drop(sessions);
+                stop_all(std::slice::from_ref(&terminal));
+                return Err(no_session(session));
+            };
             let control = Control::new(self.changes.clone());
             entry.tabs.insert(tab, Tab { terminal: Arc::clone(&terminal), control });
             entry.current = Some(tab);
         }
         self.changes.notify();
         Ok((tab, terminal))
-    }
-
-    fn session_folder(&self, session: &str) -> Result<Arc<SessionFolder>> {
-        let mut folders = self.folders.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(folder) = folders.get(session).and_then(Weak::upgrade) {
-            return Ok(folder);
-        }
-        let folder = Arc::new(SessionFolder::start(&self.home, session)?);
-        folders.retain(|_, folder| folder.strong_count() > 0);
-        folders.insert(session.to_string(), Arc::downgrade(&folder));
-        Ok(folder)
     }
 
     pub(super) fn resize(&self, resize: &request::Resize) -> Result<Reply, ErrorBody> {
@@ -140,73 +123,73 @@ impl Daemon {
         }
     }
 
-    pub(super) fn tabs_of(&self, session: &str) -> SessionInfo {
+    pub(super) fn tabs_of(&self, session: &Name) -> Result<SessionInfo, ErrorBody> {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        sessions.get(session).map_or_else(|| SessionInfo::empty(session), |s| s.info(session))
+        sessions.get(session).map(|s| s.info(session)).ok_or_else(|| no_session(session))
     }
 
     pub(super) fn switch_tab(&self, switch: &request::SwitchTab) -> Result<Reply, ErrorBody> {
         let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        let entry = sessions
-            .get_mut(&switch.session)
-            .filter(|s| s.tabs.contains_key(&switch.tab))
-            .ok_or_else(|| no_tab(&switch.session, switch.tab))?;
+        let entry = sessions.get_mut(&switch.session).ok_or_else(|| no_session(&switch.session))?;
+        if !entry.tabs.contains_key(&switch.tab) {
+            return Err(no_tab(&switch.session, switch.tab));
+        }
         entry.current = Some(switch.tab);
         Ok(Reply::Tabs(entry.info(&switch.session)))
     }
 
     pub(super) fn close_request(&self, close: &request::Close) -> Result<Reply, ErrorBody> {
-        let closed = match close.scope {
-            Closing::Tab => vec![self.close(&close.target)?],
-            Closing::Session => self.close_session(&close.target.session),
-            Closing::EverySession => self.close_all(),
+        let closed = match close {
+            request::Close::Tab(target) => Closed { closed: vec![self.close(target)?], ended: Vec::new() },
+            request::Close::Session { session } => self.close_session(session)?,
+            request::Close::EverySession => self.close_all(),
         };
-        Ok(Reply::Closed(Closed { closed }))
+        Ok(Reply::Closed(closed))
     }
 
     fn close(&self, target: &Target) -> Result<TabRef, ErrorBody> {
         let Target { session, tab } = target;
         let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         let missing = || tab.map_or_else(|| no_terminal(session), |id| no_tab(session, id));
-        let entry = sessions.get_mut(session).ok_or_else(missing)?;
+        let entry = sessions.get_mut(session).ok_or_else(|| no_session(session))?;
         let id = tab.or(entry.current).ok_or_else(missing)?;
         let closing = entry.tabs.remove(&id).ok_or_else(missing)?;
         if entry.current == Some(id) {
             entry.current = entry.tabs.keys().next_back().copied();
         }
-        if entry.tabs.is_empty() {
-            sessions.remove(session);
-        }
         drop(sessions);
         self.changes.notify();
         closing.control.close();
         stop_all(&[closing.terminal]);
-        Ok(TabRef { session: session.clone(), tab: id.to_string() })
+        Ok(TabRef { session: session.to_string(), tab: id.to_string() })
     }
 
-    fn close_session(&self, name: &str) -> Vec<TabRef> {
+    fn close_session(&self, name: &Name) -> Result<Closed, ErrorBody> {
         let session = self.sessions.lock().unwrap_or_else(PoisonError::into_inner).remove(name);
-        self.close_sessions(session.map(|session| (name.to_string(), session)))
+        let session = session.ok_or_else(|| no_session(name))?;
+        Ok(self.close_sessions([(name.clone(), session)]))
     }
 
-    pub(super) fn close_all(&self) -> Vec<TabRef> {
+    pub(super) fn close_all(&self) -> Closed {
         let sessions = std::mem::take(&mut *self.sessions.lock().unwrap_or_else(PoisonError::into_inner));
         self.close_sessions(sessions)
     }
 
-    fn close_sessions(&self, sessions: impl IntoIterator<Item = (String, Session)>) -> Vec<TabRef> {
+    fn close_sessions(&self, sessions: impl IntoIterator<Item = (Name, Session)>) -> Closed {
         self.changes.notify();
         let mut closed = Vec::new();
+        let mut ended = Vec::new();
         let mut terminals = Vec::new();
         for (name, session) in sessions {
             for (id, closing) in session.tabs {
                 closing.control.close();
                 terminals.push(closing.terminal);
-                closed.push(TabRef { session: name.clone(), tab: id.to_string() });
+                closed.push(TabRef { session: name.to_string(), tab: id.to_string() });
             }
+            ended.push(name);
         }
         stop_all(&terminals);
-        closed
+        Closed { closed, ended }
     }
 }
 

@@ -38,6 +38,14 @@ test("each session lists its tabs with their program and state", async () => {
   expect(within(sidebar()).getAllByRole("button", { expanded: true }).map((head) => head.textContent)).toEqual(["work4, 4 tabs", "solo1, 1 tab"]);
 });
 
+test("a session whose tabs all closed stays listed with no tabs and a New tab row", async () => {
+  const daemon = await shownApp();
+
+  await daemon.publish([sessionInfo("idle", []), sessionInfo("solo", [tabInfo("t1", { program: "zsh" })])]);
+  expect(within(sidebar()).getAllByRole("button", { expanded: true }).map((head) => head.textContent)).toEqual(["idle0, 0 tabs", "solo1, 1 tab"]);
+  expect(within(sidebar()).getByRole("button", { name: "New tab in idle" })).toBeTruthy();
+});
+
 test("a session folds away its tabs and a tab link opens that tab", async () => {
   await shownApp();
   const work = within(sidebar()).getByRole("button", { name: /^work/ });

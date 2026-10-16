@@ -14,6 +14,7 @@ pub(crate) struct Ran {
 #[derive(Default)]
 pub(crate) struct Terminal {
     home: Option<TempDir>,
+    session: Option<String>,
     pub(crate) ran: Option<Ran>,
     pub(crate) failure: Option<String>,
 }
@@ -29,12 +30,13 @@ impl Terminal {
     pub(crate) fn run(&mut self, args: &[&str]) -> Result<Ran, String> {
         let home = self.home()?.to_path_buf();
         let binary = programs::agent_terminal()?;
-        let output = Command::new(binary)
-            .args(args)
-            .env("AGENT_TERMINAL_HOME", &home)
-            .env_remove("AGENT_TERMINAL_SESSION")
-            .output()
-            .map_err(|e| format!("run {}: {e}", binary.display()))?;
+        let mut command = Command::new(binary);
+        command.args(args).env("AGENT_TERMINAL_HOME", &home);
+        match &self.session {
+            Some(session) => command.env("AGENT_TERMINAL_SESSION", session),
+            None => command.env_remove("AGENT_TERMINAL_SESSION"),
+        };
+        let output = command.output().map_err(|e| format!("run {}: {e}", binary.display()))?;
         Ok(Ran {
             code: output.status.code(),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -48,6 +50,11 @@ impl Terminal {
             Ok(ran) => self.fail(format!("`agent-terminal {}` failed: {}", args.join(" "), ran.stderr)),
             Err(failure) => self.fail(failure),
         }
+    }
+
+    pub(crate) fn work_in(&mut self, session: &str) {
+        self.setup(&["session", "new", session]);
+        self.session = Some(session.to_string());
     }
 
     pub(crate) fn act(&mut self, args: &[&str]) {

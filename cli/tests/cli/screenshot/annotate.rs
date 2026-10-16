@@ -11,7 +11,7 @@ fn annotate_draws_a_box_and_a_name_on_each_ref_with_a_legend_and_prints_the_refs
     let run = at.run(&["screenshot", "--annotate", path.to_str().unwrap()]).success();
 
     insta::assert_snapshot!(run.screen().replace(&path.display().to_string(), "<path>"), @r#"
-    saved <path> (default t1, frame N)
+    saved <path> (work t1, frame N)
     refs:
       @t1 [panel]    "Files"     rows 1-7
       @t2 [panel]    "Details"   rows 1-7

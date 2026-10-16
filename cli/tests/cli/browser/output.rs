@@ -1,7 +1,7 @@
 use super::{Browser, Dashboard, js_string};
 use crate::support::{AgentTerminal, Cue, fixture};
 
-const STREAM: &str = "[aria-label='Output of default t1'] > *";
+const STREAM: &str = "[aria-label='Output of work t1'] > *";
 
 fn stream(browser: &Browser) -> Vec<String> {
     let lines =
@@ -11,7 +11,7 @@ fn stream(browser: &Browser) -> Vec<String> {
 
 fn wait_for_output(browser: &Browser, text: &str) {
     browser.wait_until(&format!(
-        "document.querySelector(\"[aria-label='Output of default t1']\")?.textContent.includes({})",
+        "document.querySelector(\"[aria-label='Output of work t1']\")?.textContent.includes({})",
         js_string(text)
     ));
 }
@@ -26,7 +26,7 @@ fn output_shows_the_text_stream_with_marks_as_dividers_escapes_on_raw_and_search
     let cue = Cue::new();
     print_lines_a_mark_and_a_red_alert(&at, &cue);
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     open_output(&browser);
 
     the_stream_shows_the_text_in_colour_with_the_mark_between(&at, &browser);

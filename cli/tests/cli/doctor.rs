@@ -26,7 +26,7 @@ fn doctor(at: &AgentTerminal, args: &[&str]) -> Run {
 
 #[test]
 fn doctor_checks_the_pty_the_fonts_and_the_daemon_without_starting_it() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::unstarted();
     let socket = at.home().join("daemon.sock");
     let run = doctor(&at, &["doctor"]).success();
     assert_eq!(
@@ -38,7 +38,7 @@ fn doctor_checks_the_pty_the_fonts_and_the_daemon_without_starting_it() {
     );
     assert!(!socket.exists(), "doctor must not start the daemon");
 
-    at.run(&["open", "--size", "20x2", "cat"]).success();
+    at.run(&["session", "new", "work"]).success();
     let run = doctor(&at, &["doctor"]).success();
     assert_eq!(
         run.stdout(),
@@ -199,13 +199,13 @@ fn doctor_says_when_your_shell_has_no_integration() {
 
 #[test]
 fn doctor_reports_a_stale_socket_and_fix_removes_it() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::unstarted();
     let socket = at.home().join("daemon.sock");
     drop(std::os::unix::net::UnixListener::bind(&socket).expect("leave a socket nobody listens on"));
 
     the_stale_socket_is_reported_and_kept(&at, &socket);
     fix_removes_the_stale_socket(&at, &socket);
-    at.run(&["open", "--size", "20x2", "cat"]).success();
+    at.run(&["session", "new", "work"]).success();
 }
 
 fn the_stale_socket_is_reported_and_kept(at: &AgentTerminal, socket: &std::path::Path) {
@@ -241,16 +241,17 @@ fn fix_removes_the_stale_socket(at: &AgentTerminal, socket: &std::path::Path) {
 
 #[test]
 fn fixing_while_first_commands_start_the_daemon_leaves_one_working_daemon() {
-    let at = AgentTerminal::new();
+    let at = &AgentTerminal::unstarted();
     drop(std::os::unix::net::UnixListener::bind(at.home().join("daemon.sock")).expect("leave a stale socket"));
     std::thread::scope(|scope| {
-        let fixes: Vec<_> = (0..3).map(|_| scope.spawn(|| doctor(&at, &["doctor", "--fix"]).code())).collect();
-        let opens: Vec<_> = (0..3).map(|_| scope.spawn(|| at.run(&["open", "--size", "20x2", "cat"]).code())).collect();
-        let codes: Vec<i32> = fixes.into_iter().chain(opens).map(|call| call.join().unwrap()).collect();
+        let fixes: Vec<_> = (0..3).map(|_| scope.spawn(|| doctor(at, &["doctor", "--fix"]).code())).collect();
+        let news: Vec<_> =
+            ["a", "b", "c"].map(|name| scope.spawn(move || at.run(&["session", "new", name]).code())).into();
+        let codes: Vec<i32> = fixes.into_iter().chain(news).map(|call| call.join().unwrap()).collect();
         assert_eq!(codes, vec![0; 6]);
     });
-    let closed = at.run(&["--session", "default", "close", "--all"]).success().stdout();
-    assert_eq!(closed.lines().count(), 3, "every open must land in the same daemon:\n{closed}");
+    let listed = at.run(&["session", "list"]).success().stdout();
+    assert_eq!(listed, "a · no tabs\nb · no tabs\nc · no tabs\n", "every command must land in the same daemon");
 }
 
 #[test]
@@ -283,7 +284,7 @@ fn doctor_says_how_to_fix_a_socket_path_the_system_cannot_use() {
 
 #[test]
 fn doctor_json_lists_every_check() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::unstarted();
     let healthy = doctor(&at, &["--json", "doctor"]).success().json();
     assert_eq!(
         healthy,

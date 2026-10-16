@@ -42,19 +42,31 @@ test("the size comes from the preset or from the custom columns and rows", () =>
   expect(sessionOf(form({ mode: "existing", existing: "work" }))).toBe("work");
 });
 
-test("the CLI line mirrors the form", () => {
-  expect(cliLine(form({}), null)).toBe("agent-terminal --session session-3 open <program> --size 120x40");
-  expect(cliLine(form({ name: "", command: " htop ", cwd: "~" }), null)).toBe("agent-terminal --session <name> open htop --size 120x40");
-  expect(cliLine(form({ name: "my work", command: "zsh", cwd: " /srv " }), "zsh")).toBe(
-    "agent-terminal --session 'my work' shell --shell zsh --cwd /srv --size 120x40",
+test("the CLI line mirrors the form, creating the session first when it is new", () => {
+  expect(cliLine(form({}), null)).toBe("agent-terminal session new session-3 && agent-terminal --session session-3 open <program> --size 120x40");
+  expect(cliLine(form({ name: "", command: " htop ", cwd: "~" }), null)).toBe(
+    "agent-terminal session new <name> && agent-terminal --session <name> open htop --size 120x40",
   );
-  expect(cliLine(form({ size: "custom", cols: "", rows: "" }), null)).toBe("agent-terminal --session session-3 open <program> --size ?x?");
+  expect(cliLine(form({ mode: "existing", existing: "work", command: "zsh", cwd: " /srv " }), "zsh")).toBe(
+    "agent-terminal --session work shell --shell zsh --cwd /srv --size 120x40",
+  );
+  expect(cliLine(form({ mode: "existing", existing: "my work", command: "htop" }), null)).toBe("agent-terminal --session 'my work' open htop --size 120x40");
+  expect(cliLine(form({ size: "custom", cols: "", rows: "" }), null)).toBe(
+    "agent-terminal session new session-3 && agent-terminal --session session-3 open <program> --size ?x?",
+  );
 });
 
 test("refusals name every field that cannot be opened", () => {
   expect(refusals(form({ command: "bash" }), sessions)).toEqual({});
   expect(refusals(form({ name: " ", command: "" }), sessions)).toEqual({ name: "Enter a session name.", command: "Enter a command." });
-  expect(refusals(form({ name: "a b", command: "x" }), sessions)).toEqual({ name: "Use letters, numbers, - and _." });
+  const ruled = { name: "Use up to 24 of a-z, 0-9 and -, starting with a letter or digit." };
+
+  expect(["a b", "Work", "a_b", "-x", "abcdefghijklmnopqrstuvwxy"].map((name) => refusals(form({ name, command: "x" }), sessions))).toEqual(
+    Array.from({ length: 5 }, () => ruled),
+  );
+  expect(["9lives", "x-", "abcdefghijklmnopqrstuvwx", " repost-forward "].map((name) => refusals(form({ name, command: "x" }), sessions))).toEqual(
+    Array.from({ length: 4 }, () => ({})),
+  );
   expect(refusals(form({ name: "work", command: "x" }), sessions)).toEqual({ name: "A session named work already exists." });
   expect(refusals(form({ mode: "existing", name: "", command: "x" }), sessions)).toEqual({});
   expect(refusals(form({ command: "  " }), sessions)).toEqual({ command: "Enter a command." });

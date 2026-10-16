@@ -16,7 +16,7 @@ fn wide_and_combining_characters_take_the_same_columns_as_in_the_daemon() {
     assert_eq!(rows, expected);
 
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/t1"));
     browser.wait_for_screen("ax");
     assert_eq!(browser.screen(), expected);
 }

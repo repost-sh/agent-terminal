@@ -39,7 +39,7 @@ impl Daemon {
     pub(super) fn attach(&self, mut stream: UnixStream, attach: &request::Attach) {
         let request::Attach { target, read_only } = attach;
         let read_only = *read_only;
-        let session = target.session.as_str();
+        let session: &str = &target.session;
         match self.tab(target) {
             Ok((id, attached)) => {
                 let hold = (!read_only).then(|| TabHold {

@@ -22,7 +22,7 @@ fn wait_command_waits_for_a_long_running_command(shell: &'static str) {
     let cwd = tab.cwd();
     let hold = tab.hold();
     let at_prompt = tab.run(&["wait", "--command"]).success().stdout();
-    assert_eq!(waited_n_ms(&at_prompt), "waited N ms for the shell command to finish in default t1\n");
+    assert_eq!(waited_n_ms(&at_prompt), "waited N ms for the shell command to finish in work t1\n");
 
     let line = "cat hold; echo finished";
     a_running_command_outlasts_exec_and_wait(&tab, &cwd, line);
@@ -42,7 +42,7 @@ fn a_running_command_outlasts_exec_and_wait(tab: &ShellTab, cwd: &str, line: &st
     assert_eq!(
         cut.stderr().lines().next(),
         Some(
-            "error: timed out after 300 ms waiting for `cat hold; echo finished` to finish in default t1; it is still running as command 1 (wait for it with `agent-terminal wait --command`, read its output with `agent-terminal history show 1`, interrupt it with `agent-terminal signal INT`)"
+            "error: timed out after 300 ms waiting for `cat hold; echo finished` to finish in work t1; it is still running as command 1 (wait for it with `agent-terminal wait --command`, read its output with `agent-terminal history show 1`, interrupt it with `agent-terminal signal INT`)"
         )
     );
     assert_eq!(timeless(&tab.run(&["history"]).success().stdout()), format!("1 · running · <time> · {cwd} · {line}\n"));
@@ -55,7 +55,7 @@ fn an_exec_behind_a_running_command_does_not_run(tab: &ShellTab) {
     assert_eq!(
         queued.stderr().lines().next(),
         Some(
-            "error: timed out after 300 ms waiting for `cat hold; echo finished` to finish in default t1, so `echo next` did not run (read the screen with `agent-terminal snapshot`, interrupt a command with `agent-terminal signal INT`)"
+            "error: timed out after 300 ms waiting for `cat hold; echo finished` to finish in work t1, so `echo next` did not run (read the screen with `agent-terminal snapshot`, interrupt a command with `agent-terminal signal INT`)"
         )
     );
 }
@@ -63,7 +63,7 @@ fn an_exec_behind_a_running_command_does_not_run(tab: &ShellTab) {
 fn releasing_the_command_ends_the_wait(tab: &ShellTab, hold: &Path, cwd: &str, line: &str) {
     std::fs::write(hold, "released\n").expect("release the command");
     let finished = tab.run(&["wait", "--command"]).success().stdout();
-    assert_eq!(waited_n_ms(&finished), "waited N ms for the shell command to finish in default t1 (exit code 0)\n");
+    assert_eq!(waited_n_ms(&finished), "waited N ms for the shell command to finish in work t1 (exit code 0)\n");
     assert_eq!(
         timeless(&tab.run(&["history", "show", "1"]).success().stdout()),
         format!("released\nfinished\n1 · exit 0 · <time> · {cwd} · {line}\n")
@@ -89,10 +89,10 @@ fn exec_of_a_line_the_shell_waits_to_finish_says_no_command_started(shell: &'sta
     assert_eq!(
         unfinished.stderr().lines().next(),
         Some(
-            "error: timed out after 300 ms waiting for `echo 'unfinished` to finish in default t1; the shell has not started a command for it, so the line may be unfinished (read the screen with `agent-terminal snapshot`, cancel the line with `agent-terminal press Ctrl+c`)"
+            "error: timed out after 300 ms waiting for `echo 'unfinished` to finish in work t1; the shell has not started a command for it, so the line may be unfinished (read the screen with `agent-terminal snapshot`, cancel the line with `agent-terminal press Ctrl+c`)"
         )
     );
-    assert_eq!(tab.run(&["history"]).success().stdout(), "no commands have run in default t1\n");
+    assert_eq!(tab.run(&["history"]).success().stdout(), "no commands have run in work t1\n");
     tab.run(&["press", "Ctrl+c"]).success();
     tab.run(&["wait", "--command"]).success();
     assert_eq!(
@@ -123,7 +123,7 @@ fn exec_after_a_line_the_shell_refused_starts_on_an_empty_command_line(shell: &'
     assert_eq!(refused.code(), 1);
     assert_eq!(
         refused.stderr().lines().next(),
-        Some("error: the shell in default t1 ran no command for `)`; the screen shows why")
+        Some("error: the shell in work t1 ran no command for `)`; the screen shows why")
     );
     assert_eq!(
         timeless(&tab.run(&["exec", "echo after"]).success().stdout()),
@@ -138,7 +138,7 @@ fn exec_says_when_the_shell_exits() {
     assert_eq!(run.code(), 5);
     assert_eq!(
         run.stderr().lines().next(),
-        Some("error: stopped waiting for the shell command to finish: zsh in default t1 has exited with code 4")
+        Some("error: stopped waiting for the shell command to finish: zsh in work t1 has exited with code 4")
     );
     assert_eq!(tab.run(&["wait", "--command"]).code(), 5);
     assert_eq!(tab.run(&["exec", "echo late"]).code(), 5);
@@ -151,12 +151,9 @@ fn exec_refuses_what_is_not_one_command_line() {
     let unparsed = tab.run(&["exec", ")"]);
     assert_eq!(unparsed.code(), 1);
     let stderr = unparsed.stderr();
-    assert_eq!(
-        stderr.lines().next(),
-        Some("error: the shell in default t1 ran no command for `)`; the screen shows why")
-    );
+    assert_eq!(stderr.lines().next(), Some("error: the shell in work t1 ran no command for `)`; the screen shows why"));
     assert!(stderr.contains("parse error"), "{stderr}");
-    assert_eq!(tab.run(&["history"]).success().stdout(), "no commands have run in default t1\n");
+    assert_eq!(tab.run(&["history"]).success().stdout(), "no commands have run in work t1\n");
 }
 
 fn an_empty_or_multi_line_command_is_refused(tab: &ShellTab) {
@@ -173,7 +170,7 @@ fn the_activity_log_keeps_the_exit_code_exec_check_exits_with() {
     let tab = ShellTab::opened("zsh");
     assert_eq!(tab.run(&["exec", "--check", "sh -c 'exit 7'"]).code(), 7);
     tab.run(&["exec", "false"]).success();
-    let log = std::fs::read_to_string(tab.at.home().join("sessions/default/activity.jsonl")).expect("activity log");
+    let log = std::fs::read_to_string(tab.at.home().join("sessions/work/activity.jsonl")).expect("activity log");
     let exits: Vec<(String, i64)> = log
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("activity entry"))

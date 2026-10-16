@@ -15,7 +15,7 @@ fn sidebar(browser: &Browser) -> Vec<String> {
 
 #[test]
 fn the_sidebar_groups_tabs_by_session_with_program_and_status() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     open_qa_with_two_tabs_and_build_exited(&at);
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/"));
@@ -26,6 +26,9 @@ fn the_sidebar_groups_tabs_by_session_with_program_and_status() {
 }
 
 fn open_qa_with_two_tabs_and_build_exited(at: &AgentTerminal) {
+    for session in ["qa", "build"] {
+        at.run(&["session", "new", session]).success();
+    }
     at.run(&["--session", "qa", "open", "--size", "50x8", "--wait", "Files", &fixture("fixture-tui")]).success();
     at.run(&[
         "--session",
@@ -72,6 +75,7 @@ fn a_tab_link_opens_that_terminal(at: &AgentTerminal, browser: &Browser) {
 }
 
 fn the_sidebar_follows_new_sessions_and_closed_tabs(at: &AgentTerminal, browser: &Browser) {
+    at.run(&["session", "new", "chat"]).success();
     at.run(&[
         "--session",
         "chat",
@@ -107,7 +111,8 @@ fn the_sidebar_follows_new_sessions_and_closed_tabs(at: &AgentTerminal, browser:
 
 #[test]
 fn a_tab_that_is_not_open_says_so_and_links_back() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
+    at.run(&["session", "new", "qa"]).success();
     at.run(&[
         "--session",
         "qa",
@@ -139,7 +144,8 @@ fn panel_width(browser: &Browser) -> String {
 
 #[test]
 fn the_side_panel_keeps_its_tab_and_width_from_one_terminal_to_the_next() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
+    at.run(&["session", "new", "qa"]).success();
     for verb in [&["open"][..], &["tab", "new"][..]] {
         let printer = fixture("line-printer");
         let mut args = vec!["--session", "qa"];

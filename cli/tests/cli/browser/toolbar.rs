@@ -13,6 +13,7 @@ fn command_line(browser: &Browser) -> Vec<(String, String)> {
 fn the_toolbar_shows_the_command_line_with_its_working_directory_dimmed() {
     let at = AgentTerminal::new();
     let cwd = at.home().to_string_lossy().into_owned();
+    at.run(&["session", "new", "qa"]).success();
     at.run(&[
         "--session",
         "qa",
@@ -47,6 +48,7 @@ fn toolbar_buttons(browser: &Browser) -> Vec<String> {
 #[test]
 fn the_toolbar_offers_restart_screenshot_layouts_and_control() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "qa"]).success();
     at.run(&[
         "--session",
         "qa",
@@ -92,6 +94,7 @@ fn wait_for_toast(browser: &Browser, title: &str) {
 #[test]
 fn screenshot_saves_a_png_of_the_screen_and_says_where() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "qa"]).success();
     at.run(&[
         "--session",
         "qa",
@@ -137,6 +140,7 @@ fn qa_pid(at: &AgentTerminal) -> String {
 #[test]
 fn restart_asks_first_while_the_program_runs_and_restarts_at_once_once_it_exited() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "qa"]).success();
     at.run(&[
         "--session",
         "qa",

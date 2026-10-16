@@ -3,7 +3,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, ensure};
 
-use crate::daemon::{Agent, Daemon};
+use crate::daemon::{Agent, Daemon, SESSION};
 use crate::metrics::{Metric, Results, Samples};
 
 const RUNS: usize = 100;
@@ -115,6 +115,7 @@ fn timings(sides: &Sides, busy_screen: &Path) -> Result<Timings> {
 fn memory(agent: Agent, busy_screen: &Path) -> Result<(f64, Result<f64>)> {
     let mut daemon = Daemon::start(agent)?;
     daemon.agent().run(&["session", "list"])?;
+    daemon.agent().new_session(SESSION)?;
     let without_tabs = daemon.memory()?;
     let per_tab = (|| {
         for _ in 0..TABS {
@@ -214,6 +215,7 @@ impl Screen {
         let stamps = agent.work.join(&agent.home).join("stamps");
         let screenshot = format!("{}.png", agent.home);
         let daemon = Daemon::start(agent)?;
+        daemon.agent().new_session(SESSION)?;
         daemon.agent().run(&[
             "open",
             "--size",

@@ -26,9 +26,9 @@ fn history_keeps_every_command_with_its_exit_code_cwd_and_output(shell: &'static
 }
 
 fn history_says_when_nothing_ran_or_matched(tab: &ShellTab) {
-    assert_eq!(tab.run(&["history"]).success().stdout(), "no commands have run in default t1\n");
+    assert_eq!(tab.run(&["history"]).success().stdout(), "no commands have run in work t1\n");
     tab.run(&["exec", "true"]).success();
-    assert_eq!(tab.run(&["history", "--failed"]).success().stdout(), "no command matches in default t1 (1 in all)\n");
+    assert_eq!(tab.run(&["history", "--failed"]).success().stdout(), "no command matches in work t1 (1 in all)\n");
 }
 
 fn exec_prints_each_command_with_its_exit_code(tab: &ShellTab, cwd: &str, sub: &str) -> String {
@@ -64,7 +64,7 @@ fn history_show_prints_one_command_with_its_output(tab: &ShellTab, numbers: &str
     assert_eq!(timeless(&tab.run(&["history", "show", "5"]).success().stdout()), format!("{numbers}{seq}\n"));
     let missing = tab.run(&["history", "show", "9"]);
     assert_eq!(missing.code(), 1);
-    assert_eq!(missing.stderr(), "error: no command 9 in default t1; list them with `agent-terminal history`\n");
+    assert_eq!(missing.stderr(), "error: no command 9 in work t1; list them with `agent-terminal history`\n");
 }
 
 fn a_command_the_users_history_leaves_out_is_recorded_as_typed(shell: &'static str) {
@@ -118,7 +118,7 @@ fn exec_and_history_print_json() {
     assert_eq!(checked.json()["exit_code"], 1);
 
     let history = tab.run(&["--json", "history", "--failed"]).success().json();
-    assert_eq!(history["session"], "default");
+    assert_eq!(history["session"], "work");
     assert_eq!(history["tab"], "t1");
     the_failed_command_is_listed_without_its_output(&history);
 }
@@ -138,7 +138,7 @@ fn exec_prints_the_command_as_json(tab: &ShellTab, cwd: &str) {
     assert_eq!(
         ran,
         serde_json::json!({
-            "session": "default", "tab": "t1", "id": 1, "command": "echo hi", "cwd": cwd,
+            "session": "work", "tab": "t1", "id": 1, "command": "echo hi", "cwd": cwd,
             "started_at_ms": masked, "ended_at_ms": masked, "duration_ms": masked, "exit_code": 0,
             "first_frame": masked, "last_frame": masked, "output": "hi\n"
         })
