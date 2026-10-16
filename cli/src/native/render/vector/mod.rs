@@ -145,7 +145,7 @@ fn write_row(
                 run.style.bg.css()
             )?;
         }
-        if run.text.trim().is_empty() {
+        if run.text.trim().is_empty() && run.style.decorations().is_empty() {
             continue;
         }
         writeln!(
@@ -287,3 +287,6 @@ fn html_style(style: &Style, palette: &Palette) -> Vec<String> {
     }
     css
 }
+
+#[cfg(test)]
+mod tests;
