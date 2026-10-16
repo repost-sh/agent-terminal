@@ -15,7 +15,7 @@ Terminal automation CLI for AI agents, the terminal sibling of agent-browser. Sp
 
 ## Checks
 
-`scripts/gauntlet.sh` is the gauntlet, the one entry point for every check: work is done when it ends `GAUNTLET GREEN`. `GAUNTLET.md` lists its areas and explains every rule and its fix; each offense line names its section. With no argument it runs `rust dashboard npm duplication`; `mutation` and `acceptance-faults` take hours and test the committed `HEAD` in throwaway worktrees.
+`scripts/gauntlet.sh` is the gauntlet, the one entry point for every check: work is done when it ends `GAUNTLET GREEN`. `GAUNTLET.md` lists its areas and explains every rule and its fix; each offense line names its section. With no argument it runs `rust dashboard npm duplication`; `mutation` and `acceptance-faults` test the committed `HEAD` in throwaway worktrees.
 
 Rule Zero: fix the code a check flags, and leave every rule as it stands; a rule that seems wrong goes to the owner.
 

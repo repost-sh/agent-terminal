@@ -12,16 +12,16 @@ The escape hatches are sealed by checks of their own: [sealed lint table](#seale
 
 | Area | Runs | When |
 |---|---|---|
-| `rust` | [rust format](#rust-format), [rust lint](#rust-lint) with and without `browser-tests`, [dependency policy](#dependency-policy), [unused dependencies](#unused-dependencies), [rust tests](#rust-tests) (with the static checks and the acceptance suite), [property tests](#property-tests), [architecture](#architecture), [parameter ceiling](#parameter-ceiling), [acceptance](#acceptance) with the names of its faults (needs `cargo-mutants`) | default; pre-commit for `cli/`, `scripts/`, `.githooks/` |
-| `dashboard` | [dashboard lint](#dashboard-lint), [dashboard types](#dashboard-types), [gauntlet tools](#gauntlet-tools), [dashboard tests](#dashboard-tests), [CRAP](#crap), [property tests](#property-tests), [dashboard build](#dashboard-build) | default; pre-commit for `dashboard/` |
-| `npm` | [npm tests](#npm-tests) | default; pre-commit for `npm/` |
-| `duplication` | [duplication](#duplication) | default; pre-commit for `cli/`, `dashboard/`, `scripts/` |
-| `browser` | [browser tests](#browser-tests) | needs `agent-browser` and Chrome |
-| `coverage` | [coverage floor](#coverage-floor) and [CRAP](#crap) for the Rust crates | needs `cargo-llvm-cov` and `agent-browser` |
-| `mutation` | [mutation](#mutation): cargo-mutants and Stryker on the lines the change touched since `main` | each pull request; minutes for a typical change |
-| `acceptance-faults` | the fault self-test of [acceptance](#acceptance) | heavy: nightly and before a release |
+| `rust` | [rust format](#rust-format), [rust lint](#rust-lint) with and without `browser-tests`, [dependency policy](#dependency-policy), [unused dependencies](#unused-dependencies), [rust tests](#rust-tests) (with the static checks and the acceptance suite), [property tests](#property-tests), [architecture](#architecture), [parameter ceiling](#parameter-ceiling), [acceptance](#acceptance) with the names of its faults (needs `cargo-mutants`) | default; pre-commit for `cli/`, `scripts/`, `.githooks/`; CI on Linux and macOS |
+| `dashboard` | [dashboard lint](#dashboard-lint), [dashboard types](#dashboard-types), [gauntlet tools](#gauntlet-tools), [dashboard tests](#dashboard-tests), [CRAP](#crap), [property tests](#property-tests), [dashboard build](#dashboard-build) | default; pre-commit for `dashboard/`; CI on Linux and macOS |
+| `npm` | [npm tests](#npm-tests) | default; pre-commit for `npm/`; CI on Linux and macOS |
+| `duplication` | [duplication](#duplication) | default; pre-commit for `cli/`, `dashboard/`, `scripts/`; CI on Linux and macOS |
+| `browser` | [browser tests](#browser-tests) | CI on Linux and macOS; needs `agent-browser` and Chrome |
+| `coverage` | [coverage floor](#coverage-floor) and [CRAP](#crap) for the Rust crates | CI on Linux; needs `cargo-llvm-cov` and `agent-browser` |
+| `mutation` | [mutation](#mutation): cargo-mutants and Stryker on the lines the change touched since `main` | CI on each pull request against its base branch, and on a manual run against `mutation_base`; minutes for a typical change |
+| `acceptance-faults` | the fault self-test of [acceptance](#acceptance) | CI on Linux; about five minutes |
 
-With no area, `scripts/gauntlet.sh` runs `rust dashboard npm duplication`. Enable the pre-commit hook once per clone with `git config core.hooksPath .githooks`. `git commit --no-verify` skips the hook, so CI runs the gauntlet on every push.
+With no area, `scripts/gauntlet.sh` runs `rust dashboard npm duplication`. Enable the pre-commit hook once per clone with `git config core.hooksPath .githooks`. `git commit --no-verify` skips the hook, so CI runs the gauntlet on every push and pull request: `.github/workflows/ci.yml` gives each area its own job, and `.github/actions/gauntlet-tools` installs what the job's areas need.
 
 ## Rules
 

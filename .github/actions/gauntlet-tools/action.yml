@@ -1,0 +1,63 @@
+name: Gauntlet tools
+description: Install what the gauntlet areas of one job need
+
+inputs:
+  cargo-tools:
+    description: The cargo tools to install, pinned, as taiki-e/install-action takes them
+    default: ""
+  shells:
+    description: Install zsh and fish for the shell tests
+    default: "false"
+  dashboard:
+    description: Install the dashboard's npm packages
+    default: "false"
+  browser:
+    description: Install agent-browser and the Chrome it drives
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install the Rust toolchain rust-toolchain.toml pins
+      shell: bash
+      run: rustup toolchain install
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: cli
+    - if: inputs.cargo-tools != ''
+      uses: taiki-e/install-action@v2
+      with:
+        tool: ${{ inputs.cargo-tools }}
+    - name: Install zsh and fish for the shell tests
+      if: inputs.shells == 'true' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo add-apt-repository --yes ppa:fish-shell/release-4
+        sudo apt-get update
+        sudo apt-get install --yes zsh fish
+        sudo chmod go-w /usr/share/zsh /usr/share/zsh/vendor-completions
+        zsh -c 'autoload -U compaudit && compaudit'
+        zsh --version
+        fish --version
+    - name: Install fish for the shell tests
+      if: inputs.shells == 'true' && runner.os == 'macOS'
+      shell: bash
+      run: |
+        brew install fish
+        zsh --version
+        fish --version
+    - if: inputs.dashboard == 'true' || inputs.browser == 'true'
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+    - name: Install the dashboard's npm packages
+      if: inputs.dashboard == 'true'
+      shell: bash
+      working-directory: dashboard
+      run: npm ci
+    - name: Install agent-browser and Chrome
+      if: inputs.browser == 'true'
+      shell: bash
+      run: |
+        npm install --global agent-browser@0.39.0
+        if [ "$RUNNER_OS" = Linux ]; then agent-browser install --with-deps; else agent-browser install; fi
