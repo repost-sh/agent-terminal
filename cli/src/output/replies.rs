@@ -139,9 +139,13 @@ fn write_tab_lines(f: &mut fmt::Formatter<'_>, session: &SessionInfo) -> fmt::Re
 }
 
 fn tab_line(session: &SessionInfo, tab: &TabInfo) -> Vec<String> {
-    let mut line =
-        vec![format!("{} {}", session.session, tab.tab), tab.program.clone(), format!("{}x{}", tab.cols, tab.rows)];
-    line.push(match (tab.exited, tab.exit_code) {
+    let running = &tab.terminal;
+    let mut line = vec![
+        format!("{} {}", session.session, tab.tab),
+        running.program.clone(),
+        format!("{}x{}", running.cols, running.rows),
+    ];
+    line.push(match (running.exited, running.exit_code) {
         (true, Some(code)) => format!("exited {code}"),
         (true, None) => "exited".into(),
         (false, _) => "running".into(),

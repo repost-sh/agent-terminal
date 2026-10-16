@@ -247,8 +247,10 @@ impl Session {
                 .tabs
                 .values()
                 .map(|tab| TabInfo {
+                    tab: tab.name.clone(),
                     renamed_from: tab.renamed_from.clone(),
-                    ..tab.terminal.info(&tab.name, tab.control.owner())
+                    terminal: tab.terminal.info(),
+                    control: tab.control.owner(),
                 })
                 .collect(),
         }

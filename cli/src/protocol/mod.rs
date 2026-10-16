@@ -29,7 +29,7 @@ pub(crate) use screen::{
     SnapshotOptions, Squeeze,
 };
 pub(crate) use screenshot::{Look, Screenshot, ScreenshotDiff, ScreenshotFormat, Shot, Theme};
-pub(crate) use session::{Owner, SessionInfo, Sessions, Shell, Size, TabInfo, Target};
+pub(crate) use session::{Owner, SessionInfo, Sessions, Shell, Size, TabInfo, Target, TerminalInfo};
 pub(crate) use wait::{Expect, Style, TextMatch, Wait};
 
 #[cfg(test)]

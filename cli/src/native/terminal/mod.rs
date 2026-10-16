@@ -21,7 +21,7 @@ use crate::native::log;
 use crate::native::pty::{self, Signaller, Spawned, Stopper};
 use crate::native::screen::Screen;
 use crate::native::store::CommandLog;
-use crate::protocol::{Modes, Name, Owner, Shell, Size, TabInfo};
+use crate::protocol::{Modes, Name, Shell, Size, TerminalInfo};
 pub(crate) use picture::{Glance, Picture};
 use state::State;
 pub(crate) use status::Status;
@@ -217,12 +217,10 @@ impl Terminal {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).status
     }
 
-    pub(crate) fn info(&self, tab: &Name, control: Owner) -> TabInfo {
+    pub(crate) fn info(&self) -> TerminalInfo {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let size = state.screen.size();
-        TabInfo {
-            tab: tab.clone(),
-            renamed_from: None,
+        TerminalInfo {
             program: self.program.clone(),
             command: match self.shell {
                 Some(_) => crate::output::call_line(std::slice::from_ref(&self.command.program)),
@@ -233,7 +231,6 @@ impl Terminal {
             rows: size.rows,
             exited: state.status.exited(),
             exit_code: state.status.code(),
-            control,
         }
     }
 

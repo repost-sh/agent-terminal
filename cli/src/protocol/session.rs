@@ -73,6 +73,13 @@ pub(crate) struct TabInfo {
     pub tab: Name,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub renamed_from: Option<Name>,
+    #[serde(flatten)]
+    pub terminal: TerminalInfo,
+    pub control: Owner,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct TerminalInfo {
     pub program: String,
     pub command: String,
     pub cwd: String,
@@ -80,5 +87,4 @@ pub(crate) struct TabInfo {
     pub rows: u16,
     pub exited: bool,
     pub exit_code: Option<i32>,
-    pub control: Owner,
 }
