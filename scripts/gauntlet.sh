@@ -136,7 +136,7 @@ acceptance_faults() {
     picked+=(--re "$fault")
   done
   if ! CARGO_BUILD_BUILD_DIR="$root/cli/target/mbf" cargo mutants --in-place -p agent-terminal "${picked[@]}" --minimum-test-timeout 120 -o "$work/out" -- --test acceptance >"$work/out.log" 2>&1; then
-    printf 'cargo-mutants reported a fault the acceptance suite let through; the next step names it\n'
+    printf 'cargo-mutants reported a missed mutant; it also runs struct-field mutants that --re cannot leave out, so the next step judges only the baseline and the named faults\n'
   fi
   cd "$root/cli"
   step "add the scenario that would have caught the fault it names → GAUNTLET.md#acceptance" cargo run --quiet -p at-gauntlet -- faults "$work/out/mutants.out/outcomes.json" "${FAULTS[@]}"
