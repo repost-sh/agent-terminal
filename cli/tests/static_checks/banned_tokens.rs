@@ -74,11 +74,11 @@ fn rust_files_use_no_banned_token_and_each_library_only_in_its_home() {
         let code = scan(&read(&file)).code;
         for (pattern, reason, _) in BANNED.iter().filter(|(_, _, scope)| scope.applies_to(&relative)) {
             for (index, _) in code.lines().enumerate().filter(|(_, line)| contains_token(line, pattern)) {
-                offenses.add(format!("{relative}:{}: {reason} (`{pattern}`)", index + 1));
+                offenses.add(format!("cli/{relative}:{}: {reason} (`{pattern}`)", index + 1));
             }
         }
         for line in silenced_through_cfg_attr(&code) {
-            offenses.add(format!("{relative}:{line}: silenced lint (`cfg_attr` around `allow` or `expect`)"));
+            offenses.add(format!("cli/{relative}:{line}: silenced lint (`cfg_attr` around `allow` or `expect`)"));
         }
     }
     offenses.assert_none();

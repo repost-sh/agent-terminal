@@ -3,6 +3,8 @@ mod artifact_paths;
 #[cfg(test)]
 mod banned_tokens;
 #[cfg(test)]
+mod catalogue;
+#[cfg(test)]
 mod comments;
 #[cfg(test)]
 mod file_size;

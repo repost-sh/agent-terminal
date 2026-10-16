@@ -79,7 +79,7 @@ fn cfg_test_only_marks_the_modules_of_the_test_crate_roots() {
     for file in rust_files() {
         let relative = relative(&file, cli());
         for offense in cfg_test_offenses(&relative, &scan(&read(&file)).code) {
-            offenses.add(offense);
+            offenses.add(format!("cli/{offense}"));
         }
     }
     offenses.assert_none();
