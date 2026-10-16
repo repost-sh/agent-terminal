@@ -13,36 +13,29 @@ const OPEN_COMMANDS = [
   "agent-terminal skills get core",
 ];
 
-const NO_SESSIONS = {
+const LIST = new Intl.ListFormat("en");
+
+interface Invitation { heading: string; note: string; commands: string[]; existing: (string | null)[] }
+
+const NO_SESSIONS: Invitation = {
   heading: "No active sessions",
   note: "Start a terminal from the CLI, or create a session here",
   commands: ["agent-terminal session new <name>", ...OPEN_COMMANDS],
+  existing: [null],
 };
 
-const invitation = (sessions: string[]) =>
+export const invitation = (sessions: string[]): Invitation =>
   sessions.length
-    ? { heading: "No open tabs", note: `Open a tab in ${new Intl.ListFormat("en").format(sessions)} from the CLI, or here`, commands: OPEN_COMMANDS }
+    ? { heading: "No open tabs", note: `Open a tab in ${LIST.format(sessions)} from the CLI, or here`, commands: OPEN_COMMANDS, existing: sessions }
     : NO_SESSIONS;
 
-interface NewTabsProps { sessions: string[] }
+interface NewTabButtonProps { existing: string | null }
 
-const NewTabs = ({ sessions }: NewTabsProps) => (
-  <div className="flex flex-wrap justify-center gap-2">
-    {sessions.map((session) => (
-      <Button key={session} look={{ icon: Plus }} onClick={() => {
-        showDialog((live) => <NewSessionDialog sessions={live} existing={session} />);
-      }}>
-        New tab in {session}
-      </Button>
-    ))}
-  </div>
-);
-
-const NewSession = () => (
+const NewTabButton = ({ existing }: NewTabButtonProps) => (
   <Button look={{ icon: Plus }} onClick={() => {
-    showDialog((live) => <NewSessionDialog sessions={live} existing={null} />);
+    showDialog((live) => <NewSessionDialog sessions={live} existing={existing} />);
   }}>
-    New session
+    {existing === null ? "New session" : `New tab in ${existing}`}
   </Button>
 );
 
@@ -50,6 +43,7 @@ interface NothingOpenProps { sessions: string[] }
 
 export const NothingOpen = ({ sessions }: NothingOpenProps) => {
   const invited = invitation(sessions);
+  const buttons = invited.existing.map((existing) => <NewTabButton key={existing ?? ""} existing={existing} />);
 
   return (
     <div className="flex h-full items-center justify-center p-6">
@@ -65,7 +59,7 @@ export const NothingOpen = ({ sessions }: NothingOpenProps) => {
             </li>
           ))}
         </ul>
-        {sessions.length ? <NewTabs sessions={sessions} /> : <NewSession />}
+        {sessions.length ? <div className="flex flex-wrap justify-center gap-2">{buttons}</div> : buttons}
       </div>
     </div>
   );

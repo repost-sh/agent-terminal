@@ -2,7 +2,7 @@ import { Copy } from "lucide-react";
 import { useId, useState } from "react";
 
 import { openTab, reason } from "../lib/api";
-import { cliLine, initialForm, refusals, SIZE_PRESETS, sessionOf, shellOf, sizeLabel, sizeOf, tabField, tabOf, type Errors, type Form, type Mode } from "../lib/new-session-form";
+import { cliLine, initialForm, refusals, SIZE_PRESETS, sessionOf, shellOf, sizeLabel, sizeOf, tabField, type Errors, type Form, type Mode } from "../lib/new-session-form";
 import type { SessionInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
 import { settle } from "../lib/settle";
@@ -21,6 +21,7 @@ const useNewSession = (props: NewSessionDialogProps) => {
   const [errors, setErrors] = useState<Errors>({});
   const [opening, setOpening] = useState(false);
   const shell = shellOf(form.command);
+  const typedTab = tabField(form, props.sessions);
 
   return {
     form,
@@ -33,8 +34,8 @@ const useNewSession = (props: NewSessionDialogProps) => {
     setOpening,
     shell,
     integration: shell !== null && (form.integration ?? true),
-    tabField: tabField(form, props.sessions),
-    tab: tabOf(form, props.sessions),
+    tabField: typedTab,
+    tab: typedTab.trim(),
     fieldId: (field: string) => `${id}-${field}`,
   };
 };

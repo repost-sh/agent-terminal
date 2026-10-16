@@ -1,5 +1,6 @@
 import { shellWord } from "./format";
-import { NAME, type SessionInfo } from "./protocol";
+import { NAME, NAME_RULE, type SessionInfo } from "./protocol";
+import { findTab } from "./tabs";
 
 interface Size { cols: string; rows: string }
 
@@ -31,8 +32,6 @@ export interface Form {
 export interface Errors { name?: string; command?: string; tab?: string; size?: string }
 
 export interface Chosen { shell: string | null; tab: string }
-
-const NAME_RULE = "Use up to 24 of a-z, 0-9 and -, starting with a letter or digit.";
 
 export const freeName = (sessions: SessionInfo[]) => {
   const taken = new Set(sessions.map((entry) => entry.session));
@@ -67,15 +66,13 @@ export const sizeOf = (form: Form): Size =>
 
 export const sessionOf = (form: Form) => (form.mode === "new" ? form.name.trim() : form.existing);
 
-const tabsIn = (form: Form, sessions: SessionInfo[]) =>
-  form.mode === "existing" ? (sessions.find((entry) => entry.session === form.existing)?.tabs ?? []) : [];
-
-const heldIn = (form: Form, sessions: SessionInfo[]) => new Set(tabsIn(form, sessions).map((entry) => entry.tab));
+const heldIn = (form: Form, sessions: SessionInfo[]) => (tab: string) =>
+  form.mode === "existing" && findTab(sessions, { session: form.existing, tab }) !== null;
 
 export const tabField = (form: Form, sessions: SessionInfo[]) => {
   const program = programOf(form.command);
 
-  return form.tab ?? (NAME.test(program) && !heldIn(form, sessions).has(program) ? program : "");
+  return form.tab ?? (NAME.test(program) && !heldIn(form, sessions)(program) ? program : "");
 };
 
 export const tabOf = (form: Form, sessions: SessionInfo[]) => tabField(form, sessions).trim();
@@ -129,7 +126,7 @@ const tabRefusal = (form: Form, sessions: SessionInfo[]) => {
     return NAME_RULE;
   }
 
-  return heldIn(form, sessions).has(tab) ? `${form.existing} already has a tab named ${tab}.` : undefined;
+  return heldIn(form, sessions)(tab) ? `${form.existing} already has a tab named ${tab}.` : undefined;
 };
 
 const sizeFits = (form: Form) => inRange(form.cols.trim(), { low: 20, high: 500 }) && inRange(form.rows.trim(), { low: 5, high: 200 });
