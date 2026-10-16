@@ -29,7 +29,7 @@ const plainMark = (plain: Plain, name: string): Plain => {
   const open = plain.open.lines.at(-1) ?? [];
   const closed = open.length ? [lineOf(open)] : [];
 
-  return { items: [...plain.items, ...closed, { kind: "mark", name }], open: { lines: [[]], style: plain.open.style } };
+  return { items: [...plain.items, ...closed, { kind: "mark", name }], open: { lines: [], style: plain.open.style } };
 };
 
 const pictured = (text: string) =>
@@ -48,9 +48,11 @@ const pictured = (text: string) =>
 const rawLine = (text: string): Item => lineOf([{ text, style: {} }]);
 
 const rawText = (raw: Raw, text: string): Raw => {
-  const parts = text.split("\n");
-  const closed = parts.slice(0, -1).map((part, n) => rawLine(`${n === 0 ? raw.open : ""}${pictured(part)}␊`));
-  const last = pictured(parts.at(-1) ?? "");
+  const closed = text
+    .split("\n")
+    .slice(0, -1)
+    .map((part, n) => rawLine(`${n === 0 ? raw.open : ""}${pictured(part)}␊`));
+  const last = pictured(text.slice(text.lastIndexOf("\n") + 1));
 
   return { items: closed.length ? [...raw.items, ...closed] : raw.items, open: closed.length ? last : raw.open + last };
 };

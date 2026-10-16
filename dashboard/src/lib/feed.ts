@@ -1,7 +1,6 @@
-import { useSyncExternalStore } from "react";
-
 import { socketUrl } from "./api";
 import { followSocket } from "./socket";
+import { createStore, useStore, type Store } from "./store";
 
 export type FeedStatus = "connecting" | "open" | "closed";
 
@@ -15,9 +14,7 @@ type Reduce<T, M> = (value: T, received: Received<M>) => T;
 
 export interface FeedSpec<T, M> { initial: T; reduce: Reduce<T, M> }
 
-interface Feed<T> { subscribe: (listener: () => void) => () => void; get: () => FeedState<T> }
-
-const feeds = new Map<string, Feed<unknown>>();
+const feeds = new Map<string, Store<FeedState<unknown>>>();
 
 interface Publisher<T> { state: () => FeedState<T>; publish: (next: FeedState<T>) => void }
 
@@ -29,54 +26,28 @@ const follow = <T, M extends Message>(path: string, feed: FeedSpec<T, M> & Publi
       feed.publish({ status: "open", value: feed.reduce(first ? feed.initial : feed.state().value, { message, first }) });
     },
     reconnecting: () => {
-      if (feed.state().status === "open") {
-        feed.publish({ ...feed.state(), status: "connecting" });
-      }
+      feed.publish({ ...feed.state(), status: "connecting" });
     },
     closed: () => {
       feed.publish({ ...feed.state(), status: "closed" });
     },
   });
 
-const createFeed = <T, M extends Message>(path: string, spec: FeedSpec<T, M>): Feed<T> => {
-  let state: FeedState<T> = { status: "connecting", value: spec.initial };
-  const listeners = new Set<() => void>();
-  let stop: (() => void) | null = null;
-  const publish = (next: FeedState<T>) => {
-    state = next;
-    listeners.forEach((listener) => {
-      listener();
-    });
-  };
+const createFeed = <T, M extends Message>(path: string, spec: FeedSpec<T, M>): Store<FeedState<T>> => {
+  const feed = createStore<FeedState<T>>({ status: "connecting", value: spec.initial }, (watched) => {
+    feeds.set(path, feed as Store<FeedState<unknown>>);
+    const stop = follow(path, { ...spec, state: watched.get, publish: watched.set });
 
-  const feed: Feed<T> = {
-    subscribe: (listener) => {
-      listeners.add(listener);
-      feeds.set(path, feed);
-      if (listeners.size === 1) {
-        stop = follow(path, { ...spec, state: () => state, publish });
+    return () => {
+      stop();
+      if (feeds.get(path) === feed) {
+        feeds.delete(path);
       }
-
-      return () => {
-        listeners.delete(listener);
-        if (listeners.size > 0) {
-          return;
-        }
-
-        stop?.();
-        if (feeds.get(path) === feed) {
-          feeds.delete(path);
-        }
-      };
-    },
-    get: () => state,
-  };
+    };
+  });
 
   return feed;
 };
 
-export const useFeed = <T, M extends Message>(path: string, spec: FeedSpec<T, M>): FeedState<T> => {
-  const feed = (feeds.get(path) as Feed<T> | undefined) ?? createFeed(path, spec);
-
-  return useSyncExternalStore(feed.subscribe, feed.get);
-};
+export const useFeed = <T, M extends Message>(path: string, spec: FeedSpec<T, M>): FeedState<T> =>
+  useStore((feeds.get(path) as Store<FeedState<T>> | undefined) ?? createFeed(path, spec));

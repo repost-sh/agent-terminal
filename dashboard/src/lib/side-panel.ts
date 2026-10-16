@@ -1,29 +1,15 @@
-import { useSyncExternalStore } from "react";
+import { createStore, useStore } from "./store";
 
 interface SidePanel { panel: string; width: number }
 
-const listeners = new Set<() => void>();
-let shown: SidePanel = { panel: "activity", width: 30 };
-
-const publish = (next: Partial<SidePanel>) => {
-  shown = { ...shown, ...next };
-  listeners.forEach((listener) => {
-    listener();
-  });
-};
-
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-
-  return () => listeners.delete(listener);
-};
+const shown = createStore<SidePanel>({ panel: "activity", width: 30 });
 
 export const showPanel = (panel: string) => {
-  publish({ panel });
+  shown.set({ ...shown.get(), panel });
 };
 
 export const resizePanel = (width: number) => {
-  publish({ width });
+  shown.set({ ...shown.get(), width });
 };
 
-export const useSidePanel = () => useSyncExternalStore(subscribe, () => shown);
+export const useSidePanel = () => useStore(shown);

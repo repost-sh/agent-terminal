@@ -5,6 +5,7 @@ import { announce } from "./announcements";
 import { toast } from "./toasts";
 import { controlUrl } from "./api";
 import { focusNext } from "./focus";
+import { createSignal } from "./store";
 import type { ControlUpdate, HumanInput } from "./protocol";
 import { tabKey, tabName, type TabAddress } from "./tabs";
 
@@ -13,26 +14,12 @@ export type ControlState = "off" | "taking" | "held";
 interface Held { socket: WebSocket; state: ControlState }
 
 const holds = new Map<string, Held>();
-const listeners = new Set<() => void>();
-
-const publish = () => {
-  listeners.forEach((listener) => {
-    listener();
-  });
-};
-
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-
-  return () => listeners.delete(listener);
-};
+const changed = createSignal();
 
 export const controlButtonId = (session: string, tab: string) => `take-control-${encodeURIComponent(session)}-${tab}`;
 
-export const controlTerminal = (session: string, tab: string) => `control-terminal:${tabKey(session, tab)}`;
-
 export const useControl = (session: string, tab: string): ControlState =>
-  useSyncExternalStore(subscribe, () => holds.get(tabKey(session, tab))?.state ?? "off");
+  useSyncExternalStore(changed.subscribe, () => holds.get(tabKey(session, tab))?.state ?? "off");
 
 const handedBack = (address: TabAddress, socket: WebSocket) => {
   const key = tabKey(address.session, address.tab);
@@ -42,7 +29,7 @@ const handedBack = (address: TabAddress, socket: WebSocket) => {
   }
 
   holds.delete(key);
-  publish();
+  changed.notify();
 
   return true;
 };
@@ -53,8 +40,8 @@ const gotControl = (taking: Taking) => {
   const address = taking.address;
 
   holds.set(tabKey(address.session, address.tab), { socket: taking.socket, state: "held" });
-  focusNext(controlTerminal(address.session, address.tab));
-  publish();
+  focusNext(tabKey(address.session, address.tab));
+  changed.notify();
   announce(`You have control of ${tabName(address.session, address.tab)}`);
 };
 
@@ -105,7 +92,7 @@ export const takeControl = (address: TabAddress, program: string) => {
   const taking = { address, socket, program };
 
   holds.set(key, { socket, state: "taking" });
-  publish();
+  changed.notify();
   socket.onmessage = (event: MessageEvent<string>) => {
     controlUpdate(taking, JSON.parse(event.data) as ControlUpdate);
   };

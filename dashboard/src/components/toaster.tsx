@@ -1,12 +1,11 @@
 import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from "lucide-react";
-import { useSyncExternalStore } from "react";
-
-import { dismiss, shownToasts, subscribeToToasts } from "../lib/toasts";
+import { useStore } from "../lib/store";
+import { dismiss, toasts } from "../lib/toasts";
 
 const ICONS = { success: CircleCheck, error: CircleAlert, warning: TriangleAlert, info: Info };
 
 export const Toaster = () => {
-  const shown = useSyncExternalStore(subscribeToToasts, shownToasts);
+  const shown = useStore(toasts);
 
   return (
     <section className="toaster" aria-label="Notifications" aria-live="polite" aria-relevant="additions">

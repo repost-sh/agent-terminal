@@ -28,7 +28,7 @@ const refusal = async (text: string, response: Response) => {
 };
 
 const post = async <Data>(path: string, body?: unknown) => {
-  const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: body === undefined ? null : JSON.stringify(body) });
+  const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const text = await response.text();
 
   if (!response.ok) {

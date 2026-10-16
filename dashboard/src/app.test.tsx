@@ -67,3 +67,46 @@ test("the sidebar waits for the daemon before listing anything", async () => {
   await daemon.serve();
   expect(within(screen.getByRole("navigation", { name: "Sessions and tabs" })).getByText("No sessions")).toBeTruthy();
 });
+
+test("a skip link leads to the main content, which takes focus only by script", () => {
+  startDaemon([]);
+  render(<App />);
+  const skip = screen.getByRole("link", { name: "Skip to content" });
+
+  expect([skip.getAttribute("href"), screen.getByRole("main").id, screen.getByRole("main").tabIndex]).toEqual(["#main-content", "main-content", -1]);
+});
+
+test("the page behind an open dialog is inert", async () => {
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const { container } = render(<App />);
+
+  await daemon.serve();
+  const shell = container.querySelector(".shell");
+
+  expect(shell?.hasAttribute("inert")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "New session" }));
+  expect(shell?.hasAttribute("inert")).toBe(true);
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+  expect(shell?.hasAttribute("inert")).toBe(false);
+});
+
+test("Retry goes home first, so a reconnected dashboard opens the first tab", async () => {
+  vi.useFakeTimers();
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+
+  navigate("/nowhere");
+  render(<App />);
+  await daemon.serve();
+  await daemon.hangUp(SESSIONS_STREAM);
+  for (const wait of [500, 1000, 2000]) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(wait);
+    });
+    await daemon.refuse();
+  }
+
+  vi.useRealTimers();
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await daemon.serve();
+  expect(location.pathname).toBe("/s/work/t1");
+});

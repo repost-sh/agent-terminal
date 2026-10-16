@@ -1,7 +1,15 @@
 import { shellWord } from "./format";
 import type { SessionInfo } from "./protocol";
 
-export const SIZE_PRESETS = ["80x24", "120x40", "200x60"];
+interface Size { cols: string; rows: string }
+
+export const SIZE_PRESETS: Size[] = [
+  { cols: "80", rows: "24" },
+  { cols: "120", rows: "40" },
+  { cols: "200", rows: "60" },
+];
+
+export const sizeLabel = (size: Size) => `${size.cols}x${size.rows}`;
 
 const SHELLS = ["zsh", "bash", "fish"];
 
@@ -24,13 +32,10 @@ export interface Form {
 export interface Errors { name?: string; command?: string; size?: string }
 
 export const freeName = (sessions: SessionInfo[]) => {
-  let n = sessions.length + 1;
+  const taken = new Set(sessions.map((entry) => entry.session));
+  const names = Array.from({ length: sessions.length + 1 }, (_, n) => `session-${String(sessions.length + 1 + n)}`);
 
-  while (sessions.some((entry) => entry.session === `session-${String(n)}`)) {
-    n += 1;
-  }
-
-  return `session-${String(n)}`;
+  return String(names.find((name) => !taken.has(name)));
 };
 
 export const initialForm = (sessions: SessionInfo[], existing: string | null): Form => ({
@@ -46,16 +51,13 @@ export const initialForm = (sessions: SessionInfo[], existing: string | null): F
 });
 
 export const shellOf = (command: string) => {
-  const name = command.trim().split(/\s+/)[0]?.split("/").pop() ?? "";
+  const name = String(command.trim().split(/\s/)[0]).split("/").pop();
 
-  return SHELLS.includes(name) ? name : null;
+  return SHELLS.find((shell) => shell === name) ?? null;
 };
 
-export const sizeOf = (form: Form) => {
-  const [cols = "", rows = ""] = form.size === "custom" ? [form.cols.trim(), form.rows.trim()] : form.size.split("x");
-
-  return { cols, rows };
-};
+export const sizeOf = (form: Form): Size =>
+  SIZE_PRESETS.find((preset) => sizeLabel(preset) === form.size) ?? { cols: form.cols.trim(), rows: form.rows.trim() };
 
 export const sessionOf = (form: Form) => (form.mode === "new" ? form.name.trim() : form.existing);
 

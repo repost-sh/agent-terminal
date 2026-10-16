@@ -248,11 +248,8 @@ const Calls = (props: CallsProps) => {
   const { list } = props;
   const scrolled = (event: UIEvent<HTMLOListElement>) => {
     const element = event.currentTarget;
-    const atLatest = element.scrollHeight - element.scrollTop - element.clientHeight < FOLLOWING_WITHIN_PX;
 
-    if (atLatest !== list.follow) {
-      list.setFollow(atLatest);
-    }
+    list.setFollow(element.scrollHeight - element.scrollTop - element.clientHeight < FOLLOWING_WITHIN_PX);
   };
 
   const toggle = (index: number) => {
@@ -268,7 +265,7 @@ const Calls = (props: CallsProps) => {
         }} />
       ))}
       {list.activity.pending.map((call, index) => (
-        <PendingRow key={`${call.time} ${String(index)}`} call={call} />
+        <PendingRow key={index} call={call} />
       ))}
     </ol>
   );

@@ -1,6 +1,7 @@
 import { Copy, type LucideIcon } from "lucide-react";
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode, Ref } from "react";
 
+import { reason } from "../lib/api";
 import { settle } from "../lib/settle";
 import { toast } from "../lib/toasts";
 
@@ -126,7 +127,7 @@ export const copy = async (value: string) => {
   });
 
   if (!copied.ok) {
-    toast("error", { title: "Could not copy", description: copied.error instanceof Error ? copied.error.message : String(copied.error) });
+    toast("error", { title: "Could not copy", description: reason(copied.error) });
   }
 };
 

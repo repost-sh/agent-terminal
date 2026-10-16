@@ -1,53 +1,40 @@
 import { X } from "lucide-react";
-import { useId, useSyncExternalStore, type KeyboardEvent, type ReactNode, type SubmitEvent } from "react";
+import { useId, type KeyboardEvent, type ReactNode, type SubmitEvent } from "react";
 import { flushSync } from "react-dom";
 
 import type { SessionInfo } from "../lib/protocol";
+import { createStore, useStore } from "../lib/store";
 import { Button } from "./ui";
 
 type Render = (sessions: SessionInfo[]) => ReactNode;
 
 interface Open { render: Render; trigger: Element | null }
 
-let open: Open | null = null;
-const listeners = new Set<() => void>();
-
-const publish = (next: Open | null) => {
-  open = next;
-  listeners.forEach((listener) => {
-    listener();
-  });
-};
-
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-
-  return () => listeners.delete(listener);
-};
+const open = createStore<Open | null>(null);
 
 window.addEventListener("popstate", () => {
-  publish(null);
+  open.set(null);
 });
 
 export const showDialog = (render: Render) => {
-  publish({ render, trigger: document.activeElement });
+  open.set({ render, trigger: document.activeElement });
 };
 
 const focusable = (element: Element | null | undefined): element is HTMLElement =>
   element instanceof HTMLElement && element.isConnected && !element.matches(":disabled");
 
 export const closeDialog = (focus?: HTMLElement | null) => {
-  const trigger = open?.trigger;
+  const trigger = open.get()?.trigger;
 
   flushSync(() => {
-    publish(null);
+    open.set(null);
   });
   const target = focus ?? (focusable(trigger) ? trigger : document.getElementById("main-content"));
 
   target?.focus({ preventScroll: true });
 };
 
-export const useOpenDialog = () => useSyncExternalStore(subscribe, () => open);
+export const useOpenDialog = () => useStore(open);
 
 interface DialogLayerProps { sessions: SessionInfo[] }
 

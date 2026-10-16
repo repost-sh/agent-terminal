@@ -56,4 +56,5 @@ test("placing a cell changes only that cell and the cell then shows", () => {
     }),
   );
   expect(isShown([null, a1] satisfies Cell[], a2)).toBe(false);
+  expect(isShown([null, a1] satisfies Cell[], null)).toBe(false);
 });

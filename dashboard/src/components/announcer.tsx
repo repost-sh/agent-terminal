@@ -1,11 +1,10 @@
-import { useSyncExternalStore } from "react";
-
-import { lastAnnouncement, subscribeToAnnouncements } from "../lib/announcements";
+import { announcements } from "../lib/announcements";
+import { useStore } from "../lib/store";
 
 interface AnnouncersProps { title: string }
 
 export const Announcers = ({ title }: AnnouncersProps) => {
-  const { text, times } = useSyncExternalStore(subscribeToAnnouncements, lastAnnouncement);
+  const { text, times } = useStore(announcements);
 
   return (
     <>

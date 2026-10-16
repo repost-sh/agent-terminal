@@ -7,6 +7,10 @@ const sgr = (params: string) => `\x1b[${params}m`;
 
 const styleAfter = (params: string) => styledLines(`${sgr(params)}x`)[0]?.[0]?.style;
 
+test("a CSI that is not a colour sequence stays in the text, even when an m follows later", () => {
+  expect(styledLines("a\x1b[2Kbm")).toEqual([[{ text: "a\x1b[2Kbm", style: {} }]]);
+});
+
 test("plain text splits into lines of unstyled runs", () => {
   expect(styledLines("one\ntwo\n")).toEqual([[{ text: "one", style: {} }], [{ text: "two", style: {} }]]);
   expect(styledLines("")).toEqual([[]]);
@@ -66,9 +70,12 @@ test("extended colours read the 256 cube, the gray ramp and true colour in eithe
     { fg: undefined },
     { fg: "rgb(255 0 0)" },
   ]);
-  expect(["38;2;1;2;3", "48:2::4:5:6", "38:2:7:8", "38;9", "38", "38;2;1;2;3;1"].map(styleAfter)).toEqual([
+  expect(["38;2;1;2;3", "48:2::4:5:6", "38:2:7:8", "38:2:7", "38:5", "38:3:1:2:3", "38;9", "38", "38;2;1;2;3;1"].map(styleAfter)).toEqual([
     { fg: "rgb(1 2 3)" },
     { bg: "rgb(4 5 6)" },
+    { fg: undefined },
+    { fg: undefined },
+    { fg: undefined },
     { fg: undefined },
     { fg: undefined, strike: true },
     { fg: undefined },

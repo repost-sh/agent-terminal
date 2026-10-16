@@ -80,3 +80,16 @@ test("shrinking the grid past the focused cell moves focus to the first, and the
   });
   expect(location.pathname).toBe("/split/play:t1,work:t2");
 });
+
+test("splitting again from a single terminal focuses its cell, whatever was focused before", async () => {
+  await shownApp("/split/work:t1,work:t2");
+  fireEvent.click(screen.getByRole("region", { name: "work t2 make" }));
+  layout("Single terminal");
+  expect(location.pathname).toBe("/s/work/t2");
+  await act(async () => {
+    navigate("/s/work/t1");
+    await Promise.resolve();
+  });
+  layout("Two terminals side by side");
+  expect([location.pathname, commandLine()]).toEqual(["/split/work:t1,work:t2", "vim notes/home/me"]);
+});

@@ -2,7 +2,7 @@ import { Copy } from "lucide-react";
 import { useId, useState } from "react";
 
 import { openTab, reason } from "../lib/api";
-import { cliLine, initialForm, refusals, SIZE_PRESETS, sessionOf, shellOf, sizeOf, type Errors, type Form, type Mode } from "../lib/new-session-form";
+import { cliLine, initialForm, refusals, SIZE_PRESETS, sessionOf, shellOf, sizeLabel, sizeOf, type Errors, type Form, type Mode } from "../lib/new-session-form";
 import type { SessionInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
 import { settle } from "../lib/settle";
@@ -145,7 +145,7 @@ const SessionFields = ({ dialog, sessions }: SessionFieldsProps) => (
   </>
 );
 
-const SIZES: [string, string][] = [...SIZE_PRESETS.map((preset): [string, string] => [preset, preset.replace("x", "×")]), ["custom", "Custom"]];
+const SIZES: [string, string][] = [...SIZE_PRESETS.map((preset): [string, string] => [sizeLabel(preset), `${preset.cols}×${preset.rows}`]), ["custom", "Custom"]];
 
 const SizeFields = ({ dialog }: DialogPartProps) => (
   <>

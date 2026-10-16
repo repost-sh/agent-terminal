@@ -1,8 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
-import { followLink, leadHomeTo, navigate, parseRoute, splitRoute, tabRoute, type Cell } from "./route";
+import { followLink, leadHomeTo, navigate, parseRoute, splitRoute, tabRoute, usePath, type Cell } from "./route";
 
 const name = fc.string({ minLength: 1, maxLength: 12, unit: "grapheme" });
 
@@ -26,8 +26,12 @@ test("any tab reads back from its route", () => {
 
 test("routes the dashboard does not serve are missing", () => {
   expect(parseRoute("/")).toEqual({ kind: "home" });
-  expect(["/s/a", "/s/a/b/c", "/split/a:b", "/split/a:b,_,_", "/split/a:b,c", "/split/a:b:c,_", "/split/:b,_", "/x"].map(parseRoute)).toEqual(
-    Array.from({ length: 8 }, () => ({ kind: "missing" })),
+  expect(
+    ["/s/a", "/s/a/b/c", "/split/a:b", "/split/a:b,_,_", "/split/a:b,c", "/split/a:b:c,_", "/split/:b,_", "/x", "/x/split/a:b,_", "/split/a:b,_/x", "/x/s/a/t1", "/s/a/t1/x"].map(
+      parseRoute,
+    ),
+  ).toEqual(
+    Array.from({ length: 12 }, () => ({ kind: "missing" })),
   );
 });
 
@@ -70,4 +74,16 @@ test("a plain left click follows a link in place and any other click is left to 
   navigate("/");
   expect(fireEvent.click(link)).toBe(false);
   expect(location.pathname).toBe("/s/x/t1");
+});
+
+test("going back or forward in the browser moves the path", () => {
+  const hook = renderHook(() => usePath());
+
+  history.pushState(null, "", "/s/a/t2");
+  expect(hook.result.current).toBe("/");
+  act(() => {
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  expect(hook.result.current).toBe("/s/a/t2");
+  hook.unmount();
 });

@@ -1,38 +1,32 @@
 import { useSyncExternalStore, type MouseEvent } from "react";
 
+import { createSignal } from "./store";
+
 export type Cell = { session: string; tab: string } | null;
 
 export type Route = { kind: "home" } | { kind: "tab"; session: string; tab: string } | { kind: "split"; cells: Cell[] } | { kind: "missing" };
 
-const listeners = new Set<() => void>();
+const moved = createSignal();
 let home: string | null = null;
 
 const settle = () => {
   if (home && location.pathname === "/") {
-    history.replaceState(null, "", home);
+    history.replaceState(null, document.title, home);
   }
 
-  listeners.forEach((listener) => {
-    listener();
-  });
+  moved.notify();
 };
 
 window.addEventListener("popstate", settle);
 
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-
-  return () => listeners.delete(listener);
-};
-
-export const usePath = () => useSyncExternalStore(subscribe, () => location.pathname);
+export const usePath = () => useSyncExternalStore(moved.subscribe, () => location.pathname);
 
 export const navigate = (path: string, { replace = false } = {}) => {
   if (location.pathname !== path) {
     if (replace) {
-      history.replaceState(null, "", path);
+      history.replaceState(null, document.title, path);
     } else {
-      history.pushState(null, "", path);
+      history.pushState(null, document.title, path);
     }
   }
 

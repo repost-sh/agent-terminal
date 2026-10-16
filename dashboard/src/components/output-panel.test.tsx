@@ -73,3 +73,22 @@ test("search counts and marks every occurrence, ignoring case", async () => {
   fireEvent.change(search, { target: { value: "  " } });
   expect(screen.queryByRole("status")).toBeNull();
 });
+
+test("an open line continues across updates, in styled and in raw output", async () => {
+  const daemon = await shownOutput();
+
+  await pushed(daemon, { segments: [{ text: "a\nb" }] });
+  await pushed(daemon, { segments: [{ text: "c\nd" }] });
+  await pushed(daemon, { segments: [{ text: "x\ny\n" }] });
+  expect(lines()).toEqual(["a", "bc", "dx", "y"]);
+  fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+  expect(lines()).toEqual(["a␊", "bc␊", "dx␊", "y␊"]);
+});
+
+test("a line drawn in several styles is searched as one text", async () => {
+  const daemon = await shownOutput();
+
+  await pushed(daemon, { segments: [{ text: "\x1b[31mal\x1b[0mpha\n" }] });
+  fireEvent.change(screen.getByRole("textbox", { name: "Search the output" }), { target: { value: "alpha" } });
+  expect(screen.getByRole("status").textContent).toBe("1 match");
+});

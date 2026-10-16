@@ -1,4 +1,4 @@
-import { compareScreenshots, screenshotsFeedPath } from "./api";
+import { compareScreenshots, reason, screenshotsFeedPath } from "./api";
 import { useFeed, type Received } from "./feed";
 import type { Compared, Screenshot, ScreenshotsUpdate } from "./protocol";
 import { settle } from "./settle";
@@ -21,7 +21,7 @@ const comparisons = new Map<string, Promise<Comparison>>();
 const compared = async (session: string, pair: ScreenshotPair): Promise<Comparison> => {
   const result = await settle(() => compareScreenshots(session, { older: pair.older.path, newer: pair.newer.path }));
 
-  return result.ok ? result.value : { error: result.error instanceof Error ? result.error.message : String(result.error) };
+  return result.ok ? result.value : { error: reason(result.error) };
 };
 
 export const comparisonOf = (session: string, pair: ScreenshotPair) => {

@@ -1,43 +1,24 @@
 import { useState, useSyncExternalStore } from "react";
 
-import { commandOutput, commandsStreamUrl } from "./api";
+import { commandOutput, commandsStreamUrl, reason } from "./api";
 import type { CommandRecord, CommandsStreamUpdate, CommandsUpdate } from "./protocol";
 import { followSocket } from "./socket";
+import { createSignal, createStore, useStore } from "./store";
 import { tabKey, type TabAddress } from "./tabs";
 
-const commandsFeed = (session: string, tab: string) => {
-  const listeners = new Set<() => void>();
-  let latest: CommandsUpdate | null = null;
-  let stop: (() => void) | null = null;
-
-  const subscribe = (listener: () => void) => {
-    listeners.add(listener);
-    if (listeners.size === 1) {
-      stop = followSocket<CommandsStreamUpdate>(commandsStreamUrl(session, tab), {
-        message: (update) => {
-          latest = update;
-          listeners.forEach((each) => {
-            each();
-          });
-        },
-      });
-    }
-
-    return () => {
-      listeners.delete(listener);
-      if (listeners.size === 0) {
-        stop?.();
-      }
-    };
-  };
-
-  return { subscribe, read: () => latest };
-};
+const commandsFeed = (session: string, tab: string) =>
+  createStore<CommandsUpdate | null>(null, (feed) =>
+    followSocket<CommandsStreamUpdate>(commandsStreamUrl(session, tab), {
+      message: (update) => {
+        feed.set(update);
+      },
+    }),
+  );
 
 export const useCommands = (session: string, tab: string) => {
-  const [{ subscribe, read }] = useState(() => commandsFeed(session, tab));
+  const [feed] = useState(() => commandsFeed(session, tab));
 
-  return useSyncExternalStore(subscribe, read);
+  return useStore(feed);
 };
 
 export type LoadedOutput = { output: string } | { error: string };
@@ -54,7 +35,7 @@ export const outputOf = (address: TabAddress, command: CommandRecord) => {
 
   const loading = commandOutput(address, command.id).then(
     (output): LoadedOutput => ({ output }),
-    (error: unknown): LoadedOutput => ({ error: error instanceof Error ? error.message : String(error) }),
+    (error: unknown): LoadedOutput => ({ error: reason(error) }),
   );
 
   outputs.set(key, loading);
@@ -65,17 +46,11 @@ export const outputOf = (address: TabAddress, command: CommandRecord) => {
 export const rowOf = (command: CommandRecord) => `${String(command.id)}@${String(command.started_at_ms)}`;
 
 const openRows = new Map<string, string>();
-const openListeners = new Set<() => void>();
-
-const subscribeOpenRows = (listener: () => void) => {
-  openListeners.add(listener);
-
-  return () => openListeners.delete(listener);
-};
+const openRowsChanged = createSignal();
 
 export const useOpenCommand = (session: string, tab: string) => {
   const key = tabKey(session, tab);
-  const open = useSyncExternalStore(subscribeOpenRows, () => openRows.get(key) ?? null);
+  const open = useSyncExternalStore(openRowsChanged.subscribe, () => openRows.get(key) ?? null);
   const toggle = (row: string) => {
     if (openRows.get(key) === row) {
       openRows.delete(key);
@@ -83,9 +58,7 @@ export const useOpenCommand = (session: string, tab: string) => {
       openRows.set(key, row);
     }
 
-    openListeners.forEach((listener) => {
-      listener();
-    });
+    openRowsChanged.notify();
   };
 
   return { open, toggle };

@@ -17,13 +17,12 @@ interface Following<M extends Message> {
   socket: WebSocket | null;
   timer: number | undefined;
   failures: number;
-  finished: boolean;
 }
 
 interface Connection<M extends Message> { following: Following<M>; opening: WebSocket }
 
 const replier = <M extends Message>(connection: Connection<M>) => (message: object) => {
-  if (connection.following.socket === connection.opening && connection.opening.readyState === WebSocket.OPEN) {
+  if (connection.opening.readyState === WebSocket.OPEN) {
     connection.opening.send(JSON.stringify(message));
   }
 };
@@ -41,7 +40,6 @@ const receiver = <M extends Message>(connection: Connection<M>) => {
     const message = JSON.parse(event.data) as M;
 
     if (message.type === "closed") {
-      following.finished = true;
       following.socket = null;
       following.follower.closed?.();
 
@@ -68,7 +66,7 @@ const connect = <M extends Message>(following: Following<M>) => {
 
   opening.onmessage = receiver({ following, opening });
   opening.onclose = () => {
-    if (following.finished || following.socket !== opening) {
+    if (following.socket !== opening) {
       return;
     }
 
@@ -81,12 +79,11 @@ const connect = <M extends Message>(following: Following<M>) => {
 };
 
 export const followSocket = <M extends Message>(url: string, follower: Follower<M>) => {
-  const following: Following<M> = { url, follower, socket: null, timer: undefined, failures: 0, finished: false };
+  const following: Following<M> = { url, follower, socket: null, timer: undefined, failures: 0 };
 
   connect(following);
 
   return () => {
-    following.finished = true;
     window.clearTimeout(following.timer);
     const open = following.socket;
 

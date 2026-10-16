@@ -1,35 +1,11 @@
 import type { Terminal } from "@xterm/xterm";
 
-const fitRows = (list: HTMLElement, rows: number) => {
-  while (list.childElementCount < rows) {
-    const item = document.createElement("div");
+const rowItem = () => {
+  const item = document.createElement("div");
 
-    item.setAttribute("role", "listitem");
-    list.appendChild(item);
-  }
+  item.setAttribute("role", "listitem");
 
-  while (list.childElementCount > rows) {
-    list.lastElementChild?.remove();
-  }
-};
-
-interface Mirror { terminal: Terminal; list: HTMLElement; shown: string[] }
-
-const mirrorRow = (mirror: Mirror, y: number) => {
-  const buffer = mirror.terminal.buffer.active;
-  const text = buffer.getLine(buffer.viewportY + y)?.translateToString(true) ?? "";
-
-  if (mirror.shown[y] === text) {
-    return;
-  }
-
-  const item = mirror.list.children.item(y);
-
-  if (item) {
-    item.textContent = text;
-  }
-
-  mirror.shown[y] = text;
+  return item;
 };
 
 export const mirrorRows = (terminal: Terminal, host: HTMLElement) => {
@@ -39,16 +15,22 @@ export const mirrorRows = (terminal: Terminal, host: HTMLElement) => {
   list.setAttribute("aria-label", "Screen");
   list.className = "sr-only";
   host.appendChild(list);
-  const mirror: Mirror = { terminal, list, shown: [] };
   const update = () => {
-    const rows = terminal.rows;
+    const buffer = terminal.buffer.active;
 
-    fitRows(list, rows);
-    for (let y = 0; y < rows; y += 1) {
-      mirrorRow(mirror, y);
-    }
+    list.append(...Array.from({ length: terminal.rows - list.childElementCount }, rowItem));
+    Array.from(list.children)
+      .slice(terminal.rows)
+      .forEach((item) => {
+        item.remove();
+      });
+    Array.from(list.children).forEach((item, y) => {
+      const text = String(buffer.getLine(buffer.viewportY + y)?.translateToString(true));
 
-    mirror.shown.length = rows;
+      if (item.textContent !== text) {
+        item.textContent = text;
+      }
+    });
   };
 
   const parsed = terminal.onWriteParsed(update);

@@ -13,6 +13,8 @@ test("a failed call reads as its exit, named when the daemon explained it", () =
       entryOf("wait", { exit: 3, error: "timed out" }),
       entryOf("wait", { exit: 5, error: "exited" }),
       entryOf("open", { exit: 7, error: "odd" }),
+      entryOf("expect", { exit: 2 }),
+      entryOf("press", { exit: 4 }),
     ].map(resultOf),
   ).toEqual([
     null,
@@ -22,6 +24,8 @@ test("a failed call reads as its exit, named when the daemon explained it", () =
     { label: "timeout", tone: "destructive" },
     { label: "exit 5 process exited", tone: "destructive" },
     { label: "exit 7", tone: "destructive" },
+    { label: "exit 2", tone: "destructive" },
+    { label: "exit 4", tone: "destructive" },
   ]);
 });
 
@@ -44,6 +48,7 @@ test("Backspace with nothing typed, pastes, refused typing and agent calls are r
   const rows = activityRows([pressed("Backspace"), entryOf("paste", { human: { pasted: "p" } }), refused, entryOf("snapshot")], 0);
 
   expect(rows.map((row) => row.human)).toEqual(["pressed Backspace", 'pasted "p"', 'typed "z"', null]);
+  expect(activityRows([typed("a"), refused], 0).map((row) => row.human)).toEqual(['typed "a"', 'typed "z"']);
 });
 
 test("typing that empties keeps its row until something else is typed", () => {

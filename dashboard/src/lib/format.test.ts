@@ -22,6 +22,20 @@ test("clock times are local, padded and keep milliseconds when asked", () => {
   expect(clockMs(at.toISOString())).toBe("03:04:05.007");
   expect(dateTime(at.toISOString())).toBe("Jan 2, 2026 03:04:05");
   expect(dateTime(new Date(2025, 11, 31, 23, 59, 58).toISOString())).toBe("Dec 31, 2025 23:59:58");
+  expect(Array.from({ length: 12 }, (_, month) => dateTime(new Date(2026, month, 1).toISOString()).slice(0, 3))).toEqual([
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ]);
 });
 
 test("paths shorten every folder but the first and last to its initial", () => {

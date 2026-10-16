@@ -74,15 +74,13 @@ const withoutLastCodePoint = (text: string) => Array.from(text).slice(0, -1).joi
 const isBackspace = (human: HumanInput | undefined) => human !== undefined && "pressed" in human && human.pressed === "Backspace";
 
 const typedInto = (building: Building, placed: TypedAt) => {
-  if (building.typing) {
-    building.typing.text += placed.typed;
+  const typing = building.typing ?? { row: { at: placed.at, entry: placed.entry, human: null }, text: "" };
 
-    return showTyped(building.typing);
+  if (!building.typing) {
+    building.rows.push(typing.row);
   }
 
-  const typing = { row: { at: placed.at, entry: placed.entry, human: "" }, text: placed.typed };
-
-  building.rows.push(typing.row);
+  typing.text += placed.typed;
 
   return showTyped(typing);
 };

@@ -14,29 +14,16 @@ export interface Style {
 
 export interface Run { text: string; style: Style }
 
-interface Sgr { index: number; length: number; params: string }
-
 interface Attribute { code: number; sub: number[] }
 
 const CSI = "\x1b[";
 
-function* sgrSequences(text: string): Generator<Sgr> {
-  const params = /([\d;:]*)m/y;
-
-  for (let index = text.indexOf(CSI); index !== -1; index = text.indexOf(CSI, index + 1)) {
-    params.lastIndex = index + CSI.length;
-    const match = params.exec(text);
-
-    if (match) {
-      yield { index, length: CSI.length + match[0].length, params: match[1] ?? "" };
-    }
-  }
-}
+const SGR = /^([\d;:]*)m/;
 
 const cube = (level: number) => (level === 0 ? 0 : 55 + 40 * level);
 
 const indexed = (n: number | undefined) => {
-  if (n === undefined || n < 0 || n > 255) {
+  if (n === undefined || n > 255) {
     return undefined;
   }
 
@@ -56,9 +43,9 @@ const indexed = (n: number | undefined) => {
 };
 
 const rgb = (values: number[]) => {
-  const [r, g, b] = values.length > 3 ? values.slice(-3) : values;
+  const [r, g, b] = values.slice(-3);
 
-  return r === undefined || g === undefined || b === undefined ? undefined : `rgb(${String(r)} ${String(g)} ${String(b)})`;
+  return b === undefined ? undefined : `rgb(${String(r)} ${String(g)} ${String(b)})`;
 };
 
 const extendedColor = (spec: number[]) => {
@@ -120,10 +107,10 @@ const plain = (style: Style, attribute: Attribute): Style => {
 const EXTENDED_LENGTH: Record<number, number> = { 5: 2, 2: 4 };
 
 const groupsOf = (params: string) =>
-  params.split(";").map((group) => group.split(":").map((value) => (value === "" ? 0 : Number(value))));
+  params.split(";").map((group) => group.split(":").map(Number));
 
 const followingSpec = (groups: number[][], at: number) => {
-  const length = EXTENDED_LENGTH[groups[at + 1]?.[0] ?? -1] ?? 0;
+  const length = EXTENDED_LENGTH[groups[at + 1]?.[0] ?? 0] ?? 0;
 
   return { spec: groups.slice(at + 1, at + 1 + length).map((group) => group[0] ?? 0), skip: length };
 };
@@ -147,26 +134,30 @@ const applyAt = (style: Style, applying: Applying) => {
 
 const applied = (style: Style, params: string): Style => {
   const groups = groupsOf(params);
-  let next = style;
+  let skipping = 0;
 
-  for (let at = 0; at < groups.length; at += 1) {
+  return Array.from(groups.keys()).reduce((next, at) => {
+    if (skipping > 0) {
+      skipping -= 1;
+
+      return next;
+    }
+
     const step = applyAt(next, { groups, at });
 
-    next = step.style;
-    at += step.skip;
-  }
+    skipping = step.skip;
 
-  return next;
+    return step.style;
+  }, style);
 };
 
 export interface Styling { lines: Run[][]; style: Style }
 
-export const UNSTYLED: Styling = { lines: [[]], style: {} };
+export const UNSTYLED: Styling = { lines: [], style: {} };
 
 export const moreStyled = (from: Styling, text: string): Styling => {
   const lines: Run[][] = [...from.lines.slice(0, -1), [...(from.lines.at(-1) ?? [])]];
   let style = from.style;
-  let at = 0;
   const add = (chunk: string) => {
     chunk.split("\n").forEach((part, n) => {
       if (n > 0) {
@@ -179,13 +170,22 @@ export const moreStyled = (from: Styling, text: string): Styling => {
     });
   };
 
-  for (const sequence of sgrSequences(text)) {
-    add(text.slice(at, sequence.index));
-    style = applied(style, sequence.params);
-    at = sequence.index + sequence.length;
+  const afterEachCsi = text.split(CSI);
+  let pending = String(afterEachCsi.shift());
+
+  for (const after of afterEachCsi) {
+    const sgr = SGR.exec(after);
+
+    if (sgr) {
+      add(pending);
+      style = applied(style, String(sgr[1]));
+      pending = after.slice(sgr[0].length);
+    } else {
+      pending += CSI + after;
+    }
   }
 
-  add(text.slice(at));
+  add(pending);
 
   return { lines, style };
 };

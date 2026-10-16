@@ -2,10 +2,10 @@ import type { Terminal } from "@xterm/xterm";
 import { LoaderCircle, RotateCw } from "lucide-react";
 import { useCallback, useRef, type ClipboardEventHandler, type KeyboardEventHandler, type ReactNode, type RefObject } from "react";
 
-import { controlTerminal, type controlKeys } from "../lib/control";
+import type { controlKeys } from "../lib/control";
 import { focusWhenShown } from "../lib/focus";
 import type { StreamState, Shown } from "../lib/stream";
-import { tabName, type TabAddress } from "../lib/tabs";
+import { tabKey, tabName, type TabAddress } from "../lib/tabs";
 import { LARGEST_FONT_PX, openTerminal } from "../lib/xterm";
 import { Button, cn } from "./ui";
 
@@ -64,7 +64,7 @@ export const heldTerminal = (address: TabAddress, holding: Holding): HeldTermina
   holding.held
     ? {
         name: tabName(address.session, address.tab),
-        focus: controlTerminal(address.session, address.tab),
+        focus: tabKey(address.session, address.tab),
         keys: holding.typing ? holding.keyboard.keys : undefined,
         paste: holding.typing ? holding.keyboard.paste : undefined,
       }

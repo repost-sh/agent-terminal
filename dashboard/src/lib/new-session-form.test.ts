@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import { sessionInfo } from "../fake-daemon/messages";
-import { cliLine, freeName, initialForm, refusals, sessionOf, shellOf, sizeOf, type Form } from "./new-session-form";
+import { cliLine, freeName, initialForm, refusals, sessionOf, shellOf, SIZE_PRESETS, sizeLabel, sizeOf, type Form } from "./new-session-form";
 
 const sessions = [sessionInfo("session-2", []), sessionInfo("work", [])];
 
@@ -11,6 +11,7 @@ test("a new form names a free session, or opens in the session it was asked for"
   expect(freeName([])).toBe("session-1");
   expect(freeName(sessions)).toBe("session-3");
   expect(freeName([sessionInfo("session-1", [])])).toBe("session-2");
+  expect(freeName([sessionInfo("session-2", []), sessionInfo("session-3", [])])).toBe("session-4");
   expect(initialForm(sessions, null)).toEqual({
     mode: "new",
     name: "session-3",
@@ -24,6 +25,10 @@ test("a new form names a free session, or opens in the session it was asked for"
   });
   expect([initialForm(sessions, "work").mode, initialForm(sessions, "work").existing]).toEqual(["existing", "work"]);
   expect(initialForm([], null).existing).toBe("");
+});
+
+test("the dialog offers three sizes besides a custom one", () => {
+  expect(SIZE_PRESETS.map(sizeLabel)).toEqual(["80x24", "120x40", "200x60"]);
 });
 
 test("a known shell is recognised by its program name", () => {
@@ -52,14 +57,16 @@ test("refusals name every field that cannot be opened", () => {
   expect(refusals(form({ name: "a b", command: "x" }), sessions)).toEqual({ name: "Use letters, numbers, - and _." });
   expect(refusals(form({ name: "work", command: "x" }), sessions)).toEqual({ name: "A session named work already exists." });
   expect(refusals(form({ mode: "existing", name: "", command: "x" }), sessions)).toEqual({});
+  expect(refusals(form({ command: "  " }), sessions)).toEqual({ command: "Enter a command." });
+  expect(refusals(form({ command: "x", size: "80x24", cols: "1", rows: "1" }), sessions)).toEqual({});
 });
 
 test("a custom size must fit the terminal limits", () => {
   const sized = (cols: string, rows: string) => refusals(form({ command: "x", size: "custom", cols, rows }), sessions);
   const refused = { size: "Columns 20–500, rows 5–200." };
 
-  expect([sized("20", "5"), sized("500", "200")]).toEqual([{}, {}]);
-  expect([sized("19", "5"), sized("501", "5"), sized("20", "4"), sized("20", "201"), sized("2x", "5"), sized("", "")]).toEqual(
-    Array.from({ length: 6 }, () => refused),
-  );
+  expect([sized("20", "5"), sized("500", "200"), sized(" 100 ", " 30 ")]).toEqual([{}, {}, {}]);
+  expect(
+    [sized("19", "5"), sized("501", "5"), sized("20", "4"), sized("20", "201"), sized("2x", "5"), sized("", ""), sized("1e2", "5"), sized("0x20", "5")],
+  ).toEqual(Array.from({ length: 8 }, () => refused));
 });
