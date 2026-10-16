@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::sync::{Arc, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -37,13 +37,16 @@ impl Terminal {
     }
 
     fn read_output(&self, reader: &mut Box<dyn Read + Send>, buffer: &mut [u8]) -> Option<usize> {
-        match reader.read(buffer) {
-            Ok(0) => None,
-            Ok(read) => Some(read),
-            Err(e) if e.raw_os_error() == Some(libc::EIO) => None,
-            Err(e) => {
-                log::note(format_args!("{}: reading program output failed: {e}", self.program));
-                None
+        loop {
+            match reader.read(buffer) {
+                Ok(0) => return None,
+                Ok(read) => return Some(read),
+                Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                Err(e) if e.raw_os_error() == Some(libc::EIO) => return None,
+                Err(e) => {
+                    log::note(format_args!("{}: reading program output failed: {e}", self.program));
+                    return None;
+                }
             }
         }
     }

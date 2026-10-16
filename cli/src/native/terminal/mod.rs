@@ -251,3 +251,6 @@ impl Terminal {
 fn display_name(program: &str) -> String {
     std::path::Path::new(program).file_name().map_or_else(|| program.to_string(), |n| n.to_string_lossy().into_owned())
 }
+
+#[cfg(test)]
+mod tests;

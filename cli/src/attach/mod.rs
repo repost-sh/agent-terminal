@@ -1,4 +1,4 @@
-use std::io::{self, IsTerminal, Read, Write};
+use std::io::{self, ErrorKind, IsTerminal, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Sender};
@@ -103,7 +103,7 @@ fn watch(attached: &Attached, stream: UnixStream) -> Result<End> {
 
 fn forward_in_background(mut keys: UnixStream, read_only: bool, report: Sender<Result<()>>) -> JoinHandle<Result<()>> {
     std::thread::spawn(move || {
-        let sent = forward_keys(&mut keys, read_only);
+        let sent = forward_keys(&mut io::stdin().lock(), &mut keys, read_only);
         let failed = sent.is_err();
         if let Err(unheard) = report.send(sent) {
             return unheard.0;
@@ -127,14 +127,14 @@ fn mirror(attached: &Attached, mut stream: UnixStream) -> Result<End> {
     }
 }
 
-fn forward_keys(daemon: &mut UnixStream, read_only: bool) -> Result<()> {
-    let mut stdin = io::stdin().lock();
+fn forward_keys(typed: &mut impl Read, daemon: &mut UnixStream, read_only: bool) -> Result<()> {
     let mut keys = Keys::default();
     let mut buffer = [0u8; 4096];
     loop {
-        let read = match stdin.read(&mut buffer) {
+        let read = match typed.read(&mut buffer) {
             Ok(0) => return send(daemon, &AttachInput::Detach),
             Ok(read) => read,
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             Err(e) => {
                 send(daemon, &AttachInput::Detach)?;
                 return Err(anyhow::Error::new(e).context("read your keys"));

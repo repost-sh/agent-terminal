@@ -87,7 +87,7 @@ No block of 100 tokens appears twice (jscpd 5.4.1 at repost-go's dupl threshold,
 
 ### Coverage floor
 
-At least 90% of lines covered per crate (`cargo llvm-cov` with the browser tests, judged by `at-gauntlet coverage`) and in the dashboard (`vitest --coverage`). A branch no test can reach is deleted, not excluded. On offense: test the uncovered behaviour through the crate's real surface.
+At least 90% of lines covered per crate (`cargo llvm-cov` with the browser tests, judged by `at-gauntlet coverage`) and in the dashboard (`vitest --coverage`). A branch nothing can reach is deleted, not excluded. A branch the operating system can reach stays and gets a test: an interrupted read, a full pipe, a pseudo-terminal that closes, a file that cannot be opened. Drive it through a fake at the library's wrapper (`native/pty.rs` hands out the reader and writer a fake can stand in for) rather than deleting it. On offense: test the uncovered behaviour through the crate's real surface.
 
 ### CRAP
 

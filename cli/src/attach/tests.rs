@@ -1,5 +1,8 @@
-use super::{Keys, Painter, Pressed};
-use crate::protocol::Mirror;
+use std::io::{self, Read};
+use std::os::unix::net::UnixStream;
+
+use super::{Keys, Painter, Pressed, forward_keys};
+use crate::protocol::{self, AttachInput, Mirror};
 
 fn calls(pressed: Vec<Pressed>) -> Vec<String> {
     pressed
@@ -200,4 +203,34 @@ fn a_repaint_redraws_only_the_rows_that_changed_and_a_new_fit_clears_the_screen(
     assert_eq!(hinted, "\x1b[3;1H\x1b[0m\x1b[2K\x1b[2mwork t1 · ke\x1b[0m");
     assert_eq!(painting.refit((80, 25, 10, 2)), "\x1b[0m\x1b[2J");
     assert!(painting.shown.is_empty() && painting.hint.is_empty());
+}
+
+struct InterruptedOnce<'a> {
+    interrupted: bool,
+    keys: &'a [u8],
+}
+
+impl Read for InterruptedOnce<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.interrupted {
+            return self.keys.read(buf);
+        }
+        self.interrupted = true;
+        Err(io::ErrorKind::Interrupted.into())
+    }
+}
+
+#[test]
+fn a_read_of_your_keys_that_a_signal_interrupts_is_retried() {
+    let (mut daemon, mut heard) = UnixStream::pair().unwrap();
+    let forwarded = forward_keys(&mut InterruptedOnce { interrupted: false, keys: b"ab" }, &mut daemon, false);
+    drop(daemon);
+    let mut sent = Vec::new();
+    while let Some(input) = protocol::read::<AttachInput>(&mut heard).unwrap() {
+        sent.push(serde_json::to_string(&input).unwrap());
+    }
+    assert_eq!(
+        (forwarded.map_err(|e| format!("{e:#}")), sent),
+        (Ok(()), vec![r#"{"human":{"typed":"ab"}}"#.to_string(), r#""detach""#.to_string()])
+    );
 }
