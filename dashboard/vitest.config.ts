@@ -7,6 +7,7 @@ export default mergeConfig(
   defineConfig({
     test: {
       environment: "happy-dom",
+      env: { TZ: "UTC" },
       include: ["src/**/*.test.{ts,tsx}"],
       setupFiles: ["src/test-setup.ts"],
       restoreMocks: true,
