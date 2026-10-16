@@ -18,7 +18,7 @@ pub(crate) use facts::{Cell, Cursor, Exit, Fact, Get, Modes, Mouse, Switch};
 pub(crate) use framing::{read, read_body, write};
 pub(crate) use history::{CommandOutput, CommandRecord, History};
 pub(crate) use input::{ClickTarget, Delivered, Delivery, Direction, Input, MouseButton, MouseEvent, ScrollBy, Signal};
-pub(crate) use name::Name;
+pub(crate) use name::{NAME_RULE, Name};
 pub(crate) use reply::{
     BatchOutcome, Checked, Closed, Created, Dashboard, DashboardStopped, Export, KeptRunning, Marked, Printed, Reply,
     Response, TabRef, WaitOutcome,

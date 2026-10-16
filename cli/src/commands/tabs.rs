@@ -4,7 +4,7 @@ use super::programs::{OpenArgs, WaitArgs};
 use super::values::parse_size;
 use super::{Context, ON_ITS_OWN};
 use crate::protocol::request;
-use crate::protocol::{Name, Request, Size, Target};
+use crate::protocol::{NAME_RULE, Name, Request, Size, Target};
 
 const BYPASS_WITH_SESSION: &str = "the argument '--bypass-session' cannot be used with '--session <NAME>': close --all --session <name> closes the tabs of that session, close --all --bypass-session closes every tab in every session";
 
@@ -50,7 +50,7 @@ pub(super) enum SessionAction {
     #[command(about = "Create this conversation's session, named after its task (e.g. repost-forward)")]
     New {
         #[arg(
-            help = "1 to 24 characters of a-z, 0-9 and -, starting with a letter or digit",
+            help = NAME_RULE,
             value_name = "NAME",
             value_parser = clap::value_parser!(Name)
         )]
@@ -74,7 +74,7 @@ pub(super) enum TabAction {
     #[command(about = "Give the current tab (or the --tab one) a new name, e.g. tab rename api")]
     Rename {
         #[arg(
-            help = "The new name: 1 to 24 characters of a-z, 0-9 and -",
+            help = format!("The new name: {NAME_RULE}"),
             value_name = "NEW",
             value_parser = clap::value_parser!(Name)
         )]

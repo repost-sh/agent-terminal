@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize, Serializer};
 
 const LONGEST: usize = 24;
 
+pub(crate) const NAME_RULE: &str = "1 to 24 characters of a-z, 0-9 and -, starting with a letter or digit";
+
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(try_from = "String")]
 pub(crate) struct Name(String);
@@ -18,9 +20,7 @@ fn follows_the_rule(text: &str) -> Result<(), String> {
     if starts_well && fits {
         Ok(())
     } else {
-        Err(format!(
-            "{text:?} is not a name: a name is 1 to {LONGEST} characters of a-z, 0-9 and -, starting with a letter or digit, such as repost-forward"
-        ))
+        Err(format!("{text:?} is not a name: a name is {NAME_RULE}, such as repost-forward"))
     }
 }
 

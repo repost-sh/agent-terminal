@@ -6,12 +6,13 @@ use super::Context;
 use super::values::{parse_env, parse_size};
 use crate::native::pty;
 use crate::protocol::request;
-use crate::protocol::{Name, Request, Shell, Size, TextMatch, Wait};
+use crate::protocol::{NAME_RULE, Name, Request, Shell, Size, TextMatch, Wait};
 
 const NAME_THE_TAB: &str = "name the tab after the program or app it runs, e.g. `--name api`; the name is how later calls reach it (`--tab api`)";
 
-const TAB_NAME_HELP: &str =
-    "The tab's name, after the program or app it runs (e.g. api): 1 to 24 characters of a-z, 0-9 and -";
+fn tab_name_help() -> String {
+    format!("The tab's name, after the program or app it runs (e.g. api): {NAME_RULE}")
+}
 
 #[derive(Subcommand)]
 pub(super) enum ProgramCommand {
@@ -68,7 +69,7 @@ impl ProgramCommand {
 
 #[derive(Args)]
 pub(super) struct OpenArgs {
-    #[arg(long, help = TAB_NAME_HELP, value_name = "NAME", value_parser = clap::value_parser!(Name))]
+    #[arg(long, help = tab_name_help(), value_name = "NAME", value_parser = clap::value_parser!(Name))]
     name: Option<Name>,
 
     #[arg(long, help = "Terminal size", value_name = "COLSxROWS", default_value = "120x40", value_parser = parse_size)]
@@ -98,7 +99,7 @@ pub(super) struct OpenArgs {
 
 #[derive(Args)]
 pub(super) struct ShellArgs {
-    #[arg(long, help = TAB_NAME_HELP, value_name = "NAME", value_parser = clap::value_parser!(Name))]
+    #[arg(long, help = tab_name_help(), value_name = "NAME", value_parser = clap::value_parser!(Name))]
     name: Option<Name>,
 
     #[arg(long, value_enum, help = "The shell to open (default: your SHELL)")]
