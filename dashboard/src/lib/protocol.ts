@@ -1,5 +1,7 @@
 export const NAME = /^[a-z0-9][a-z0-9-]{0,23}$/;
 
+export const NAME_RULE = "Use up to 24 of a-z, 0-9 and -, starting with a letter or digit.";
+
 export interface TabInfo {
   tab: string;
   renamed_from?: string;

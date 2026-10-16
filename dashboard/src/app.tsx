@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 
 import { Announcers } from "./components/announcer";
 import { DialogLayer, useOpenDialog } from "./components/dialog";
-import { Disconnected, NotFound, NothingOpen, NotOpen } from "./components/empty-screens";
+import { Disconnected, invitation, NotFound, NothingOpen, NotOpen } from "./components/empty-screens";
 import { ResizeHandle } from "./components/resize-handle";
 import { SessionsSidebar, type RouteOf, type Selected } from "./components/sessions-sidebar";
 import { SidePanel } from "./components/side-panel";
@@ -14,7 +14,7 @@ import { useDaemon } from "./lib/daemon";
 import type { SessionInfo } from "./lib/protocol";
 import { navigate, parseRoute, splitRoute, usePath, type Route } from "./lib/route";
 import { fillCells, focusedAt, shownCells, withCell } from "./lib/split";
-import { findTab, tabKey, tabName } from "./lib/tabs";
+import { findTab, firstTab, tabKey, tabName } from "./lib/tabs";
 import { useTheme } from "./lib/theme";
 
 interface Screen { title: string | null; heading?: string; center: ReactNode; right?: ReactNode; selected?: Selected | undefined; routeOf?: RouteOf | undefined }
@@ -81,11 +81,13 @@ const tabScreen = (view: AppView, opened: Opened<"tab">): Screen => {
 };
 
 const homeScreen = (sessions: SessionInfo[]): Screen => {
-  if (sessions.some((info) => info.tabs.length > 0)) {
+  if (firstTab(sessions) !== null) {
     return { title: null, center: null };
   }
 
-  return { title: sessions.length ? "No open tabs" : "No active sessions", center: <NothingOpen sessions={sessions.map((info) => info.session)} /> };
+  const names = sessions.map((info) => info.session);
+
+  return { title: invitation(names).heading, center: <NothingOpen sessions={names} /> };
 };
 
 interface Routed { route: Exclude<Route, { kind: "missing" }>; sessions: SessionInfo[] }

@@ -2,11 +2,8 @@ import type { SessionInfo } from "./protocol";
 import { navigate, parseRoute, splitRoute, tabRoute, type Cell, type Route } from "./route";
 import { findTab, type TabAddress } from "./tabs";
 
-const renamedTo = (sessions: SessionInfo[], address: TabAddress) => {
-  const session = sessions.find((entry) => entry.session === address.session);
-
-  return findTab(sessions, address) ? null : (session?.tabs.find((tab) => tab.renamed_from === address.tab)?.tab ?? null);
-};
+const renamedTo = (sessions: SessionInfo[], address: TabAddress) =>
+  findTab(sessions, address) ? null : (sessions.find((entry) => entry.session === address.session)?.tabs.find((tab) => tab.renamed_from === address.tab)?.tab ?? null);
 
 const followed = (sessions: SessionInfo[], cell: Cell): Cell => {
   const renamed = cell && renamedTo(sessions, cell);
@@ -31,6 +28,10 @@ export const routeAfterRenames = (route: Route, sessions: SessionInfo[]) => {
 };
 
 export const followRenames = (sessions: SessionInfo[]) => {
+  if (!sessions.some((info) => info.tabs.some((tab) => tab.renamed_from !== undefined))) {
+    return;
+  }
+
   const moved = routeAfterRenames(parseRoute(location.pathname), sessions);
 
   if (moved) {
