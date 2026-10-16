@@ -89,3 +89,6 @@ fn reachable(row: u16, col: u16, last: u16, encoding: MouseMode) -> Result<(), S
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

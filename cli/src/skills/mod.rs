@@ -40,17 +40,17 @@ struct Skill {
 const GUIDE: &str = "SKILL.md";
 
 const SKILLS: &[Skill] = &[
-    Skill { name: "agent-terminal", guide: include_str!("../../skills/agent-terminal/SKILL.md"), extras: &[] },
-    Skill { name: "core", guide: include_str!("../../skill-data/core/SKILL.md"), extras: &[] },
+    Skill { name: "agent-terminal", guide: include_str!("../../../skills/agent-terminal/SKILL.md"), extras: &[] },
+    Skill { name: "core", guide: include_str!("../../../skill-data/core/SKILL.md"), extras: &[] },
     Skill {
         name: "tui-qa",
-        guide: include_str!("../../skill-data/tui-qa/SKILL.md"),
-        extras: &[("templates/report.md", include_str!("../../skill-data/tui-qa/templates/report.md"))],
+        guide: include_str!("../../../skill-data/tui-qa/SKILL.md"),
+        extras: &[("templates/report.md", include_str!("../../../skill-data/tui-qa/templates/report.md"))],
     },
     Skill {
         name: "cli-qa",
-        guide: include_str!("../../skill-data/cli-qa/SKILL.md"),
-        extras: &[("templates/report.md", include_str!("../../skill-data/cli-qa/templates/report.md"))],
+        guide: include_str!("../../../skill-data/cli-qa/SKILL.md"),
+        extras: &[("templates/report.md", include_str!("../../../skill-data/cli-qa/templates/report.md"))],
     },
 ];
 
@@ -159,14 +159,20 @@ pub(crate) struct InstalledStub {
 }
 
 pub(crate) fn installed_stub() -> Result<InstalledStub> {
-    let path = stub_path()?;
+    installed_stub_at(stub_path()?)
+}
+
+fn installed_stub_at(path: PathBuf) -> Result<InstalledStub> {
     let stub =
         open_stub(&path, OpenOptions::new().read(true), File::lock_shared)?.map_or(Stub::Missing, |(_, stub)| stub);
     Ok(InstalledStub { path, stub, rewritten: false })
 }
 
 pub(crate) fn repair_stub() -> Result<InstalledStub> {
-    let path = stub_path()?;
+    repair_stub_at(stub_path()?)
+}
+
+fn repair_stub_at(path: PathBuf) -> Result<InstalledStub> {
     let Some((mut file, stub)) = open_stub(&path, OpenOptions::new().read(true).write(true), File::lock)? else {
         return Ok(InstalledStub { path, stub: Stub::Missing, rewritten: false });
     };
@@ -184,7 +190,10 @@ fn stub_path() -> Result<PathBuf> {
 }
 
 fn install_stub() -> Result<StubInstall> {
-    let path = stub_path()?;
+    install_stub_at(stub_path()?)
+}
+
+fn install_stub_at(path: PathBuf) -> Result<StubInstall> {
     let folder = path.parent().context("the stub has a folder")?;
     std::fs::create_dir_all(folder).with_context(|| format!("create {}", folder.display()))?;
     let mut creating = OpenOptions::new();
@@ -274,8 +283,12 @@ struct SkillPath<'a> {
 }
 
 fn path(name: Option<&str>, json: bool) -> Result<String> {
+    path_in(&home()?, name, json)
+}
+
+fn path_in(home: &Path, name: Option<&str>, json: bool) -> Result<String> {
     let skill = name.map(find).transpose()?;
-    let cache = home()?.join("skills");
+    let cache = home.join("skills");
     let root = cache.join(VERSION);
     for each in SKILLS {
         for (relative, text) in each.files()? {
@@ -335,3 +348,6 @@ fn collect_help(command: &mut clap::Command, sections: &mut Vec<String>) {
         collect_help(sub, sections);
     }
 }
+
+#[cfg(test)]
+mod tests;

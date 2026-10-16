@@ -177,3 +177,6 @@ impl From<Key> for String {
         key.to_string()
     }
 }
+
+#[cfg(test)]
+mod tests;

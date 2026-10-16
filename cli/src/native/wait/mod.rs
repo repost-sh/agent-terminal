@@ -152,3 +152,6 @@ fn latest(last: Instant, since: Option<Instant>) -> Instant {
 fn quiet_for(until: Instant, now: Instant, exited: bool) -> Verdict {
     if exited || now >= until { Verdict::Met } else { Verdict::Pending(Some(until)) }
 }
+
+#[cfg(test)]
+mod tests;
