@@ -11,7 +11,7 @@ use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use tungstenite::{Message, WebSocket};
 
-use crate::daemon::{Agent, Daemon};
+use crate::daemon::{Agent, Binary, Daemon};
 use crate::measure::{SIZE, utf8};
 
 const SETTLE_SECONDS: u64 = 2;
@@ -126,14 +126,11 @@ impl Plan {
 pub(crate) fn run(plan: &Plan, progress: &mut impl Write) -> Result<Vec<Row>> {
     std::fs::create_dir_all(&plan.work).with_context(|| format!("create {}", plan.work.display()))?;
     let work = std::fs::canonicalize(&plan.work).with_context(|| format!("find {}", plan.work.display()))?;
+    let binary = Binary::detect(plan.agent.clone());
     let mut rows = Vec::new();
     for (run, case) in (1u32..).zip(plan.cases()) {
-        let agent = Agent {
-            side: "measured binary",
-            binary: plan.agent.clone(),
-            work: work.clone(),
-            home: format!("run-{run}"),
-        };
+        let agent =
+            Agent { side: "measured binary", binary: binary.clone(), work: work.clone(), home: format!("run-{run}") };
         let home = agent.home();
         let row = measure(plan, agent, case).with_context(|| case.to_string())?;
         writeln!(progress, "{}", line(&row)).context("report the progress")?;

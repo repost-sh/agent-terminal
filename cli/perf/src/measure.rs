@@ -3,7 +3,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, ensure};
 
-use crate::daemon::{Agent, Daemon, SESSION};
+use crate::daemon::{Agent, Binary, Daemon, SESSION};
 use crate::metrics::{Metric, Results, Samples};
 
 const RUNS: usize = 100;
@@ -36,8 +36,8 @@ impl Side {
 
 struct Sides {
     work: PathBuf,
-    base: PathBuf,
-    change: PathBuf,
+    base: Binary,
+    change: Binary,
 }
 
 impl Sides {
@@ -61,7 +61,11 @@ pub(crate) fn measure(setup: &Setup) -> Result<Results> {
     std::fs::create_dir_all(&setup.work).with_context(|| format!("create {}", setup.work.display()))?;
     let work = canonical(&setup.work)?;
     let busy_screen = canonical(&setup.fixtures.join("busy-screen"))?;
-    let sides = Sides { work, base: canonical(&setup.base)?, change: canonical(&setup.change)? };
+    let sides = Sides {
+        work,
+        base: Binary::detect(canonical(&setup.base)?),
+        change: Binary::detect(canonical(&setup.change)?),
+    };
     let (idle, tab) = memory_runs(&sides, &busy_screen)?;
     let timings = timings(&sides, &busy_screen)?;
     Ok(Results {
