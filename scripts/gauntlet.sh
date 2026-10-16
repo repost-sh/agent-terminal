@@ -27,6 +27,9 @@ rust() {
   step "move what both layers need into a contract module, and give every module and crate its place in the policy → GAUNTLET.md#architecture" cargo run --quiet -p at-gauntlet -- architecture
   step "group the parameters into one struct with named fields, or keep the function inside its module → GAUNTLET.md#parameter-ceiling" cargo run --quiet -p at-gauntlet -- params
   step "bind each Then step to a step that asserts and regenerate the IR with \`at-gauntlet gherkin-ir\` → GAUNTLET.md#acceptance" cargo run --quiet -p at-gauntlet -- gherkin
+  mutants_installed
+  printf '\n== the acceptance faults each name one mutant of cargo mutants --list\n'
+  faults_named
 }
 
 coverage() {
@@ -47,13 +50,23 @@ FAULTS=(
   'src/native/daemon/mod\.rs:.*: replace Daemon::list -> Sessions with Default::default\(\)$'
   'src/native/keyboard/mod\.rs:.*: delete match arm \(1, false\) in letter$'
   'src/native/terminal/typing\.rs:.*: replace Terminal::press -> Result<usize> with Ok\(0\)$'
-  'src/native/daemon/waiting\.rs:.*: replace wait_for -> Result<u64, ErrorBody> with Ok\(0\)$'
+  'src/native/daemon/waiting/mod\.rs:.*: replace Until<[^>]*>::wait_on -> Result<u64, ErrorBody> with Ok\(0\)$'
   'src/native/screen/rows\.rs:.*: replace plain_row -> String with "xyzzy"\.into\(\)$'
 )
 
 mutants_installed() {
   command -v cargo-mutants >/dev/null && [ "$(cargo mutants --version)" = "cargo-mutants $MUTANTS_VERSION" ] ||
     fail "cargo-mutants $MUTANTS_VERSION is not on PATH: run \`cargo install cargo-mutants --version $MUTANTS_VERSION --locked\` → GAUNTLET.md#mutation"
+}
+
+faults_named() {
+  local listed fault
+  listed="$(cargo mutants --list -p agent-terminal)" || fail "\`cargo mutants --list\` failed: fix the error it printed → GAUNTLET.md#acceptance"
+  for fault in "${FAULTS[@]}"; do
+    [ "$(grep -c -E -- "$fault" <<<"$listed")" = 1 ] ||
+      fail "the fault \`$fault\` names no single mutant: point it at the code that moved → GAUNTLET.md#acceptance"
+  done
+  printf 'each of the %s acceptance faults names one mutant\n' "${#FAULTS[@]}"
 }
 
 fresh_tree() {
@@ -105,10 +118,8 @@ acceptance_faults() {
   fresh_tree "$work/tree"
   cd "$work/tree/cli"
   mkdir -p "$work/out"
-  cargo mutants --list -p agent-terminal >"$work/listed.txt"
+  faults_named
   for fault in "${FAULTS[@]}"; do
-    [ "$(grep -c -E -- "$fault" "$work/listed.txt")" = 1 ] ||
-      fail "the fault \`$fault\` names no single mutant: point it at the code that moved → GAUNTLET.md#acceptance"
     picked+=(--re "$fault")
   done
   if ! CARGO_BUILD_BUILD_DIR="$root/cli/target/mbf" cargo mutants --in-place -p agent-terminal "${picked[@]}" --minimum-test-timeout 120 -o "$work/out" -- --test acceptance >"$work/out.log" 2>&1; then

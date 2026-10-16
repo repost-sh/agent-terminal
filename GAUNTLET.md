@@ -12,7 +12,7 @@ The escape hatches are sealed by checks of their own: [sealed lint table](#seale
 
 | Area | Runs | When |
 |---|---|---|
-| `rust` | [rust format](#rust-format), [rust lint](#rust-lint) with and without `browser-tests`, [dependency policy](#dependency-policy), [unused dependencies](#unused-dependencies), [rust tests](#rust-tests) (with the static checks and the acceptance suite), [property tests](#property-tests), [architecture](#architecture), [parameter ceiling](#parameter-ceiling), [acceptance](#acceptance) | default; pre-commit for `cli/`, `scripts/`, `.githooks/` |
+| `rust` | [rust format](#rust-format), [rust lint](#rust-lint) with and without `browser-tests`, [dependency policy](#dependency-policy), [unused dependencies](#unused-dependencies), [rust tests](#rust-tests) (with the static checks and the acceptance suite), [property tests](#property-tests), [architecture](#architecture), [parameter ceiling](#parameter-ceiling), [acceptance](#acceptance) with the names of its faults (needs `cargo-mutants`) | default; pre-commit for `cli/`, `scripts/`, `.githooks/` |
 | `dashboard` | [dashboard lint](#dashboard-lint), [dashboard types](#dashboard-types), [gauntlet tools](#gauntlet-tools), [dashboard tests](#dashboard-tests), [CRAP](#crap), [property tests](#property-tests), [dashboard build](#dashboard-build) | default; pre-commit for `dashboard/` |
 | `npm` | [npm tests](#npm-tests) | default; pre-commit for `npm/` |
 | `duplication` | [duplication](#duplication) | default; pre-commit for `cli/`, `dashboard/`, `scripts/` |
@@ -99,7 +99,7 @@ Every mutant of every crate is caught: cargo-mutants 27.1.0 runs in throwaway wo
 
 ### Acceptance
 
-Black-box Gherkin features in `cli/acceptance/features` drive the built binary. `at-gauntlet gherkin` fails a feature without its current IR in `features/ir.json`, a `Then` step not bound through `then(…)` to a step that asserts, or a scenario marked `@wip`. The `acceptance-faults` area injects each named fault into the binary and fails unless the suite catches it. On offense: bind the step to an assertion, regenerate the IR with `at-gauntlet gherkin-ir`, or add the scenario that would have caught the fault.
+Black-box Gherkin features in `cli/acceptance/features` drive the built binary. `at-gauntlet gherkin` fails a feature without its current IR in `features/ir.json`, a `Then` step not bound through `then(…)` to a step that asserts, or a scenario marked `@wip`. The `acceptance-faults` area injects each named fault into the binary and fails unless the suite catches it. Each fault is a pattern for one cargo-mutants mutant, so the `rust` area lists the mutants with `cargo mutants --list` (under a second) and fails a fault that names none or more than one: a fault left pointing at code that moved fails at commit time, not hours later in `acceptance-faults`. On offense: bind the step to an assertion, regenerate the IR with `at-gauntlet gherkin-ir`, or add the scenario that would have caught the fault.
 
 ### Dashboard lint
 
