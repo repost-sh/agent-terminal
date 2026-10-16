@@ -28,6 +28,13 @@ const MEASURE_FIVE_SECONDS: &str = r#"new Promise((done) => {
   requestAnimationFrame(paint);
 })"#;
 
+const PAINTS_ON_A_BLANK_PAGE: &str = r"new Promise((done) => {
+  const started = performance.now();
+  let paints = 0;
+  const paint = () => { paints += 1; if (performance.now() - started < 2000) requestAnimationFrame(paint); else done(paints / ((performance.now() - started) / 1000)); };
+  requestAnimationFrame(paint);
+})";
+
 #[test]
 fn a_tab_that_redraws_sixty_times_a_second_leaves_the_dashboard_responsive_and_on_the_latest_frame() {
     let at = AgentTerminal::new();
@@ -41,6 +48,8 @@ fn a_tab_that_redraws_sixty_times_a_second_leaves_the_dashboard_responsive_and_o
     at.run(&["--timeout", &limit, "wait", "--frame", &streamed.to_string()]).success();
     let measured: serde_json::Value = browser.eval_json(MEASURE_FIVE_SECONDS);
     let latest = at.frame("default");
+    browser.run(&["open", "about:blank"]);
+    let blank: f64 = browser.eval_json(PAINTS_ON_A_BLANK_PAGE);
 
     let paints = measured["paints"].as_f64().expect("paints");
     let blocked = measured["blocked"].as_f64().expect("blocked");
@@ -54,6 +63,7 @@ fn a_tab_that_redraws_sixty_times_a_second_leaves_the_dashboard_responsive_and_o
         "after {STREAMING:?} of a 60 Hz tab the dashboard painted {paints:.1} times a second (at least {MIN_PAINTS_PER_SEC}), \
          its main thread was blocked {blocked:.0} ms a second (at most {MAX_BLOCKED_MS_PER_SEC}), \
          and it showed frame {shown} while the tab was at frame {latest} (at most {MAX_FRAMES_BEHIND} behind); \
+         a blank page in the same browser painted {blank:.1} times a second, \
          xterm.js drew with {renderer}, and WebGL ran on {gpu}"
     );
 }
