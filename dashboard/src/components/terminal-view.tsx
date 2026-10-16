@@ -1,6 +1,6 @@
 import type { Terminal } from "@xterm/xterm";
 import { LoaderCircle, RotateCw } from "lucide-react";
-import { useCallback, useRef, type ClipboardEventHandler, type KeyboardEventHandler, type ReactNode, type RefObject } from "react";
+import { useRef, useState, type ClipboardEventHandler, type KeyboardEventHandler, type ReactNode, type RefObject } from "react";
 
 import type { controlKeys } from "../lib/control";
 import { focusWhenShown } from "../lib/focus";
@@ -30,11 +30,8 @@ const fitFont = (terminal: Terminal, box: RefObject<HTMLDivElement | null>) => {
     const current = terminal.options.fontSize ?? LARGEST_FONT_PX;
     const room = Math.min((area.clientWidth - PADDING_PX) / drawn.width, (area.clientHeight - PADDING_PX) / drawn.height);
     const wanted = Math.floor((current * room) / FONT_STEP_PX) * FONT_STEP_PX;
-    const next = Math.max(FONT_STEP_PX * 16, Math.min(LARGEST_FONT_PX, wanted));
 
-    if (Math.abs(next - current) >= FONT_STEP_PX) {
-      terminal.options.fontSize = next;
-    }
+    terminal.options.fontSize = Math.max(FONT_STEP_PX * 16, Math.min(LARGEST_FONT_PX, wanted));
   };
 
   const observer = new ResizeObserver(fit);
@@ -108,19 +105,17 @@ const HeldRing = (props: HeldRingProps) => {
 };
 
 const useTerminalHost = (paint: Paint, box: RefObject<HTMLDivElement | null>) =>
-  useCallback(
-    (node: HTMLDivElement) =>
-      openTerminal(node, (terminal) => {
-        const stopFitting = fitFont(terminal, box);
-        const stopPainting = paint(terminal);
+  useState(() => (node: HTMLDivElement) =>
+    openTerminal(node, (terminal) => {
+      const stopFitting = fitFont(terminal, box);
+      const stopPainting = paint(terminal);
 
-        return () => {
-          stopPainting();
-          stopFitting?.();
-        };
-      }),
-    [paint, box],
-  );
+      return () => {
+        stopPainting();
+        stopFitting?.();
+      };
+    }),
+  )[0];
 
 const isLoading = (shown: Shown | null) => !shown || (shown.frame === 0 && !shown.exited);
 

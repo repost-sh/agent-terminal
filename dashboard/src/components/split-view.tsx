@@ -50,14 +50,12 @@ type SplitActions = ReturnType<typeof splitActions>;
 
 interface GridProps { view: SplitViewProps; slots: Slots; actions: SplitActions }
 
-const gridRows = (count: number) => (count === 4 ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 1fr)");
-
 const SplitGrid = (props: GridProps) => {
   const { view, actions } = props;
   const count = view.cells.length === 4 ? 4 : 2;
 
   return (
-    <div className="split-grid grid min-h-0 flex-1 gap-px bg-border" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gridTemplateRows: gridRows(count) }}>
+    <div className={cn("split-grid grid min-h-0 flex-1 grid-cols-2 gap-px bg-border", count === 4 ? "grid-rows-2" : "grid-rows-1")}>
       {shownCells(view.sessions, view.cells).map((entry, at) =>
         entry ? (
           <SplitCell
@@ -77,7 +75,7 @@ const SplitGrid = (props: GridProps) => {
             }}
           />
         ) : (
-          <Picker key={`${String(at)}:picker`} at={at} cells={view.cells} sessions={view.sessions} onPick={(cell) => {
+          <Picker key={at} at={at} cells={view.cells} sessions={view.sessions} onPick={(cell) => {
             actions.pick(at, cell);
           }} />
         ),

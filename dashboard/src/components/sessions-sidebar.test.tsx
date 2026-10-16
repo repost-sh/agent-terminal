@@ -62,3 +62,20 @@ test("the theme switches between dark and light and is remembered", async () => 
   fireEvent.click(screen.getByRole("button", { name: toLight ? "Switch to dark mode" : "Switch to light mode" }));
   expect([localStorage.getItem("agent-terminal-theme"), document.documentElement.classList.contains("dark")]).toEqual([toLight ? "dark" : "light", toLight]);
 });
+
+test("the sidebar draws each tab's state, marks the current session and tab, and folds a group", async () => {
+  await shownApp();
+  const solo = () => within(sidebar()).getByRole("button", { name: /^solo/ });
+
+  expect(screen.getByRole("complementary", { name: "Sessions" }).outerHTML).toMatchSnapshot();
+  fireEvent.click(solo());
+  expect([solo().outerHTML, document.getElementById(solo().getAttribute("aria-controls") ?? "")?.hidden]).toMatchSnapshot();
+});
+
+test("closing all sessions needs sessions to close", async () => {
+  const daemon = startDaemon([]);
+
+  render(<App />);
+  await daemon.serve();
+  expect(["Close all sessions", "New session"].map((name) => screen.getAllByRole<HTMLButtonElement>("button", { name })[0]?.disabled)).toEqual([true, false]);
+});

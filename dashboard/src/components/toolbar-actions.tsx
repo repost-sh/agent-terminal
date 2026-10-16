@@ -12,11 +12,4 @@ export interface ToolbarTab { session: string; tab: TabInfo; stream: StreamState
 
 export type ToolbarActionProps = ToolbarTab & { layout: Layout; onLayout: (count: Layout) => void };
 
-export interface ToolbarAction { id: string; Action: ComponentType<ToolbarActionProps> }
-
-export const TOOLBAR_ACTIONS: ToolbarAction[] = [
-  { id: "restart", Action: RestartButton },
-  { id: "screenshot", Action: ScreenshotButton },
-  { id: "layout", Action: LayoutSwitch },
-  { id: "control", Action: ControlButton },
-];
+export const TOOLBAR_ACTIONS: ComponentType<ToolbarActionProps>[] = [RestartButton, ScreenshotButton, LayoutSwitch, ControlButton];

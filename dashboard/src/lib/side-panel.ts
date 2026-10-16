@@ -1,10 +1,12 @@
 import { createStore, useStore } from "./store";
 
-interface SidePanel { panel: string; width: number }
+export type PanelId = "activity" | "commands" | "screenshots" | "output" | "info";
+
+interface SidePanel { panel: PanelId; width: number }
 
 const shown = createStore<SidePanel>({ panel: "activity", width: 30 });
 
-export const showPanel = (panel: string) => {
+export const showPanel = (panel: PanelId) => {
   shown.set({ ...shown.get(), panel });
 };
 

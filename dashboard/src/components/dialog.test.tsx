@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 
 import { App } from "../app";
 import { startDaemon } from "../fake-daemon/daemon";
@@ -60,6 +60,8 @@ test("Tab and Shift+Tab wrap around inside the dialog and other keys pass", asyn
   first?.focus();
   expect(fireEvent.keyDown(dialog, { key: "Tab" })).toBe(true);
   expect(fireEvent.keyDown(dialog, { key: "a" })).toBe(true);
+  last?.focus();
+  expect([fireEvent.keyDown(dialog, { key: "a" }), document.activeElement]).toEqual([true, last]);
   document.body.focus();
   expect(fireEvent.keyDown(dialog, { key: "Tab" })).toBe(false);
   expect(document.activeElement).toBe(first);
@@ -75,7 +77,8 @@ test("restarting a running program asks first in an alert that only its buttons 
   fireEvent.click(await screen.findByRole("button", { name: "Restart vim" }));
   const alert = screen.getByRole("alertdialog", { name: "Restart vim?" });
 
-  expect(within(alert).getByText("work t1 is killed and started again with the same command, size and working directory.")).toBeTruthy();
+  expect(document.getElementById(alert.getAttribute("aria-describedby") ?? "")?.textContent).toBe("work t1 is killed and started again with the same command, size and working directory.");
+  expect(alert.outerHTML).toMatchSnapshot();
   expect(within(alert).queryByRole("button", { name: "Close" })).toBeNull();
   fireEvent.click(document.querySelector(".fixed.inset-0.isolate") ?? document.body);
   fireEvent.click(within(alert).getByRole("button", { name: "Cancel" }));
@@ -84,4 +87,47 @@ test("restarting a running program asks first in an alert that only its buttons 
   fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Restart" }));
   expect(await screen.findByText("Could not restart vim")).toBeTruthy();
   expect(screen.getByText("daemon busy")).toBeTruthy();
+});
+
+test("Tab skips controls that are not shown, unless focus is already on one", async () => {
+  await shownApp();
+  const dialog = newSession();
+  const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE));
+  const [first] = focusables;
+  const unshown = focusables.at(-1);
+
+  Object.defineProperty(unshown, "offsetParent", { value: null });
+  focusables.at(-2)?.focus();
+  expect([fireEvent.keyDown(dialog, { key: "Tab" }), document.activeElement]).toEqual([false, first]);
+  unshown?.focus();
+  expect([fireEvent.keyDown(dialog, { key: "Tab" }), document.activeElement]).toEqual([false, first]);
+  expect(fireEvent.keyDown(dialog, { key: "Escape" })).toBe(false);
+});
+
+test("opening and closing move focus without scrolling, and a submitted form stays on the page", async () => {
+  await shownApp();
+  const opener = screen.getByRole("button", { name: "New session" });
+
+  opener.focus();
+  const focus = vi.spyOn(HTMLElement.prototype, "focus");
+  const dialog = newSession();
+
+  expect(fireEvent.submit(within(dialog).getByRole("button", { name: "Create" }))).toBe(false);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+  expect([focus.mock.calls.at(0), focus.mock.calls.at(-1), document.activeElement]).toEqual([[{ preventScroll: true }], [{ preventScroll: true }], opener]);
+});
+
+test("a dialog whose opener has gone returns focus to the main content", async () => {
+  const daemon = await shownApp();
+
+  const opener = screen.getByRole("button", { name: "New tab in work" });
+
+  opener.focus();
+  fireEvent.click(opener);
+  await act(async () => {
+    daemon.announce([]);
+    await Promise.resolve();
+  });
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+  expect(document.activeElement?.id).toBe("main-content");
 });

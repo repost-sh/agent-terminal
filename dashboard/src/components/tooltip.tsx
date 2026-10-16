@@ -8,7 +8,7 @@ const hide = (tip: Tip) => {
 const show = (tip: Tip, target: HTMLElement) => {
   const element = tip.element;
 
-  element.textContent = target.dataset["tooltip"] ?? "";
+  element.textContent = target.getAttribute("data-tooltip");
   element.hidden = false;
   const rect = target.getBoundingClientRect();
   const left = rect.left + rect.width / 2 - element.offsetWidth / 2;
@@ -24,9 +24,9 @@ const tipHandlers = (tip: Tip) => ({
   over: (event: MouseEvent) => {
     const element = tooltipOf(event);
 
-    if (element && element !== tip.target) {
+    if (element) {
       show(tip, element);
-    } else if (!element && tip.target && tip.target !== document.activeElement) {
+    } else if (tip.target !== document.activeElement) {
       hide(tip);
     }
   },
@@ -54,17 +54,16 @@ const tipHandlers = (tip: Tip) => ({
 
 const followTooltips = (element: HTMLDivElement) => {
   const on = tipHandlers({ element, target: null });
+  const following = new AbortController();
+  const { signal } = following;
 
-  document.addEventListener("mouseover", on.over);
-  document.addEventListener("focusin", on.focus);
-  document.addEventListener("click", on.hide);
-  document.addEventListener("keydown", on.escape, true);
+  document.addEventListener("mouseover", on.over, { signal });
+  document.addEventListener("focusin", on.focus, { signal });
+  document.addEventListener("click", on.hide, { signal });
+  document.addEventListener("keydown", on.escape, { capture: true, signal });
 
   return () => {
-    document.removeEventListener("mouseover", on.over);
-    document.removeEventListener("focusin", on.focus);
-    document.removeEventListener("click", on.hide);
-    document.removeEventListener("keydown", on.escape, true);
+    following.abort();
   };
 };
 

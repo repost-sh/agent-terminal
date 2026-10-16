@@ -28,6 +28,7 @@ test("closing all sessions counts what it kills, asks, and closes them on confir
 
   expect(within(dialog).getByText("This will close 2 sessions and kill 2 running processes. This action cannot be undone.")).toBeTruthy();
   expect(document.activeElement?.textContent).toBe("Cancel");
+  expect(dialog.outerHTML).toMatchSnapshot();
   fireEvent.click(within(dialog).getByRole("button", { name: "Close all" }));
   expect(await screen.findByText("Closed 2 sessions")).toBeTruthy();
   expect(screen.queryByRole("alertdialog")).toBeNull();

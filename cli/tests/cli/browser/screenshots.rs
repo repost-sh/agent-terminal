@@ -173,6 +173,7 @@ fn the_lightbox_steps_through_the_screenshots_copies_the_path_and_escape_returns
     wait_for_shots(&browser, 2);
 
     the_first_screenshot_opens_in_the_lightbox(&browser, &shots, before);
+    the_screenshot_scales_down_to_fit_its_box(&browser);
     next_steps_to_the_second_screenshot(&browser, &shots, after);
     copy_path_copies_it_and_escape_returns_to_the_thumbnail(&browser, &shots);
 }
@@ -187,6 +188,26 @@ fn the_first_screenshot_opens_in_the_lightbox(browser: &Browser, shots: &Shots, 
     let image = format!("document.querySelector({})", js_string(&format!("{LIGHTBOX} figure img")));
     browser.wait_until(&format!("{image}?.complete === true && {image}.naturalWidth === 200"));
     assert_eq!(eval_string(browser, &format!("{image}.alt")), format!("before.png, frame {before}"));
+}
+
+fn the_screenshot_scales_down_to_fit_its_box(browser: &Browser) {
+    assert_eq!(framed_in(browser, "150px", ""), "150 150", "a narrow lightbox scales the screenshot down to its width");
+    assert_eq!(
+        framed_in(browser, "1000px", "60px"),
+        "60 60",
+        "a short lightbox scales the screenshot down to its height"
+    );
+}
+
+fn framed_in(browser: &Browser, width: &str, height: &str) -> String {
+    let script = format!(
+        "(() => {{ const box = document.querySelector({}); const image = box.querySelector('img'); box.style.width = {}; box.style.height = {}; const frame = box.querySelector('.term-frame').getBoundingClientRect(); box.style.width = ''; box.style.height = ''; const across = {} === '' ? [frame.width, frame.height * image.naturalWidth / image.naturalHeight] : [frame.height, frame.width * image.naturalHeight / image.naturalWidth]; return across.map(Math.round).join(' '); }})()",
+        js_string(&format!("{LIGHTBOX} figure .term-box")),
+        js_string(width),
+        js_string(height),
+        js_string(height)
+    );
+    eval_string(browser, &script)
 }
 
 fn next_steps_to_the_second_screenshot(browser: &Browser, shots: &Shots, after: u64) {

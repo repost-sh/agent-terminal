@@ -53,6 +53,7 @@ test("a lost daemon is retried three times, then shown as down until Retry recon
   expect(screen.getByText("The agent-terminal daemon is not running on :3000")).toBeTruthy();
   expect(screen.getByText("agent-terminal dashboard start --port 3000")).toBeTruthy();
   expect(within(screen.getByRole("navigation", { name: "Sessions and tabs" })).getByText("Not connected")).toBeTruthy();
+  expect(["Close all sessions", "New session"].map((name) => screen.getByRole<HTMLButtonElement>("button", { name }).disabled)).toEqual([true, true]);
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await daemon.serve();
   expect(document.querySelector('[aria-live="polite"][aria-atomic="true"]')?.textContent).toBe("Connected");

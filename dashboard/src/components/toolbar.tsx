@@ -21,8 +21,8 @@ export const Toolbar = (props: ToolbarProps) => {
     <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-2 py-1.5">
       <CommandLine tab={current.tab} />
       <div className="flex flex-wrap items-center gap-1.5">
-        {TOOLBAR_ACTIONS.map(({ id, Action }) => (
-          <Action key={id} {...current} layout={props.layout} onLayout={props.onLayout} />
+        {TOOLBAR_ACTIONS.map((Action, at) => (
+          <Action key={at} {...current} layout={props.layout} onLayout={props.onLayout} />
         ))}
       </div>
     </div>

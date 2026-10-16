@@ -33,7 +33,11 @@ const held = async (daemon: FakeDaemon, session: string) => {
 
 test("taking control focuses the terminal, and its keys and pastes reach the program", async () => {
   const daemon = await liveApp("keys");
+
+  expect([screen.getByRole("button", { name: "Take control" }).outerHTML, screen.queryByText(/Keys go to/)]).toMatchSnapshot();
   const terminal = await held(daemon, "keys");
+
+  expect(screen.getByRole("button", { name: "Release control" }).outerHTML).toMatchSnapshot();
 
   expect([document.activeElement, announced()]).toEqual([terminal, "You have control of keys t1"]);
   expect(screen.getByText("Keys go to vim · ctrl+p ctrl+q moves focus out")).toBeTruthy();

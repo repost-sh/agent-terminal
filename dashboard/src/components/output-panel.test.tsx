@@ -41,6 +41,7 @@ test("output reads as styled lines with marks between them, and raw shows the by
     ["t", ""],
     ["two\tend\x7f", "var(--ansi-1)"],
   ]);
+  expect(screen.getByRole("button", { name: "Raw" }).className).toMatchSnapshot();
   fireEvent.click(screen.getByRole("button", { name: "Raw" }));
   expect(lines()).toEqual(["one␊", "t", "mark build", "␛[31mtwo␉end␡"]);
   await pushed(daemon, { segments: [{ text: " more\n" }, { mark: "end" }] });
@@ -64,7 +65,7 @@ test("search counts and marks every occurrence, ignoring case", async () => {
   const search = screen.getByRole("textbox", { name: "Search the output" });
 
   fireEvent.change(search, { target: { value: " alpha " } });
-  expect(screen.getByRole("status").textContent).toBe("3 matches");
+  expect([screen.getByRole("status").textContent, lines(), search.getAttribute("spellcheck")]).toEqual(["3 matches", ["Alpha beta", "ALPHA alpha", "mark x"], "false"]);
   expect(Array.from(document.querySelectorAll("mark")).map((mark) => mark.textContent)).toEqual(["Alpha", "ALPHA", "alpha"]);
   fireEvent.change(search, { target: { value: "beta" } });
   expect(screen.getByRole("status").textContent).toBe("1 match");

@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Copy, GitCompare } from "lucide-react";
-import { Suspense, use, useId, useState, type ChangeEvent } from "react";
+import { Suspense, use, useId, useState, type ChangeEvent, type CSSProperties } from "react";
 
 import { screenshotUrl } from "../lib/api";
 import { focusNext, focusWhenShown } from "../lib/focus";
@@ -9,26 +9,23 @@ import { comparisonOf, fileName, useScreenshots, type Comparison } from "../lib/
 import { Dialog, showDialog } from "./dialog";
 import { Button, IconButton, cn, copy } from "./ui";
 
-const SINGLE_HEIGHT = "min(58vh, 34rem)";
-const PAIR_HEIGHT = "min(40vh, 22rem)";
+const SINGLE_HEIGHT = "h-[min(58vh,34rem)]";
+const PAIR_HEIGHT = "h-[min(40vh,22rem)]";
 
 const share = (part: number, whole: number) => `${String((part / whole) * 100)}%`;
 
 interface FigureProps { session: string; shot: Screenshot; height: string; boxes: CellBox[] }
 
-const frameSize = (shot: Screenshot) => {
-  const width = String(shot.width);
-  const height = String(shot.height);
+type FrameSize = CSSProperties & Record<"--shot-width" | "--shot-height", string>;
 
-  return { width: `min(${width}px, 100cqw, calc(100cqh * ${width} / ${height}))`, aspectRatio: `${width} / ${height}` };
-};
+const frameSize = (shot: Screenshot): FrameSize => ({ "--shot-width": String(shot.width), "--shot-height": String(shot.height) });
 
 interface ChangedProps { shot: Screenshot; boxes: CellBox[] }
 
 const ChangedBoxes = ({ shot, boxes }: ChangedProps) =>
-  boxes.map((box) => (
+  boxes.map((box, index) => (
     <span
-      key={`${String(box.x)},${String(box.y)}`}
+      key={index}
       data-changed=""
       className="shot-changed absolute"
       style={{
@@ -46,8 +43,8 @@ const Figure = (props: FigureProps) => {
 
   return (
     <figure className="grid min-w-0 gap-1.5">
-      <div className="term-box flex items-center justify-center rounded-md bg-background" style={{ height: props.height }}>
-        <div className="term-frame relative" style={frameSize(shot)}>
+      <div className={cn("term-box flex items-center justify-center rounded-md bg-background", props.height)}>
+        <div className="term-frame shot-frame relative" style={frameSize(shot)}>
           <img src={screenshotUrl(session, shot.path)} alt={`${file}, frame ${String(shot.frame)}`} className="block size-full" />
           <ChangedBoxes shot={shot} boxes={props.boxes} />
         </div>
@@ -121,8 +118,12 @@ const stepThrough = (stepping: Stepping) => (by: number) => {
     return;
   }
 
-  if (stepping.index + by === 0 || stepping.index + by === stepping.shots.length - 1) {
-    focusNext(by < 0 ? "shot-next" : "shot-prev");
+  if (stepping.index + by === 0) {
+    focusNext("shot-next");
+  }
+
+  if (stepping.index + by === stepping.shots.length - 1) {
+    focusNext("shot-prev");
   }
 
   stepping.setPath(to.path);
@@ -157,7 +158,6 @@ const useLightbox = (props: LightboxProps) => {
       setPicking(false);
     },
     back: () => {
-      focusNext("shot-pick");
       setAgainst(null);
     },
   };
@@ -223,7 +223,7 @@ const ComparePart = ({ box }: PickerProps) => {
   return box.picking ? (
     <ComparePicker box={box} />
   ) : (
-    <Button look={{ variant: "outline", icon: GitCompare }} ref={focusWhenShown("shot-pick")} disabled={box.shots.length < 2} onClick={box.pick}>
+    <Button look={{ variant: "outline", icon: GitCompare }} disabled={box.shots.length < 2} onClick={box.pick}>
       Compare with…
     </Button>
   );

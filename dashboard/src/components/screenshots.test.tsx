@@ -46,6 +46,7 @@ test("the panel lists each screenshot with its tab, frame, time and maker", asyn
     "b.pngt1 · frame 4 · 03:04:05dashboard",
     "c.pngt1 · frame 5 · 03:04:05dashboard",
   ]);
+  expect(items[0]?.querySelector("img")?.parentElement?.getAttribute("style")).toBe("aspect-ratio: 960 / 640;");
 });
 
 test("the lightbox steps through the screenshots and copies a path", async () => {
@@ -130,7 +131,7 @@ test("the toolbar takes a screenshot once the tab is drawn, and an activity call
   const failed = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
   daemon.answer("POST /api/session/work/t1/screenshot", () => ({ status: 200, body: { data: { path: "/tmp/shots/new.png" } } }));
-  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Take a screenshot" }).disabled).toBe(true);
+  expect([screen.getByRole<HTMLButtonElement>("button", { name: "Take a screenshot" }).disabled, screen.getByRole("button", { name: "Take a screenshot" }).dataset["tooltip"]]).toEqual([true, "Screenshot"]);
   await daemon.connected("/api/session/work/t1/stream");
   await daemon.push("/api/session/work/t1/stream", frameOf(1));
   expect(await screen.findByText("Live")).toBeTruthy();

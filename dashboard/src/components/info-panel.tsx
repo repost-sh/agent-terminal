@@ -5,7 +5,6 @@ import { dateTime } from "../lib/format";
 import { useInfo, type Modes, type TabSetup } from "../lib/info";
 import type { PanelProps } from "./panels";
 import { PanelHead } from "./panel-parts";
-import { cn } from "./ui";
 
 interface Row { term: string; value: ReactNode }
 
@@ -13,14 +12,14 @@ const Muted = ({ children }: PropsWithChildren) => <span className="text-muted-f
 
 const onOff = (on: boolean) => (on ? "on" : <Muted>off</Muted>);
 
-interface ListProps { rows: Row[]; mono?: boolean }
+interface ListProps { rows: Row[] }
 
-const List = ({ rows, mono = true }: ListProps) => (
+const List = ({ rows }: ListProps) => (
   <dl className="grid grid-cols-[minmax(7rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
     {rows.map(({ term, value }) => (
       <div key={term} className="contents">
         <dt className="text-muted-foreground">{term}</dt>
-        <dd className={cn(mono && "font-mono", "break-all")}>{value}</dd>
+        <dd className="font-mono break-all">{value}</dd>
       </div>
     ))}
   </dl>

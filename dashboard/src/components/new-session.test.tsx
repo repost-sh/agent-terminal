@@ -25,6 +25,8 @@ const submit = () => {
   fireEvent.submit(within(dialog()).getByRole("button", { name: /Create|Open tab/ }));
 };
 
+const described = (field: HTMLElement) => [field.getAttribute("aria-invalid"), document.getElementById(field.getAttribute("aria-describedby") ?? "")?.textContent];
+
 const opened = (request: Request) => ({ status: 200, body: { data: { session: "session-1", tab: "t1" } }, sessions: [sessionInfo((request.body as { session: string }).session, [tabInfo("t1")])] });
 
 test("a first session is named for you, needs a command, and opens on its tab", async () => {
@@ -70,7 +72,7 @@ test("a new tab in an existing session sends the shell, its integration and a cu
   fireEvent.click(within(dialog()).getByLabelText("Custom"));
   typeInto("Columns", "19");
   submit();
-  expect(within(dialog()).getByRole("alert").textContent).toBe("Columns 20–500, rows 5–200.");
+  expect(described(within(dialog()).getByRole("group", { name: "Size" }))).toEqual([null, "Columns 20–500, rows 5–200."]);
   expect(document.activeElement?.id.endsWith("size-custom")).toBe(true);
   typeInto("Columns", "100");
   typeInto("Rows", "30");
@@ -101,15 +103,78 @@ test("names are checked before anything is sent, and a refused open keeps the di
   for (const [name, refusal] of [["", "Enter a session name."], ["a b", "Use letters, numbers, - and _."], ["work", "A session named work already exists."]]) {
     typeInto("Session name", String(name));
     submit();
-    expect([within(dialog()).getByRole("alert").textContent, document.activeElement]).toEqual([refusal, within(dialog()).getByLabelText("Session name")]);
+    expect([described(within(dialog()).getByLabelText("Session name")), document.activeElement]).toEqual([["true", refusal], within(dialog()).getByLabelText("Session name")]);
   }
 
   typeInto("Session name", "fresh");
   fireEvent.click(within(dialog()).getByLabelText("80×24"));
   submit();
   expect(await screen.findByText("lazygit: not found")).toBeTruthy();
-  expect(document.activeElement).toBe(within(dialog()).getByLabelText("Command"));
+  expect([document.activeElement, within(dialog()).getByRole<HTMLButtonElement>("button", { name: "Create" }).disabled]).toEqual([within(dialog()).getByLabelText("Command"), false]);
   expect(daemon.requests.filter((request) => request.path === "/api/sessions")).toHaveLength(1);
   fireEvent.click(within(dialog()).getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+const radio = (label: string) => {
+  fireEvent.click(within(dialog()).getByLabelText(label));
+};
+
+test("the dialog shows the fields its mode, size and shell call for", async () => {
+  await shownApp([sessionInfo("work", [tabInfo("t1")])]);
+  fireEvent.click(screen.getByRole("button", { name: "New session" }));
+  expect(dialog().outerHTML).toMatchSnapshot();
+  radio("Existing session");
+  expect(dialog().outerHTML).toMatchSnapshot();
+  typeInto("Command", "bash");
+  radio("Custom");
+  expect(dialog().outerHTML).toMatchSnapshot();
+  radio("New session");
+  expect(within(dialog()).getByRole("heading").textContent).toBe("New session");
+  fireEvent.click(within(dialog()).getByRole("button", { name: "Cancel" }));
+});
+
+test("the command line copies, and a refused field takes focus without scrolling", async () => {
+  const writeText = vi.fn(() => Promise.resolve());
+
+  await shownApp([]);
+  vi.stubGlobal("navigator", { clipboard: { writeText } });
+  fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: "New session" }));
+  fireEvent.click(within(dialog()).getByRole("button", { name: "Copy the command line" }));
+  expect(writeText.mock.calls).toEqual([["agent-terminal --session session-1 open <program> --size 120x40"]]);
+  const focus = vi.spyOn(HTMLElement.prototype, "focus");
+
+  submit();
+  expect(focus.mock.calls).toEqual([[{ preventScroll: true }]]);
+  fireEvent.click(within(dialog()).getByRole("button", { name: "Cancel" }));
+});
+
+test("the dialog cannot be sent twice while it opens, opens on the Activity panel and returns focus to the page", async () => {
+  const daemon = await shownApp([sessionInfo("work", [tabInfo("t1")])]);
+  const create = () => within(dialog()).getByRole<HTMLButtonElement>("button", { name: "Create" });
+
+  daemon.answer("POST /api/sessions", () => ({ status: 200, body: { data: { session: "session-2", tab: "t1" } }, sessions: [sessionInfo("session-2", [tabInfo("t1")])] }));
+  fireEvent.click(screen.getByRole("tab", { name: "Output" }));
+  fireEvent.click(screen.getByRole("button", { name: "New session" }));
+  typeInto("Command", "lazygit");
+  let release: (value: null) => void = () => undefined;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  const fetching = globalThis.fetch.bind(globalThis);
+
+  vi.stubGlobal("fetch", async (...args: Parameters<typeof fetch>) => {
+    await held;
+
+    return fetching(...args);
+  });
+  submit();
+  expect(create().disabled).toBe(true);
+  release(null);
+  await vi.waitFor(() => {
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  const activity = await screen.findByRole("tab", { name: "Activity" });
+
+  expect([document.activeElement?.id, activity.getAttribute("aria-selected")]).toEqual(["main-content", "true"]);
 });

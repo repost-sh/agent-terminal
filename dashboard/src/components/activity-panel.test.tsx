@@ -167,13 +167,19 @@ test("a following list scrolls to each new call, to a call that grows, and back 
 });
 
 test("a closed list stops watching its calls", async () => {
-  const disconnected: string[] = [];
+  const watched = new Map<MutationObserver, Node>();
+  const stopped = new Set<MutationObserver>();
 
   vi.stubGlobal(
     "MutationObserver",
     class extends MutationObserver {
+      override observe(target: Node, options?: MutationObserverInit) {
+        watched.set(this, target);
+        super.observe(target, options);
+      }
+
       override disconnect() {
-        disconnected.push("disconnected");
+        stopped.add(this);
         super.disconnect();
       }
     },
@@ -181,8 +187,31 @@ test("a closed list stops watching its calls", async () => {
   const daemon = await shownActivity();
 
   await pushed(daemon, { entries: [entryOf("snapshot")] });
+  const calls = list();
+
   fireEvent.click(screen.getByRole("tab", { name: "Output" }));
-  expect(disconnected.length).toBeGreaterThan(0);
+  expect([...watched].filter(([, target]) => target === calls).map(([observer]) => stopped.has(observer))).toEqual([true]);
+});
+
+test("a list that appears with calls starts at the newest", async () => {
+  const daemon = await shownActivity();
+
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1000);
+  await pushed(daemon, { entries: [entryOf("one"), entryOf("two")] });
+  expect(list().scrollTop).toBe(1000);
+});
+
+test("a list that restarts after clearing shows its first call collapsed", async () => {
+  const daemon = await shownActivity("t8");
+  const feed = ACTIVITY.replace("t1", "t8");
+
+  await daemon.push(feed, { type: "entries", entries: [entryOf("get text", { output: "old", time: at(1) })], pending: [] });
+  fireEvent.click(screen.getByRole("button", { name: /get text/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Clear activity" }));
+  await daemon.hangUp(feed);
+  await daemon.connected(feed);
+  await daemon.push(feed, { type: "entries", entries: [entryOf("get text", { output: "new", time: at(5) })], pending: [] });
+  expect([screen.getByRole("button", { name: /get text/ }).getAttribute("aria-expanded"), screen.queryByText("new")]).toEqual(["false", null]);
 });
 
 test("clearing outlives switching panels, and a restarted list shows its calls again, collapsed", async () => {

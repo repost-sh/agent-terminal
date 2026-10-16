@@ -15,7 +15,7 @@ test("the newest three toasts show, errors as alerts, and each one closes", () =
     toast("error", { title: "four" });
   });
   expect(shown()).toEqual(["four", "three", "twodetail"]);
-  expect(screen.getByRole("alert").textContent).toBe("four");
+  expect([screen.getByRole("alert").textContent, within(screen.getByRole("region", { name: "Notifications" })).getAllByRole("status").map((entry) => entry.textContent)]).toEqual(["four", ["three", "twodetail"]]);
   fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Close notification" }));
   expect(shown()).toEqual(["three", "twodetail"]);
   for (const button of screen.getAllByRole("button", { name: "Close notification" })) {
