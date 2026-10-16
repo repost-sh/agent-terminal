@@ -172,7 +172,7 @@ agent-terminal wait --control --timeout 600000   # resumes when they hand it bac
 
 ## Finishing
 
-Close what you opened: `agent-terminal close`, or `agent-terminal close --all` at the end of the task.
+Close what you opened: `agent-terminal close`, or `agent-terminal close --all --session <name>` at the end of the task. `close --all` closes every tab of the session named on its own command line and nothing else; the exported `AGENT_TERMINAL_SESSION` alone is refused. The daemon keeps running after that until a human stops it.
 
 ## Troubleshooting
 

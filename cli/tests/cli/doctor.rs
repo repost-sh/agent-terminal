@@ -249,7 +249,7 @@ fn fixing_while_first_commands_start_the_daemon_leaves_one_working_daemon() {
         let codes: Vec<i32> = fixes.into_iter().chain(opens).map(|call| call.join().unwrap()).collect();
         assert_eq!(codes, vec![0; 6]);
     });
-    let closed = at.run(&["close", "--all"]).success().stdout();
+    let closed = at.run(&["--session", "default", "close", "--all"]).success().stdout();
     assert_eq!(closed.lines().count(), 3, "every open must land in the same daemon:\n{closed}");
 }
 

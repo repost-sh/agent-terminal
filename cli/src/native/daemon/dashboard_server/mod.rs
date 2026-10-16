@@ -9,15 +9,7 @@ impl Daemon {
     pub(super) fn start_dashboard(&self, start: request::DashboardStart) -> Result<Dashboard, ErrorBody> {
         let mut running = self.dashboard.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(server) = running.as_ref() {
-            if (start.port == 0 || start.port == server.port())
-                && start.origins.iter().all(|origin| server.allows(origin))
-            {
-                return Ok(server.info());
-            }
-            return Err(ErrorBody::failure(format!(
-                "the dashboard already runs at {}; stop it first with `agent-terminal dashboard stop`",
-                server.info().url
-            )));
+            return Ok(server.info());
         }
         let backend: Arc<dyn Backend> =
             self.me.upgrade().ok_or_else(|| ErrorBody::failure("the daemon is shutting down"))?;

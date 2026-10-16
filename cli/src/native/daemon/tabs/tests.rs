@@ -84,7 +84,7 @@ fn closing_the_current_tab_makes_the_newest_left_current_and_the_last_ends_the_s
         running.open(ECHO);
     }
     running.ok(&json!({ "command": "switch-tab", "session": "s", "tab": "t1" }));
-    let close = |tab: Option<&str>| on("close", &json!({ "all": false, "tab": tab }));
+    let close = |tab: Option<&str>| on("close", &json!({ "scope": "tab", "tab": tab }));
     let closed = running.ok(&close(None));
     assert_eq!(
         (closed, tabs(&running)),
@@ -106,15 +106,31 @@ fn closing_the_current_tab_makes_the_newest_left_current_and_the_last_ends_the_s
     );
 }
 
-#[test]
-fn closing_all_closes_every_tab_of_every_session() {
+fn two_sessions() -> Running {
     let running = Running::new();
     running.open(ECHO);
     let mut elsewhere = open(ECHO, &text("ready"));
     elsewhere["session"] = json!("other");
     running.ok(&elsewhere);
     running.open(ECHO);
-    insta::assert_snapshot!(running.ok(&on("close", &json!({ "all": true }))), @r#"{"closed":[{"session":"other","tab":"t1"},{"session":"s","tab":"t1"},{"session":"s","tab":"t2"}]}"#);
+    running
+}
+
+#[test]
+fn closing_a_session_closes_its_tabs_and_leaves_every_other_session_running() {
+    let running = two_sessions();
+    let close = |session: &str| json!({ "command": "close", "session": session, "tab": null, "scope": "session" });
+    insta::assert_snapshot!(running.ok(&close("s")), @r#"{"closed":[{"session":"s","tab":"t1"},{"session":"s","tab":"t2"}]}"#);
+    let sessions = running.ok(&json!({ "command": "sessions" }));
+    let names: Vec<&Value> =
+        sessions["sessions"].as_array().unwrap().iter().map(|session| &session["session"]).collect();
+    assert_eq!((names, running.ok(&close("s"))), (vec![&json!("other")], json!({ "closed": [] })));
+}
+
+#[test]
+fn closing_every_session_closes_every_tab_of_every_session() {
+    let running = two_sessions();
+    insta::assert_snapshot!(running.ok(&on("close", &json!({ "scope": "every-session" }))), @r#"{"closed":[{"session":"other","tab":"t1"},{"session":"s","tab":"t1"},{"session":"s","tab":"t2"}]}"#);
     assert_eq!(running.ok(&json!({ "command": "sessions" })), json!({ "sessions": [] }));
 }
 

@@ -43,7 +43,7 @@ fn a_session_that_starts_again_starts_a_fresh_folder() {
     let shot = at.work_folder().join("first-run.png").to_string_lossy().into_owned();
     open_printer(&at, "qa", "open");
     at.run(&["--session", "qa", "screenshot", &shot]).success();
-    at.run(&["close", "--all"]).success();
+    at.run(&["--session", "qa", "close", "--all"]).success();
     assert_eq!(names_in(&folder), ["activity.jsonl", "screenshots.jsonl"]);
 
     open_printer(&at, "qa", "open");

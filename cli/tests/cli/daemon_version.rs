@@ -83,7 +83,7 @@ fn a_running_daemon_of_another_build_with_no_tab_is_replaced_by_the_next_command
     assert_eq!(run.stderr(), "");
     assert_eq!(recorded_build(&at), BUILD);
     assert!(at.daemon_log().contains("a command of another build stopped this daemon, which had no terminals"));
-    assert_eq!(at.run(&["close", "--all"]).success().stdout(), "closed default t1\n");
+    assert_eq!(at.run(&["--session", "default", "close", "--all"]).success().stdout(), "closed default t1\n");
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn commands_started_together_replace_a_daemon_of_another_build_once() {
         assert_eq!(codes, vec![0; 3]);
     });
     assert_eq!(other.join().unwrap(), [stop_if_no_terminals()]);
-    let closed = at.run(&["close", "--all"]).success().stdout();
+    let closed = at.run(&["--session", "default", "close", "--all"]).success().stdout();
     assert_eq!(closed.lines().count(), 3, "every open must land in the same daemon:\n{closed}");
 }
 
@@ -114,7 +114,7 @@ fn a_daemon_of_another_build_with_open_tabs_is_left_running_and_the_command_exit
     at.run(&["daemon", "stop"]).success();
     at.run(&["open", "--size", "20x2", "cat"]).success();
     assert_eq!(recorded_build(&at), BUILD);
-    assert_eq!(at.run(&["close", "--all"]).success().stdout(), "closed default t1\n");
+    assert_eq!(at.run(&["--session", "default", "close", "--all"]).success().stdout(), "closed default t1\n");
 }
 
 fn the_command_exits_6_naming_both_builds(at: &AgentTerminal, message: &str) {

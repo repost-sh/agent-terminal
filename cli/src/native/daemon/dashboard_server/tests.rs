@@ -48,18 +48,23 @@ fn opening(session: &str, command: &str) -> Value {
 }
 
 #[test]
-fn starting_again_returns_the_running_dashboard_unless_it_asks_for_another_port_or_origin() {
+fn starting_again_returns_the_running_dashboard_whatever_port_or_origin_it_asks_for() {
     let running = Running::new();
     let started = running.ok(&start(0, &["http://a.test"]));
     let port = started["port"].as_u64().unwrap();
     assert_eq!(started["url"], format!("http://localhost:{port}"));
-    assert_eq!([running.ok(&start(0, &["http://a.test"])), running.ok(&start(port, &[]))], [started.clone(), started]);
-    let refusal = format!(
-        "the dashboard already runs at http://localhost:{port}; stop it first with `agent-terminal dashboard stop`"
+    assert_eq!(
+        [start(0, &["http://a.test"]), start(port, &[]), start(0, &["http://b.test"]), start(port + 1, &[])]
+            .map(|again| running.ok(&again)),
+        [started.clone(), started.clone(), started.clone(), started]
     );
     assert_eq!(
-        [running.refused(&start(0, &["http://b.test"])), running.refused(&start(port + 1, &[]))],
-        [(1, refusal.clone()), (1, refusal)]
+        send(
+            port,
+            "GET /api/sessions HTTP/1.1\r\nHost: localhost\r\nOrigin: http://b.test\r\nConnection: close\r\n\r\n"
+        )
+        .0,
+        403
     );
     let stop = json!({ "command": "dashboard-stop" });
     assert_eq!([running.ok(&stop), running.ok(&stop)], [json!({ "stopped": true }), json!({ "stopped": false })]);
@@ -170,5 +175,5 @@ fn the_info_feed_describes_the_tab_and_says_closed_when_it_closes() {
 }
 
 fn on_close() -> Value {
-    json!({ "command": "close", "session": "s", "tab": null, "all": false })
+    json!({ "command": "close", "session": "s", "tab": null, "scope": "tab" })
 }

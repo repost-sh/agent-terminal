@@ -11,12 +11,12 @@ mod values;
 use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
-use std::time::Duration;
 
-use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::parser::ValueSource;
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::attach;
-use crate::connection::{self, IfNotRunning, Launch};
+use crate::connection::{self, IfNotRunning};
 use crate::doctor;
 use crate::global_options::GlobalOptions;
 use crate::mcp;
@@ -38,6 +38,9 @@ struct Cli {
 
     #[command(subcommand)]
     command: Command,
+
+    #[arg(skip)]
+    session_typed: bool,
 }
 
 #[derive(Subcommand)]
@@ -62,6 +65,7 @@ enum Command {
 
 struct Context {
     target: Target,
+    session_typed: bool,
     dir: Option<PathBuf>,
     timeout: u64,
 }
@@ -69,12 +73,16 @@ struct Context {
 pub(crate) fn run() -> io::Result<i32> {
     let mut parser = Cli::command();
     let argv: Vec<OsString> = std::env::args_os().collect();
-    let parsed = argv::parse(&mut parser, &argv)
-        .and_then(|mut matches| Cli::from_arg_matches_mut(&mut matches).map_err(|e| e.format(&mut parser)));
+    let parsed = argv::parse(&mut parser, &argv).and_then(|matches| parsed(matches).map_err(|e| e.format(&mut parser)));
     match parsed {
         Ok(cli) => dispatch(cli),
         Err(e) => usage(&e),
     }
+}
+
+fn parsed(mut matches: ArgMatches) -> Result<Cli, clap::Error> {
+    let session_typed = matches.value_source("session") == Some(ValueSource::CommandLine);
+    Cli::from_arg_matches_mut(&mut matches).map(|cli| Cli { session_typed, ..cli })
 }
 
 fn usage(e: &clap::Error) -> io::Result<i32> {
@@ -92,10 +100,9 @@ fn usage(e: &clap::Error) -> io::Result<i32> {
 
 fn dispatch(cli: Cli) -> io::Result<i32> {
     let json = cli.global.json;
-    let idle_timeout = cli.global.idle_timeout;
     let request = match cli.command {
         Command::Tools(tools::ToolCommand::Daemon { action: tools::DaemonAction::Run }) => {
-            return daemon_run(idle_timeout);
+            return daemon_run();
         }
         Command::Tools(tools::ToolCommand::Skills { action }) => {
             return action.unwrap_or(skills::Action::List).run(json, Cli::command());
@@ -126,13 +133,13 @@ fn dispatch(cli: Cli) -> io::Result<i32> {
         command => request(Cli { command, ..cli }),
     };
     match request {
-        Ok(request) => send(request, json, idle_timeout),
+        Ok(request) => send(request, json),
         Err(message) => output::refuse(&message, json),
     }
 }
 
-fn daemon_run(idle_timeout: Duration) -> io::Result<i32> {
-    match daemon::run(idle_timeout) {
+fn daemon_run() -> io::Result<i32> {
+    match daemon::run() {
         Ok(()) => Ok(0),
         Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
     }
@@ -154,6 +161,7 @@ fn json_asked() -> bool {
 fn request(cli: Cli) -> Result<Request, String> {
     let context = Context {
         target: Target { session: cli.global.session, tab: cli.global.tab },
+        session_typed: cli.session_typed,
         dir: cli.global.screenshot_dir,
         timeout: cli.global.timeout,
     };
@@ -171,13 +179,17 @@ fn request(cli: Cli) -> Result<Request, String> {
     }
 }
 
-fn send(request: Request, json: bool, idle_timeout: Duration) -> io::Result<i32> {
+fn send(request: Request, json: bool) -> io::Result<i32> {
     let if_not_running = match &request {
-        Request::Stop => IfNotRunning::Answer(Reply::Stopped),
-        Request::DashboardStop => IfNotRunning::Answer(Reply::DashboardStopped(DashboardStopped { stopped: false })),
-        Request::Sessions => IfNotRunning::Answer(Reply::Sessions(Sessions::default())),
-        Request::Tabs(request::Tabs { session }) => IfNotRunning::Answer(Reply::Tabs(SessionInfo::empty(session))),
-        _ => IfNotRunning::Start(Launch { idle_timeout }),
+        Request::Stop => IfNotRunning::Answer(Box::new(Reply::Stopped)),
+        Request::DashboardStop => {
+            IfNotRunning::Answer(Box::new(Reply::DashboardStopped(DashboardStopped { stopped: false })))
+        }
+        Request::Sessions => IfNotRunning::Answer(Box::new(Reply::Sessions(Sessions::default()))),
+        Request::Tabs(request::Tabs { session }) => {
+            IfNotRunning::Answer(Box::new(Reply::Tabs(SessionInfo::empty(session))))
+        }
+        _ => IfNotRunning::Start,
     };
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     let response = match connection::send(&Call { typed: Some(typed), request }, if_not_running) {

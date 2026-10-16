@@ -59,7 +59,7 @@ Fill in the summary counts in the report, then:
 
 ```bash
 agent-terminal trace export ./tui-qa-output/session.zip
-agent-terminal close --all
+agent-terminal close --all --session qa-lazygit
 ```
 
 Reply with the report path, the number of findings by severity, and the three most important ones in one line each.

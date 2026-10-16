@@ -94,7 +94,7 @@ fn close_and_close_all_stop_a_program_that_ignores_sighup() {
 
     at.run(&["close"]).success();
     assert!(!running(&first), "close left {first} running");
-    at.run(&["close", "--all"]).success();
+    at.run(&["--session", "other", "close", "--all"]).success();
     assert!(!running(&second), "close --all left {second} running");
 }
 
@@ -106,16 +106,6 @@ fn restart_stops_a_program_that_ignores_sighup_and_runs_it_again() {
     at.run(&["--timeout", "5000", "restart", "--wait", "ready"]).success();
     assert!(!running(&before), "restart left {before} running");
     assert_ne!(at.run(&["get", "pid"]).success().stdout().trim(), before);
-}
-
-#[test]
-fn close_all_closes_every_session() {
-    let at = AgentTerminal::new();
-    at.run(&["--session", "a", "open", &fixture("line-printer"), "--hold"]).success();
-    at.run(&["--session", "b", "open", &fixture("line-printer"), "--hold"]).success();
-    let closed = at.run(&["close", "--all"]).success();
-    assert_eq!(closed.stdout(), "closed a t1\nclosed b t1\n");
-    assert_eq!(at.run(&["--session", "b", "snapshot"]).code(), 1);
 }
 
 #[test]
@@ -381,7 +371,7 @@ fn simultaneous_first_calls_share_one_daemon() {
         let codes: Vec<i32> = opens.into_iter().map(|open| open.join().unwrap()).collect();
         assert_eq!(codes, vec![0; 6]);
     });
-    let closed = at.run(&["close", "--all"]).success().stdout();
+    let closed = at.run(&["--session", "default", "close", "--all"]).success().stdout();
     assert_eq!(closed.lines().count(), 6, "every open must land in the same daemon:\n{closed}");
 }
 

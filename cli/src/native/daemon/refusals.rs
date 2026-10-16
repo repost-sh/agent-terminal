@@ -2,7 +2,7 @@ use crate::native::terminal::Labelled;
 use crate::protocol::{ErrorBody, TabId};
 
 pub(super) fn stopping() -> ErrorBody {
-    ErrorBody::failure("the daemon is stopping because it was idle; run the command again to start a new one")
+    ErrorBody::failure("the daemon is stopping; run the command again to start a new one")
 }
 
 pub(super) fn no_terminal(session: &str) -> ErrorBody {

@@ -40,7 +40,6 @@ pub(crate) trait Backend: Send + Sync + 'static {
 
 pub(crate) struct Server {
     port: u16,
-    origins: Vec<String>,
     stop: Option<oneshot::Sender<()>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -63,7 +62,7 @@ impl Server {
             .enable_time()
             .build()
             .context("start the dashboard's runtime")?;
-        let app = router(guard::Pages { port, origins: origins.clone() }, backend);
+        let app = router(guard::Pages { port, origins }, backend);
         let (stop, stopped) = oneshot::channel();
         let thread = std::thread::Builder::new()
             .name("dashboard".into())
@@ -72,15 +71,7 @@ impl Server {
                 runtime.shutdown_background();
             })
             .context("start the dashboard's thread")?;
-        Ok(Self { port, origins, stop: Some(stop), thread: Some(thread) })
-    }
-
-    pub(crate) fn port(&self) -> u16 {
-        self.port
-    }
-
-    pub(crate) fn allows(&self, origin: &str) -> bool {
-        self.origins.iter().any(|allowed| allowed == origin)
+        Ok(Self { port, stop: Some(stop), thread: Some(thread) })
     }
 
     pub(crate) fn info(&self) -> Dashboard {

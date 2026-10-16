@@ -13,6 +13,7 @@ use super::stream::{LastSent, hung_up};
 use super::{Backend, tab_id};
 use crate::native::log;
 use crate::protocol::request;
+use crate::protocol::request::Closing;
 use crate::protocol::{ErrorBody, Request, Sessions, Shot, Target, Wait};
 
 const RESTART_SETTLES_AFTER_MS: u64 = 300;
@@ -74,12 +75,18 @@ pub(super) async fn close(
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Close(request::Close { target: Target::tab(&session, id), all: false })).await
+    call(backend, Request::Close(request::Close { target: Target::tab(&session, id), scope: Closing::Tab })).await
 }
 
 pub(super) async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
-    call(backend, Request::Close(request::Close { target: Target { session: String::new(), tab: None }, all: true }))
-        .await
+    call(
+        backend,
+        Request::Close(request::Close {
+            target: Target { session: String::new(), tab: None },
+            scope: Closing::EverySession,
+        }),
+    )
+    .await
 }
 
 pub(super) async fn screenshot(

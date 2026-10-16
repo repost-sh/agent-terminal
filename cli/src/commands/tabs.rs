@@ -4,14 +4,24 @@ use super::programs::{OpenArgs, WaitArgs};
 use super::values::parse_size;
 use super::{Context, ON_ITS_OWN};
 use crate::protocol::request;
+use crate::protocol::request::Closing;
 use crate::protocol::{Request, Size, TabId, Target};
+
+const BYPASS_WITH_SESSION: &str = "the argument '--bypass-session' cannot be used with '--session <SESSION>': close --all --session <name> closes the tabs of that session, close --all --bypass-session closes every tab in every session";
+
+const SESSION_NOT_TYPED: &str = "close --all closes every tab of one session, so name that session on this command line: repeat it as `--session <name>` (AGENT_TERMINAL_SESSION alone is not enough); `close --all --bypass-session` closes every tab in every session";
 
 #[derive(Subcommand)]
 pub(super) enum TabCommand {
-    #[command(about = "Close the current tab (--all closes every session)")]
+    #[command(about = "Close the current tab (--all --session <name>: every tab of that session)")]
     Close {
-        #[arg(long, help = "Close every tab in every session")]
+        #[arg(
+            long,
+            help = "Close every tab of the session --session names on this command line (AGENT_TERMINAL_SESSION alone is refused)"
+        )]
         all: bool,
+        #[arg(long, requires = "all", help = "With --all: close every tab in every session (not with --session)")]
+        bypass_session: bool,
     },
     #[command(about = "Run the same program again with the same options (prints its first stable screen)")]
     Restart(WaitArgs),
@@ -70,7 +80,7 @@ pub(super) enum Scope {
 
 impl TabCommand {
     pub(super) fn request(self, context: Context) -> Result<Request, String> {
-        let Context { target, timeout, .. } = context;
+        let Context { target, session_typed, timeout, .. } = context;
         Ok(match self {
             TabCommand::Tab { action: Some(TabAction::New(args)), .. } => args.request(target.session, timeout)?,
             TabCommand::Session { action: Some(SessionAction::List) } => Request::Sessions,
@@ -81,16 +91,29 @@ impl TabCommand {
             TabCommand::Tab { id: None, action: None | Some(TabAction::List) } => {
                 Request::Tabs(request::Tabs { session: target.session })
             }
-            TabCommand::Tab { action: Some(TabAction::Close { id }), .. } => {
-                Request::Close(request::Close { target: Target { tab: id.or(target.tab), ..target }, all: false })
-            }
+            TabCommand::Tab { action: Some(TabAction::Close { id }), .. } => Request::Close(request::Close {
+                target: Target { tab: id.or(target.tab), ..target },
+                scope: Closing::Tab,
+            }),
             TabCommand::Restart(wait) => {
                 Request::Restart(request::Restart { target, wait: wait.until(), timeout_ms: timeout })
             }
             TabCommand::Resize { size, wait } => {
                 Request::Resize(request::Resize { target, size, wait: wait.until(), timeout_ms: timeout })
             }
-            TabCommand::Close { all } => Request::Close(request::Close { target, all }),
+            TabCommand::Close { all, bypass_session } => {
+                Request::Close(request::Close { target, scope: closing(all, bypass_session, session_typed)? })
+            }
         })
+    }
+}
+
+fn closing(all: bool, bypass_session: bool, session_typed: bool) -> Result<Closing, String> {
+    match (all, bypass_session, session_typed) {
+        (false, ..) => Ok(Closing::Tab),
+        (true, true, true) => Err(BYPASS_WITH_SESSION.into()),
+        (true, true, false) => Ok(Closing::EverySession),
+        (true, false, true) => Ok(Closing::Session),
+        (true, false, false) => Err(SESSION_NOT_TYPED.into()),
     }
 }

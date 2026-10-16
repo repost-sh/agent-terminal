@@ -216,7 +216,7 @@ fn stopping_again_says_no_dashboard_runs(at: &AgentTerminal) {
 }
 
 #[test]
-fn starting_again_keeps_the_running_dashboard_and_refuses_another_port() {
+fn starting_again_on_any_port_succeeds_with_the_running_dashboard() {
     let at = AgentTerminal::new();
     let port = start(&at);
     let running = serde_json::json!({ "url": format!("http://localhost:{port}"), "port": port });
@@ -227,13 +227,10 @@ fn starting_again_keeps_the_running_dashboard_and_refuses_another_port() {
     let free = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("find a free port");
     let other = free.local_addr().expect("its address").port().to_string();
     drop(free);
-    let refused = at.run(&["dashboard", "start", "--port", &other]);
-    assert_eq!(refused.code(), 1);
+    let again = at.run(&["dashboard", "start", "--port", &other, "--allow-origin", "http://localhost:5173"]);
     assert_eq!(
-        refused.stderr(),
-        format!(
-            "error: the dashboard already runs at http://localhost:{port}; stop it first with `agent-terminal dashboard stop`\n"
-        )
+        (again.code(), again.stdout(), again.stderr()),
+        (0, format!("dashboard running at http://localhost:{port}\n"), String::new())
     );
 }
 

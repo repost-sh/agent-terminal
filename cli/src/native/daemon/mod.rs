@@ -20,7 +20,7 @@ use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use tokio::sync::watch;
@@ -64,7 +64,7 @@ struct Tab {
     control: Arc<Control>,
 }
 
-pub(crate) fn run(idle_timeout: Duration) -> Result<()> {
+pub(crate) fn run() -> Result<()> {
     log::start()?;
     let home = home()?;
     std::fs::create_dir_all(&home).with_context(|| format!("create {}", home.display()))?;
@@ -75,10 +75,6 @@ pub(crate) fn run(idle_timeout: Duration) -> Result<()> {
 
     let (ended, end) = mpsc::channel();
     let daemon = Arc::new_cyclic(|me| Daemon::new(Weak::clone(me), ended, home, claim));
-    if !idle_timeout.is_zero() {
-        let watching = Arc::clone(&daemon);
-        std::thread::spawn(move || watching.stop_when_idle(idle_timeout));
-    }
     let accepting = Arc::clone(&daemon);
     std::thread::spawn(move || accepting.accept(&listener));
     end.recv().context("every thread of the daemon ended without stopping it")

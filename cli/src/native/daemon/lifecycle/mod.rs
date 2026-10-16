@@ -1,5 +1,5 @@
 use std::sync::PoisonError;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::Daemon;
 use crate::home::{DAEMON_VERSION, SOCKET};
@@ -8,16 +8,10 @@ use crate::protocol::{KeptRunning, Reply};
 
 pub(super) const OTHER_CALLS_WITHIN: Duration = Duration::from_secs(5);
 
+#[derive(Default)]
 pub(super) struct Activity {
     in_flight: usize,
-    last: Instant,
     stopping: bool,
-}
-
-impl Default for Activity {
-    fn default() -> Self {
-        Self { in_flight: 0, last: Instant::now(), stopping: false }
-    }
 }
 
 pub(super) struct Busy<'a>(&'a Daemon);
@@ -26,7 +20,6 @@ impl Drop for Busy<'_> {
     fn drop(&mut self) {
         let mut activity = self.0.activity.lock().unwrap_or_else(PoisonError::into_inner);
         activity.in_flight -= 1;
-        activity.last = Instant::now();
         self.0.quiet.notify_all();
     }
 }
@@ -39,32 +32,6 @@ impl Daemon {
         }
         activity.in_flight += 1;
         Some(Busy(self))
-    }
-
-    pub(super) fn stop_when_idle(&self, timeout: Duration) {
-        self.wait_until_idle(timeout);
-        log::note(format_args!("no call for {} ms, stopping", timeout.as_millis()));
-        self.shut_down();
-        self.end();
-    }
-
-    fn wait_until_idle(&self, timeout: Duration) {
-        let mut activity = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
-        loop {
-            let quiet_for = activity.last.elapsed();
-            if activity.in_flight == 0 && quiet_for >= timeout {
-                break;
-            }
-            activity = if activity.in_flight > 0 {
-                self.quiet.wait(activity).unwrap_or_else(PoisonError::into_inner)
-            } else {
-                self.quiet
-                    .wait_timeout(activity, timeout.saturating_sub(quiet_for))
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .0
-            };
-        }
-        activity.stopping = true;
     }
 
     pub(super) fn stop_if_no_terminals(&self, other_calls_within: Duration) -> Reply {

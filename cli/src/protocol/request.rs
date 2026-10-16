@@ -75,7 +75,15 @@ pub(crate) struct Snapshot {
 pub(crate) struct Close {
     #[serde(flatten)]
     pub target: Target,
-    pub all: bool,
+    pub scope: Closing,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Closing {
+    Tab,
+    Session,
+    EverySession,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -280,7 +288,10 @@ impl Request {
             Request::Open(Open { session, .. })
             | Request::Shell(OpenShell { session, .. })
             | Request::Tabs(Tabs { session })
-            | Request::Close(Close { target: Target { session, .. }, all: true })
+            | Request::Close(Close {
+                target: Target { session, .. },
+                scope: Closing::Session | Closing::EverySession,
+            })
             | Request::TraceExport(TraceExport { session, .. }) => Addressed::Session(session),
             Request::SwitchTab(SwitchTab { session, tab }) => Addressed::Tab(session, Some(*tab)),
             Request::Snapshot(Snapshot { target, .. })

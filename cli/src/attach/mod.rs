@@ -7,7 +7,7 @@ use std::thread::JoinHandle;
 use anyhow::{Context, Result, anyhow, bail};
 use rustix::termios::{self, OptionalActions};
 
-use crate::connection::{self, Launch};
+use crate::connection;
 use crate::global_options::GlobalOptions;
 use crate::key::{Key, KeyCode, Mods};
 use crate::output;
@@ -36,14 +36,13 @@ enum Unopened {
 pub(crate) fn run(read_only: bool, global: GlobalOptions) -> io::Result<i32> {
     let json = global.json;
     let target = Target { session: global.session, tab: global.tab };
-    let launch = Launch { idle_timeout: global.idle_timeout };
     if !on_a_terminal() {
         return output::refuse(
             "attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead",
             json,
         );
     }
-    let (attached, stream) = match open(target, read_only, &launch) {
+    let (attached, stream) = match open(target, read_only) {
         Ok(opened) => opened,
         Err(Unopened::Refused(refusal)) => return output::error(&refusal, json),
         Err(Unopened::Failed(e)) => return output::refuse(&format!("{e:#}"), json),
@@ -58,11 +57,10 @@ fn on_a_terminal() -> bool {
     io::stdin().is_terminal() && io::stdout().is_terminal()
 }
 
-fn open(target: Target, read_only: bool, launch: &Launch) -> Result<(Attached, UnixStream), Unopened> {
+fn open(target: Target, read_only: bool) -> Result<(Attached, UnixStream), Unopened> {
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     let call = Call { typed: Some(typed), request: Request::Attach(request::Attach { target, read_only }) };
-    let (response, stream) =
-        connection::keep_open(&call, launch).map_err(Unopened::Failed)?.map_err(Unopened::Refused)?;
+    let (response, stream) = connection::keep_open(&call).map_err(Unopened::Failed)?.map_err(Unopened::Refused)?;
     match response {
         Response::Ok(Reply::Attached(attached)) => Ok((attached, stream)),
         Response::Ok(other) => Err(Unopened::Failed(anyhow!("the daemon answered attach with {other:?}"))),

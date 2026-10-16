@@ -1,8 +1,8 @@
 use std::ffi::OsString;
 
-use clap::{CommandFactory, FromArgMatches};
+use clap::CommandFactory;
 
-use super::{Cli, argv, request};
+use super::{Cli, argv, parsed, request};
 
 fn own_parts(mut sent: serde_json::Value) -> String {
     if let Some(env) = sent["env"].as_array_mut() {
@@ -19,8 +19,7 @@ fn requested(line: &str) -> String {
         .chain(words.into_iter().map(OsString::from))
         .collect();
     let mut parser = Cli::command();
-    let parsed = argv::parse(&mut parser, &argv).and_then(|mut matches| Cli::from_arg_matches_mut(&mut matches));
-    let sent = match parsed {
+    let sent = match argv::parse(&mut parser, &argv).and_then(parsed) {
         Ok(cli) => request(cli).map_or_else(
             |refused| format!("refused: {refused}"),
             |request| own_parts(serde_json::to_value(&request).unwrap()),
@@ -32,6 +31,35 @@ fn requested(line: &str) -> String {
 
 fn table(lines: &[&str]) -> String {
     lines.iter().map(|line| requested(line)).collect::<Vec<_>>().join("\n")
+}
+
+fn typed_alone(line: &str) -> String {
+    let argv: Vec<OsString> =
+        std::iter::once("agent-terminal".to_string()).chain(shlex::split(line).unwrap()).map(OsString::from).collect();
+    let sent = match argv::parse(&mut Cli::command(), &argv).and_then(parsed) {
+        Ok(cli) => request(cli).map_or_else(
+            |refused| format!("refused: {refused}"),
+            |request| serde_json::to_value(&request).unwrap()["scope"].to_string(),
+        ),
+        Err(e) => format!("usage: {:?}", e.kind()),
+    };
+    format!("{line} -> {sent}")
+}
+
+#[test]
+fn close_all_closes_the_session_typed_on_its_own_command_line_or_with_bypass_session_every_session() {
+    let lines = [
+        "close --all --session a",
+        "close --all --bypass-session",
+        "close --bypass-session --all --session a",
+        "close --all",
+    ];
+    insta::assert_snapshot!(lines.map(typed_alone).join("\n"), @r#"
+        close --all --session a -> "session"
+        close --all --bypass-session -> "every-session"
+        close --bypass-session --all --session a -> refused: the argument '--bypass-session' cannot be used with '--session <SESSION>': close --all --session <name> closes the tabs of that session, close --all --bypass-session closes every tab in every session
+        close --all -> refused: close --all closes every tab of one session, so name that session on this command line: repeat it as `--session <name>` (AGENT_TERMINAL_SESSION alone is not enough); `close --all --bypass-session` closes every tab in every session
+    "#);
 }
 
 #[test]
@@ -81,6 +109,8 @@ fn shell_history_restart_and_resize_name_their_command_and_its_wait() {
         "resize 80x24 --wait-stable",
         "close",
         "close --all",
+        "close --all --bypass-session",
+        "close --bypass-session",
         "--tab 2 close",
     ]), @r##"
         exec 'ls -la' -> {"check":false,"command":"exec","env":null,"line":"ls -la","session":"work","tab":null,"timeout_ms":25000}
@@ -92,9 +122,11 @@ fn shell_history_restart_and_resize_name_their_command_and_its_wait() {
         restart --wait ready --wait-stable 20 -> usage: ArgumentConflict
         resize 80x24 -> {"command":"resize","env":null,"session":"work","size":{"cols":80,"rows":24},"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
         resize 80x24 --wait-stable -> {"command":"resize","env":null,"session":"work","size":{"cols":80,"rows":24},"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
-        close -> {"all":false,"command":"close","env":null,"session":"work","tab":null}
-        close --all -> {"all":true,"command":"close","env":null,"session":"work","tab":null}
-        --tab 2 close -> {"all":false,"command":"close","env":null,"session":"work","tab":"t2"}
+        close -> {"command":"close","env":null,"scope":"tab","session":"work","tab":null}
+        close --all -> {"command":"close","env":null,"scope":"session","session":"work","tab":null}
+        close --all --bypass-session -> refused: the argument '--bypass-session' cannot be used with '--session <SESSION>': close --all --session <name> closes the tabs of that session, close --all --bypass-session closes every tab in every session
+        close --bypass-session -> usage: MissingRequiredArgument
+        --tab 2 close -> {"command":"close","env":null,"scope":"tab","session":"work","tab":"t2"}
     "##);
 }
 
@@ -279,7 +311,7 @@ fn session_and_tool_commands_ask_the_daemon_about_itself() {
         tab -> {"command":"tabs","env":null,"session":"work"}
         tab list -> {"command":"tabs","env":null,"session":"work"}
         tab 3 -> {"command":"switch-tab","env":null,"session":"work","tab":"t3"}
-        tab close 2 -> {"all":false,"command":"close","env":null,"session":"work","tab":"t2"}
+        tab close 2 -> {"command":"close","env":null,"scope":"tab","session":"work","tab":"t2"}
         dashboard -> {"command":"dashboard-start","env":null,"origins":[],"port":4849}
         dashboard --port 0 --allow-origin http://localhost:5173 -> {"command":"dashboard-start","env":null,"origins":["http://localhost:5173"],"port":0}
         dashboard stop -> {"command":"dashboard-stop","env":null}

@@ -12,6 +12,7 @@ use crate::native::pty;
 use crate::native::shell;
 use crate::native::store::SessionFolder;
 use crate::native::terminal::{HANG_UP_GRACE, Labelled, Settled, Starting, Terminal};
+use crate::protocol::request::Closing;
 use crate::protocol::{Closed, ErrorBody, Reply, SessionInfo, Shell, TabId, TabRef, Target, Wait, request};
 
 const KILLED_WITHIN: Duration = Duration::from_secs(5);
@@ -154,7 +155,11 @@ impl Daemon {
     }
 
     pub(super) fn close_request(&self, close: &request::Close) -> Result<Reply, ErrorBody> {
-        let closed = if close.all { self.close_all() } else { vec![self.close(&close.target)?] };
+        let closed = match close.scope {
+            Closing::Tab => vec![self.close(&close.target)?],
+            Closing::Session => self.close_session(&close.target.session),
+            Closing::EverySession => self.close_all(),
+        };
         Ok(Reply::Closed(Closed { closed }))
     }
 
@@ -178,8 +183,17 @@ impl Daemon {
         Ok(TabRef { session: session.clone(), tab: id.to_string() })
     }
 
+    fn close_session(&self, name: &str) -> Vec<TabRef> {
+        let session = self.sessions.lock().unwrap_or_else(PoisonError::into_inner).remove(name);
+        self.close_sessions(session.map(|session| (name.to_string(), session)))
+    }
+
     pub(super) fn close_all(&self) -> Vec<TabRef> {
         let sessions = std::mem::take(&mut *self.sessions.lock().unwrap_or_else(PoisonError::into_inner));
+        self.close_sessions(sessions)
+    }
+
+    fn close_sessions(&self, sessions: impl IntoIterator<Item = (String, Session)>) -> Vec<TabRef> {
         self.changes.notify();
         let mut closed = Vec::new();
         let mut terminals = Vec::new();

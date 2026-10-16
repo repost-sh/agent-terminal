@@ -1,10 +1,10 @@
 use std::ffi::OsString;
 use std::path::Path;
 
-use clap::{CommandFactory, FromArgMatches};
+use clap::CommandFactory;
 
 use super::tools::BatchArgs;
-use super::{Cli, argv, request as single};
+use super::{Cli, argv, parsed, request as single};
 use crate::batch::NotValid;
 use crate::output;
 use crate::protocol::request;
@@ -42,5 +42,5 @@ pub(super) fn request(args: &BatchArgs, defaults: &Defaults<'_>) -> Result<Reque
 fn step(mut parser: clap::Command, call: &[String]) -> Result<Request, String> {
     let argv: Vec<OsString> = call.iter().map(OsString::from).collect();
     let matches = argv::parse(&mut parser, &argv).map_err(|e| e.render().to_string())?;
-    single(Cli::from_arg_matches(&matches).map_err(|e| e.render().to_string())?)
+    single(parsed(matches).map_err(|e| e.render().to_string())?)
 }

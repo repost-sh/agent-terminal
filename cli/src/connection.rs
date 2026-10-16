@@ -17,12 +17,8 @@ use crate::version::{BUILD, daemon_of};
 const STOPS_WITHIN: Duration = Duration::from_secs(10);
 
 pub(crate) enum IfNotRunning {
-    Start(Launch),
-    Answer(Reply),
-}
-
-pub(crate) struct Launch {
-    pub idle_timeout: Duration,
+    Start,
+    Answer(Box<Reply>),
 }
 
 pub(crate) fn started_build() -> Result<Option<String>> {
@@ -45,19 +41,19 @@ pub(crate) fn send(call: &Call, if_not_running: IfNotRunning) -> Result<Response
         Reached::Daemon(stream) => stream,
         Reached::Refused(refusal) => return Ok(Response::Err(refusal)),
         Reached::NotRunning => match if_not_running {
-            IfNotRunning::Answer(reply) => return Ok(Response::Ok(reply)),
-            IfNotRunning::Start(launch) => connect_or_start(&launch)?,
+            IfNotRunning::Answer(reply) => return Ok(Response::Ok(*reply)),
+            IfNotRunning::Start => connect_or_start()?,
         },
     };
     protocol::write(&mut stream, call)?;
     protocol::read(&mut stream)?.context("the daemon closed the connection without replying")
 }
 
-pub(crate) fn keep_open(call: &Call, launch: &Launch) -> Result<Result<(Response, UnixStream), ErrorBody>> {
+pub(crate) fn keep_open(call: &Call) -> Result<Result<(Response, UnixStream), ErrorBody>> {
     let mut stream = match reach(&call.request)? {
         Reached::Daemon(stream) => stream,
         Reached::Refused(refusal) => return Ok(Err(refusal)),
-        Reached::NotRunning => connect_or_start(launch)?,
+        Reached::NotRunning => connect_or_start()?,
     };
     protocol::write(&mut stream, call)?;
     let response = protocol::read(&mut stream)?.context("the daemon closed the connection without replying")?;
@@ -127,12 +123,12 @@ fn connect() -> Result<Option<UnixStream>> {
     }
 }
 
-fn connect_or_start(launch: &Launch) -> Result<UnixStream> {
+fn connect_or_start() -> Result<UnixStream> {
     let home = home()?;
     let _lock = start_lock(&home)?;
     match UnixStream::connect(socket_path()?) {
         Ok(stream) => Ok(stream),
-        Err(e) if is_not_running(&e) => start_daemon(&home, launch),
+        Err(e) if is_not_running(&e) => start_daemon(&home),
         Err(e) => Err(e).context("connect to the daemon"),
     }
 }
@@ -161,7 +157,7 @@ fn is_not_running(error: &std::io::Error) -> bool {
     matches!(error.kind(), ErrorKind::NotFound | ErrorKind::ConnectionRefused)
 }
 
-fn start_daemon(home: &std::path::Path, launch: &Launch) -> Result<UnixStream> {
+fn start_daemon(home: &std::path::Path) -> Result<UnixStream> {
     let log_path = home.join("daemon.log");
     let log = std::fs::OpenOptions::new()
         .create(true)
@@ -170,7 +166,7 @@ fn start_daemon(home: &std::path::Path, launch: &Launch) -> Result<UnixStream> {
         .with_context(|| format!("open {}", log_path.display()))?;
     keep_inherited_descriptors_from_the_daemon()?;
     let mut daemon = Command::new(std::env::current_exe()?)
-        .args(["daemon", "run", "--idle-timeout", &launch.idle_timeout.as_millis().to_string()])
+        .args(["daemon", "run"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(log)
