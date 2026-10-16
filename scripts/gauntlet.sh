@@ -93,6 +93,9 @@ mutation() {
   done
   cd "$root/cli"
   step "write a test whose expected value changes when the mutated line does → GAUNTLET.md#mutation" cargo run --quiet -p at-gauntlet -- mutation "${reports[@]}"
+  cd "$root/dashboard"
+  [ -x node_modules/.bin/stryker ] || fail "dashboard/node_modules is missing: run \`npm ci\` in dashboard/ → GAUNTLET.md#mutation"
+  step "write a test whose expected value changes when the mutated code does → GAUNTLET.md#mutation" node gauntlet/mutation.ts
 }
 
 acceptance_faults() {

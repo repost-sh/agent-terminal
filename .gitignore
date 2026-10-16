@@ -5,3 +5,4 @@ node_modules/
 *.snap.new
 .claude/worktrees/
 coverage/
+.stryker-tmp/
