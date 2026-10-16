@@ -71,10 +71,8 @@ faults_named() {
 }
 
 fresh_tree() {
+  rm -rf "$1"
   git -C "$root" worktree prune
-  if [ -e "$1" ]; then
-    git -C "$root" worktree remove --force "$1"
-  fi
   git -C "$root" worktree add --quiet --detach "$1" HEAD
 }
 
