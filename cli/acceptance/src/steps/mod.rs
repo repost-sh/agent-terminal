@@ -1,0 +1,43 @@
+pub(crate) mod common;
+pub(crate) mod input;
+pub(crate) mod screen;
+pub(crate) mod sessions;
+
+use gherkin_cargo_test::{Ctx, DataTable, StepRegistry};
+
+use crate::terminal::Terminal;
+
+pub(crate) const WAIT_MS: &str = "10000";
+
+pub(crate) type Step = fn(&mut Ctx<Terminal>, &[String], Option<&DataTable>);
+
+pub(crate) struct Steps<'a>(pub(crate) &'a mut StepRegistry<Terminal>);
+
+impl Steps<'_> {
+    pub(crate) fn given(&mut self, pattern: &str, step: Step) -> &mut Self {
+        self.0.define(pattern, step);
+        self
+    }
+
+    pub(crate) fn when(&mut self, pattern: &str, step: Step) -> &mut Self {
+        self.0.define(pattern, step);
+        self
+    }
+
+    pub(crate) fn then(&mut self, pattern: &str, step: Step) -> &mut Self {
+        self.0.define(pattern, step);
+        self
+    }
+}
+
+pub(crate) type Define = fn(&mut Steps<'_>);
+
+pub(crate) fn register(registry: &mut StepRegistry<Terminal>, define: Define) {
+    let mut steps = Steps(registry);
+    common::define(&mut steps);
+    define(&mut steps);
+}
+
+pub(crate) fn arg(args: &[String], at: usize) -> &str {
+    args.get(at).map_or("", String::as_str)
+}

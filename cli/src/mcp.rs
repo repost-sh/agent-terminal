@@ -1,4 +1,6 @@
 use std::any::TypeId;
+use std::future::ready;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -13,6 +15,7 @@ use rmcp::{ErrorData, ServerHandler, ServiceExt};
 use serde_json::{Value, json};
 
 use crate::output;
+use crate::protocol::Scrollback;
 
 const SERVER_COMMAND: &str = "mcp";
 const JSON_FLAG: &str = "json";
@@ -20,9 +23,9 @@ const INSTRUCTIONS: &str = "Each tool runs the agent-terminal command of the sam
      (get_text is `agent-terminal get text`) and returns what the command prints with --json. \
      Start with skills_get, name core, for the usage guide.";
 
-pub fn run(cli: clap::Command) -> i32 {
+pub(crate) fn run(cli: clap::Command) -> io::Result<i32> {
     match serve(cli) {
-        Ok(()) => 0,
+        Ok(()) => Ok(0),
         Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
     }
 }
@@ -53,16 +56,16 @@ impl Server {
 impl ServerHandler for Server {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new("agent-terminal", crate::VERSION))
+            .with_server_info(Implementation::new("agent-terminal", crate::version::VERSION))
             .with_instructions(INSTRUCTIONS)
     }
 
-    async fn list_tools(
+    fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(self.commands.iter().map(|command| command.tool.clone()).collect()))
+    ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
+        ready(Ok(ListToolsResult::with_all_items(self.commands.iter().map(|command| command.tool.clone()).collect())))
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
@@ -175,45 +178,57 @@ impl ToolCommand {
             let known: Vec<&str> = self.params.iter().map(|param| param.name.as_str()).collect();
             return Err(format!("{} takes no argument `{unknown}`; it takes {}", self.tool.name, known.join(", ")));
         }
-        let mut options = self.path.clone();
-        let mut positionals = Vec::new();
+        let mut words = Words { options: self.path.clone(), positionals: Vec::new() };
         for param in &self.params {
             let Some(value) = arguments.get(&param.name).filter(|value| !value.is_null()) else {
                 continue;
             };
-            let refuse = |expected: &str| format!("`{}` expects {expected}, got {value}", param.name);
-            match (&param.form, value) {
-                (Form::Switch { flag } | Form::Value { flag, bare: true, .. }, Value::Bool(true)) => {
-                    options.push(flag.clone())
-                }
-                (Form::Switch { .. } | Form::Value { bare: true, .. }, Value::Bool(false)) => {}
-                (Form::Switch { .. }, _) => return Err(refuse("true or false")),
-                (Form::Count { flag }, value) => {
-                    let times = value.as_u64().ok_or_else(|| refuse("a count"))?;
-                    options.extend((0..times).map(|_| flag.clone()));
-                }
-                (Form::Value { flag, many: true, .. }, Value::Array(items)) => {
-                    for item in items {
-                        options.push(format!("{flag}={}", scalar(item).ok_or_else(|| refuse("a list of values"))?));
-                    }
-                }
-                (Form::Value { flag, .. }, value) => {
-                    options.push(format!("{flag}={}", scalar(value).ok_or_else(|| refuse("a value"))?));
-                }
-                (Form::Positional { many: true }, Value::Array(items)) => {
-                    for item in items {
-                        positionals.push(scalar(item).ok_or_else(|| refuse("a list of values"))?);
-                    }
-                }
-                (Form::Positional { .. }, value) => positionals.push(scalar(value).ok_or_else(|| refuse("a value"))?),
-            }
+            param.add(value, &mut words)?;
         }
+        let Words { mut options, positionals } = words;
         options.push(format!("--{JSON_FLAG}"));
         if !positionals.is_empty() {
             options.push("--".into());
             options.extend(positionals);
         }
         Ok(options)
+    }
+}
+
+struct Words {
+    options: Vec<String>,
+    positionals: Vec<String>,
+}
+
+impl Param {
+    fn add(&self, value: &Value, words: &mut Words) -> Result<(), String> {
+        let refuse = |expected: &str| format!("`{}` expects {expected}, got {value}", self.name);
+        let each = |items: &[Value]| {
+            items
+                .iter()
+                .map(|item| scalar(item).ok_or_else(|| refuse("a list of values")))
+                .collect::<Result<Vec<_>, _>>()
+        };
+        match (&self.form, value) {
+            (Form::Switch { flag } | Form::Value { flag, bare: true, .. }, Value::Bool(true)) => {
+                words.options.push(flag.clone());
+            }
+            (Form::Switch { .. } | Form::Value { bare: true, .. }, Value::Bool(false)) => {}
+            (Form::Switch { .. }, _) => return Err(refuse("true or false")),
+            (Form::Count { flag }, value) => {
+                let times = value.as_u64().ok_or_else(|| refuse("a count"))?;
+                words.options.extend((0..times).map(|_| flag.clone()));
+            }
+            (Form::Value { flag, many: true, .. }, Value::Array(items)) => {
+                words.options.extend(each(items)?.into_iter().map(|item| format!("{flag}={item}")));
+            }
+            (Form::Value { flag, .. }, value) => {
+                words.options.push(format!("{flag}={}", scalar(value).ok_or_else(|| refuse("a value"))?));
+            }
+            (Form::Positional { many: true }, Value::Array(items)) => words.positionals.extend(each(items)?),
+            (Form::Positional { .. }, value) => words.positionals.push(scalar(value).ok_or_else(|| refuse("a value"))?),
+        }
+        Ok(())
     }
 }
 
@@ -237,32 +252,38 @@ fn form(arg: &Arg) -> Option<Form> {
 }
 
 fn schema(arg: &Arg, form: &Form) -> Value {
-    let mut schema = match form {
-        Form::Switch { .. } => json!({ "type": "boolean" }),
-        Form::Count { .. } => json!({ "type": "integer", "minimum": 0 }),
+    let description = description(arg, form);
+    match form {
+        Form::Switch { .. } => json!({ "type": "boolean", "description": description }),
+        Form::Count { .. } => json!({ "type": "integer", "minimum": 0, "description": description }),
         Form::Value { many: true, .. } | Form::Positional { many: true } => {
-            json!({ "type": "array", "items": value_schema(arg) })
+            json!({ "type": "array", "items": value_schema(arg), "description": description })
         }
-        Form::Value { bare: true, .. } => json!({ "anyOf": [value_schema(arg), { "type": "boolean" }] }),
-        Form::Value { .. } | Form::Positional { .. } => value_schema(arg),
-    };
-    schema["description"] = Value::String(description(arg, form));
-    schema
+        Form::Value { bare: true, .. } => {
+            json!({ "anyOf": [value_schema(arg), { "type": "boolean" }], "description": description })
+        }
+        Form::Value { .. } | Form::Positional { .. } => {
+            let mut schema = value_schema(arg);
+            schema.insert("description".into(), Value::String(description));
+            Value::Object(schema)
+        }
+    }
 }
 
 fn choices(arg: &Arg) -> Vec<String> {
     arg.get_possible_values().iter().filter(|value| !value.is_hide_set()).map(|value| value.get_name().into()).collect()
 }
 
-fn value_schema(arg: &Arg) -> Value {
+fn value_schema(arg: &Arg) -> JsonObject {
     let choices = choices(arg);
-    if !choices.is_empty() {
-        json!({ "type": "string", "enum": choices })
-    } else if is_integer(arg) {
-        json!({ "type": "integer" })
+    let mut schema = JsonObject::new();
+    if choices.is_empty() {
+        schema.insert("type".into(), (if is_integer(arg) { "integer" } else { "string" }).into());
     } else {
-        json!({ "type": "string" })
+        schema.insert("type".into(), "string".into());
+        schema.insert("enum".into(), choices.into());
     }
+    schema
 }
 
 fn is_integer(arg: &Arg) -> bool {
@@ -278,26 +299,36 @@ fn is_integer(arg: &Arg) -> bool {
         TypeId::of::<i32>(),
         TypeId::of::<i64>(),
         TypeId::of::<isize>(),
+        TypeId::of::<Scrollback>(),
     ]
     .iter()
     .any(|integer| parsed == *integer)
 }
 
 fn description(arg: &Arg, form: &Form) -> String {
-    let mut description = arg.get_help().map_or_else(String::new, |help| help.to_string());
+    let help = arg.get_help().map_or_else(String::new, ToString::to_string);
+    let bare = if let Form::Value { bare: true, .. } = form { " [or true: the option without a value]" } else { "" };
+    format!("{help}{}{bare}{}", value_hint(arg, form), default_hint(arg, form))
+}
+
+fn value_hint(arg: &Arg, form: &Form) -> String {
     let takes_text = matches!(form, Form::Value { .. } | Form::Positional { .. }) && !is_integer(arg);
-    if let Some(names) = arg.get_value_names().filter(|_| takes_text && choices(arg).is_empty()) {
-        let names: Vec<String> = names.iter().map(ToString::to_string).collect();
-        description.push_str(&format!(" [value: {}]", names.join(" ")));
-    }
-    if let Form::Value { bare: true, .. } = form {
-        description.push_str(" [or true: the option without a value]");
-    }
+    arg.get_value_names()
+        .filter(|_| takes_text && choices(arg).is_empty())
+        .map(|names| {
+            let names: Vec<String> = names.iter().map(ToString::to_string).collect();
+            format!(" [value: {}]", names.join(" "))
+        })
+        .unwrap_or_default()
+}
+
+fn default_hint(arg: &Arg, form: &Form) -> String {
     let switch = matches!(form, Form::Switch { .. });
     if !switch && !arg.get_default_values().is_empty() && arg.get_env().is_none() {
-        description.push_str(&format!(" [default: {}]", listed(arg.get_default_values())));
+        format!(" [default: {}]", listed(arg.get_default_values()))
+    } else {
+        String::new()
     }
-    description
 }
 
 fn listed(values: &[clap::builder::OsStr]) -> String {

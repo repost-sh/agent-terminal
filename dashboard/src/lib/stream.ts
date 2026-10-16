@@ -1,65 +1,95 @@
 import type { Terminal } from "@xterm/xterm";
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 
-import { announce } from "../components/announcer";
+import { announce } from "./announcements";
 import { tabStreamUrl } from "./api";
 import type { FrameUpdate, StreamUpdate } from "./protocol";
-import { followSocket } from "./socket";
-import { tabKey, tabName } from "./tabs";
+import { followSocket, type Delivery } from "./socket";
+import { createStore, useStore } from "./store";
+import { tabKey, tabName, type TabAddress } from "./tabs";
 
 export type StreamState = "connecting" | "open" | "reconnecting" | "closed";
 
 export type Shown = Omit<FrameUpdate, "paint">;
 
-type Stream = { state: StreamState; shown: Shown | null };
+interface Stream { state: StreamState; shown: Shown | null }
 
 const awaitingFirstFrame = new Set<string>();
 
 export const announceWhenLive = (session: string, tab: string) => awaitingFirstFrame.add(tabKey(session, tab));
 
-const tabStream = (session: string, tab: string) => {
-  const listeners = new Set<() => void>();
-  let stream: Stream = { state: "connecting", shown: null };
+interface Drawing { terminal: Terminal; shown: (meta: Shown) => void }
 
+interface Frame { update: FrameUpdate; delivery: Delivery }
+
+const draw = (drawing: Drawing, frame: Frame) => {
+  const terminal = drawing.terminal;
+
+  if (frame.delivery.first) {
+    terminal.reset();
+  }
+
+  terminal.resize(frame.update.cols, frame.update.rows);
+
+  const { paint: bytes, ...meta } = frame.update;
+
+  terminal.write(bytes, () => {
+    frame.delivery.reply({ type: "shown" });
+    drawing.shown(meta);
+  });
+};
+
+interface Publishing { address: TabAddress; publish: (next: Partial<Stream>) => void }
+
+const painter = (publishing: Publishing) => (terminal: Terminal) => {
+  const address = publishing.address;
+  const publish = publishing.publish;
+  let painting = true;
+  const shown = (meta: Shown) => {
+    if (painting) {
+      publish({ shown: meta });
+    }
+  };
+
+  const stop = followSocket<StreamUpdate>(tabStreamUrl(address.session, address.tab), {
+    opened: () => {
+      publish({ state: "open" });
+    },
+    message: (update, delivery) => {
+      draw({ terminal, shown }, { update, delivery });
+    },
+    reconnecting: () => {
+      publish({ state: "reconnecting" });
+    },
+    closed: () => {
+      publish({ state: "closed" });
+    },
+  });
+
+  return () => {
+    painting = false;
+    stop();
+  };
+};
+
+const tabStream = (address: TabAddress) => {
+  const stream = createStore<Stream>({ state: "connecting", shown: null });
   const publish = (next: Partial<Stream>) => {
-    stream = { ...stream, ...next };
-    const drawn = stream.shown !== null && (stream.shown.frame > 0 || stream.shown.exited);
-    if (drawn && awaitingFirstFrame.delete(tabKey(session, tab))) announce(`${tabName(session, tab)} is live`);
-    listeners.forEach((listener) => listener());
+    const now = { ...stream.get(), ...next };
+    const drawn = now.shown !== null && (now.shown.frame > 0 || now.shown.exited);
+
+    if (drawn && awaitingFirstFrame.delete(tabKey(address.session, address.tab))) {
+      announce(`${tabName(address.session, address.tab)} is live`);
+    }
+
+    stream.set(now);
   };
 
-  const subscribe = (listener: () => void) => {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-  };
-
-  const paint = (terminal: Terminal) => {
-    let painting = true;
-    const stop = followSocket<StreamUpdate>(tabStreamUrl(session, tab), {
-      opened: () => publish({ state: "open" }),
-      message: (update, first, reply) => {
-        if (first) terminal.reset();
-        if (terminal.cols !== update.cols || terminal.rows !== update.rows) terminal.resize(update.cols, update.rows);
-        const { paint: bytes, ...meta } = update;
-        terminal.write(bytes, () => {
-          reply({ type: "shown" });
-          if (!painting) return;
-          publish({ shown: meta });
-        });
-      },
-      reconnecting: () => publish({ state: "reconnecting" }),
-      closed: () => publish({ state: "closed" }),
-    });
-    return () => {
-      painting = false;
-      stop();
-    };
-  };
-
-  return { subscribe, read: () => stream, paint };
+  return { stream, paint: painter({ address, publish }) };
 };
 
 export const useTabStream = (session: string, tab: string) => {
-  const [{ subscribe, read, paint }] = useState(() => tabStream(session, tab));
-  return { ...useSyncExternalStore(subscribe, read), paint };
+  const [{ stream, paint }] = useState(() => tabStream({ session, tab }));
+
+  return { ...useStore(stream), paint };
 };

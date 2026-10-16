@@ -1,38 +1,50 @@
 import { closeAll, reason } from "../lib/api";
 import type { SessionInfo } from "../lib/protocol";
 import { navigate } from "../lib/route";
-import { announce } from "./announcer";
+import { settle } from "../lib/settle";
+import { announce } from "../lib/announcements";
 import { closeDialog, Dialog } from "./dialog";
-import { toast } from "./toaster";
+import { toast } from "../lib/toasts";
 import { Button } from "./ui";
 
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+interface Noun { one: string; many: string }
 
-export const CloseAllDialog = ({ sessions }: { sessions: SessionInfo[] }) => {
+const plural = (count: number, noun: Noun) => `${String(count)} ${count === 1 ? noun.one : noun.many}`;
+
+interface CloseAllProps { sessions: SessionInfo[] }
+
+export const CloseAllDialog = ({ sessions }: CloseAllProps) => {
   const running = sessions.flatMap((entry) => entry.tabs).filter((tab) => !tab.exited).length;
-  const closed = plural(sessions.length, "session", "sessions");
+  const closed = plural(sessions.length, { one: "session", many: "sessions" });
   const confirm = async () => {
-    try {
+    const result = await settle(async () => {
       await closeAll();
       closeDialog(document.getElementById("main-content"));
       navigate("/");
       announce(`Closed ${closed}`);
-    } catch (error) {
-      toast("error", "Could not close all sessions", reason(error));
+    });
+
+    if (!result.ok) {
+      toast("error", { title: "Could not close all sessions", description: reason(result.error) });
     }
   };
+
   return (
     <Dialog
       alert
       width={24}
       title="Close all sessions"
-      description={`This will close ${closed} and kill ${plural(running, "running process", "running processes")}. This action cannot be undone.`}
+      description={`This will close ${closed} and kill ${plural(running, { one: "running process", many: "running processes" })}. This action cannot be undone.`}
       footer={
         <>
-          <Button variant="ghost" data-autofocus onClick={() => closeDialog()}>
+          <Button look={{ variant: "ghost" }} data-autofocus onClick={() => {
+            closeDialog();
+          }}>
             Cancel
           </Button>
-          <Button variant="destructive" onClick={confirm}>
+          <Button look={{ variant: "destructive" }} onClick={() => {
+            void confirm();
+          }}>
             Close all
           </Button>
         </>

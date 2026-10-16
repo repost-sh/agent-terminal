@@ -3,6 +3,10 @@ mod batch;
 mod commands;
 mod connection;
 mod doctor;
+mod exit;
+mod failure;
+mod global_options;
+mod home;
 mod key;
 mod mcp;
 mod native;
@@ -12,44 +16,13 @@ mod protocol;
 mod session_id;
 mod skills;
 mod upgrade;
+mod version;
 
-use std::fmt;
+use std::process::ExitCode;
 
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+use anyhow::Context;
 
-pub fn this_version() -> semver::Version {
-    semver::Version::parse(VERSION).expect("the package version is semver")
-}
-
-pub mod exit {
-    pub const ERROR: i32 = 1;
-    pub const ASSERTION: i32 = 2;
-    pub const TIMEOUT: i32 = 3;
-    pub const HUMAN_CONTROL: i32 = 4;
-    pub const EXITED: i32 = 5;
-    pub const OTHER_VERSION: i32 = 6;
-}
-
-#[derive(Debug)]
-pub struct Error {
-    pub code: i32,
-    pub message: String,
-}
-
-impl Error {
-    pub fn new(code: i32, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for Error {}
-
-fn main() {
-    std::process::exit(commands::run());
+fn main() -> anyhow::Result<ExitCode> {
+    let code = commands::run().context("write the output")?;
+    Ok(exit::status(code))
 }

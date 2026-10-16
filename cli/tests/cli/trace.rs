@@ -111,8 +111,11 @@ fn trace_export_includes_the_command_log_of_a_shell_tab() {
     let files = unzip(&work.join("trace.zip"));
     assert_eq!(files.keys().collect::<Vec<_>>(), ["default/activity.jsonl", "default/t1.commands.jsonl"]);
     assert_eq!(files["default/t1.commands.jsonl"], read(&folder.join("t1.commands.jsonl")));
-    let logged: Vec<serde_json::Value> =
-        files["default/t1.commands.jsonl"].lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    the_command_log_holds_the_command_its_exit_and_output(&files["default/t1.commands.jsonl"]);
+}
+
+fn the_command_log_holds_the_command_its_exit_and_output(log: &str) {
+    let logged: Vec<serde_json::Value> = log.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
     assert_eq!(logged.len(), 1, "{logged:?}");
     assert_eq!(logged[0]["command"], "echo traced");
     assert_eq!(logged[0]["exit_code"], 0);

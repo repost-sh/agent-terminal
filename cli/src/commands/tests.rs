@@ -1,0 +1,287 @@
+use std::ffi::OsString;
+
+use clap::{CommandFactory, FromArgMatches};
+
+use super::{Cli, argv, request};
+
+fn own_parts(mut sent: serde_json::Value) -> String {
+    if let Some(env) = sent["env"].as_array_mut() {
+        env.retain(|pair| std::env::var(pair[0].as_str().unwrap()).ok().as_deref() != pair[1].as_str());
+    }
+    sent.to_string().replace(&*std::env::current_dir().unwrap().to_string_lossy(), "<here>")
+}
+
+fn requested(line: &str) -> String {
+    let words = shlex::split(line).unwrap();
+    let argv: Vec<OsString> = ["agent-terminal", "--session", "work", "--screenshot-dir", "/shots"]
+        .into_iter()
+        .map(OsString::from)
+        .chain(words.into_iter().map(OsString::from))
+        .collect();
+    let mut parser = Cli::command();
+    let parsed = argv::parse(&mut parser, &argv).and_then(|mut matches| Cli::from_arg_matches_mut(&mut matches));
+    let sent = match parsed {
+        Ok(cli) => request(cli).map_or_else(
+            |refused| format!("refused: {refused}"),
+            |request| own_parts(serde_json::to_value(&request).unwrap()),
+        ),
+        Err(e) => format!("usage: {:?}", e.kind()),
+    };
+    format!("{line} -> {sent}")
+}
+
+fn table(lines: &[&str]) -> String {
+    lines.iter().map(|line| requested(line)).collect::<Vec<_>>().join("\n")
+}
+
+#[test]
+fn opening_a_program_takes_its_options_before_or_after_it_and_keeps_its_own_flags() {
+    insta::assert_snapshot!(table(&[
+        "open vim notes.txt",
+        "open --size 80x24 --cwd /srv --env A=1 --env B=2 htop -d 5",
+        "open htop --size 80x24 --wait ready",
+        "open htop --wait-stable",
+        "open htop --wait-stable 50 -d 5",
+        "open --no-wait -- htop --size 1x1",
+        "open ls -- --size",
+        "open htop --wait-stable=40",
+        "shell --shell zsh --size 100x30 --wait $",
+        "shell --shell bash --no-wait",
+        "tab new --cwd /tmp make",
+        "tab new make all --env X=y",
+        "open --size 9 htop",
+    ]), @r##"
+        open vim notes.txt -> {"args":["notes.txt"],"command":"open","cwd":"<here>","env":[],"program":"vim","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        open --size 80x24 --cwd /srv --env A=1 --env B=2 htop -d 5 -> {"args":["-d","5"],"command":"open","cwd":"/srv","env":[["A","1"],["B","2"]],"program":"htop","session":"work","size":{"cols":80,"rows":24},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        open htop --size 80x24 --wait ready -> {"args":[],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":80,"rows":24},"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"ready","until":"text"}}
+        open htop --wait-stable -> {"args":[],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        open htop --wait-stable 50 -d 5 -> {"args":["-d","5"],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":50,"until":"stable"}}
+        open --no-wait -- htop --size 1x1 -> {"args":["--size","1x1"],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":null}
+        open ls -- --size -> {"args":["--size"],"command":"open","cwd":"<here>","env":[],"program":"ls","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        open htop --wait-stable=40 -> {"args":[],"command":"open","cwd":"<here>","env":[],"program":"htop","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":40,"until":"stable"}}
+        shell --shell zsh --size 100x30 --wait $ -> {"command":"shell","cwd":"<here>","env":[],"program":"zsh","session":"work","shell":"zsh","size":{"cols":100,"rows":30},"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"$","until":"text"}}
+        shell --shell bash --no-wait -> {"command":"shell","cwd":"<here>","env":[],"program":"bash","session":"work","shell":"bash","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":null}
+        tab new --cwd /tmp make -> {"args":[],"command":"open","cwd":"/tmp","env":[],"program":"make","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        tab new make all --env X=y -> {"args":["all"],"command":"open","cwd":"<here>","env":[["X","y"]],"program":"make","session":"work","size":{"cols":120,"rows":40},"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        open --size 9 htop -> usage: ValueValidation
+    "##);
+}
+
+#[test]
+fn shell_history_restart_and_resize_name_their_command_and_its_wait() {
+    insta::assert_snapshot!(table(&[
+        "exec 'ls -la'",
+        "exec --check true",
+        "history",
+        "history --last 3 --failed",
+        "history show 4",
+        "restart",
+        "restart --wait ready --wait-stable 20",
+        "resize 80x24",
+        "resize 80x24 --wait-stable",
+        "close",
+        "close --all",
+        "--tab 2 close",
+    ]), @r##"
+        exec 'ls -la' -> {"check":false,"command":"exec","env":null,"line":"ls -la","session":"work","tab":null,"timeout_ms":25000}
+        exec --check true -> {"check":true,"command":"exec","env":null,"line":"true","session":"work","tab":null,"timeout_ms":25000}
+        history -> {"command":"history","env":null,"failed":false,"last":null,"session":"work","tab":null}
+        history --last 3 --failed -> {"command":"history","env":null,"failed":true,"last":3,"session":"work","tab":null}
+        history show 4 -> {"command":"history-show","env":null,"id":4,"session":"work","tab":null}
+        restart -> {"command":"restart","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        restart --wait ready --wait-stable 20 -> usage: ArgumentConflict
+        resize 80x24 -> {"command":"resize","env":null,"session":"work","size":{"cols":80,"rows":24},"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        resize 80x24 --wait-stable -> {"command":"resize","env":null,"session":"work","size":{"cols":80,"rows":24},"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        close -> {"all":false,"command":"close","env":null,"session":"work","tab":null}
+        close --all -> {"all":true,"command":"close","env":null,"session":"work","tab":null}
+        --tab 2 close -> {"all":false,"command":"close","env":null,"session":"work","tab":"t2"}
+    "##);
+}
+
+#[test]
+fn reading_commands_ask_for_the_screen_or_its_output() {
+    insta::assert_snapshot!(table(&[
+        "snapshot",
+        "snapshot --rows 2:5 --scrollback --ansi -i",
+        "snapshot --scrollback 10",
+        "find foo",
+        "find 'a.c' --regex --all",
+        "mark build",
+        "output",
+        "output --since build --raw",
+        "diff snapshot",
+        "screenshot",
+        "screenshot shot.svg --annotate --scale 2 --theme light --rows 1:3 --no-cursor",
+        "screenshot shot.png --format html --cursor",
+        "trace export /tmp/t.zip",
+    ]), @r##"
+        snapshot -> {"command":"snapshot","env":null,"options":{"ansi":false,"refs":false,"rows":null,"scrollback":"none"},"session":"work","tab":null}
+        snapshot --rows 2:5 --scrollback --ansi -i -> {"command":"snapshot","env":null,"options":{"ansi":true,"refs":true,"rows":{"first":2,"last":5},"scrollback":"all"},"session":"work","tab":null}
+        snapshot --scrollback 10 -> {"command":"snapshot","env":null,"options":{"ansi":false,"refs":false,"rows":null,"scrollback":{"last":10}},"session":"work","tab":null}
+        find foo -> {"all":false,"command":"find","env":null,"regex":false,"session":"work","tab":null,"text":"foo"}
+        find 'a.c' --regex --all -> {"all":true,"command":"find","env":null,"regex":true,"session":"work","tab":null,"text":"a.c"}
+        mark build -> {"command":"mark","env":null,"name":"build","session":"work","tab":null}
+        output -> {"command":"output","env":null,"raw":false,"session":"work","since":null,"tab":null}
+        output --since build --raw -> {"command":"output","env":null,"raw":true,"session":"work","since":"build","tab":null}
+        diff snapshot -> {"baseline":null,"command":"diff-snapshot","env":null,"session":"work","tab":null}
+        screenshot -> {"command":"screenshot","env":null,"session":"work","shot":{"annotate":false,"dir":"/shots","format":"png","look":{"cursor":true,"scale":1,"theme":"dark"},"path":null,"rows":null},"tab":null}
+        screenshot shot.svg --annotate --scale 2 --theme light --rows 1:3 --no-cursor -> {"command":"screenshot","env":null,"session":"work","shot":{"annotate":true,"dir":"/shots","format":"svg","look":{"cursor":false,"scale":2,"theme":"light"},"path":"<here>/shot.svg","rows":{"first":1,"last":3}},"tab":null}
+        screenshot shot.png --format html --cursor -> {"command":"screenshot","env":null,"session":"work","shot":{"annotate":false,"dir":"/shots","format":"html","look":{"cursor":true,"scale":1,"theme":"dark"},"path":"<here>/shot.png","rows":null},"tab":null}
+        trace export /tmp/t.zip -> {"command":"trace-export","env":null,"path":"/tmp/t.zip","session":"work"}
+    "##);
+}
+
+#[test]
+fn get_asks_for_one_fact() {
+    insta::assert_snapshot!(table(&[
+        "get text",
+        "get cursor",
+        "get size",
+        "get frame",
+        "get program",
+        "get exit-code",
+        "get pid",
+        "get title",
+        "get cwd",
+        "get modes",
+        "get cell 4 3",
+    ]), @r##"
+        get text -> {"command":"get","env":null,"session":"work","tab":null,"what":"text"}
+        get cursor -> {"command":"get","env":null,"session":"work","tab":null,"what":"cursor"}
+        get size -> {"command":"get","env":null,"session":"work","tab":null,"what":"size"}
+        get frame -> {"command":"get","env":null,"session":"work","tab":null,"what":"frame"}
+        get program -> {"command":"get","env":null,"session":"work","tab":null,"what":"program"}
+        get exit-code -> {"command":"get","env":null,"session":"work","tab":null,"what":"exit-code"}
+        get pid -> {"command":"get","env":null,"session":"work","tab":null,"what":"pid"}
+        get title -> {"command":"get","env":null,"session":"work","tab":null,"what":"title"}
+        get cwd -> {"command":"get","env":null,"session":"work","tab":null,"what":"cwd"}
+        get modes -> {"command":"get","env":null,"session":"work","tab":null,"what":"modes"}
+        get cell 4 3 -> {"command":"get","env":null,"session":"work","tab":null,"what":{"cell":{"col":3,"row":4}}}
+    "##);
+}
+
+#[test]
+fn typing_and_keys_send_their_input_then_wait() {
+    insta::assert_snapshot!(table(&[
+        "type hello",
+        "type hi --delay 20 --wait done --snapshot",
+        "type hi --wait-gone busy --screenshot",
+        "type hi --screenshot out.png",
+        "type hi --wait-stable",
+        "press Enter",
+        "press Ctrl+c Up --repeat 3",
+        "press NotAKey",
+        "paste 'a b'",
+    ]), @r##"
+        type hello -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hello"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        type hi --delay 20 --wait done --snapshot -> {"command":"input","env":null,"input":{"delay_ms":20,"kind":"type","text":"hi"},"screenshot":null,"session":"work","snapshot":true,"tab":null,"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"done","until":"text"}}
+        type hi --wait-gone busy --screenshot -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hi"},"screenshot":{"annotate":false,"dir":"/shots","format":"png","look":{"cursor":true,"scale":1,"theme":"dark"},"path":null,"rows":null},"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"busy","until":"gone"}}
+        type hi --screenshot out.png -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hi"},"screenshot":{"annotate":false,"dir":"/shots","format":"png","look":{"cursor":true,"scale":1,"theme":"dark"},"path":"<here>/out.png","rows":null},"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        type hi --wait-stable -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hi"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        press Enter -> {"command":"input","env":null,"input":{"keys":["Enter"],"kind":"press","repeat":1},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        press Ctrl+c Up --repeat 3 -> {"command":"input","env":null,"input":{"keys":["Ctrl+c","Up"],"kind":"press","repeat":3},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        press NotAKey -> usage: ValueValidation
+        paste 'a b' -> {"command":"input","env":null,"input":{"kind":"paste","text":"a b"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+    "##);
+}
+
+#[test]
+fn bytes_signals_and_the_mouse_send_their_input_then_wait() {
+    insta::assert_snapshot!(table(&[
+        "send '\\e[A\\x41'",
+        "send '\\q'",
+        "signal INT",
+        "signal TERM --wait-stable 10",
+        "click @t3",
+        "click 4,3 --right --double",
+        "click OK",
+        "scroll up",
+        "scroll down 5 --keys",
+        "mouse move 2,3",
+        "mouse down 2,3",
+        "mouse up 2,3",
+        "mouse wheel 2,3",
+        "mouse wheel up 2,3",
+    ]), @r##"
+        send '\e[A\x41' -> {"command":"input","env":null,"input":{"bytes":[27,91,65,65],"kind":"send"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        send '\q' -> usage: ValueValidation
+        signal INT -> {"command":"input","env":null,"input":{"kind":"signal","signal":"INT"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        signal TERM --wait-stable 10 -> {"command":"input","env":null,"input":{"kind":"signal","signal":"TERM"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":10,"until":"stable"}}
+        click @t3 -> {"command":"input","env":null,"input":{"button":"left","double":false,"kind":"click","target":"@t3"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        click 4,3 --right --double -> {"command":"input","env":null,"input":{"button":"right","double":true,"kind":"click","target":"4,3"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        click OK -> {"command":"input","env":null,"input":{"button":"left","double":false,"kind":"click","target":"OK"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        scroll up -> {"command":"input","env":null,"input":{"count":1,"direction":"up","keys":false,"kind":"scroll"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        scroll down 5 --keys -> {"command":"input","env":null,"input":{"count":5,"direction":"down","keys":true,"kind":"scroll"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse move 2,3 -> {"command":"input","env":null,"input":{"event":{"col":3,"event":"move","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse down 2,3 -> {"command":"input","env":null,"input":{"event":{"button":"left","col":3,"event":"down","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse up 2,3 -> {"command":"input","env":null,"input":{"event":{"button":"left","col":3,"event":"up","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse wheel 2,3 -> usage: ValueValidation
+        mouse wheel up 2,3 -> {"command":"input","env":null,"input":{"event":{"col":3,"direction":"up","event":"wheel","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+    "##);
+}
+
+#[test]
+fn waiting_and_expecting_name_one_condition_and_its_options() {
+    insta::assert_snapshot!(table(&[
+        "wait ready",
+        "wait 'r.*y' --regex --rows 1:2 --assert",
+        "wait busy --gone",
+        "wait 500",
+        "wait --stable",
+        "wait --stable 40",
+        "wait --idle 30",
+        "wait --exit --code 2",
+        "wait --cursor 3,4",
+        "wait --frame 9",
+        "wait --command",
+        "wait --control",
+        "wait",
+        "expect ready",
+        "expect ready --gone",
+        "expect --exit-code 0",
+        "expect --cell 2,3 --style bold,fg=red",
+        "expect --cell 2,3",
+    ]), @r##"
+        wait ready -> {"assert":false,"command":"wait","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"ready","until":"text"}}
+        wait 'r.*y' --regex --rows 1:2 --assert -> {"assert":true,"command":"wait","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"regex":true,"rows":{"first":1,"last":2},"text":"r.*y","until":"text"}}
+        wait busy --gone -> {"assert":false,"command":"wait","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"busy","until":"gone"}}
+        wait 500 -> {"assert":false,"command":"wait","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"ms":500,"until":"elapsed"}}
+        wait --stable -> {"assert":false,"command":"wait","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        wait --stable 40 -> {"assert":false,"command":"wait","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"quiet_ms":40,"until":"stable"}}
+        wait --idle 30 -> {"assert":false,"command":"wait","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"quiet_ms":30,"until":"idle"}}
+        wait --exit --code 2 -> {"assert":false,"command":"wait","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"code":2,"until":"exit"}}
+        wait --cursor 3,4 -> {"assert":false,"command":"wait","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"col":4,"row":3,"until":"cursor"}}
+        wait --frame 9 -> {"assert":false,"command":"wait","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"frame":9,"until":"frame"}}
+        wait --command -> {"assert":false,"command":"wait","env":null,"session":"work","tab":null,"timeout_ms":25000,"wait":{"until":"command"}}
+        wait --control -> {"assert":false,"command":"wait-control","env":null,"session":"work","tab":null,"timeout_ms":25000}
+        wait -> usage: MissingRequiredArgument
+        expect ready -> {"command":"expect","env":null,"expect":{"check":"text","regex":false,"rows":null,"text":"ready"},"session":"work","tab":null}
+        expect ready --gone -> {"command":"expect","env":null,"expect":{"check":"gone","regex":false,"rows":null,"text":"ready"},"session":"work","tab":null}
+        expect --exit-code 0 -> {"command":"expect","env":null,"expect":{"check":"exit-code","code":0},"session":"work","tab":null}
+        expect --cell 2,3 --style bold,fg=red -> {"command":"expect","env":null,"expect":{"check":"cell","col":3,"row":2,"style":["bold",{"fg":"red"}]},"session":"work","tab":null}
+        expect --cell 2,3 -> usage: MissingRequiredArgument
+    "##);
+}
+
+#[test]
+fn session_and_tool_commands_ask_the_daemon_about_itself() {
+    insta::assert_snapshot!(table(&[
+        "session list",
+        "tab",
+        "tab list",
+        "tab 3",
+        "tab close 2",
+        "dashboard",
+        "dashboard --port 0 --allow-origin http://localhost:5173",
+        "dashboard stop",
+    ]), @r##"
+        session list -> {"command":"sessions","env":null}
+        tab -> {"command":"tabs","env":null,"session":"work"}
+        tab list -> {"command":"tabs","env":null,"session":"work"}
+        tab 3 -> {"command":"switch-tab","env":null,"session":"work","tab":"t3"}
+        tab close 2 -> {"all":false,"command":"close","env":null,"session":"work","tab":"t2"}
+        dashboard -> {"command":"dashboard-start","env":null,"origins":[],"port":4849}
+        dashboard --port 0 --allow-origin http://localhost:5173 -> {"command":"dashboard-start","env":null,"origins":["http://localhost:5173"],"port":0}
+        dashboard stop -> {"command":"dashboard-stop","env":null}
+    "##);
+}

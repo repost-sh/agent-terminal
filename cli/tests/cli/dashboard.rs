@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
@@ -35,7 +36,7 @@ fn post(port: u16, path: &str, body: &str) -> Http {
 fn get(port: u16, path: &str, extra: &[(&str, &str)]) -> Http {
     let mut request = format!("GET {path} HTTP/1.1\r\nHost: localhost:{port}\r\nConnection: close\r\n");
     for (name, value) in extra {
-        request.push_str(&format!("{name}: {value}\r\n"));
+        write!(request, "{name}: {value}\r\n").expect("write a header");
     }
     request.push_str("\r\n");
     exchange(port, &request)
@@ -43,7 +44,7 @@ fn get(port: u16, path: &str, extra: &[(&str, &str)]) -> Http {
 
 fn start(at: &AgentTerminal) -> u16 {
     let started = at.run(&["--json", "dashboard", "start", "--port", "0"]).success().json();
-    let port = started["port"].as_u64().expect("the port the dashboard listens on") as u16;
+    let port = u16::try_from(started["port"].as_u64().expect("the port the dashboard listens on")).expect("a port");
     assert_eq!(started, serde_json::json!({ "url": format!("http://localhost:{port}"), "port": port }));
     port
 }
@@ -82,7 +83,7 @@ fn the_dashboard_serves_the_screenshot_fonts() {
     let at = AgentTerminal::new();
     let port = start(&at);
     let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts/SymbolsNerdFontMono-Regular.ttf");
-    let size = std::fs::metadata(&file).expect("the bundled Symbols Nerd Font").len() as usize;
+    let size = usize::try_from(std::fs::metadata(&file).expect("the bundled Symbols Nerd Font").len()).expect("a size");
 
     let font = get(port, "/fonts/SymbolsNerdFontMono-Regular.ttf", &[]);
     assert_eq!(font.status, 200, "{}", font.head);
@@ -153,7 +154,10 @@ fn the_dashboard_refuses_requests_from_other_sites() {
     let foreign = get(port, "/api/sessions", &[("Origin", "http://evil.example")]);
     assert_eq!(foreign.status, 403);
     assert_eq!(foreign.body, format!("the dashboard only answers its own pages at http://localhost:{port}"));
+    a_foreign_host_and_a_foreign_post_are_refused(port);
+}
 
+fn a_foreign_host_and_a_foreign_post_are_refused(port: u16) {
     let rebound = exchange(port, "GET /api/sessions HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n");
     assert_eq!(rebound.status, 403);
     let closing = exchange(
@@ -172,13 +176,16 @@ fn an_origin_allowed_at_start_may_call_the_dashboard_as_its_own_pages_do() {
         .run(&["--json", "dashboard", "start", "--port", "0", "--allow-origin", "http://localhost:5173"])
         .success()
         .json();
-    let port = started["port"].as_u64().expect("the port") as u16;
+    let port = u16::try_from(started["port"].as_u64().expect("the port")).expect("a port");
 
     assert_eq!(get(port, "/api/sessions", &[("Origin", "http://localhost:5173")]).status, 200);
     assert_eq!(get(port, "/api/sessions", &[("Origin", &format!("http://localhost:{port}"))]).status, 200);
     assert_eq!(get(port, "/api/sessions", &[("Origin", "http://localhost:5174")]).status, 403);
     assert_eq!(get(port, "/api/sessions", &[("Origin", "http://evil.example")]).status, 403);
+    an_origin_without_a_scheme_is_refused_at_start(&at);
+}
 
+fn an_origin_without_a_scheme_is_refused_at_start(at: &AgentTerminal) {
     let refused = at.run(&["dashboard", "start", "--port", "0", "--allow-origin", "localhost:5173"]);
     assert_eq!(refused.code(), 1, "{}", refused.stderr());
     assert!(
@@ -197,6 +204,10 @@ fn dashboard_stop_closes_the_port_and_says_when_none_runs() {
 
     assert_eq!(at.run(&["dashboard", "stop"]).success().stdout(), "dashboard stopped\n");
     assert!(TcpStream::connect(("127.0.0.1", port)).is_err(), "port {port} still answers");
+    stopping_again_says_no_dashboard_runs(&at);
+}
+
+fn stopping_again_says_no_dashboard_runs(at: &AgentTerminal) {
     assert_eq!(at.run(&["dashboard", "stop"]).success().stdout(), "no dashboard is running\n");
     assert_eq!(at.run(&["--json", "dashboard", "stop"]).success().json(), serde_json::json!({ "stopped": false }));
 
@@ -253,6 +264,68 @@ fn the_dashboard_serves_no_file_the_session_does_not_list_as_a_screenshot() {
 }
 
 #[test]
+fn a_listed_screenshot_deleted_from_disk_says_it_cannot_be_read() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    let shot = at.home().join("gone.png");
+    at.run(&["screenshot", &shot.to_string_lossy()]).success();
+    std::fs::remove_file(&shot).expect("delete the screenshot");
+    let port = start(&at);
+
+    let path = shot.to_string_lossy();
+    let missing = get(port, &format!("/api/session/default/screenshots/{}", path_segment(&path)), &[]);
+    assert_eq!(missing.status, 404, "{}", missing.head);
+    assert!(missing.body.starts_with(&format!("cannot read the screenshot {path}: ")), "{}", missing.body);
+}
+
+#[test]
+fn opening_from_the_dashboard_without_home_needs_an_absolute_working_directory() {
+    let at = AgentTerminal::new();
+    let started =
+        at.command(&["--json", "dashboard", "start", "--port", "0"]).env_remove("HOME").output().expect("start");
+    assert!(started.status.success(), "{}", String::from_utf8_lossy(&started.stderr));
+    let started: serde_json::Value = serde_json::from_slice(&started.stdout).expect("JSON");
+    let port = u16::try_from(started["port"].as_u64().expect("a port")).expect("a port number");
+    let opening = |cwd: &str| {
+        format!(
+            r#"{{"session":"s","new_session":true,"command":"cat","cwd":"{cwd}","cols":20,"rows":5,"shell_integration":false}}"#
+        )
+    };
+
+    let refused = post(port, "/api/sessions", &opening("~/work"));
+    assert_eq!(refused.status, 422, "{}", refused.body);
+    assert!(
+        refused.body.contains(r#"HOME is not set, so \"~/work\" has no home to start from; give an absolute path"#),
+        "{}",
+        refused.body
+    );
+    assert_eq!(post(port, "/api/sessions", &opening("/")).status, 200);
+}
+
+#[test]
+fn a_working_directory_typed_in_the_dashboard_is_absolute_or_under_home() {
+    let at = AgentTerminal::new();
+    let home = crate::support::scratch("home-");
+    std::fs::create_dir_all(home.path().join("work/app")).expect("make folders under home");
+    let started =
+        at.command(&["--json", "dashboard", "start", "--port", "0"]).env("HOME", home.path()).output().expect("start");
+    assert!(started.status.success(), "{}", String::from_utf8_lossy(&started.stderr));
+    let started: serde_json::Value = serde_json::from_slice(&started.stdout).expect("JSON");
+    let port = u16::try_from(started["port"].as_u64().expect("a port")).expect("a port number");
+
+    let mut cwds = Vec::new();
+    for (session, typed) in [("a", "work/app"), ("b", " ~/work "), ("c", "~"), ("d", "/")] {
+        let opening = format!(
+            r#"{{"session":"{session}","new_session":true,"command":"cat","cwd":"{typed}","cols":20,"rows":5,"shell_integration":false}}"#
+        );
+        assert_eq!(post(port, "/api/sessions", &opening).status, 200, "{typed}");
+        cwds.push(at.run(&["--session", session, "get", "cwd"]).success().stdout());
+    }
+    let home = home.path().display().to_string();
+    assert_eq!(cwds, [format!("{home}/work/app\n"), format!("{home}/work\n"), format!("{home}\n"), "/\n".to_string()]);
+}
+
+#[test]
 fn starting_on_a_port_another_program_holds_fails() {
     let at = AgentTerminal::new();
     let taken = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("hold a port");
@@ -295,17 +368,34 @@ fn a_screenshot_taken_from_the_dashboard_is_saved_listed_without_a_call_and_serv
     let path = at.home().join("screenshots").join(format!("qa-t1-{frame}.png")).to_string_lossy().into_owned();
     let reply: serde_json::Value = serde_json::from_str(&taken.body).expect("JSON");
     assert_eq!(reply["data"]["path"], path.as_str());
-    let listed = screenshots_listed(&at, "qa");
+    the_screenshot_is_listed_without_a_call(&at, &path, frame);
+    the_screenshot_is_served_and_not_logged_as_a_call(&at, port, &path);
+}
+
+fn the_screenshot_is_listed_without_a_call(at: &AgentTerminal, path: &str, frame: u64) {
+    let listed = screenshots_listed(at, "qa");
     assert_eq!(listed.len(), 1);
     assert_eq!(
         (&listed[0]["path"], &listed[0]["by"], &listed[0]["frame"]),
-        (&path.clone().into(), &serde_json::Value::Null, &frame.into())
+        (&path.into(), &serde_json::Value::Null, &frame.into())
     );
-    let served = get(port, &screenshot_url("qa", &path), &[]);
+}
+
+fn the_screenshot_is_served_and_not_logged_as_a_call(at: &AgentTerminal, port: u16, path: &str) {
+    let served = get(port, &screenshot_url("qa", path), &[]);
     assert_eq!(served.status, 200, "{}{}", served.head, served.body);
-    assert_eq!(served.bytes, std::fs::read(&path).expect("read the screenshot"));
+    assert_eq!(served.bytes, std::fs::read(path).expect("read the screenshot"));
     let activity = std::fs::read_to_string(at.home().join("sessions/qa/activity.jsonl")).expect("the activity log");
-    assert!(!activity.contains(&path), "{activity}");
+    assert!(!activity.contains(path), "{activity}");
+}
+
+fn compare(port: u16, a: &str, b: &str) -> serde_json::Value {
+    let pair = serde_json::json!({ "paths": [a, b] }).to_string();
+    let compared = post(port, "/api/session/default/screenshots/compare", &pair);
+    match compared.status {
+        200 => serde_json::from_str(&compared.body).expect("JSON"),
+        status => serde_json::json!({ "status": status, "error": compared.body }),
+    }
 }
 
 #[test]
@@ -320,24 +410,26 @@ fn the_dashboard_counts_and_boxes_the_cells_two_screenshots_differ_in() {
     at.run(&["press", "Enter", "--wait", "two", "--screenshot", &after]).success();
     at.run(&["screenshot", "--scale", "2", &bigger]).success();
     let port = start(&at);
-    let compare = |a: &str, b: &str| {
-        let pair = serde_json::json!({ "paths": [a, b] }).to_string();
-        let compared = post(port, "/api/session/default/screenshots/compare", &pair);
-        match compared.status {
-            200 => serde_json::from_str(&compared.body).expect("JSON"),
-            status => serde_json::json!({ "status": status, "error": compared.body }),
-        }
-    };
 
     let three = serde_json::json!({ "changed": 3, "boxes": [{ "x": 10, "y": 30, "width": 27, "height": 20 }] });
-    assert_eq!(compare(&before, &after), three);
-    assert_eq!(compare(&after, &before), three);
-    assert_eq!(compare(&before, &before), serde_json::json!({ "changed": 0, "boxes": [] }));
-    assert_eq!(compare(&before, &bigger), serde_json::json!({ "changed": null, "boxes": [] }));
+    assert_eq!(compare(port, &before, &after), three);
+    assert_eq!(compare(port, &after, &before), three);
+    assert_eq!(compare(port, &before, &before), serde_json::json!({ "changed": 0, "boxes": [] }));
+    assert_eq!(compare(port, &before, &bigger), serde_json::json!({ "changed": null, "boxes": [] }));
+    a_file_outside_the_session_or_a_resized_one_is_not_compared(&at, port, &before, &after);
+}
+
+fn a_file_outside_the_session_or_a_resized_one_is_not_compared(
+    at: &AgentTerminal,
+    port: u16,
+    before: &str,
+    after: &str,
+) {
+    let shots = at.home().join("shots");
     let elsewhere = shots.join("elsewhere.png").to_string_lossy().into_owned();
     let refusal = format!("{elsewhere} is not a PNG screenshot in session default");
-    assert_eq!(compare(&before, &elsewhere), serde_json::json!({ "status": 404, "error": refusal }));
+    assert_eq!(compare(port, before, &elsewhere), serde_json::json!({ "status": 404, "error": refusal }));
 
-    at.run(&["screenshot", "--scale", "2", &before]).success();
-    assert_eq!(compare(&before, &after), serde_json::json!({ "changed": null, "boxes": [] }));
+    at.run(&["screenshot", "--scale", "2", before]).success();
+    assert_eq!(compare(port, before, after), serde_json::json!({ "changed": null, "boxes": [] }));
 }

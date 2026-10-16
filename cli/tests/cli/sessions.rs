@@ -56,6 +56,18 @@ fn sessions_never_see_each_others_terminals() {
 #[test]
 fn session_list_shows_every_tab_with_its_program_size_and_status() {
     let at = AgentTerminal::new();
+    open_a_with_a_running_and_an_exited_tab_and_b(&at);
+
+    assert_eq!(
+        at.run(&["session", "list"]).success().stdout(),
+        "a t1 · line-printer · 30x5 · running\n\
+         a t2 · line-printer · 20x3 · exited 4 · current\n\
+         b t1 · fixture-tui · 50x8 · running · current\n"
+    );
+    session_list_json_describes_every_tab(&at);
+}
+
+fn open_a_with_a_running_and_an_exited_tab_and_b(at: &AgentTerminal) {
     at.run(&[
         "--session",
         "a",
@@ -86,13 +98,9 @@ fn session_list_shows_every_tab_with_its_program_size_and_status() {
     .success();
     at.run(&["--session", "a", "wait", "--exit"]).success();
     at.run(&["--session", "b", "open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+}
 
-    assert_eq!(
-        at.run(&["session", "list"]).success().stdout(),
-        "a t1 · line-printer · 30x5 · running\n\
-         a t2 · line-printer · 20x3 · exited 4 · current\n\
-         b t1 · fixture-tui · 50x8 · running · current\n"
-    );
+fn session_list_json_describes_every_tab(at: &AgentTerminal) {
     let printer = fixture("line-printer");
     let cwd = std::env::current_dir().unwrap().to_string_lossy().into_owned();
     assert_eq!(

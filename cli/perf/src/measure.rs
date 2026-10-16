@@ -9,35 +9,79 @@ use crate::metrics::{Metric, Results, Samples};
 const RUNS: usize = 100;
 const MEMORY_RUNS: usize = 5;
 const TABS: u32 = 10;
-pub const SIZE: &str = "120x40";
+pub(crate) const SIZE: &str = "120x40";
 const SCROLLBACK: &str = "2000";
 
-pub struct Setup {
+pub(crate) struct Setup {
     pub base: PathBuf,
     pub change: PathBuf,
     pub fixtures: PathBuf,
     pub work: PathBuf,
 }
 
-const BASE: usize = 0;
+#[derive(Clone, Copy)]
+enum Side {
+    Base,
+    Change,
+}
 
-pub fn measure(setup: &Setup) -> Result<Results> {
+impl Side {
+    fn name(self) -> &'static str {
+        match self {
+            Side::Base => "base",
+            Side::Change => "change",
+        }
+    }
+}
+
+struct Sides {
+    work: PathBuf,
+    base: PathBuf,
+    change: PathBuf,
+}
+
+impl Sides {
+    fn agent(&self, side: Side, home: String) -> Agent {
+        let binary = match side {
+            Side::Base => &self.base,
+            Side::Change => &self.change,
+        };
+        Agent { side: side.name(), binary: binary.clone(), work: self.work.clone(), home }
+    }
+}
+
+struct Timings {
+    round_trip: Sampled,
+    snapshot: Sampled,
+    png: Sampled,
+    wait: Sampled,
+}
+
+pub(crate) fn measure(setup: &Setup) -> Result<Results> {
     std::fs::create_dir_all(&setup.work).with_context(|| format!("create {}", setup.work.display()))?;
     let work = canonical(&setup.work)?;
     let busy_screen = canonical(&setup.fixtures.join("busy-screen"))?;
-    let binaries = [("base", canonical(&setup.base)?), ("change", canonical(&setup.change)?)];
-    let agent = |side: usize, home: String| Agent {
-        side: binaries[side].0,
-        binary: binaries[side].1.clone(),
-        work: work.clone(),
-        home,
-    };
+    let sides = Sides { work, base: canonical(&setup.base)?, change: canonical(&setup.change)? };
+    let (idle, tab) = memory_runs(&sides, &busy_screen)?;
+    let timings = timings(&sides, &busy_screen)?;
+    Ok(Results {
+        metrics: vec![
+            timings.round_trip.samples(Metric::RoundTrip),
+            timings.snapshot.samples(Metric::Snapshot),
+            timings.png.samples(Metric::Png),
+            timings.wait.samples(Metric::PressWaitText),
+            idle.samples(Metric::IdleMemory),
+            tab.samples(Metric::TabMemory),
+        ],
+    })
+}
 
+fn memory_runs(sides: &Sides, busy_screen: &Path) -> Result<(Sampled, Sampled)> {
     let mut idle = Sampled::default();
     let mut tab = Sampled::default();
     for run in 0..MEMORY_RUNS {
         for side in order(run) {
-            match memory(agent(side, format!("{}-memory-{run}", binaries[side].0)), &busy_screen) {
+            match memory(sides.agent(side, format!("{}-memory-{run}", side.name())), busy_screen) {
                 Ok((without_tabs, per_tab)) => {
                     idle.record(side, Ok(without_tabs))?;
                     tab.record(side, per_tab)?;
@@ -49,37 +93,32 @@ pub fn measure(setup: &Setup) -> Result<Results> {
             }
         }
     }
+    Ok((idle, tab))
+}
 
-    let mut base = Screen::open(agent(0, binaries[0].0.to_string()), &busy_screen);
-    let mut change = Screen::open(agent(1, binaries[1].0.to_string()), &busy_screen)?;
-    let round_trip = interleave(&mut base, &mut change, |screen| screen.time(&["get", "frame"]))?;
-    let snapshot = interleave(&mut base, &mut change, |screen| screen.time(&["snapshot"]))?;
-    let png = interleave(&mut base, &mut change, |screen| screen.time(&["screenshot", &screen.screenshot]))?;
-    let wait = interleave(&mut base, &mut change, |screen| screen.press_wait_after_text())?;
+fn timings(sides: &Sides, busy_screen: &Path) -> Result<Timings> {
+    let mut base = Screen::open(sides.agent(Side::Base, Side::Base.name().to_string()), busy_screen);
+    let mut change = Screen::open(sides.agent(Side::Change, Side::Change.name().to_string()), busy_screen)?;
+    let timings = Timings {
+        round_trip: interleave(&mut base, &mut change, |screen| screen.time(&["get", "frame"]))?,
+        snapshot: interleave(&mut base, &mut change, |screen| screen.time(&["snapshot"]))?,
+        png: interleave(&mut base, &mut change, |screen| screen.time(&["screenshot", &screen.screenshot]))?,
+        wait: interleave(&mut base, &mut change, Screen::press_wait_after_text)?,
+    };
     if let Ok(screen) = &mut base {
         screen.daemon.stop()?;
     }
     change.daemon.stop()?;
-
-    Ok(Results {
-        metrics: vec![
-            round_trip.samples(Metric::RoundTrip),
-            snapshot.samples(Metric::Snapshot),
-            png.samples(Metric::Png),
-            wait.samples(Metric::PressWaitText),
-            idle.samples(Metric::IdleMemory),
-            tab.samples(Metric::TabMemory),
-        ],
-    })
+    Ok(timings)
 }
 
 fn memory(agent: Agent, busy_screen: &Path) -> Result<(f64, Result<f64>)> {
     let mut daemon = Daemon::start(agent)?;
-    daemon.agent.run(&["session", "list"])?;
+    daemon.agent().run(&["session", "list"])?;
     let without_tabs = daemon.memory()?;
     let per_tab = (|| {
         for _ in 0..TABS {
-            daemon.agent.run(&[
+            daemon.agent().run(&[
                 "tab",
                 "new",
                 "--size",
@@ -97,8 +136,8 @@ fn memory(agent: Agent, busy_screen: &Path) -> Result<(f64, Result<f64>)> {
     Ok((without_tabs, per_tab))
 }
 
-fn order(run: usize) -> [usize; 2] {
-    if run.is_multiple_of(2) { [0, 1] } else { [1, 0] }
+fn order(run: usize) -> [Side; 2] {
+    if run.is_multiple_of(2) { [Side::Base, Side::Change] } else { [Side::Change, Side::Base] }
 }
 
 #[derive(Default)]
@@ -109,16 +148,16 @@ struct Sampled {
 }
 
 impl Sampled {
-    fn record(&mut self, side: usize, sample: Result<f64>) -> Result<()> {
+    fn record(&mut self, side: Side, sample: Result<f64>) -> Result<()> {
         match (side, sample) {
-            (BASE, _) if self.no_base.is_some() => {}
-            (BASE, Ok(value)) => self.base.push(value),
-            (BASE, Err(e)) => {
+            (Side::Base, _) if self.no_base.is_some() => {}
+            (Side::Base, Ok(value)) => self.base.push(value),
+            (Side::Base, Err(e)) => {
                 self.base.clear();
                 self.no_base = Some(first_line(&format!("{e:#}")));
             }
-            (_, Ok(value)) => self.change.push(value),
-            (_, Err(e)) => return Err(e),
+            (Side::Change, Ok(value)) => self.change.push(value),
+            (Side::Change, Err(e)) => return Err(e),
         }
         Ok(())
     }
@@ -141,9 +180,9 @@ fn interleave(
     for run in 0..RUNS {
         for side in order(run) {
             let taken = match (side, &mut *base) {
-                (BASE, Ok(screen)) => sample(screen),
-                (BASE, Err(e)) => Err(anyhow::anyhow!("{e:#}")),
-                _ => sample(change),
+                (Side::Base, Ok(screen)) => sample(screen),
+                (Side::Base, Err(e)) => Err(anyhow::anyhow!("{e:#}")),
+                (Side::Change, _) => sample(change),
             };
             sampled.record(side, taken)?;
         }
@@ -155,7 +194,7 @@ fn canonical(path: &Path) -> Result<PathBuf> {
     std::fs::canonicalize(path).with_context(|| format!("find {}", path.display()))
 }
 
-pub fn utf8(path: &Path) -> Result<&str> {
+pub(crate) fn utf8(path: &Path) -> Result<&str> {
     path.to_str().with_context(|| format!("{} is not UTF-8", path.display()))
 }
 
@@ -175,7 +214,7 @@ impl Screen {
         let stamps = agent.work.join(&agent.home).join("stamps");
         let screenshot = format!("{}.png", agent.home);
         let daemon = Daemon::start(agent)?;
-        daemon.agent.run(&[
+        daemon.agent().run(&[
             "open",
             "--size",
             SIZE,
@@ -190,13 +229,13 @@ impl Screen {
 
     fn time(&self, args: &[&str]) -> Result<f64> {
         let started = Instant::now();
-        self.daemon.agent.run(args)?;
+        self.daemon.agent().run(args)?;
         Ok(milliseconds(started.elapsed()))
     }
 
     fn press_wait_after_text(&mut self) -> Result<f64> {
         self.pressed += 1;
-        self.daemon.agent.run(&["press", "x", "--wait", &format!("seen {}.", self.pressed)])?;
+        self.daemon.agent().run(&["press", "x", "--wait", &format!("seen {}.", self.pressed)])?;
         let returned = SystemTime::now();
         let printed = self.printed(self.pressed)?;
         Ok(milliseconds(returned.duration_since(printed).context("the wait returned before the text was printed")?))

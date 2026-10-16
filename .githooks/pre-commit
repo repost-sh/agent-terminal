@@ -2,23 +2,33 @@
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
-staged="$(git diff --cached --name-only --diff-filter=d)"
+staged="$(git diff --cached --name-only)"
+areas=()
 
-if grep -q '^dashboard/' <<<"$staged"; then
-  cd "$root/dashboard"
-  [ -x node_modules/.bin/oxlint ] || { echo "pre-commit: run 'npm ci' in dashboard/" >&2; exit 1; }
-  npm run --silent lint
+if grep -qE '^(cli|scripts|\.githooks)/' <<<"$staged"; then
+  areas+=(rust)
 fi
 
-workflows="$(grep -E '^\.github/workflows/.+\.ya?ml$' <<<"$staged" || true)"
+if grep -q '^dashboard/' <<<"$staged"; then
+  [ -x "$root/dashboard/node_modules/.bin/eslint" ] || { echo "pre-commit: run 'npm ci' in dashboard/" >&2; exit 1; }
+  areas+=(dashboard)
+fi
+
+if grep -q '^npm/' <<<"$staged"; then
+  areas+=(npm)
+fi
+
+if grep -qE '^(cli|dashboard|scripts|\.githooks)/' <<<"$staged"; then
+  [ -x "$root/dashboard/node_modules/.bin/jscpd" ] || { echo "pre-commit: run 'npm ci' in dashboard/" >&2; exit 1; }
+  areas+=(duplication)
+fi
+
+workflows="$(git diff --cached --name-only --diff-filter=d | grep -E '^\.github/workflows/.+\.ya?ml$' || true)"
 if [ -n "$workflows" ]; then
   command -v actionlint >/dev/null || { echo "pre-commit: install actionlint (brew install actionlint) to check .github/workflows" >&2; exit 1; }
   (cd "$root" && actionlint $workflows)
 fi
 
-if grep -q '^cli/' <<<"$staged"; then
-  cd "$root/cli"
-  cargo fmt --all --check || { echo "pre-commit: run 'cargo fmt --all' in cli/" >&2; exit 1; }
-  cargo clippy --quiet --workspace --all-targets -- -D warnings
-  cargo test --quiet --workspace
+if [ "${#areas[@]}" -gt 0 ]; then
+  "$root/scripts/gauntlet.sh" "${areas[@]}"
 fi

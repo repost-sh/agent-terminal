@@ -41,39 +41,63 @@ struct Help {
     options: BTreeSet<String>,
 }
 
+#[derive(Default)]
+struct HelpText {
+    section: String,
+    usages: Vec<String>,
+    subcommands: Vec<String>,
+    options: BTreeSet<String>,
+}
+
+impl HelpText {
+    fn read(&mut self, line: &str) {
+        if let Some(usage) = line.strip_prefix("Usage: ") {
+            self.section = "Usage".to_string();
+            self.usages.push(usage.to_string());
+        } else if !line.starts_with(' ') && line.ends_with(':') {
+            self.section = line.to_string();
+        } else {
+            self.read_entry(line);
+        }
+    }
+
+    fn read_entry(&mut self, line: &str) {
+        match self.section.as_str() {
+            "Usage" if line.starts_with("       agent-terminal") => self.usages.push(line.trim().to_string()),
+            "Commands:" => self.read_subcommand(line),
+            "Options:" if line.trim_start().starts_with('-') => self.read_option(line),
+            _ => {}
+        }
+    }
+
+    fn read_subcommand(&mut self, line: &str) {
+        let name = line.split_whitespace().next().expect("a command line names a command");
+        if name != "help" {
+            self.subcommands.push(name.to_string());
+        }
+    }
+
+    fn read_option(&mut self, line: &str) {
+        let long = line.split_whitespace().find_map(|word| word.strip_prefix("--"));
+        if let Some(long) = long.filter(|long| !["help", "version", "json"].contains(long)) {
+            self.options.insert(long.replace('-', "_"));
+        }
+    }
+}
+
 fn help(at: &AgentTerminal, path: &[String]) -> Help {
     let mut args: Vec<&str> = path.iter().map(String::as_str).collect();
     args.push("-h");
     let text = at.run(&args).success().stdout();
-    let mut section = "";
-    let mut usages = Vec::new();
-    let mut subcommands = Vec::new();
-    let mut options = BTreeSet::new();
+    let mut read = HelpText::default();
     for line in text.lines().filter(|line| !line.is_empty()) {
-        if let Some(usage) = line.strip_prefix("Usage: ") {
-            section = "Usage";
-            usages.push(usage.to_string());
-        } else if !line.starts_with(' ') && line.ends_with(':') {
-            section = line;
-        } else if section == "Usage" && line.starts_with("       agent-terminal") {
-            usages.push(line.trim().to_string());
-        } else if section == "Commands:" {
-            let name = line.split_whitespace().next().expect("a command line names a command");
-            if name != "help" {
-                subcommands.push(name.to_string());
-            }
-        } else if section == "Options:" && line.trim_start().starts_with('-') {
-            let long = line.split_whitespace().find_map(|word| word.strip_prefix("--"));
-            if let Some(long) = long.filter(|long| !["help", "version", "json"].contains(long)) {
-                options.insert(long.replace('-', "_"));
-            }
-        }
+        read.read(line);
     }
     Help {
         about: text.lines().next().unwrap_or_default().to_string(),
-        runs_on_its_own: usages.iter().any(|usage| !usage.contains("<COMMAND>")),
-        subcommands,
-        options,
+        runs_on_its_own: read.usages.iter().any(|usage| !usage.contains("<COMMAND>")),
+        subcommands: read.subcommands,
+        options: read.options,
     }
 }
 
@@ -180,9 +204,9 @@ async fn tools_take_a_session_and_default_to_agent_terminal_session() {
     assert_eq!(json_of(&unnamed)["session"], "from-env", "{}", text(&unnamed));
 
     let sessions = at.run(&["session", "list", "--json"]).success().json();
-    let names: Vec<&Value> =
+    let listed: Vec<&Value> =
         sessions["sessions"].as_array().unwrap().iter().map(|session| &session["session"]).collect();
-    assert_eq!(names, [&json!("from-env"), &json!("named")]);
+    assert_eq!(listed, [&json!("from-env"), &json!("named")]);
 }
 
 #[tokio::test]

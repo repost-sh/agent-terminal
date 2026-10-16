@@ -25,7 +25,8 @@ fn wait_for_calls(browser: &Browser, count: usize) {
 }
 
 fn duration(ms: u64) -> String {
-    if ms < 1000 { format!("{ms} ms") } else { format!("{:.1} s", ms as f64 / 1000.0) }
+    let seconds = f64::from(u32::try_from(ms).expect("a call shorter than 49 days")) / 1000.0;
+    if ms < 1000 { format!("{ms} ms") } else { format!("{seconds:.1} s") }
 }
 
 fn seconds_and_millis(time: &str) -> &str {
@@ -42,6 +43,17 @@ fn activity_lists_every_call_to_the_tab_live_with_its_time_duration_and_result()
     let browser = Browser::open(&dashboard.url("/s/default/t1"));
     wait_for_calls(&browser, 1);
 
+    make_a_call_of_every_result_to_t1(&at);
+    wait_for_calls(&browser, 8);
+
+    let log: Vec<Value> = at.activity("default").into_iter().filter(|entry| entry["tab"] == "t1").collect();
+    each_row_shows_its_call(&browser, &log);
+    assert_eq!(log[1]["command"], "--tab t1 snapshot");
+    assert_eq!(browser.eval("document.querySelector('#ppanel-activity [data-slot=badge]').textContent"), "\"8\"");
+    expanding_a_call_shows_what_it_printed(&browser, &log);
+}
+
+fn make_a_call_of_every_result_to_t1(at: &AgentTerminal) {
     at.run(&["--tab", "t1", "snapshot"]).success();
     assert_eq!(at.run(&["--tab", "t1", "--timeout", "300", "wait", "never shown"]).code(), 3);
     assert_eq!(at.run(&["--tab", "t1", "expect", "not there"]).code(), 2);
@@ -49,10 +61,10 @@ fn activity_lists_every_call_to_the_tab_live_with_its_time_duration_and_result()
     at.run(&["--tab", "t1", "press", "Enter"]).success();
     at.run(&["--tab", "t1", "wait", "--exit"]).success();
     assert_eq!(at.run(&["--tab", "t1", "press", "y"]).code(), 5);
-    wait_for_calls(&browser, 8);
+}
 
-    let log: Vec<Value> = at.activity("default").into_iter().filter(|entry| entry["tab"] == "t1").collect();
-    let shown = calls(&browser);
+fn each_row_shows_its_call(browser: &Browser, log: &[Value]) {
+    let shown = calls(browser);
     let results = [
         None,
         None,
@@ -64,24 +76,25 @@ fn activity_lists_every_call_to_the_tab_live_with_its_time_duration_and_result()
         Some("exit 5 process exited"),
     ];
     assert_eq!(shown.len(), results.len());
-    for ((row, entry), result) in shown.iter().zip(&log).zip(results) {
-        let time = entry["time"].as_str().unwrap();
-        assert_eq!(row["at"], time);
-        let text = row["time"].as_str().unwrap();
-        assert_eq!(text.len(), "14:02:07.312".len(), "{row}");
-        assert_eq!(seconds_and_millis(text), &time[17..23], "{row}");
-        let mut parts = vec![format!(
-            "{} {}",
-            entry["command"].as_str().unwrap(),
-            duration(entry["duration_ms"].as_u64().unwrap())
-        )];
-        parts.extend(result.map(str::to_string));
-        parts.push("+".into());
-        assert_eq!(row["parts"], serde_json::json!(parts), "{entry}");
+    for ((row, entry), result) in shown.iter().zip(log).zip(results) {
+        the_row_shows_the_call(row, entry, result);
     }
-    assert_eq!(log[1]["command"], "--tab t1 snapshot");
-    assert_eq!(browser.eval("document.querySelector('#ppanel-activity [data-slot=badge]').textContent"), "\"8\"");
+}
 
+fn the_row_shows_the_call(row: &Value, entry: &Value, result: Option<&str>) {
+    let time = entry["time"].as_str().unwrap();
+    assert_eq!(row["at"], time);
+    let text = row["time"].as_str().unwrap();
+    assert_eq!(text.len(), "14:02:07.312".len(), "{row}");
+    assert_eq!(seconds_and_millis(text), &time[17..23], "{row}");
+    let mut parts =
+        vec![format!("{} {}", entry["command"].as_str().unwrap(), duration(entry["duration_ms"].as_u64().unwrap()))];
+    parts.extend(result.map(str::to_string));
+    parts.push("+".into());
+    assert_eq!(row["parts"], serde_json::json!(parts), "{entry}");
+}
+
+fn expanding_a_call_shows_what_it_printed(browser: &Browser, log: &[Value]) {
     browser.run(&["click", &format!("{CALLS}:nth-child(3) button")]);
     browser.wait_until("document.querySelector('#ppanel-activity pre') !== null");
     assert_eq!(
@@ -92,6 +105,15 @@ fn activity_lists_every_call_to_the_tab_live_with_its_time_duration_and_result()
         browser.eval(&format!("document.querySelector(\"{CALLS}:nth-child(3) button\").ariaExpanded")),
         "\"true\""
     );
+}
+
+const LIST: &str = "document.querySelector(\"[aria-label='Calls to default t1']\")";
+const FOLLOW: &str = "document.querySelector('#ppanel-activity button[aria-pressed]')";
+const JUMP_SHOWN: &str =
+    "[...document.querySelectorAll('button')].some((b) => b.textContent === 'Jump to latest' && !b.hidden)";
+
+fn at_bottom() -> String {
+    format!("(() => {{ const list = {LIST}; return list.scrollHeight - list.scrollTop - list.clientHeight < 2; }})()")
 }
 
 #[test]
@@ -106,64 +128,70 @@ fn activity_follows_new_calls_until_scrolled_up_then_offers_jump_to_latest_and_c
     at.run(&batch).success();
     wait_for_calls(&browser, 61);
 
-    let list = "document.querySelector(\"[aria-label='Calls to default t1']\")";
-    let at_bottom = format!(
-        "(() => {{ const list = {list}; return list.scrollHeight - list.scrollTop - list.clientHeight < 2; }})()"
-    );
-    browser.wait_until(&at_bottom);
-    let follow = "document.querySelector('#ppanel-activity button[aria-pressed]')";
-    assert_eq!(browser.eval(&format!("{follow}.textContent + ' ' + {follow}.ariaPressed")), "\"Follow true\"");
-    assert_eq!(
-        browser.eval(
-            "[...document.querySelectorAll('button')].some((b) => b.textContent === 'Jump to latest' && !b.hidden)"
-        ),
-        "false"
-    );
+    the_list_follows_the_latest_call(&browser);
+    scrolling_up_stops_following_and_offers_jump_to_latest(&at, &browser);
+    jump_to_latest_follows_again(&browser);
+    follow_toggles_and_keeps_new_calls_in_view(&at, &browser);
+    clearing_empties_the_list_until_the_next_call(&at, &browser);
+    reopening_the_tab_starts_a_new_list(&at, &browser);
+}
 
+fn the_list_follows_the_latest_call(browser: &Browser) {
+    browser.wait_until(&at_bottom());
+    assert_eq!(browser.eval(&format!("{FOLLOW}.textContent + ' ' + {FOLLOW}.ariaPressed")), "\"Follow true\"");
+    assert_eq!(browser.eval(JUMP_SHOWN), "false");
+}
+
+fn scrolling_up_stops_following_and_offers_jump_to_latest(at: &AgentTerminal, browser: &Browser) {
     browser.run(&["scroll", "up", "3000", "--selector", "[aria-label='Calls to default t1']"]);
-    browser.wait_until(&format!("{follow}.ariaPressed === 'false'"));
+    browser.wait_until(&format!("{FOLLOW}.ariaPressed === 'false'"));
     browser.wait_for_text("Jump to latest");
-    let scrolled = browser.eval(&format!("{list}.scrollTop"));
+    let scrolled = browser.eval(&format!("{LIST}.scrollTop"));
     at.run(&["get", "frame"]).success();
-    wait_for_calls(&browser, 62);
-    assert_eq!(browser.eval(&format!("{list}.scrollTop")), scrolled);
+    wait_for_calls(browser, 62);
+    assert_eq!(browser.eval(&format!("{LIST}.scrollTop")), scrolled);
+}
 
+fn jump_to_latest_follows_again(browser: &Browser) {
     browser.click_button("Jump to latest");
-    browser.wait_until(&at_bottom);
-    assert_eq!(browser.eval(&format!("{follow}.ariaPressed")), "\"true\"");
+    browser.wait_until(&at_bottom());
+    assert_eq!(browser.eval(&format!("{FOLLOW}.ariaPressed")), "\"true\"");
     assert_eq!(browser.eval("document.activeElement.textContent"), "\"Follow\"");
-    browser.wait_until(
-        "![...document.querySelectorAll('button')].some((b) => b.textContent === 'Jump to latest' && !b.hidden)",
-    );
+    browser.wait_until(&format!("!{JUMP_SHOWN}"));
+}
 
+fn follow_toggles_and_keeps_new_calls_in_view(at: &AgentTerminal, browser: &Browser) {
     browser.click_button("Follow");
-    browser.wait_until(&format!("{follow}.ariaPressed === 'false'"));
+    browser.wait_until(&format!("{FOLLOW}.ariaPressed === 'false'"));
     browser.click_button("Follow");
-    browser.wait_until(&format!("{follow}.ariaPressed === 'true'"));
+    browser.wait_until(&format!("{FOLLOW}.ariaPressed === 'true'"));
     at.run(&["get", "frame"]).success();
-    wait_for_calls(&browser, 63);
-    browser.wait_until(&at_bottom);
+    wait_for_calls(browser, 63);
+    browser.wait_until(&at_bottom());
+}
 
+fn clearing_empties_the_list_until_the_next_call(at: &AgentTerminal, browser: &Browser) {
     browser.click_button("Clear activity");
     browser.wait_for_text("Waiting for calls...");
     assert_eq!(browser.eval("document.querySelector('#ppanel-activity [data-slot=badge]').textContent"), "\"0\"");
     assert_eq!(browser.eval("[...document.querySelectorAll('#ppanel-activity button')].find((b) => b.textContent === 'Clear activity').disabled"), "true");
     at.run(&["get", "frame"]).success();
-    wait_for_calls(&browser, 1);
+    wait_for_calls(browser, 1);
     assert_eq!(
-        calls(&browser)[0]["parts"][0].as_str().unwrap().split(' ').take(2).collect::<Vec<_>>(),
+        calls(browser)[0]["parts"][0].as_str().unwrap().split(' ').take(2).collect::<Vec<_>>(),
         ["get", "frame"]
     );
-
     browser.select_panel("Output");
     browser.select_panel("Activity");
-    wait_for_calls(&browser, 1);
+    wait_for_calls(browser, 1);
+}
 
+fn reopening_the_tab_starts_a_new_list(at: &AgentTerminal, browser: &Browser) {
     at.run(&["close"]).success();
     browser.wait_for_text("default t1 is not open");
     at.run(&["open", "--size", "40x6", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
-    wait_for_calls(&browser, 1);
-    assert_eq!(calls(&browser)[0]["parts"][0].as_str().unwrap().split(' ').next(), Some("open"));
+    wait_for_calls(browser, 1);
+    assert_eq!(calls(browser)[0]["parts"][0].as_str().unwrap().split(' ').next(), Some("open"));
 }
 
 #[test]

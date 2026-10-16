@@ -11,7 +11,7 @@ keywords = ["terminal", "tui", "automation", "ai", "pty"]
 categories = ["command-line-utilities", "development-tools::testing"]
 
 [workspace]
-members = ["perf", "tests/fixtures"]
+members = ["acceptance", "gauntlet", "perf", "tests/fixtures"]
 
 [dependencies]
 alacritty_terminal = "0.26"
@@ -22,6 +22,7 @@ humantime = "2"
 include_dir = "0.7"
 libc = "0.2"
 nix = { version = "0.28", features = ["fs", "signal"] }
+num-traits = "0.2"
 png = "0.18"
 portable-pty = "0.9"
 regex = "1"
@@ -36,15 +37,21 @@ swash = "0.2"
 tiny-skia = "0.12"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 tokio = { version = "1", features = ["macros", "net", "process", "rt", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 
 [features]
 browser-tests = []
 
 [dev-dependencies]
+at-acceptance = { path = "acceptance" }
+libtest-mimic = "0.8"
+proptest = { version = "1.12", default-features = false, features = ["std"] }
 insta = "1.49"
 rmcp = { version = "2.2", default-features = false, features = ["client", "transport-child-process"] }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "process", "rt"] }
+toml = "1"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 
 [profile.release]
@@ -56,12 +63,93 @@ inherits = "release"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+rust_2018_idioms = { level = "deny", priority = -1 }
+elided_lifetimes_in_paths = "deny"
+ffi_unwind_calls = "deny"
+macro_use_extern_crate = "deny"
+meta_variable_misuse = "deny"
+non_ascii_idents = "deny"
+redundant_lifetimes = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unit_bindings = "deny"
+unreachable_pub = "deny"
+unused_lifetimes = "deny"
+unused_macro_rules = "deny"
+unused_qualifications = "deny"
 
 [workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
 allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+await_holding_lock = "deny"
+cast_possible_truncation = "deny"
+cast_possible_wrap = "deny"
+cast_precision_loss = "deny"
+cast_sign_loss = "deny"
+cognitive_complexity = "deny"
 dbg_macro = "deny"
+excessive_nesting = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+large_enum_variant = "deny"
+large_futures = "deny"
+map_err_ignore = "deny"
+needless_pass_by_value = "deny"
+panic = "deny"
+print_stderr = "deny"
+print_stdout = "deny"
+redundant_clone = "deny"
+result_large_err = "deny"
+should_implement_trait = "deny"
 todo = "deny"
+too_many_arguments = "deny"
+too_many_lines = "deny"
+type_complexity = "deny"
+undocumented_unsafe_blocks = "deny"
 unimplemented = "deny"
+unreachable = "deny"
+unused_result_ok = "deny"
+unwrap_used = "deny"
+wildcard_imports = "deny"
+clone_on_ref_ptr = "deny"
+empty_drop = "deny"
+empty_enum_variants_with_brackets = "deny"
+empty_structs_with_brackets = "deny"
+error_impl_error = "deny"
+exit = "deny"
+filetype_is_file = "deny"
+fn_to_numeric_cast_any = "deny"
+get_unwrap = "deny"
+if_then_some_else_none = "deny"
+infinite_loop = "deny"
+iter_over_hash_type = "deny"
+lossy_float_literal = "deny"
+mem_forget = "deny"
+mixed_read_write_in_expression = "deny"
+partial_pub_fields = "deny"
+pathbuf_init_then_push = "deny"
+rc_buffer = "deny"
+rc_mutex = "deny"
+redundant_type_annotations = "deny"
+renamed_function_params = "deny"
+same_name_method = "deny"
+self_named_module_files = "deny"
+string_add = "deny"
+string_lit_chars_any = "deny"
+suspicious_xor_used_as_pow = "deny"
+try_err = "deny"
+unnecessary_safety_comment = "deny"
+unnecessary_safety_doc = "deny"
+unnecessary_self_imports = "deny"
+unneeded_field_pattern = "deny"
+unwrap_in_result = "deny"
+verbose_file_reads = "deny"
+
+[[test]]
+name = "acceptance"
+path = "tests/acceptance.rs"
+harness = false
 
 [lints]
 workspace = true

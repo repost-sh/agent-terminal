@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Metric {
+pub(crate) enum Metric {
     RoundTrip,
     Snapshot,
     Png,
@@ -12,20 +12,20 @@ pub enum Metric {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Unit {
+pub(crate) enum Unit {
     Milliseconds,
     Megabytes,
 }
 
 impl Unit {
-    pub fn symbol(self) -> &'static str {
+    pub(crate) fn symbol(self) -> &'static str {
         match self {
             Unit::Milliseconds => "ms",
             Unit::Megabytes => "MB",
         }
     }
 
-    pub fn tolerance(self) -> Tolerance {
+    pub(crate) fn tolerance(self) -> Tolerance {
         match self {
             Unit::Milliseconds => Tolerance { percent: 25.0, amount: 0.25 },
             Unit::Megabytes => Tolerance { percent: 10.0, amount: 0.25 },
@@ -34,13 +34,13 @@ impl Unit {
 }
 
 #[derive(Clone, Copy)]
-pub struct Tolerance {
+pub(crate) struct Tolerance {
     pub percent: f64,
     pub amount: f64,
 }
 
 impl Metric {
-    pub const ALL: [Metric; 6] = [
+    pub(crate) const ALL: [Metric; 6] = [
         Metric::RoundTrip,
         Metric::Snapshot,
         Metric::Png,
@@ -49,7 +49,7 @@ impl Metric {
         Metric::TabMemory,
     ];
 
-    pub fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Metric::RoundTrip => "CLI round trip (`get frame`)",
             Metric::Snapshot => "`snapshot`",
@@ -60,33 +60,32 @@ impl Metric {
         }
     }
 
-    pub fn unit(self) -> Unit {
+    pub(crate) fn unit(self) -> Unit {
         match self {
             Metric::RoundTrip | Metric::Snapshot | Metric::Png | Metric::PressWaitText => Unit::Milliseconds,
             Metric::IdleMemory | Metric::TabMemory => Unit::Megabytes,
         }
     }
 
-    pub fn target(self) -> Option<Target> {
+    pub(crate) fn target(self) -> Option<Target> {
         match self {
             Metric::RoundTrip => Some(Target::Limit(5.0)),
-            Metric::Snapshot => Some(Target::Limit(10.0)),
+            Metric::Snapshot | Metric::IdleMemory => Some(Target::Limit(10.0)),
             Metric::Png => Some(Target::Limit(40.0)),
             Metric::PressWaitText => None,
-            Metric::IdleMemory => Some(Target::Limit(10.0)),
             Metric::TabMemory => Some(Target::Reference(5.0)),
         }
     }
 }
 
 #[derive(Clone, Copy)]
-pub enum Target {
+pub(crate) enum Target {
     Limit(f64),
     Reference(f64),
 }
 
 impl Target {
-    pub fn value(self) -> f64 {
+    pub(crate) fn value(self) -> f64 {
         match self {
             Target::Limit(value) | Target::Reference(value) => value,
         }
@@ -94,12 +93,12 @@ impl Target {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Results {
+pub(crate) struct Results {
     pub metrics: Vec<Samples>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Samples {
+pub(crate) struct Samples {
     pub metric: Metric,
     pub base: Vec<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

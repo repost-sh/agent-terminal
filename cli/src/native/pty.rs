@@ -1,16 +1,18 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::{Context, Result, anyhow};
 use nix::sys::signal::{Signal as NativeSignal, kill, killpg};
 use nix::unistd::Pid;
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 
+use crate::failure::Failure;
+use crate::native::log;
 use crate::protocol::{Signal, Size};
 
 #[derive(Clone)]
-pub struct Command {
+pub(crate) struct Command {
     pub program: String,
     pub args: Vec<String>,
     pub cwd: PathBuf,
@@ -19,13 +21,13 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn line(&self) -> String {
+    pub(crate) fn line(&self) -> String {
         let typed: Vec<String> = std::iter::once(&self.program).chain(&self.args).cloned().collect();
         crate::output::call_line(&typed)
     }
 }
 
-pub struct Spawned {
+pub(crate) struct Spawned {
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
     pub stopper: Stopper,
@@ -36,23 +38,23 @@ pub struct Spawned {
 }
 
 impl Spawned {
-    pub fn abandon(self) {
+    pub(crate) fn abandon(self) {
         if let Err(e) = self.stopper.signal(NativeSignal::SIGKILL) {
-            eprintln!("stopping a program that could not be set up failed: {e:#}");
+            log::note(format_args!("stopping a program that could not be set up failed: {e:#}"));
         }
         if let Err(e) = (self.wait)() {
-            eprintln!("waiting for a program that could not be set up failed: {e:#}");
+            log::note(format_args!("waiting for a program that could not be set up failed: {e:#}"));
         }
     }
 }
 
 type SharedMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
 
-pub struct Master(SharedMaster);
+pub(crate) struct Master(SharedMaster);
 
 impl Master {
-    pub fn resize(&self, size: Size) -> Result<bool> {
-        let master = self.0.lock().unwrap();
+    pub(crate) fn resize(&self, size: Size) -> Result<bool> {
+        let master = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(master) = master.as_ref() else {
             return Ok(false);
         };
@@ -65,20 +67,20 @@ fn pty_size(size: Size) -> PtySize {
     PtySize { rows: size.rows, cols: size.cols, pixel_width: 0, pixel_height: 0 }
 }
 
-pub trait Signaller: Send + Sync {
+pub(crate) trait Signaller: Send + Sync {
     fn signal(&self, signal: Signal) -> Result<i32>;
 }
 
-pub struct Stopper {
+pub(crate) struct Stopper {
     pid: Option<u32>,
 }
 
 impl Stopper {
-    pub fn hang_up(&self) -> Result<()> {
+    pub(crate) fn hang_up(&self) -> Result<()> {
         self.signal(NativeSignal::SIGHUP)
     }
 
-    pub fn kill(&self) -> Result<()> {
+    pub(crate) fn kill(&self) -> Result<()> {
         self.signal(NativeSignal::SIGKILL)
     }
 
@@ -100,7 +102,7 @@ impl Signaller for ForegroundSignaller {
         let group = self
             .0
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .as_ref()
             .and_then(|master| master.process_group_leader())
             .ok_or_else(|| anyhow!("the terminal has no foreground process to signal"))?;
@@ -122,12 +124,12 @@ fn native(signal: Signal) -> NativeSignal {
     }
 }
 
-pub fn spawn(command: Command) -> Result<Spawned> {
+pub(crate) fn spawn(command: &Command) -> Result<Spawned> {
     if !command.cwd.is_dir() {
         let missing = format!("the working directory {} does not exist", command.cwd.display());
-        return Err(crate::Error::new(crate::exit::ERROR, missing).into());
+        return Err(Failure::new(crate::exit::ERROR, missing).into());
     }
-    let path_var = command.env.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.as_str()).unwrap_or("");
+    let path_var = command.env.iter().find(|(k, _)| k == "PATH").map_or("", |(_, v)| v.as_str());
     let program = resolve(&command.program, &command.cwd, path_var)?;
 
     let pair = native_pty_system().openpty(pty_size(command.size)).context("open a pseudo-terminal")?;
@@ -135,7 +137,7 @@ pub fn spawn(command: Command) -> Result<Spawned> {
     builder.args(&command.args);
     builder.cwd(&command.cwd);
     builder.env_clear();
-    for (key, value) in environment(&command) {
+    for (key, value) in environment(command) {
         builder.env(key, value);
     }
 
@@ -153,19 +155,19 @@ pub fn spawn(command: Command) -> Result<Spawned> {
         signaller: Box::new(ForegroundSignaller(Arc::clone(&master))),
         wait: Box::new(move || {
             let status = child.wait().context("wait for the program to exit");
-            drop(master.lock().unwrap().take());
-            Ok(status?.exit_code() as i32)
+            drop(master.lock().unwrap_or_else(PoisonError::into_inner).take());
+            i32::try_from(status?.exit_code()).context("the program's exit code")
         }),
     })
 }
 
 const EMULATED: [(&str, &str); 2] = [("TERM", "xterm-256color"), ("COLORTERM", "truecolor")];
 
-pub fn inherited(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+pub(crate) fn inherited(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
     vars.into_iter().filter(|(key, _)| !EMULATED.iter().any(|(name, _)| name == key)).collect()
 }
 
-pub fn environment(command: &Command) -> Vec<(String, String)> {
+pub(crate) fn environment(command: &Command) -> Vec<(String, String)> {
     let mut env = command.env.clone();
     for (name, value) in EMULATED {
         if !env.iter().any(|(key, _)| key == name) {
@@ -175,7 +177,7 @@ pub fn environment(command: &Command) -> Vec<(String, String)> {
     env
 }
 
-pub fn check() -> Result<()> {
+pub(crate) fn check() -> Result<()> {
     native_pty_system()
         .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
         .map(drop)
@@ -188,7 +190,7 @@ fn resolve(program: &str, cwd: &Path, path_var: &str) -> Result<PathBuf> {
     } else {
         std::env::split_paths(path_var).map(|dir| dir.join(program)).find(|candidate| is_executable(candidate))
     };
-    found.ok_or_else(|| crate::Error::new(crate::exit::ERROR, format!("command not found: {program}")).into())
+    found.ok_or_else(|| Failure::new(crate::exit::ERROR, format!("command not found: {program}")).into())
 }
 
 fn is_executable(path: &Path) -> bool {

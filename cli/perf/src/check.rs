@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 
 use crate::metrics::{Metric, Results, Target};
 
-pub struct Report {
+pub(crate) struct Report {
     pub text: String,
     pub passed: bool,
 }
@@ -19,6 +19,17 @@ struct Row {
 }
 
 impl Row {
+    fn line(&self) -> String {
+        format!(
+            "| {} | {} | {} | {} | {} |\n",
+            self.metric.label(),
+            self.target(),
+            self.base(),
+            self.amount(self.change),
+            self.verdict()
+        )
+    }
+
     fn over_target(&self) -> Option<Target> {
         self.metric.target().filter(|target| self.change > target.value())
     }
@@ -92,26 +103,20 @@ impl Row {
     }
 }
 
-pub fn check(results: &Results) -> Result<Report> {
+pub(crate) fn check(results: &Results) -> Result<Report> {
     let rows = Metric::ALL.iter().map(|&metric| row(results, metric)).collect::<Result<Vec<_>>>()?;
     let mut text = String::from("| metric | target | base | this change | verdict |\n|---|---|---|---|---|\n");
-    for row in &rows {
-        text.push_str(&format!(
-            "| {} | {} | {} | {} | {} |\n",
-            row.metric.label(),
-            row.target(),
-            row.base(),
-            row.amount(row.change),
-            row.verdict()
-        ));
-    }
+    text.push_str(&rows.iter().map(Row::line).collect::<String>());
     let failures: Vec<String> = rows.iter().flat_map(Row::failures).collect();
     if !failures.is_empty() {
         text.push('\n');
+        text.extend(failures.iter().flat_map(|failure| ["- ", failure.as_str(), "\n"]));
     }
-    for failure in &failures {
-        text.push_str(&format!("- {failure}\n"));
-    }
+    text.push_str(&without_a_base(&rows));
+    Ok(Report { text, passed: failures.is_empty() })
+}
+
+fn without_a_base(rows: &[Row]) -> String {
     let missing: Vec<String> = rows
         .iter()
         .filter_map(|row| match &row.base {
@@ -119,11 +124,10 @@ pub fn check(results: &Results) -> Result<Report> {
             Base::Measured(_) => None,
         })
         .collect();
-    if !missing.is_empty() {
-        text.push_str("\nNo base to compare with, so no regression check:\n");
-        text.push_str(&missing.concat());
+    if missing.is_empty() {
+        return String::new();
     }
-    Ok(Report { text, passed: failures.is_empty() })
+    format!("\nNo base to compare with, so no regression check:\n{}", missing.concat())
 }
 
 fn row(results: &Results, metric: Metric) -> Result<Row> {
@@ -149,9 +153,10 @@ fn median(samples: &[f64]) -> Option<f64> {
     let mut sorted = samples.to_vec();
     sorted.sort_by(f64::total_cmp);
     let middle = sorted.len() / 2;
-    match sorted.len() {
-        0 => None,
-        n if n % 2 == 1 => Some(sorted[middle]),
-        _ => Some((sorted[middle - 1] + sorted[middle]) / 2.0),
+    let upper = *sorted.get(middle)?;
+    if sorted.len() % 2 == 1 {
+        return Some(upper);
     }
+    let lower = *sorted.get(middle.checked_sub(1)?)?;
+    Some(lower.midpoint(upper))
 }

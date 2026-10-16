@@ -1,4 +1,4 @@
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, Call, fixture};
 
 #[test]
 fn batch_runs_commands_in_order_and_prints_each_output_and_exit_code() {
@@ -133,9 +133,16 @@ fn commands_act_on_the_tab_of_the_batch_unless_they_name_their_own() {
 fn the_session_variable_applies_to_the_batch_unless_the_batch_names_a_session() {
     let at = AgentTerminal::new();
     let from_env = [("AGENT_TERMINAL_SESSION", "from-env")];
-    let run = at.run_with(&["batch", "open --size 20x2 cat", "close"], "", &from_env).success();
+    let run =
+        at.run_with(&Call { args: &["batch", "open --size 20x2 cat", "close"], stdin: "", env: &from_env }).success();
     assert!(run.stdout().ends_with("closed from-env t1\n"), "{}", run.stdout());
-    let run = at.run_with(&["--session", "qa", "batch", "open --size 20x2 cat", "close"], "", &from_env).success();
+    let run = at
+        .run_with(&Call {
+            args: &["--session", "qa", "batch", "open --size 20x2 cat", "close"],
+            stdin: "",
+            env: &from_env,
+        })
+        .success();
     assert!(run.stdout().ends_with("closed qa t1\n"), "{}", run.stdout());
 }
 
@@ -143,7 +150,7 @@ fn the_session_variable_applies_to_the_batch_unless_the_batch_names_a_session() 
 fn batch_reads_a_json_array_of_commands_from_stdin() {
     let at = AgentTerminal::new();
     let stdin = r#"[["open", "--size", "20x2", "--wait", "a b", "sh", "-c", "echo \"a b\"; read _"], "close"]"#;
-    let run = at.run_with(&["batch"], stdin, &[]).success();
+    let run = at.run_with(&Call { args: &["batch"], stdin, env: &[] }).success();
     insta::assert_snapshot!(run.screen(), @r#"
     [1] open --size 20x2 --wait 'a b' sh -c 'echo "a b"; read _' · exit 0
     default t1 · sh · 20x2 · cursor 2,1 · frame N
@@ -161,11 +168,11 @@ fn batch_without_commands_says_how_to_pass_them() {
     let needs_commands =
         "error: batch needs commands: pass each one as a quoted argument, or pipe a JSON array to stdin\n";
     for stdin in ["", " \n", "[]"] {
-        let run = at.run_with(&["batch"], stdin, &[]);
+        let run = at.run_with(&Call { args: &["batch"], stdin, env: &[] });
         assert_eq!((run.code(), run.stderr().as_str()), (1, needs_commands), "stdin {stdin:?}");
     }
 
-    let run = at.run_with(&["batch"], "open htop", &[]);
+    let run = at.run_with(&Call { args: &["batch"], stdin: "open htop", env: &[] });
     assert_eq!(run.code(), 1);
     assert!(
         run.stderr().starts_with(
@@ -179,6 +186,13 @@ fn batch_without_commands_says_how_to_pass_them() {
 #[test]
 fn a_command_that_is_not_valid_stops_the_batch_before_anything_runs() {
     let at = AgentTerminal::new();
+    an_unknown_command_stops_the_batch(&at);
+    a_command_that_runs_on_its_own_stops_the_batch(&at);
+    an_unclosed_quote_stops_the_batch(&at);
+    assert_eq!(at.run(&["snapshot"]).code(), 1, "no command of a batch that is not valid may run");
+}
+
+fn an_unknown_command_stops_the_batch(at: &AgentTerminal) {
     let run = at.run(&["batch", "open --size 20x2 cat", "nonsense --flag"]);
     assert_eq!((run.code(), run.stdout().as_str()), (1, ""));
     insta::assert_snapshot!(run.stderr(), @r"
@@ -189,22 +203,24 @@ fn a_command_that_is_not_valid_stops_the_batch_before_anything_runs() {
 
     For more information, try '--help'.
     ");
+}
 
+fn a_command_that_runs_on_its_own_stops_the_batch(at: &AgentTerminal) {
     let run = at.run(&["batch", "open --size 20x2 cat", "version"]);
     assert_eq!((run.code(), run.stdout().as_str()), (1, ""));
     assert_eq!(
         run.stderr(),
         "error: batch command 2 is not valid, so nothing ran: version\nthis command runs on its own, not inside batch\n"
     );
+}
 
+fn an_unclosed_quote_stops_the_batch(at: &AgentTerminal) {
     let run = at.run(&["batch", "open --size 20x2 cat", "open sh -c 'echo"]);
     assert_eq!((run.code(), run.stdout().as_str()), (1, ""));
     assert_eq!(
         run.stderr(),
         "error: batch command 2 is not valid, so nothing ran: open sh -c 'echo\na quote or escape is not closed\n"
     );
-
-    assert_eq!(at.run(&["snapshot"]).code(), 1, "no command of a batch that is not valid may run");
 }
 
 #[test]
@@ -214,13 +230,7 @@ fn json_output_lists_each_command_with_its_exit_code_and_result() {
     assert_eq!(run.code(), 1);
     let entries = run.json();
     assert_eq!(entries.as_array().map(Vec::len), Some(3), "{entries}");
-    assert_eq!(entries[0]["args"], serde_json::json!(["open", "--size", "20x2", "cat"]));
-    assert_eq!(entries[0]["exit_code"], 0);
-    assert_eq!(
-        (entries[0]["result"]["session"].as_str(), entries[0]["result"]["tab"].as_str()),
-        (Some("default"), Some("t1"))
-    );
-    assert_eq!(entries[0]["result"]["lines"], serde_json::json!(["", ""]));
+    the_first_entry_carries_its_args_exit_code_and_result(&entries[0]);
     assert_eq!(
         entries[1],
         serde_json::json!({
@@ -235,6 +245,13 @@ fn json_output_lists_each_command_with_its_exit_code_and_result() {
     assert_eq!(entries[2], serde_json::json!({ "args": ["close"], "exit_code": null }));
 }
 
+fn the_first_entry_carries_its_args_exit_code_and_result(entry: &serde_json::Value) {
+    assert_eq!(entry["args"], serde_json::json!(["open", "--size", "20x2", "cat"]));
+    assert_eq!(entry["exit_code"], 0);
+    assert_eq!((entry["result"]["session"].as_str(), entry["result"]["tab"].as_str()), (Some("default"), Some("t1")));
+    assert_eq!(entry["result"]["lines"], serde_json::json!(["", ""]));
+}
+
 #[test]
 fn batch_runs_any_command_the_daemon_serves() {
     let at = AgentTerminal::new();
@@ -245,7 +262,7 @@ fn batch_runs_any_command_the_daemon_serves() {
         ["close"]
     ])
     .to_string();
-    let out = at.run_with(&["batch"], &stdin, &[]).success().screen();
+    let out = at.run_with(&Call { args: &["batch"], stdin: &stdin, env: &[] }).success().screen();
     let blocks: Vec<&str> = out.split("\n\n").collect();
     assert_eq!(
         blocks[1..],

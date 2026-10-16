@@ -5,9 +5,9 @@ use include_dir::{Dir, File, include_dir};
 
 static WEB_APP: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/assets/dashboard");
 
-pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+pub(super) const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
-pub async fn serve(uri: Uri) -> Response {
+pub(super) async fn serve(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     if path == "api" || path.starts_with("api/") {
         return (StatusCode::NOT_FOUND, "no such dashboard API").into_response();
@@ -16,6 +16,10 @@ pub async fn serve(uri: Uri) -> Response {
         let cache = if path.starts_with("assets/") { IMMUTABLE } else { "no-cache" };
         return send(file, cache);
     }
+    app_route(path)
+}
+
+fn app_route(path: &str) -> Response {
     let names_a_file = path.rsplit('/').next().is_some_and(|last| last.contains('.'));
     match WEB_APP.get_file("index.html") {
         Some(page) if !names_a_file => send(page, "no-cache"),
@@ -25,11 +29,19 @@ pub async fn serve(uri: Uri) -> Response {
 
 fn send(file: &'static File<'static>, cache: &'static str) -> Response {
     let extension = file.path().extension().and_then(|e| e.to_str()).unwrap_or_default();
-    respond(extension, cache, file.contents())
+    Asset { extension, cache, bytes: file.contents() }.into_response()
 }
 
-pub fn respond(extension: &str, cache: &'static str, bytes: &'static [u8]) -> Response {
-    ([(CONTENT_TYPE, content_type(extension)), (CACHE_CONTROL, cache)], bytes).into_response()
+pub(super) struct Asset {
+    pub extension: &'static str,
+    pub cache: &'static str,
+    pub bytes: &'static [u8],
+}
+
+impl IntoResponse for Asset {
+    fn into_response(self) -> Response {
+        ([(CONTENT_TYPE, content_type(self.extension)), (CACHE_CONTROL, self.cache)], self.bytes).into_response()
+    }
 }
 
 fn content_type(extension: &str) -> &'static str {

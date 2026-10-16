@@ -1,4 +1,6 @@
-use crate::support::{AgentTerminal, fixture};
+use std::process::Stdio;
+
+use crate::support::{AgentTerminal, Run, fixture};
 
 #[test]
 fn snapshot_rows_shows_only_that_range() {
@@ -24,6 +26,20 @@ fn snapshot_rows_shows_only_that_range() {
     let json = at.run(&["--json", "snapshot", "--rows", "2:3"]).success().json();
     assert_eq!(json["first_row"], 2);
     assert_eq!(json["lines"], serde_json::json!(["line 2", "line 3"]));
+}
+
+#[test]
+fn snapshot_into_a_pipe_its_reader_closed_ends_cleanly() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "40x10", "--wait", "line 5", &fixture("line-printer"), "--lines", "5", "--hold"])
+        .success();
+    let (reader, writer) = std::io::pipe().expect("a pipe");
+    drop(reader);
+    let snapshot =
+        at.command(&["snapshot"]).stdout(writer).stderr(Stdio::piped()).output().expect("run agent-terminal");
+    let run = Run(snapshot);
+    assert_eq!(run.code(), 0, "stderr:\n{}", run.stderr());
+    assert_eq!(run.stderr(), "");
 }
 
 #[test]

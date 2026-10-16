@@ -1,4 +1,4 @@
-export type TabInfo = {
+export interface TabInfo {
   tab: string;
   program: string;
   command: string;
@@ -8,19 +8,19 @@ export type TabInfo = {
   exited: boolean;
   exit_code: number | null;
   control: "agent" | "human";
-};
+}
 
-export type SessionInfo = {
+export interface SessionInfo {
   session: string;
   current: string | null;
   tabs: TabInfo[];
-};
+}
 
-export type Sessions = {
+export interface Sessions {
   sessions: SessionInfo[];
-};
+}
 
-export type FrameUpdate = {
+export interface FrameUpdate {
   type: "frame";
   frame: number;
   cols: number;
@@ -31,16 +31,16 @@ export type FrameUpdate = {
   bracketed_paste: boolean;
   exited: boolean;
   exit_code: number | null;
-};
+}
 
 export type StreamUpdate = FrameUpdate | { type: "closed" };
 
-export type ErrorBody = {
+export interface ErrorBody {
   code: number;
   message: string;
-};
+}
 
-export type ActivityEntry = {
+export interface ActivityEntry {
   time: string;
   tab?: string;
   command: string;
@@ -51,11 +51,11 @@ export type ActivityEntry = {
   output: string;
   screenshots?: string[];
   human?: HumanInput;
-};
+}
 
 export type HumanInput = { typed: string } | { pressed: string } | { pasted: string };
 
-export type PendingCall = { time: string; tab?: string; command: string };
+export interface PendingCall { time: string; tab?: string; command: string }
 
 export type ActivityUpdate = { type: "entries"; entries: ActivityEntry[]; pending: PendingCall[] } | { type: "closed" };
 
@@ -65,7 +65,7 @@ export type ControlUpdate =
   | { type: "agent-refused"; command: string }
   | { type: "closed" };
 
-export type CommandRecord = {
+export interface CommandRecord {
   id: number;
   command: string;
   cwd: string;
@@ -75,21 +75,21 @@ export type CommandRecord = {
   exit_code: number | null;
   first_frame: number;
   last_frame: number | null;
-};
+}
 
-export type CommandsUpdate = {
+export interface CommandsUpdate {
   type: "commands";
   shell: boolean;
   integration: boolean;
   home: string | null;
   commands: CommandRecord[];
-};
+}
 
 export type CommandsStreamUpdate = CommandsUpdate | { type: "closed" };
 
 export type CommandOutput = CommandRecord & { session: string; tab: string; output: string };
 
-export type Screenshot = {
+export interface Screenshot {
   time: string;
   tab: string;
   frame: number;
@@ -100,10 +100,10 @@ export type Screenshot = {
   scale: number;
   cols: number;
   rows: { first: number; last: number };
-};
+}
 
 export type ScreenshotsUpdate = { type: "screenshots"; screenshots: Screenshot[] } | { type: "closed" };
 
-export type CellBox = { x: number; y: number; width: number; height: number };
+export interface CellBox { x: number; y: number; width: number; height: number }
 
-export type Compared = { changed: number | null; boxes: CellBox[] };
+export interface Compared { changed: number | null; boxes: CellBox[] }

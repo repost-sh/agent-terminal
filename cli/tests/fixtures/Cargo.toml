@@ -11,5 +11,8 @@ ratatui = "0.30"
 signal-hook = "0.3"
 unicode-width = "0.2"
 
+[dev-dependencies]
+proptest = { version = "1.12", default-features = false, features = ["std"] }
+
 [lints]
 workspace = true

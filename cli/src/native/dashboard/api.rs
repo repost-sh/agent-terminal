@@ -1,93 +1,114 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
+use serde_json::Value;
+use tokio::sync::watch;
+
+use super::stream::{LastSent, hung_up};
 use super::{Backend, tab_id};
+use crate::native::log;
+use crate::protocol::request;
 use crate::protocol::{ErrorBody, Request, Sessions, Shot, Target, Wait};
 
 const RESTART_SETTLES_AFTER_MS: u64 = 300;
 const RESTART_TIMEOUT_MS: u64 = 25_000;
 
-pub async fn sessions(State(backend): State<Arc<dyn Backend>>) -> Json<Sessions> {
+pub(super) async fn sessions(State(backend): State<Arc<dyn Backend>>) -> Json<Sessions> {
     Json(backend.sessions())
 }
 
-pub async fn sessions_stream(ws: WebSocketUpgrade, State(backend): State<Arc<dyn Backend>>) -> Response {
+pub(super) async fn sessions_stream(ws: WebSocketUpgrade, State(backend): State<Arc<dyn Backend>>) -> Response {
     ws.on_upgrade(move |socket| follow_sessions(socket, backend))
 }
 
 async fn follow_sessions(mut socket: WebSocket, backend: Arc<dyn Backend>) {
-    let mut changes = backend.changes();
-    let mut sent = String::new();
+    let mut lifecycle = backend.changes();
+    let mut sent = LastSent::default();
     loop {
-        changes.borrow_and_update();
-        let listed = match serde_json::to_string(&backend.sessions()) {
-            Ok(listed) => listed,
-            Err(e) => {
-                eprintln!("dashboard: encoding the session list failed: {e}");
-                return;
-            }
+        lifecycle.borrow_and_update();
+        let Some(listed) = encoded_sessions(backend.as_ref()) else {
+            return;
         };
-        if listed != sent {
-            if socket.send(Message::text(listed.clone())).await.is_err() {
-                return;
-            }
-            sent = listed;
+        if !sent.send(&mut socket, listed).await {
+            return;
         }
-        tokio::select! {
-            changed = changes.changed() => if changed.is_err() { return },
-            received = socket.recv() => if super::stream::hung_up(received) { return },
+        if !still_open(&mut lifecycle, &mut socket).await {
+            return;
         }
     }
 }
 
-pub async fn restart(
+async fn still_open(lifecycle: &mut watch::Receiver<u64>, socket: &mut WebSocket) -> bool {
+    tokio::select! {
+        changed = lifecycle.changed() => changed.is_ok(),
+        received = socket.recv() => !hung_up(received.as_ref()),
+    }
+}
+
+fn encoded_sessions(backend: &dyn Backend) -> Option<String> {
+    serde_json::to_string(&backend.sessions())
+        .inspect_err(|e| log::note(format_args!("dashboard: encoding the session list failed: {e}")))
+        .ok()
+}
+
+pub(super) async fn restart(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
     let wait = Wait::Stable { quiet_ms: RESTART_SETTLES_AFTER_MS };
-    call(backend, Request::Restart { target: Target::tab(&session, id), wait, timeout_ms: RESTART_TIMEOUT_MS }).await
+    call(
+        backend,
+        Request::Restart(request::Restart { target: Target::tab(&session, id), wait, timeout_ms: RESTART_TIMEOUT_MS }),
+    )
+    .await
 }
 
-pub async fn close(State(backend): State<Arc<dyn Backend>>, Path((session, tab)): Path<(String, String)>) -> Response {
-    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Close { target: Target::tab(&session, id), all: false }).await
-}
-
-pub async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
-    call(backend, Request::Close { target: Target { session: String::new(), tab: None }, all: true }).await
-}
-
-pub async fn screenshot(
+pub(super) async fn close(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab)): Path<(String, String)>,
 ) -> Response {
     let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Screenshot { target: Target::tab(&session, id), shot: Shot::default() }).await
+    call(backend, Request::Close(request::Close { target: Target::tab(&session, id), all: false })).await
 }
 
-pub async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
-    let asked = serde_json::to_value(&request).map_or_else(|e| e.to_string(), |asked| asked["command"].to_string());
+pub(super) async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
+    call(backend, Request::Close(request::Close { target: Target { session: String::new(), tab: None }, all: true }))
+        .await
+}
+
+pub(super) async fn screenshot(
+    State(backend): State<Arc<dyn Backend>>,
+    Path((session, tab)): Path<(String, String)>,
+) -> Response {
+    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
+    call(backend, Request::Screenshot(request::Screenshot { target: Target::tab(&session, id), shot: Shot::default() }))
+        .await
+}
+
+pub(super) async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
+    let asked = serde_json::to_value(&request)
+        .map_or_else(|e| e.to_string(), |asked| asked.get("command").unwrap_or(&Value::Null).to_string());
     match tokio::task::spawn_blocking(move || backend.call(request)).await {
         Ok(Ok(reply)) => Json(reply).into_response(),
         Ok(Err(error)) => {
-            eprintln!("dashboard: {asked} from the dashboard failed: {}", error.message);
-            refusal(error)
+            log::note(format_args!("dashboard: {asked} from the dashboard failed: {}", error.message));
+            refusal(&error)
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("the daemon call failed: {e}")).into_response(),
     }
 }
 
-pub fn refused(message: String) -> Response {
-    refusal(ErrorBody::failure(message))
+pub(super) fn refused(message: String) -> Response {
+    refusal(&ErrorBody::failure(message))
 }
 
-fn refusal(error: ErrorBody) -> Response {
+fn refusal(error: &ErrorBody) -> Response {
     (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({ "error": error }))).into_response()
 }
 

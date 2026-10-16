@@ -1,14 +1,11 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use super::follow::{Event, Follow, Wake};
-use super::{Backend, tab_id};
-use crate::native::terminal::{Glance, Picture};
-use crate::protocol::TabId;
+use super::route::TabRoute;
+use crate::native::log;
+use crate::native::terminal::{Glance, Picture, Terminal};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
@@ -43,56 +40,64 @@ impl Shown {
     }
 }
 
-pub async fn tab(
-    ws: WebSocketUpgrade,
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    match tab_id(&tab) {
-        Some(id) => ws.on_upgrade(move |socket| follow_tab(socket, backend, session, id)),
-        None => (StatusCode::NOT_FOUND, format!("{tab} is not a tab id; tabs are t1, t2, ...")).into_response(),
+pub(super) async fn tab(ws: WebSocketUpgrade, route: TabRoute) -> Response {
+    ws.on_upgrade(move |socket| follow_tab(socket, route))
+}
+
+#[derive(Default)]
+struct Pace {
+    in_flight: usize,
+    last_sent: Option<Instant>,
+    shown: Option<Shown>,
+}
+
+impl Pace {
+    fn wake(&self, terminal: &Terminal) -> Option<Wake> {
+        if self.in_flight >= WINDOW {
+            return Some(Wake::OnMessage);
+        }
+        if self.shown.as_ref().is_some_and(|shown| shown.glance == terminal.glance()) {
+            return Some(Wake::OnChange);
+        }
+        self.last_sent.map(|sent| sent + INTERVAL).filter(|due| *due > Instant::now()).map(Wake::At)
+    }
+
+    async fn show(&mut self, socket: &mut WebSocket, terminal: &Terminal) -> Event {
+        let picture = terminal.picture();
+        if !send(socket, &update(&picture, self.shown.as_ref())).await {
+            return Event::HungUp;
+        }
+        self.shown = Some(Shown::of(picture));
+        self.in_flight += 1;
+        self.last_sent = Some(Instant::now());
+        Event::Woke
+    }
+
+    fn received(&mut self, text: &str) {
+        if acknowledges(text) {
+            self.in_flight = self.in_flight.saturating_sub(1);
+        }
     }
 }
 
-async fn follow_tab(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
-    let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.frames()));
-    let mut in_flight = 0usize;
-    let mut last_sent: Option<Instant> = None;
-    let mut shown: Option<Shown> = None;
+async fn follow_tab(mut socket: WebSocket, route: TabRoute) {
+    let mut follow = Follow::tab(&route).signal(|terminal| Some(terminal.frames()));
+    let mut pace = Pace::default();
     loop {
         let Some((terminal, replaced)) = follow.next() else {
             send(&mut socket, &Update::Closed).await;
             return;
         };
         if replaced {
-            shown = None;
+            pace.shown = None;
         }
-        let wake = if in_flight >= WINDOW {
-            Wake::OnMessage
-        } else if shown.as_ref().is_some_and(|shown| shown.glance == terminal.glance()) {
-            Wake::OnChange
-        } else {
-            match last_sent.map(|sent| sent + INTERVAL).filter(|due| *due > Instant::now()) {
-                Some(due) => Wake::At(due),
-                None => {
-                    let picture = terminal.picture();
-                    if !send(&mut socket, &update(&picture, shown.as_ref())).await {
-                        return;
-                    }
-                    shown = Some(Shown::of(picture));
-                    in_flight += 1;
-                    last_sent = Some(Instant::now());
-                    continue;
-                }
-            }
+        let event = match pace.wake(&terminal) {
+            Some(wake) => follow.event(&mut socket, wake).await,
+            None => pace.show(&mut socket, &terminal).await,
         };
-        match follow.event(&mut socket, wake).await {
+        match event {
             Event::Woke => {}
-            Event::Received(text) => {
-                if acknowledges(&text) {
-                    in_flight = in_flight.saturating_sub(1);
-                }
-            }
+            Event::Received(text) => pace.received(&text),
             Event::HungUp => return,
         }
     }
@@ -105,7 +110,7 @@ struct Received<'a> {
 }
 
 fn acknowledges(text: &str) -> bool {
-    serde_json::from_str::<Received>(text).is_ok_and(|received| received.kind == "shown")
+    serde_json::from_str::<Received<'_>>(text).is_ok_and(|received| received.kind == "shown")
 }
 
 fn update(picture: &Picture, shown: Option<&Shown>) -> Update {
@@ -118,8 +123,8 @@ fn update(picture: &Picture, shown: Option<&Shown>) -> Update {
         alt_screen: glance.alt_screen,
         mouse: glance.mouse,
         bracketed_paste: glance.bracketed_paste,
-        exited: glance.exit.is_some(),
-        exit_code: glance.exit.flatten(),
+        exited: glance.status.exited(),
+        exit_code: glance.status.code(),
     }
 }
 
@@ -127,16 +132,32 @@ fn paint(picture: &Picture, shown: Option<&Shown>) -> String {
     picture.paint(shown.filter(|shown| shown.glance.size == picture.glance.size).map(|shown| shown.rows.as_slice()))
 }
 
-pub async fn send(socket: &mut WebSocket, update: &impl Serialize) -> bool {
+pub(super) async fn send(socket: &mut WebSocket, update: &impl Serialize) -> bool {
     match serde_json::to_string(update) {
         Ok(text) => socket.send(Message::text(text)).await.is_ok(),
         Err(e) => {
-            eprintln!("dashboard: encoding an update failed: {e}");
+            log::note(format_args!("dashboard: encoding an update failed: {e}"));
             false
         }
     }
 }
 
-pub fn hung_up(received: Option<Result<Message, axum::Error>>) -> bool {
-    matches!(received, None | Some(Err(_)) | Some(Ok(Message::Close(_))))
+#[derive(Default)]
+pub(super) struct LastSent(String);
+
+impl LastSent {
+    pub(super) async fn send(&mut self, socket: &mut WebSocket, update: String) -> bool {
+        if update == self.0 {
+            return true;
+        }
+        if socket.send(Message::text(update.clone())).await.is_err() {
+            return false;
+        }
+        self.0 = update;
+        true
+    }
+}
+
+pub(super) fn hung_up(received: Option<&Result<Message, axum::Error>>) -> bool {
+    matches!(received, None | Some(Err(_) | Ok(Message::Close(_))))
 }

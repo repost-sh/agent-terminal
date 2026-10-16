@@ -24,6 +24,18 @@ fn open_output(browser: &Browser) {
 fn output_shows_the_text_stream_with_marks_as_dividers_escapes_on_raw_and_search_with_a_count() {
     let at = AgentTerminal::new();
     let cue = Cue::new();
+    print_lines_a_mark_and_a_red_alert(&at, &cue);
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    open_output(&browser);
+
+    the_stream_shows_the_text_in_colour_with_the_mark_between(&at, &browser);
+    new_output_joins_the_stream(&browser, &cue);
+    search_counts_and_highlights_matches(&browser);
+    raw_shows_the_escapes(&browser);
+}
+
+fn print_lines_a_mark_and_a_red_alert(at: &AgentTerminal, cue: &Cue) {
     at.run(&[
         "open",
         "--size",
@@ -40,12 +52,11 @@ fn output_shows_the_text_stream_with_marks_as_dividers_escapes_on_raw_and_search
     cue.print("");
     at.run(&["mark", "before-alert"]).success();
     cue.print("\x1b[31mred alert\x1b[0m\n");
-    let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
-    open_output(&browser);
+}
 
-    wait_for_output(&browser, "red alert");
-    assert_eq!(stream(&browser), ["line 1", "line 2", "mark: before-alert", "red alert"]);
+fn the_stream_shows_the_text_in_colour_with_the_mark_between(at: &AgentTerminal, browser: &Browser) {
+    wait_for_output(browser, "red alert");
+    assert_eq!(stream(browser), ["line 1", "line 2", "mark: before-alert", "red alert"]);
     assert_eq!(at.run(&["output"]).success().stdout(), "line 1\nline 2\nred alert\n");
     assert_eq!(
         browser.eval(&format!(
@@ -58,15 +69,21 @@ fn output_shows_the_text_stream_with_marks_as_dividers_escapes_on_raw_and_search
         browser.eval("document.querySelector('[role=separator][aria-label=\"mark before-alert\"]') !== null"),
         "true"
     );
+}
 
+fn new_output_joins_the_stream(browser: &Browser, cue: &Cue) {
     cue.print("alert again\n");
-    wait_for_output(&browser, "alert again");
-    assert_eq!(stream(&browser), ["line 1", "line 2", "mark: before-alert", "red alert", "alert again"]);
+    wait_for_output(browser, "alert again");
+    assert_eq!(stream(browser), ["line 1", "line 2", "mark: before-alert", "red alert", "alert again"]);
+}
 
+fn search_counts_and_highlights_matches(browser: &Browser) {
     browser.run(&["fill", "input[placeholder='Search']", "alert"]);
     browser.wait_for_text("2 matches");
     assert_eq!(browser.eval(&format!("document.querySelectorAll({} + ' mark').length", js_string(STREAM))), "2");
+}
 
+fn raw_shows_the_escapes(browser: &Browser) {
     browser.click_button("Raw");
     browser.wait_until("document.querySelector('#ppanel-output button[aria-pressed]').ariaPressed === 'true'");
     browser.run(&["fill", "input[placeholder='Search']", "␛[6n"]);
@@ -74,18 +91,7 @@ fn output_shows_the_text_stream_with_marks_as_dividers_escapes_on_raw_and_search
     browser.run(&["fill", "input[placeholder='Search']", " "]);
     browser.wait_until("!document.querySelector('#ppanel-output [role=status]')?.textContent.includes('match')");
     assert_eq!(
-        stream(&browser),
+        stream(browser),
         ["line 1␍␊", "line 2␍␊", "␛[6n", "mark: before-alert", "␛[31mred alert␛[0m␍␊", "␛[6nalert again␍␊", "␛[6n",]
     );
-}
-
-#[test]
-fn output_of_a_tab_that_printed_nothing_says_so() {
-    let at = AgentTerminal::new();
-    at.run(&["open", "--size", "40x6", &fixture("line-printer"), "--lines", "0", "--hold"]).success();
-    let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
-    open_output(&browser);
-
-    browser.wait_for_text("No output yet");
 }

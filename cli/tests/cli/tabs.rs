@@ -92,6 +92,10 @@ fn a_tab_that_does_not_exist_is_an_error() {
     assert_eq!(switch.code(), 1);
     assert_eq!(switch.stderr(), "error: no tab t9 in session default; list tabs with `agent-terminal tab`\n");
 
+    a_tab_of_another_session_or_a_malformed_id_is_an_error(&at);
+}
+
+fn a_tab_of_another_session_or_a_malformed_id_is_an_error(at: &AgentTerminal) {
     let other_session = at.run(&["--session", "other", "--tab", "t1", "snapshot"]);
     assert_eq!(other_session.code(), 1);
     assert_eq!(other_session.stderr(), "error: no tab t1 in session other; list tabs with `agent-terminal tab`\n");
@@ -112,6 +116,10 @@ fn reading_commands_reach_a_tab_other_than_the_current_one() {
     assert_eq!(at.run(&["--tab", "t1", "get", "size"]).success().stdout(), "20x2\n");
     assert_eq!(at.run(&["--tab", "t1", "find", "line 2"]).code(), 1);
     assert_eq!(at.run(&["find", "line 2"]).success().stdout(), "2,1 line 2\n");
+    marks_and_diffs_reach_a_tab_other_than_the_current_one(&at);
+}
+
+fn marks_and_diffs_reach_a_tab_other_than_the_current_one(at: &AgentTerminal) {
     at.run(&["--tab", "t1", "mark", "before"]).success();
     assert_eq!(at.run(&["--tab", "t1", "output", "--since", "before"]).success().stdout(), "");
     assert_eq!(at.run(&["output", "--since", "before"]).code(), 1);
@@ -147,7 +155,10 @@ fn tab_close_closes_a_tab_by_id_or_the_current_one() {
         "default t2 · line-printer · 20x3 · running\n\
          default t3 · line-printer · 20x2 · running · current\n"
     );
+    closing_without_an_id_closes_the_current_tab(&at);
+}
 
+fn closing_without_an_id_closes_the_current_tab(at: &AgentTerminal) {
     assert_eq!(at.run(&["tab", "close"]).success().stdout(), "closed default t3\n");
     assert_eq!(at.run(&["tab"]).success().stdout(), "default t2 · line-printer · 20x3 · running · current\n");
 

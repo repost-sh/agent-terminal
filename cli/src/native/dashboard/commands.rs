@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use super::follow::Follow;
+use super::route::{TabRoute, not_a_tab};
 use super::stream::send;
 use super::{Backend, tab_id};
-use crate::protocol::{CommandOutput, CommandRecord, Shell, TabId};
+use crate::protocol::{CommandOutput, CommandRecord, Shell};
 use axum::Json;
 use axum::extract::ws::{WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
@@ -18,19 +19,12 @@ enum Update {
     Closed,
 }
 
-pub async fn stream(
-    ws: WebSocketUpgrade,
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    match tab_id(&tab) {
-        Some(id) => ws.on_upgrade(move |socket| follow_commands(socket, backend, session, id)),
-        None => not_a_tab(&tab),
-    }
+pub(super) async fn stream(ws: WebSocketUpgrade, route: TabRoute) -> Response {
+    ws.on_upgrade(move |socket| follow_commands(socket, route))
 }
 
-async fn follow_commands(mut socket: WebSocket, backend: Arc<dyn Backend>, session: String, id: TabId) {
-    let mut follow = Follow::tab(&backend, session, id, |terminal| Some(terminal.history_changes()));
+async fn follow_commands(mut socket: WebSocket, route: TabRoute) {
+    let mut follow = Follow::tab(&route).signal(|terminal| Some(terminal.history_changes()));
     let home = std::env::var("HOME").ok();
     loop {
         let Some((terminal, _)) = follow.next() else {
@@ -39,7 +33,7 @@ async fn follow_commands(mut socket: WebSocket, backend: Arc<dyn Backend>, sessi
         };
         let integration = terminal.shell().is_some();
         let update = Update::Commands {
-            shell: integration || Shell::of_program(&terminal.program).is_some(),
+            shell: integration || Shell::of_program(terminal.program()).is_some(),
             integration,
             home: home.clone(),
             commands: terminal.commands().unwrap_or_default(),
@@ -50,7 +44,7 @@ async fn follow_commands(mut socket: WebSocket, backend: Arc<dyn Backend>, sessi
     }
 }
 
-pub async fn output(
+pub(super) async fn output(
     State(backend): State<Arc<dyn Backend>>,
     Path((session, tab, id)): Path<(String, String, u32)>,
 ) -> Response {
@@ -62,8 +56,4 @@ pub async fn output(
         Some((record, output)) => Json(CommandOutput { session, tab, record, output, check: false }).into_response(),
         None => (StatusCode::NOT_FOUND, format!("no command {id} in {session} {tab}")).into_response(),
     }
-}
-
-fn not_a_tab(tab: &str) -> Response {
-    (StatusCode::NOT_FOUND, format!("{tab} is not a tab id; tabs are t1, t2, ...")).into_response()
 }

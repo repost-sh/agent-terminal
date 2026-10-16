@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 #[derive(Clone)]
-pub struct Changes(Arc<watch::Sender<u64>>);
+pub(crate) struct Changes(Arc<watch::Sender<u64>>);
 
 impl Default for Changes {
     fn default() -> Self {
@@ -12,11 +12,11 @@ impl Default for Changes {
 }
 
 impl Changes {
-    pub fn notify(&self) {
+    pub(crate) fn notify(&self) {
         self.0.send_modify(|count| *count = count.wrapping_add(1));
     }
 
-    pub fn subscribe(&self) -> watch::Receiver<u64> {
+    pub(crate) fn subscribe(&self) -> watch::Receiver<u64> {
         self.0.subscribe()
     }
 }

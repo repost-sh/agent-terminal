@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::support::AgentTerminal;
 
-pub fn snapshot_rows(at: &AgentTerminal, args: &[&str]) -> (Vec<String>, u64) {
+pub(crate) fn snapshot_rows(at: &AgentTerminal, args: &[&str]) -> (Vec<String>, u64) {
     let mut call = vec!["--json"];
     call.extend_from_slice(args);
     call.push("snapshot");
@@ -37,32 +37,32 @@ pub fn snapshot_rows(at: &AgentTerminal, args: &[&str]) -> (Vec<String>, u64) {
     (rows, snapshot["frame"].as_u64().expect("the frame number"))
 }
 
-pub struct Dashboard {
+pub(crate) struct Dashboard {
     pub port: u16,
 }
 
 impl Dashboard {
-    pub fn start(at: &AgentTerminal) -> Self {
+    pub(crate) fn start(at: &AgentTerminal) -> Self {
         Self { port: crate::support::dashboard(at) }
     }
 
-    pub fn url(&self, path: &str) -> String {
+    pub(crate) fn url(&self, path: &str) -> String {
         format!("http://localhost:{}{path}", self.port)
     }
 
-    pub fn stream(&self, tab: &str) -> String {
+    pub(crate) fn stream(&self, tab: &str) -> String {
         format!("ws://localhost:{}/api/session/{tab}/stream", self.port)
     }
 }
 
-pub struct Browser {
+pub(crate) struct Browser {
     session: String,
 }
 
 static OPENED: AtomicUsize = AtomicUsize::new(0);
 
 impl Browser {
-    pub fn open(url: &str) -> Self {
+    pub(crate) fn open(url: &str) -> Self {
         let n = OPENED.fetch_add(1, Ordering::SeqCst);
         let browser = Self { session: format!("at-test-{}-{n}", std::process::id()) };
         browser.run(&["set", "viewport", "1440", "900"]);
@@ -81,7 +81,7 @@ impl Browser {
     }
 
     #[track_caller]
-    pub fn run(&self, args: &[&str]) -> String {
+    pub(crate) fn run(&self, args: &[&str]) -> String {
         let output = self.command(args);
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
         assert!(
@@ -94,17 +94,17 @@ impl Browser {
     }
 
     #[track_caller]
-    pub fn wait_for_text(&self, text: &str) {
+    pub(crate) fn wait_for_text(&self, text: &str) {
         self.run(&["wait", "--text", text]);
     }
 
     #[track_caller]
-    pub fn wait_until(&self, condition: &str) {
+    pub(crate) fn wait_until(&self, condition: &str) {
         self.run(&["wait", "--fn", condition]);
     }
 
     #[track_caller]
-    pub fn wait_for_announcement(&self, text: &str) {
+    pub(crate) fn wait_for_announcement(&self, text: &str) {
         self.wait_until(&format!(
             "document.querySelector('.sr-only[aria-live=polite]')?.textContent === {}",
             js_string(text)
@@ -112,12 +112,12 @@ impl Browser {
     }
 
     #[track_caller]
-    pub fn wait_for_screen(&self, text: &str) {
+    pub(crate) fn wait_for_screen(&self, text: &str) {
         self.wait_for_screen_in("main", text);
     }
 
     #[track_caller]
-    pub fn wait_for_screen_in(&self, scope: &str, text: &str) {
+    pub(crate) fn wait_for_screen_in(&self, scope: &str, text: &str) {
         self.wait_until(&format!(
             "document.querySelector({})?.textContent.includes({})",
             js_string(&format!("{scope} [aria-label=\"Screen\"]")),
@@ -126,27 +126,27 @@ impl Browser {
     }
 
     #[track_caller]
-    pub fn wait_for_status(&self, chip: &str) {
+    pub(crate) fn wait_for_status(&self, chip: &str) {
         self.wait_until(&format!(
             "document.getElementById('status-region')?.innerText.split('\\n').map((part) => part.trim()).includes({})",
             js_string(chip)
         ));
     }
 
-    pub fn text(&self, selector: &str) -> String {
+    pub(crate) fn text(&self, selector: &str) -> String {
         self.run(&["get", "text", selector])
     }
 
-    pub fn snapshot(&self, selector: &str) -> String {
+    pub(crate) fn snapshot(&self, selector: &str) -> String {
         self.run(&["snapshot", "-s", selector])
     }
 
-    pub fn eval(&self, script: &str) -> String {
+    pub(crate) fn eval(&self, script: &str) -> String {
         self.run(&["eval", script]).trim().to_string()
     }
 
     #[track_caller]
-    pub fn select_panel(&self, name: &str) {
+    pub(crate) fn select_panel(&self, name: &str) {
         let tab = format!(
             "[...document.querySelectorAll('[role=tab]')].find((tab) => tab.textContent === {})",
             js_string(name)
@@ -156,17 +156,17 @@ impl Browser {
         self.wait_until(&format!("{tab}.ariaSelected === 'true'"));
     }
 
-    pub fn eval_json<T: serde::de::DeserializeOwned>(&self, script: &str) -> T {
+    pub(crate) fn eval_json<T: serde::de::DeserializeOwned>(&self, script: &str) -> T {
         let value = self.eval(script);
         serde_json::from_str(&value).unwrap_or_else(|e| panic!("{script} gave {value}, not the JSON expected: {e}"))
     }
 
-    pub fn click_button(&self, name: &str) {
+    pub(crate) fn click_button(&self, name: &str) {
         self.run(&["find", "role", "button", "click", "--name", name, "--exact"]);
     }
 
     #[track_caller]
-    pub fn click_button_in(&self, scope: &str, name: &str) {
+    pub(crate) fn click_button_in(&self, scope: &str, name: &str) {
         let listed = self.run(&["snapshot", "-i", "-s", scope]);
         let button = format!("button {}", js_string(name));
         let reference = listed
@@ -179,19 +179,19 @@ impl Browser {
         self.run(&["click", &format!("@{reference}")]);
     }
 
-    pub fn fill(&self, label: &str, text: &str) {
+    pub(crate) fn fill(&self, label: &str, text: &str) {
         self.run(&["find", "label", label, "fill", text, "--exact"]);
     }
 
-    pub fn check(&self, label: &str) {
+    pub(crate) fn check(&self, label: &str) {
         self.run(&["find", "label", label, "check", "--exact"]);
     }
 
-    pub fn screen(&self) -> Vec<String> {
+    pub(crate) fn screen(&self) -> Vec<String> {
         self.screen_in("main")
     }
 
-    pub fn screen_in(&self, scope: &str) -> Vec<String> {
+    pub(crate) fn screen_in(&self, scope: &str) -> Vec<String> {
         let mut rows: Vec<String> = self.eval_json(&format!(
             "Array.from(document.querySelectorAll({})).map((row) => row.textContent)",
             js_string(&format!("{scope} [aria-label=\"Screen\"] > *"))
@@ -204,7 +204,7 @@ impl Browser {
         rows
     }
 
-    pub fn status(&self) -> Vec<String> {
+    pub(crate) fn status(&self) -> Vec<String> {
         self.text("#status-region")
             .lines()
             .map(|part| part.trim().to_string())
@@ -219,6 +219,6 @@ impl Drop for Browser {
     }
 }
 
-pub fn js_string(text: &str) -> String {
+pub(crate) fn js_string(text: &str) -> String {
     serde_json::to_string(text).expect("a JSON string")
 }

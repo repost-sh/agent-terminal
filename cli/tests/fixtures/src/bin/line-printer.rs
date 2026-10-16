@@ -1,67 +1,93 @@
+use std::error::Error;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::str::FromStr;
 use std::time::Duration;
 
-fn main() {
-    let mut lines = 3u32;
-    let mut delay_ms = 0u64;
-    let mut exit_code = 0i32;
-    let mut hold = false;
-    let mut cue: Option<PathBuf> = None;
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--lines" => lines = args.next().and_then(|v| v.parse().ok()).expect("--lines N"),
-            "--delay-ms" => delay_ms = args.next().and_then(|v| v.parse().ok()).expect("--delay-ms MS"),
-            "--exit" => exit_code = args.next().and_then(|v| v.parse().ok()).expect("--exit CODE"),
-            "--hold" => hold = true,
-            "--cue" => cue = Some(args.next().expect("--cue SOCKET").into()),
-            other => panic!("unknown argument: {other}"),
-        }
-    }
-    let mut out = std::io::stdout();
-    for i in 1..=lines {
-        writeln!(out, "line {i}").unwrap();
-        out.flush().unwrap();
-        if delay_ms > 0 {
-            std::thread::sleep(Duration::from_millis(delay_ms));
-        }
-    }
-    if let Some(path) = cue {
-        print_cues(&path);
-    }
-    if hold {
-        let _ = std::io::stdin().read(&mut [0u8; 1]);
-    }
-    std::process::exit(exit_code);
+struct Options {
+    lines: u32,
+    delay_ms: u64,
+    exit_code: u8,
+    hold: bool,
+    cue: Option<PathBuf>,
 }
 
-fn print_cues(path: &Path) {
-    let mut test = UnixStream::connect(path).expect("connect to the test's cue");
+impl Options {
+    fn parse(mut args: impl Iterator<Item = String>) -> Result<Self, String> {
+        let mut options = Options { lines: 3, delay_ms: 0, exit_code: 0, hold: false, cue: None };
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--lines" => options.lines = number(args.next(), "--lines N")?,
+                "--delay-ms" => options.delay_ms = number(args.next(), "--delay-ms MS")?,
+                "--exit" => options.exit_code = number(args.next(), "--exit CODE")?,
+                "--hold" => options.hold = true,
+                "--cue" => options.cue = Some(args.next().ok_or("--cue SOCKET")?.into()),
+                other => return Err(format!("unknown argument: {other}")),
+            }
+        }
+        Ok(options)
+    }
+}
+
+fn number<T: FromStr>(value: Option<String>, usage: &str) -> Result<T, String> {
+    value.and_then(|value| value.parse().ok()).ok_or_else(|| usage.to_string())
+}
+
+fn main() -> Result<ExitCode, Box<dyn Error>> {
+    let options = Options::parse(std::env::args().skip(1))?;
+    let mut out = std::io::stdout();
+    for i in 1..=options.lines {
+        writeln!(out, "line {i}")?;
+        out.flush()?;
+        if options.delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(options.delay_ms));
+        }
+    }
+    if let Some(path) = &options.cue {
+        print_cues(path)?;
+    }
+    if options.hold {
+        hold()?;
+    }
+    Ok(ExitCode::from(options.exit_code))
+}
+
+fn hold() -> std::io::Result<()> {
+    match std::io::stdin().read_exact(&mut [0u8; 1]) {
+        Err(e) if e.kind() == ErrorKind::UnexpectedEof => Ok(()),
+        held => held,
+    }
+}
+
+fn print_cues(path: &Path) -> Result<(), Box<dyn Error>> {
+    let mut test = UnixStream::connect(path)?;
     let mut out = std::io::stdout();
     loop {
         let mut length = [0u8; 4];
         match test.read_exact(&mut length) {
             Ok(()) => {}
-            Err(e) if e.kind() == ErrorKind::UnexpectedEof => return,
-            Err(e) => panic!("read the cue: {e}"),
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Ok(()),
+            Err(e) => return Err(e.into()),
         }
-        let mut cue = vec![0u8; u32::from_be_bytes(length) as usize];
-        test.read_exact(&mut cue).expect("read the cue");
-        out.write_all(&cue).and_then(|()| out.flush()).expect("print the cue");
-        wait_until_the_terminal_has_read_it();
-        test.write_all(b"\n").expect("acknowledge the cue");
+        let mut cue = vec![0u8; usize::try_from(u32::from_be_bytes(length))?];
+        test.read_exact(&mut cue)?;
+        out.write_all(&cue)?;
+        out.flush()?;
+        wait_until_the_terminal_has_read_it()?;
+        test.write_all(b"\n")?;
     }
 }
 
-fn wait_until_the_terminal_has_read_it() {
-    crossterm::terminal::enable_raw_mode().expect("raw mode");
+fn wait_until_the_terminal_has_read_it() -> std::io::Result<()> {
+    crossterm::terminal::enable_raw_mode()?;
     let mut out = std::io::stdout();
-    out.write_all(b"\x1b[6n").and_then(|()| out.flush()).expect("ask for the cursor position");
+    out.write_all(b"\x1b[6n")?;
+    out.flush()?;
     let mut byte = [0u8; 1];
-    while byte[0] != b'R' {
-        std::io::stdin().read_exact(&mut byte).expect("read the cursor position report");
+    while byte != *b"R" {
+        std::io::stdin().read_exact(&mut byte)?;
     }
-    crossterm::terminal::disable_raw_mode().expect("cooked mode");
+    crossterm::terminal::disable_raw_mode()
 }

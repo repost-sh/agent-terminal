@@ -1,24 +1,25 @@
 import { ChevronRight, Lock } from "lucide-react";
-import type { ReactNode } from "react";
+import type { PropsWithChildren, ReactNode } from "react";
 
 import { dateTime } from "../lib/format";
 import { useInfo, type Modes, type TabSetup } from "../lib/info";
-import type { PanelProps } from "../panels";
+import type { PanelProps } from "./panels";
 import { PanelHead } from "./panel-parts";
-import { cn } from "./ui";
 
-type Row = { term: string; value: ReactNode };
+interface Row { term: string; value: ReactNode }
 
-const Muted = ({ children }: { children: ReactNode }) => <span className="text-muted-foreground">{children}</span>;
+const Muted = ({ children }: PropsWithChildren) => <span className="text-muted-foreground">{children}</span>;
 
 const onOff = (on: boolean) => (on ? "on" : <Muted>off</Muted>);
 
-const List = ({ rows, mono = true }: { rows: Row[]; mono?: boolean }) => (
+interface ListProps { rows: Row[] }
+
+const List = ({ rows }: ListProps) => (
   <dl className="grid grid-cols-[minmax(7rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
     {rows.map(({ term, value }) => (
       <div key={term} className="contents">
         <dt className="text-muted-foreground">{term}</dt>
-        <dd className={cn(mono && "font-mono", "break-all")}>{value}</dd>
+        <dd className="font-mono break-all">{value}</dd>
       </div>
     ))}
   </dl>
@@ -35,14 +36,18 @@ const modeRows = (modes: Modes): Row[] => [
 
 const shellIntegration = (setup: TabSetup) => (setup.shell_integration === null ? <Muted>not a shell</Muted> : onOff(setup.shell_integration));
 
-const Pid = ({ setup }: { setup: TabSetup }) => (
+interface SetupProps { setup: TabSetup }
+
+const Pid = ({ setup }: SetupProps) => (
   <>
     {setup.pid ?? <Muted>unknown</Muted>}
-    {setup.exited && <Muted> (exited{setup.exit_code === null ? "" : ` ${setup.exit_code}`})</Muted>}
+    {setup.exited && <Muted> (exited{setup.exit_code === null ? "" : ` ${String(setup.exit_code)}`})</Muted>}
   </>
 );
 
-const Started = ({ at }: { at: string }) => (
+interface StartedProps { at: string }
+
+const Started = ({ at }: StartedProps) => (
   <time dateTime={at} className="tabular-nums">
     {dateTime(at)}
   </time>
@@ -61,7 +66,7 @@ const generalRows = (setup: TabSetup): Row[] => [
   { term: "pid", value: <Pid setup={setup} /> },
   { term: "cwd", value: setup.cwd },
   { term: "TERM", value: setup.term ?? <Muted>none</Muted> },
-  { term: "size", value: `${setup.cols} × ${setup.rows}` },
+  { term: "size", value: `${String(setup.cols)} × ${String(setup.rows)}` },
   { term: "shell integration", value: shellIntegration(setup) },
   { term: "started", value: <Started at={setup.started} /> },
 ];
@@ -70,6 +75,7 @@ const envRows = (setup: TabSetup): Row[] => setup.env.map(({ name, value }) => (
 
 export const InfoPanel = ({ session, tab }: PanelProps) => {
   const setup = useInfo(session, tab.tab);
+
   return (
     <>
       <PanelHead title="Info" />

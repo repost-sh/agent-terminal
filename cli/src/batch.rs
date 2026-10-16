@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io::{IsTerminal, Read};
 
 use serde::Deserialize;
@@ -11,7 +12,7 @@ enum Call {
     Args(Vec<String>),
 }
 
-pub fn calls(commands: &[String]) -> Result<Vec<Vec<String>>, String> {
+pub(crate) fn calls(commands: &[String]) -> Result<Vec<Vec<String>>, String> {
     let calls = if commands.is_empty() { from_stdin()? } else { commands.iter().cloned().map(Call::Line).collect() };
     if calls.is_empty() {
         return Err(NO_COMMANDS.into());
@@ -21,15 +22,22 @@ pub fn calls(commands: &[String]) -> Result<Vec<Vec<String>>, String> {
         .enumerate()
         .map(|(index, call)| match call {
             Call::Args(args) => Ok(args),
-            Call::Line(line) => {
-                shlex::split(&line).ok_or_else(|| not_valid(index, &line, "a quote or escape is not closed"))
-            }
+            Call::Line(line) => shlex::split(&line)
+                .ok_or_else(|| NotValid { index, call: &line, reason: "a quote or escape is not closed" }.to_string()),
         })
         .collect()
 }
 
-pub fn not_valid(index: usize, call: &str, reason: &str) -> String {
-    format!("batch command {} is not valid, so nothing ran: {call}\n{reason}", index + 1)
+pub(crate) struct NotValid<'a> {
+    pub index: usize,
+    pub call: &'a str,
+    pub reason: &'a str,
+}
+
+impl fmt::Display for NotValid<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "batch command {} is not valid, so nothing ran: {}\n{}", self.index + 1, self.call, self.reason)
+    }
 }
 
 fn from_stdin() -> Result<Vec<Call>, String> {

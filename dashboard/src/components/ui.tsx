@@ -1,7 +1,9 @@
 import { Copy, type LucideIcon } from "lucide-react";
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode, Ref } from "react";
 
-import { toast } from "./toaster";
+import { reason } from "../lib/api";
+import { settle } from "../lib/settle";
+import { toast } from "../lib/toasts";
 
 export const cn = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ");
 
@@ -21,51 +23,53 @@ const BUTTON_SIZE = {
   "icon-sm": "size-7 rounded-[min(var(--radius-md),12px)] text-sm [&_svg]:size-4",
 };
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  ref?: Ref<HTMLButtonElement>;
+interface ButtonLook {
   variant?: keyof typeof BUTTON_VARIANT;
   size?: keyof typeof BUTTON_SIZE;
   icon?: LucideIcon;
-};
+}
 
-export const Button = ({ variant = "default", size = "sm", icon: Icon, className, children, ...rest }: ButtonProps) => (
-  <button type="button" className={cn(BUTTON_BASE, BUTTON_VARIANT[variant], BUTTON_SIZE[size], className)} {...rest}>
-    {Icon && <Icon aria-hidden="true" />}
-    {children}
-  </button>
-);
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { ref?: Ref<HTMLButtonElement> | undefined; look?: ButtonLook };
+
+export const Button = ({ look = {}, ...button }: ButtonProps) => {
+  const Icon = look.icon;
+  const looks = cn(BUTTON_BASE, BUTTON_VARIANT[look.variant ?? "default"], BUTTON_SIZE[look.size ?? "sm"], button.className);
+
+  return (
+    <button type="button" {...button} className={looks}>
+      {Icon && <Icon aria-hidden="true" />}
+      {button.children}
+    </button>
+  );
+};
 
 const ICON_BUTTON = {
   head: "flex size-6 items-center justify-center rounded text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-[13px]",
   tool: "inline-flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40 aria-pressed:text-foreground [&_svg]:size-4",
 };
 
-type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  ref?: Ref<HTMLButtonElement>;
+interface IconLook {
   label: string;
   icon: LucideIcon;
   tooltip?: string;
   kind?: keyof typeof ICON_BUTTON;
-};
+}
 
-export const IconButton = ({ label, icon: Icon, tooltip, kind = "tool", className, ...rest }: IconButtonProps) => (
-  <button type="button" data-tooltip={tooltip ?? label} className={cn(ICON_BUTTON[kind], className)} {...rest}>
-    <Icon aria-hidden="true" />
-    <span className="sr-only">{label}</span>
+type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { ref?: Ref<HTMLButtonElement>; look: IconLook };
+
+export const IconButton = ({ look, ...button }: IconButtonProps) => (
+  <button type="button" data-tooltip={look.tooltip ?? look.label} {...button} className={cn(ICON_BUTTON[look.kind ?? "tool"], button.className)}>
+    <look.icon aria-hidden="true" />
+    <span className="sr-only">{look.label}</span>
   </button>
 );
 
-type IconLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-  tooltip?: string;
-};
+type IconLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & { href: string; look: IconLook };
 
-export const IconLink = ({ label, icon: Icon, tooltip, className, ...rest }: IconLinkProps) => (
-  <a data-tooltip={tooltip ?? label} className={cn(ICON_BUTTON.tool, className)} {...rest}>
-    <Icon aria-hidden="true" />
-    <span className="sr-only">{label}</span>
+export const IconLink = ({ look, ...link }: IconLinkProps) => (
+  <a data-tooltip={look.tooltip ?? look.label} {...link} className={cn(ICON_BUTTON.tool, link.className)}>
+    <look.icon aria-hidden="true" />
+    <span className="sr-only">{look.label}</span>
   </a>
 );
 
@@ -74,16 +78,18 @@ const BADGE = {
   outline: "border-border text-foreground",
 };
 
-export const Badge = ({ variant = "secondary", className, children }: { variant?: keyof typeof BADGE; className?: string; children: ReactNode }) => (
+interface BadgeProps { variant?: keyof typeof BADGE; className?: string; children: ReactNode }
+
+export const Badge = (props: BadgeProps) => (
   <span
     data-slot="badge"
     className={cn(
       "inline-flex h-4 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap tabular-nums",
-      BADGE[variant],
-      className,
+      BADGE[props.variant ?? "secondary"],
+      props.className,
     )}
   >
-    {children}
+    {props.children}
   </span>
 );
 
@@ -95,7 +101,9 @@ const CHIP: Record<Exclude<Tone, "success">, string> = {
   warning: "border-warning/50 text-yellow-700 dark:text-warning",
 };
 
-export const Chip = ({ tone, children }: { tone: Exclude<Tone, "success">; children: ReactNode }) => (
+interface ChipProps { tone: Exclude<Tone, "success">; children: ReactNode }
+
+export const Chip = ({ tone, children }: ChipProps) => (
   <span className={cn("shrink-0 rounded border px-1 py-px text-[9px] leading-none whitespace-nowrap", CHIP[tone])}>{children}</span>
 );
 
@@ -106,22 +114,30 @@ const DOT: Record<Tone, string> = {
   destructive: "bg-destructive",
 };
 
-export const Dot = ({ tone, className }: { tone: Tone; className?: string }) => (
+interface DotProps { tone: Tone; className?: string }
+
+export const Dot = ({ tone, className }: DotProps) => (
   <span aria-hidden="true" className={cn("inline-block size-2 shrink-0 rounded-full", DOT[tone], className)} />
 );
 
 export const copy = async (value: string) => {
-  try {
+  const copied = await settle(async () => {
     await navigator.clipboard.writeText(value);
-    toast("success", "Copied", value);
-  } catch (error) {
-    toast("error", "Could not copy", error instanceof Error ? error.message : String(error));
+    toast("success", { title: "Copied", description: value });
+  });
+
+  if (!copied.ok) {
+    toast("error", { title: "Could not copy", description: reason(copied.error) });
   }
 };
 
-export const CliBlock = ({ line }: { line: string }) => (
+interface CliBlockProps { line: string }
+
+export const CliBlock = ({ line }: CliBlockProps) => (
   <div className="mx-auto mt-2 flex max-w-full items-center gap-2 rounded-md bg-muted px-2.5 py-1 text-left">
     <code className="min-w-0 flex-1 font-mono text-[11px] break-all text-foreground">{line}</code>
-    <IconButton label={`Copy ${line}`} tooltip="Copy" icon={Copy} className="size-6 p-0 [&_svg]:size-[13px]" onClick={() => copy(line)} />
+    <IconButton look={{ label: `Copy ${line}`, tooltip: "Copy", icon: Copy }} className="size-6 p-0 [&_svg]:size-[13px]" onClick={() => {
+      void copy(line);
+    }} />
   </div>
 );

@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::{Value, json};
 
-use crate::support::{AgentTerminal, DashboardSocket, dashboard, fixture, open_redraw};
+use crate::support::{AgentTerminal, DashboardSocket, Redraw, dashboard, fixture, open_redraw};
 
 fn names_in(folder: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(folder)
@@ -86,7 +86,7 @@ fn a_program_repainting_fast_adds_nothing_to_the_session_folder() {
     let at = AgentTerminal::new();
     let folder = at.home().join("sessions").join("qa");
     let shot = at.work_folder().join("fast.png").to_string_lossy().into_owned();
-    open_redraw(&at, "qa", "60", "--full");
+    open_redraw(&at, &Redraw { session: "qa", hz: "60", repaint: "--full" });
     let opened = at.frame("qa");
     at.run(&["--session", "qa", "wait", "--frame", &(opened + 120).to_string()]).success();
     at.run(&["--session", "qa", "screenshot", &shot]).success();
@@ -104,7 +104,7 @@ fn a_program_repainting_fast_adds_nothing_to_the_session_folder() {
 fn an_unwatched_terminal_answers_screenshot_snapshot_wait_frame_and_output_since_a_mark() {
     let at = AgentTerminal::new();
     let shot = at.work_folder().join("unwatched.png");
-    open_redraw(&at, "qa", "60", "--partial");
+    open_redraw(&at, &Redraw { session: "qa", hz: "60", repaint: "--partial" });
     let marked = at.run(&["--session", "qa", "--json", "mark", "running"]).success().json()["frame"]
         .as_u64()
         .expect("the frame of the mark");
@@ -188,4 +188,24 @@ fn every_png_screenshot_is_listed_in_the_session_folder_with_the_call_that_took_
                 "width": 400, "height": 120, "scale": 2, "cols": 20, "rows": { "first": 2, "last": 3 } }),
         ]
     );
+}
+
+#[test]
+fn a_session_whose_folder_cannot_be_made_opens_nothing_and_the_daemon_keeps_serving() {
+    let at = AgentTerminal::new();
+    let sessions = at.home().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(sessions.join("blocked"), "a file where the session's folder goes").unwrap();
+
+    let refused = at.run(&["--session", "blocked", "open", "--size", "20x2", "cat"]);
+    assert_eq!(refused.code(), 1, "{}", refused.stderr());
+    assert!(
+        refused
+            .stderr()
+            .starts_with(&format!("error: clear the previous session folder {}: ", sessions.join("blocked").display())),
+        "{}",
+        refused.stderr()
+    );
+    assert_eq!(at.run(&["session", "list"]).success().stdout(), "no sessions are open\n");
+    at.run(&["--session", "open", "open", "--size", "20x2", "cat"]).success();
 }

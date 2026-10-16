@@ -92,6 +92,14 @@ fn a_daemon_of_another_version_with_open_terminals_is_left_running_and_the_comma
         "the daemon is agent-terminal 0.0.1, not {VERSION} like this command, and it has 2 open terminals, so it was left running; `agent-terminal daemon stop` ends it and its terminals, and the next command starts a {VERSION} daemon"
     );
 
+    the_command_exits_6_naming_both_versions(&at, &message);
+    at.run(&["daemon", "stop"]).success();
+    at.run(&["open", "--size", "20x2", "cat"]).success();
+    assert_eq!(recorded_version(&at), VERSION);
+    assert_eq!(at.run(&["close", "--all"]).success().stdout(), "closed default t1\n");
+}
+
+fn the_command_exits_6_naming_both_versions(at: &AgentTerminal, message: &str) {
     let run = at.run(&["snapshot"]);
     assert_eq!((run.code(), run.stdout().as_str()), (6, ""));
     assert_eq!(run.stderr(), format!("error: {message}\n"));
@@ -108,11 +116,6 @@ fn a_daemon_of_another_version_with_open_terminals_is_left_running_and_the_comma
             }
         })
     );
-
-    at.run(&["daemon", "stop"]).success();
-    at.run(&["open", "--size", "20x2", "cat"]).success();
-    assert_eq!(recorded_version(&at), VERSION);
-    assert_eq!(at.run(&["close", "--all"]).success().stdout(), "closed default t1\n");
 }
 
 #[test]
@@ -127,7 +130,10 @@ fn a_daemon_that_records_no_version_and_cannot_stop_on_request_is_left_running()
     assert_eq!((run.code(), run.stdout().as_str()), (6, ""));
     assert_eq!(run.stderr(), format!("error: {message}\n"));
     assert_eq!(other.join().unwrap(), [stop_if_no_terminals()]);
+    the_json_error_says_neither_version_nor_terminals_are_known(&at, &message);
+}
 
+fn the_json_error_says_neither_version_nor_terminals_are_known(at: &AgentTerminal, message: &str) {
     std::fs::remove_file(at.home().join("daemon.sock")).expect("let the next stand-in listen");
     let other = stand_in(at.home(), None, None);
     let run = at.run(&["--json", "snapshot"]);
@@ -165,4 +171,30 @@ fn a_request_the_daemon_cannot_parse_gets_an_error_naming_the_daemons_version() 
         }))
     );
     assert_eq!(at.run(&["get", "program"]).success().stdout(), "cat\n", "the daemon keeps serving");
+}
+
+#[test]
+fn a_request_cut_short_is_dropped_and_the_daemon_keeps_serving() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "20x2", "cat"]).success();
+    let mut daemon = UnixStream::connect(at.home().join("daemon.sock")).expect("connect to the daemon");
+    daemon.write_all(&100u32.to_be_bytes()).and_then(|()| daemon.write_all(b"{\"ty")).expect("write part of a request");
+    daemon.shutdown(std::net::Shutdown::Write).expect("end the request early");
+
+    assert_eq!(read_message(&mut daemon), None, "a cut request gets no reply");
+    assert_eq!(at.run(&["get", "program"]).success().stdout(), "cat\n", "the daemon keeps serving");
+    assert!(at.daemon_log().contains("reading a request failed: "), "{}", at.daemon_log());
+}
+
+#[test]
+fn a_daemon_with_no_terminals_stops_when_another_version_asks() {
+    let at = AgentTerminal::new();
+    at.run(&["open", "--size", "20x2", "cat"]).success();
+    at.run(&["close"]).success();
+    let mut daemon = UnixStream::connect(at.home().join("daemon.sock")).expect("connect to the daemon");
+    write_message(&mut daemon, stop_if_no_terminals().to_string().as_bytes());
+
+    assert_eq!(read_message(&mut daemon), Some(serde_json::from_str::<Value>(STOPPED).unwrap()));
+    assert_eq!(read_message(&mut daemon), None);
+    assert!(at.daemon_log().contains("a command of another version stopped this daemon, which had no terminals"));
 }

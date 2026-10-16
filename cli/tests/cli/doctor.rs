@@ -1,5 +1,5 @@
 use crate::skills::{put_stub, shipped, stub_in, stub_of_version};
-use crate::support::{AgentTerminal, Run, VERSION};
+use crate::support::{AgentTerminal, Call, Run, VERSION};
 
 const FONTS: &str = "ok       fonts    JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in\n";
 
@@ -21,7 +21,7 @@ fn no_skill(at: &AgentTerminal) -> String {
 }
 
 fn doctor(at: &AgentTerminal, args: &[&str]) -> Run {
-    at.run_with(args, "", &[("SHELL", "/bin/zsh"), ("HOME", &user(at).to_string_lossy())])
+    at.run_with(&Call { args, stdin: "", env: &[("SHELL", "/bin/zsh"), ("HOME", &user(at).to_string_lossy())] })
 }
 
 #[test]
@@ -57,7 +57,17 @@ fn doctor_flags_a_daemon_of_another_version_and_says_how_to_replace_it() {
     at.run(&["open", "--size", "20x2", "cat"]).success();
     std::fs::write(at.home().join("daemon.version"), "0.0.1").expect("make the daemon report another version");
 
-    let run = doctor(&at, &["doctor"]);
+    the_text_report_flags_the_other_version(&at, &socket);
+    the_json_report_flags_the_other_version(&at, &socket);
+    assert_eq!(
+        std::fs::read_to_string(at.home().join("daemon.version")).unwrap(),
+        "0.0.1",
+        "doctor leaves the daemon running"
+    );
+}
+
+fn the_text_report_flags_the_other_version(at: &AgentTerminal, socket: &std::path::Path) {
+    let run = doctor(at, &["doctor"]);
     assert_eq!(run.code(), 1);
     assert_eq!(
         run.stdout().lines().skip(3).take(2).collect::<Vec<_>>(),
@@ -72,8 +82,10 @@ fn doctor_flags_a_daemon_of_another_version_and_says_how_to_replace_it() {
             ),
         ]
     );
+}
 
-    let run = doctor(&at, &["--json", "doctor"]);
+fn the_json_report_flags_the_other_version(at: &AgentTerminal, socket: &std::path::Path) {
+    let run = doctor(at, &["--json", "doctor"]);
     assert_eq!(run.code(), 1);
     assert_eq!(run.json()["ok"], false);
     assert_eq!(
@@ -90,11 +102,10 @@ fn doctor_flags_a_daemon_of_another_version_and_says_how_to_replace_it() {
             )
         })
     );
-    assert_eq!(
-        std::fs::read_to_string(at.home().join("daemon.version")).unwrap(),
-        "0.0.1",
-        "doctor leaves the daemon running"
-    );
+}
+
+fn shell_line(run: &Run) -> Option<String> {
+    run.stdout().lines().nth(2).map(str::to_string)
 }
 
 #[test]
@@ -102,20 +113,34 @@ fn doctor_checks_the_shell_integration_scripts_and_fix_brings_them_up_to_date() 
     let at = AgentTerminal::new();
     let scripts = at.home().join("shell");
     let script = scripts.join("bash/agent-terminal.bash");
-    at.run_with(&["shell", "--shell", "bash", "--size", "40x5"], "", &[("HOME", &at.home().to_string_lossy())])
-        .success();
+    at.run_with(&Call {
+        args: &["shell", "--shell", "bash", "--size", "40x5"],
+        stdin: "",
+        env: &[("HOME", &at.home().to_string_lossy())],
+    })
+    .success();
     let shipped = std::fs::read_to_string(&script).expect("shell writes the bash integration script");
-    let line = |run: &Run| run.stdout().lines().nth(2).map(str::to_string);
     let up_to_date = format!(
         "ok       shell    zsh (your SHELL) has shell integration; the scripts in {} are up to date",
         scripts.display()
     );
-    assert_eq!(line(&doctor(&at, &["doctor"]).success()), Some(up_to_date.clone()));
+    assert_eq!(shell_line(&doctor(&at, &["doctor"]).success()), Some(up_to_date.clone()));
 
-    std::fs::write(&script, "an older version\n").expect("age the script");
+    changed_and_left_over_scripts_are_a_problem(&at, &scripts, &script);
+    fix_rewrites_the_changed_script_and_removes_the_left_over(&at, &scripts, &script, &shipped);
+    assert_eq!(shell_line(&doctor(&at, &["doctor"]).success()), Some(up_to_date));
+    at.run(&["exec", "true"]).success();
+}
+
+fn changed_and_left_over_scripts_are_a_problem(
+    at: &AgentTerminal,
+    scripts: &std::path::Path,
+    script: &std::path::Path,
+) {
+    std::fs::write(script, "an older version\n").expect("age the script");
     std::fs::create_dir_all(scripts.join("tcsh")).expect("leave a folder no version writes");
     std::fs::write(scripts.join("tcsh/agent-terminal.tcsh"), "stale\n").expect("leave a stale script");
-    let stale = doctor(&at, &["doctor"]);
+    let stale = doctor(at, &["doctor"]);
     assert_eq!(stale.code(), 1);
     assert_eq!(
         stale.stdout().lines().skip(2).take(2).collect::<Vec<_>>(),
@@ -128,20 +153,25 @@ fn doctor_checks_the_shell_integration_scripts_and_fix_brings_them_up_to_date() 
             "                  fix: agent-terminal doctor --fix brings them up to date",
         ]
     );
-    assert_eq!(std::fs::read_to_string(&script).unwrap(), "an older version\n", "doctor without --fix changes nothing");
+    assert_eq!(std::fs::read_to_string(script).unwrap(), "an older version\n", "doctor without --fix changes nothing");
+}
 
-    let fixed = doctor(&at, &["doctor", "--fix"]).success();
+fn fix_rewrites_the_changed_script_and_removes_the_left_over(
+    at: &AgentTerminal,
+    scripts: &std::path::Path,
+    script: &std::path::Path,
+    shipped: &str,
+) {
+    let fixed = doctor(at, &["doctor", "--fix"]).success();
     assert_eq!(
-        line(&fixed),
+        shell_line(&fixed),
         Some(format!(
             "fixed    shell    brought the shell integration scripts in {} up to date (rewrote 1, removed 1)",
             scripts.display()
         ))
     );
-    assert_eq!(std::fs::read_to_string(&script).unwrap(), shipped);
+    assert_eq!(std::fs::read_to_string(script).unwrap(), shipped);
     assert!(!scripts.join("tcsh").exists());
-    assert_eq!(line(&doctor(&at, &["doctor"]).success()), Some(up_to_date));
-    at.run(&["exec", "true"]).success();
 }
 
 #[test]
@@ -175,33 +205,40 @@ fn doctor_reports_a_stale_socket_and_fix_removes_it() {
     let socket = at.home().join("daemon.sock");
     drop(std::os::unix::net::UnixListener::bind(&socket).expect("leave a socket nobody listens on"));
 
-    let run = doctor(&at, &["doctor"]);
+    the_stale_socket_is_reported_and_kept(&at, &socket);
+    fix_removes_the_stale_socket(&at, &socket);
+    at.run(&["open", "--size", "20x2", "cat"]).success();
+}
+
+fn the_stale_socket_is_reported_and_kept(at: &AgentTerminal, socket: &std::path::Path) {
+    let run = doctor(at, &["doctor"]);
     assert_eq!(run.code(), 1);
     assert_eq!(
         run.stdout(),
         format!(
             "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}problem  daemon   stale socket {}: no daemon is listening on it\n                  fix: agent-terminal doctor --fix removes it\n{}",
             socket.display(),
-            no_skill(&at)
+            no_skill(at)
         )
     );
     assert!(socket.exists(), "doctor without --fix must not change anything");
+}
 
-    let run = doctor(&at, &["doctor", "--fix"]).success();
+fn fix_removes_the_stale_socket(at: &AgentTerminal, socket: &std::path::Path) {
+    let run = doctor(at, &["doctor", "--fix"]).success();
     assert_eq!(
         run.stdout(),
         format!(
             "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}fixed    daemon   removed the stale socket {}\n{}",
             socket.display(),
-            no_skill(&at)
+            no_skill(at)
         )
     );
     assert!(!socket.exists());
     assert_eq!(
-        doctor(&at, &["doctor"]).success().stdout().lines().nth(3),
+        doctor(at, &["doctor"]).success().stdout().lines().nth(3),
         Some("ok       daemon   not running; the next command starts it")
     );
-    at.run(&["open", "--size", "20x2", "cat"]).success();
 }
 
 #[test]
@@ -223,15 +260,15 @@ fn doctor_says_how_to_fix_a_socket_path_the_system_cannot_use() {
     let at = AgentTerminal::new();
     let home = at.home().join("x".repeat(120));
     let socket = home.join("daemon.sock");
-    let run = at.run_with(
-        &["doctor"],
-        "",
-        &[
+    let run = at.run_with(&Call {
+        args: &["doctor"],
+        stdin: "",
+        env: &[
             ("AGENT_TERMINAL_HOME", &home.to_string_lossy()),
             ("SHELL", "/bin/zsh"),
             ("HOME", &user(&at).to_string_lossy()),
         ],
-    );
+    });
     assert_eq!(run.code(), 1);
     let stdout = run.stdout();
     let lines: Vec<&str> = stdout.lines().collect();
@@ -275,10 +312,13 @@ fn doctor_json_lists_every_check() {
             ]
         })
     );
+    a_stale_socket_makes_the_json_report_not_ok(&at);
+}
 
+fn a_stale_socket_makes_the_json_report_not_ok(at: &AgentTerminal) {
     let socket = at.home().join("daemon.sock");
     drop(std::os::unix::net::UnixListener::bind(&socket).expect("leave a socket nobody listens on"));
-    let run = doctor(&at, &["doctor", "--json"]);
+    let run = doctor(at, &["doctor", "--json"]);
     assert_eq!(run.code(), 1);
     assert_eq!(
         run.json()["checks"][3],
@@ -314,40 +354,63 @@ fn installed(at: &AgentTerminal) -> String {
     std::fs::read_to_string(stub(at)).unwrap()
 }
 
-fn a_stale_skill_is_a_problem_and_fix_rewrites_it(stale: &str, state: &str) {
+struct SkillProblem {
+    problem: String,
+    fix: &'static str,
+}
+
+fn a_stale_skill_is_a_problem_and_fix_rewrites_it(stale: &str, found: &str) {
     let at = AgentTerminal::new();
     let current = shipped("skills/agent-terminal/SKILL.md");
-    let problem = format!("the agent-terminal skill at {} {state}", stub(&at).display());
-    let fix = "agent-terminal doctor --fix rewrites it";
+    let report = SkillProblem {
+        problem: format!("the agent-terminal skill at {} {found}", stub(&at).display()),
+        fix: "agent-terminal doctor --fix rewrites it",
+    };
     let fixed = format!("rewrote the agent-terminal skill at {} as this version ({VERSION})", stub(&at).display());
     put_stub(&user(&at), stale);
 
-    let run = doctor(&at, &["doctor"]);
-    assert_eq!(run.code(), 1);
-    assert_eq!(skill_lines(&run), [format!("problem  skill    {problem}"), format!("                  fix: {fix}")]);
-    let run = doctor(&at, &["doctor", "--json"]);
-    assert_eq!(run.code(), 1);
-    assert_eq!(
-        run.json()["checks"][4],
-        serde_json::json!({ "name": "skill", "status": "problem", "message": problem, "fix": fix })
-    );
-    assert_eq!(run.json()["ok"], false);
+    the_stale_skill_is_a_problem_in_text(&at, &report);
+    the_stale_skill_is_a_problem_in_json(&at, &report);
     assert_eq!(installed(&at), stale, "doctor without --fix changes nothing");
-
-    let run = doctor(&at, &["doctor", "--fix"]).success();
-    assert_eq!(skill_lines(&run), [format!("fixed    skill    {fixed}")]);
-    assert_eq!(installed(&at), current);
-
+    fix_rewrites_the_stale_skill(&at, &fixed, &current);
     put_stub(&user(&at), stale);
-    let json = doctor(&at, &["doctor", "--fix", "--json"]).success().json();
-    assert_eq!(json["checks"][4], serde_json::json!({ "name": "skill", "status": "fixed", "message": fixed }));
-    assert_eq!(json["ok"], true);
-    assert_eq!(installed(&at), current);
-
+    fix_in_json_rewrites_the_stale_skill(&at, &fixed, &current);
     assert_eq!(
         skill_lines(&doctor(&at, &["doctor"]).success()),
         [format!("ok       skill    the agent-terminal skill at {} is this version ({VERSION})", stub(&at).display())]
     );
+}
+
+fn the_stale_skill_is_a_problem_in_text(at: &AgentTerminal, report: &SkillProblem) {
+    let run = doctor(at, &["doctor"]);
+    assert_eq!(run.code(), 1);
+    assert_eq!(
+        skill_lines(&run),
+        [format!("problem  skill    {}", report.problem), format!("                  fix: {}", report.fix)]
+    );
+}
+
+fn the_stale_skill_is_a_problem_in_json(at: &AgentTerminal, report: &SkillProblem) {
+    let run = doctor(at, &["doctor", "--json"]);
+    assert_eq!(run.code(), 1);
+    assert_eq!(
+        run.json()["checks"][4],
+        serde_json::json!({ "name": "skill", "status": "problem", "message": report.problem, "fix": report.fix })
+    );
+    assert_eq!(run.json()["ok"], false);
+}
+
+fn fix_rewrites_the_stale_skill(at: &AgentTerminal, fixed: &str, current: &str) {
+    let run = doctor(at, &["doctor", "--fix"]).success();
+    assert_eq!(skill_lines(&run), [format!("fixed    skill    {fixed}")]);
+    assert_eq!(installed(at), current);
+}
+
+fn fix_in_json_rewrites_the_stale_skill(at: &AgentTerminal, fixed: &str, current: &str) {
+    let json = doctor(at, &["doctor", "--fix", "--json"]).success().json();
+    assert_eq!(json["checks"][4], serde_json::json!({ "name": "skill", "status": "fixed", "message": fixed }));
+    assert_eq!(json["ok"], true);
+    assert_eq!(installed(at), current);
 }
 
 #[test]
@@ -371,26 +434,43 @@ fn doctor_reports_a_newer_skill_and_fix_leaves_it() {
     let at = AgentTerminal::new();
     let newer = stub_of_version("999.0.0");
     put_stub(&user(&at), &newer);
-    let problem =
-        format!("the agent-terminal skill at {} is 999.0.0, newer than this version ({VERSION})", stub(&at).display());
-    let fix = "agent-terminal upgrade brings agent-terminal up to it (doctor --fix does not downgrade a skill)";
+    let report = SkillProblem {
+        problem: format!(
+            "the agent-terminal skill at {} is 999.0.0, newer than this version ({VERSION})",
+            stub(&at).display()
+        ),
+        fix: "agent-terminal upgrade brings agent-terminal up to it (doctor --fix does not downgrade a skill)",
+    };
 
     for args in [&["doctor"][..], &["doctor", "--fix"]] {
-        let run = doctor(&at, args);
-        assert_eq!(run.code(), 1, "{args:?}");
-        assert_eq!(
-            skill_lines(&run),
-            [format!("problem  skill    {problem}"), format!("                  fix: {fix}")]
-        );
-        let run = doctor(&at, &[args, &["--json"]].concat());
-        assert_eq!(run.code(), 1, "{args:?}");
-        assert_eq!(
-            run.json()["checks"][4],
-            serde_json::json!({ "name": "skill", "status": "problem", "message": problem, "fix": fix })
-        );
-        assert_eq!(run.json()["ok"], false);
-        assert_eq!(installed(&at), newer, "{args:?} must leave a newer skill alone");
+        a_newer_skill_is_a_problem_in_text(&at, args, &report);
+        a_newer_skill_is_a_problem_in_json_and_left_alone(&at, args, &report, &newer);
     }
+}
+
+fn a_newer_skill_is_a_problem_in_text(at: &AgentTerminal, args: &[&str], report: &SkillProblem) {
+    let run = doctor(at, args);
+    assert_eq!(run.code(), 1, "{args:?}");
+    assert_eq!(
+        skill_lines(&run),
+        [format!("problem  skill    {}", report.problem), format!("                  fix: {}", report.fix)]
+    );
+}
+
+fn a_newer_skill_is_a_problem_in_json_and_left_alone(
+    at: &AgentTerminal,
+    args: &[&str],
+    report: &SkillProblem,
+    newer: &str,
+) {
+    let run = doctor(at, &[args, &["--json"]].concat());
+    assert_eq!(run.code(), 1, "{args:?}");
+    assert_eq!(
+        run.json()["checks"][4],
+        serde_json::json!({ "name": "skill", "status": "problem", "message": report.problem, "fix": report.fix })
+    );
+    assert_eq!(run.json()["ok"], false);
+    assert_eq!(installed(at), newer, "{args:?} must leave a newer skill alone");
 }
 
 #[test]

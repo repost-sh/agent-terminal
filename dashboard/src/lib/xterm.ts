@@ -4,6 +4,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type ITheme } from "@xterm/xterm";
 
 import { mirrorRows } from "./screen-rows";
+import { settle } from "./settle";
 import { daemonWidths } from "./unicode";
 
 export const LARGEST_FONT_PX = 13;
@@ -38,45 +39,63 @@ const PALETTE: ITheme = {
   brightWhite: "#fafafa",
 };
 
+const LARGEST_FONT = `${String(LARGEST_FONT_PX)}px`;
+
 const FACES = [
-  ...["", "bold ", "italic ", "bold italic "].map((style) => `${style}${LARGEST_FONT_PX}px "${TEXT_FAMILY}"`),
-  ...FALLBACK_FAMILIES.map((family) => `${LARGEST_FONT_PX}px "${family}"`),
+  ...["", "bold ", "italic ", "bold italic "].map((style) => `${style}${LARGEST_FONT} "${TEXT_FAMILY}"`),
+  ...FALLBACK_FAMILIES.map((family) => `${LARGEST_FONT} "${family}"`),
 ];
 
 let fontsLoaded: Promise<unknown> | null = null;
 
 const fontsReady = () =>
-  (fontsLoaded ??= Promise.all(FACES.map((face) => document.fonts.load(face))).catch((error: unknown) =>
-    console.warn("agent-terminal: the terminal font did not load; using a fallback", error),
-  ));
+  (fontsLoaded ??= settle(() => Promise.all(FACES.map((face) => document.fonts.load(face)))).then((loaded) => {
+    if (!loaded.ok) {
+      console.warn("agent-terminal: the terminal font did not load; using a fallback", loaded.error);
+    }
+  }));
 
 const drawWithWebgl = (terminal: Terminal) => {
-  try {
+  const drawing = settle(() => {
     const webgl = new WebglAddon();
-    webgl.onContextLoss(() => webgl.dispose());
+
+    webgl.onContextLoss(() => {
+      webgl.dispose();
+    });
     terminal.loadAddon(webgl);
-  } catch (error) {
-    console.warn("agent-terminal: WebGL is not available; drawing the terminal with the DOM renderer", error);
-  }
+  });
+
+  void drawing.then((drawn) => {
+    if (!drawn.ok) {
+      console.warn("agent-terminal: WebGL is not available; drawing the terminal with the DOM renderer", drawn.error);
+    }
+  });
 };
+
+const newTerminal = () =>
+  new Terminal({
+    fontFamily: FONT,
+    fontSize: LARGEST_FONT_PX,
+    scrollback: 0,
+    disableStdin: true,
+    cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches,
+    cursorInactiveStyle: "block",
+    theme: PALETTE,
+    allowProposedApi: true,
+  });
 
 export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () => void) => {
   let terminal: Terminal | null = null;
-  let unmirror = () => {};
-  let release = () => {};
+  let unmirror: (() => void) | null = null;
+  let release: (() => void) | null = null;
   let disposed = false;
-  fontsReady().then(() => {
-    if (disposed) return;
-    terminal = new Terminal({
-      fontFamily: FONT,
-      fontSize: LARGEST_FONT_PX,
-      scrollback: 0,
-      disableStdin: true,
-      cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches,
-      cursorInactiveStyle: "block",
-      theme: PALETTE,
-      allowProposedApi: true,
-    });
+
+  void fontsReady().then(() => {
+    if (disposed) {
+      return;
+    }
+
+    terminal = newTerminal();
     terminal.unicode.register(daemonWidths);
     terminal.unicode.activeVersion = daemonWidths.version;
     terminal.open(host);
@@ -84,10 +103,11 @@ export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () 
     drawWithWebgl(terminal);
     release = use(terminal);
   });
+
   return () => {
     disposed = true;
-    release();
-    unmirror();
+    release?.();
+    unmirror?.();
     terminal?.dispose();
   };
 };

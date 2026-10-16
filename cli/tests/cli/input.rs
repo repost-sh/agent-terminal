@@ -171,6 +171,37 @@ fn press_refuses_an_unknown_key_with_exit_code_1() {
 }
 
 #[test]
+fn press_names_the_plus_key_and_refuses_an_unknown_modifier() {
+    let at = AgentTerminal::new();
+    open_input_echo(&at, &[]);
+    at.run(&["press", "Ctrl+Backspace", "--wait", r"\x08"]).success();
+    let plus = at.run(&["press", "Ctrl++"]);
+    assert_eq!(
+        (plus.code(), plus.stderr()),
+        (
+            1,
+            "error: default t1: Ctrl++ has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on\n".to_string()
+        )
+    );
+    let unknown = at.run(&["press", "Hyper+a"]);
+    assert_eq!(unknown.code(), 1, "{}", unknown.stderr());
+    assert!(
+        unknown.stderr().contains(r#"unknown modifier "Hyper" in "Hyper+a"; use Ctrl+, Alt+ or Shift+"#),
+        "{}",
+        unknown.stderr()
+    );
+    assert_eq!(at.received("default"), r"\x08");
+}
+
+#[test]
+fn ctrl_plus_reaches_an_app_that_turned_on_the_kitty_protocol() {
+    let at = AgentTerminal::new();
+    open_input_echo(&at, &["--kitty", "1"]);
+    at.run(&["press", "Ctrl++", "--wait", r"\e[43;5u"]).success();
+    assert_eq!(at.received("default"), r"\e[43;5u");
+}
+
+#[test]
 fn a_chord_the_app_cannot_receive_is_refused_before_any_key_is_sent() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &[]);
@@ -221,10 +252,10 @@ fn signal_sends_each_supported_signal_to_the_program() {
     for (signal, shown) in [
         ("INT", "[INT]"),
         ("TERM", "[TERM]"),
-        ("SIGHUP", "[HUP]"),
         ("tstp", "[TSTP]"),
         ("CONT", "[CONT]"),
         ("WINCH", "[WINCH]"),
+        ("SIGHUP", "[HUP]"),
     ] {
         expected.push_str(shown);
         let sent = at.run(&["signal", signal, "--wait", &expected]).success();
@@ -369,4 +400,38 @@ fn send_is_marked_as_raw_in_its_json_result() {
     open_input_echo(&at, &[]);
     let sent = at.run(&["--json", "send", r"\r\n", "--wait", r"\r\n"]).success().json();
     assert_eq!(sent, serde_json::json!({ "session": "default", "tab": "t1", "input": "raw", "bytes": 2 }));
+}
+
+fn shown_by_input_echo(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|&byte| match byte {
+            0x1b => r"\e".to_string(),
+            b'\r' => r"\r".to_string(),
+            b'\n' => r"\n".to_string(),
+            b'\t' => r"\t".to_string(),
+            b'\\' => r"\\".to_string(),
+            0x20..=0x7e => char::from(byte).to_string(),
+            _ => format!(r"\x{byte:02x}"),
+        })
+        .collect()
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config { cases: 24, failure_persistence: None, ..proptest::test_runner::Config::default() })]
+
+    #[test]
+    fn send_delivers_any_bytes_to_the_program_exactly(bytes in proptest::collection::vec(proptest::prelude::any::<u8>(), 1..24)) {
+        let at = AgentTerminal::new();
+        open_input_echo(&at, &[]);
+        let escaped: String = bytes
+            .iter()
+            .flat_map(|&byte| [Some('\\'), Some('x'), char::from_digit(u32::from(byte >> 4), 16), char::from_digit(u32::from(byte & 15), 16)])
+            .flatten()
+            .collect();
+        let shown = shown_by_input_echo(&bytes);
+        at.run(&["send", &escaped]).success();
+        at.run(&["wait", "--cursor", &format!("2,{}", shown.len() + 1)]).success();
+        proptest::prop_assert_eq!(at.received("default"), shown.trim_end());
+    }
 }

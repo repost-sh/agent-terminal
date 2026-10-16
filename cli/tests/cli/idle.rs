@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::process::Command;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -19,7 +18,7 @@ impl Held {
         assert!(Command::new("mkfifo").arg(&fifo).status().expect("run mkfifo").success());
         let (released, gone) = mpsc::channel();
         std::thread::spawn(move || {
-            let read = std::fs::File::open(&fifo).and_then(|mut held| held.read_to_end(&mut Vec::new()));
+            let read = std::fs::read(&fifo);
             released.send(read.map(|_| Instant::now())).expect("the test keeps waiting until the program is gone");
         });
         Self { folder, gone }

@@ -172,25 +172,57 @@ fn the_lightbox_steps_through_the_screenshots_copies_the_path_and_escape_returns
     open_screenshots(&browser);
     wait_for_shots(&browser, 2);
 
-    open_shot(&browser, 1);
-    assert_eq!(title(&browser), "before.png");
+    the_first_screenshot_opens_in_the_lightbox(&browser, &shots, before);
+    the_screenshot_scales_down_to_fit_its_box(&browser);
+    next_steps_to_the_second_screenshot(&browser, &shots, after);
+    copy_path_copies_it_and_escape_returns_to_the_thumbnail(&browser, &shots);
+}
+
+fn the_first_screenshot_opens_in_the_lightbox(browser: &Browser, shots: &Shots, before: u64) {
+    open_shot(browser, 1);
+    assert_eq!(title(browser), "before.png");
     let before_path = shots.path("before.png");
-    assert_eq!(captions(&browser), [format!("before.png · t1 · frame {before} · <time> · screenshot {before_path}")]);
+    assert_eq!(captions(browser), [format!("before.png · t1 · frame {before} · <time> · screenshot {before_path}")]);
     browser.wait_for_text("1 of 2");
-    assert_eq!(button_state(&browser, "Previous screenshot"), "disabled");
+    assert_eq!(button_state(browser, "Previous screenshot"), "disabled");
     let image = format!("document.querySelector({})", js_string(&format!("{LIGHTBOX} figure img")));
     browser.wait_until(&format!("{image}?.complete === true && {image}.naturalWidth === 200"));
-    assert_eq!(eval_string(&browser, &format!("{image}.alt")), format!("before.png, frame {before}"));
+    assert_eq!(eval_string(browser, &format!("{image}.alt")), format!("before.png, frame {before}"));
+}
 
+fn the_screenshot_scales_down_to_fit_its_box(browser: &Browser) {
+    assert_eq!(framed_in(browser, "150px", ""), "150 150", "a narrow lightbox scales the screenshot down to its width");
+    assert_eq!(
+        framed_in(browser, "1000px", "60px"),
+        "60 60",
+        "a short lightbox scales the screenshot down to its height"
+    );
+}
+
+fn framed_in(browser: &Browser, width: &str, height: &str) -> String {
+    let script = format!(
+        "(() => {{ const box = document.querySelector({}); const image = box.querySelector('img'); box.style.width = {}; box.style.height = {}; const frame = box.querySelector('.term-frame').getBoundingClientRect(); box.style.width = ''; box.style.height = ''; const across = {} === '' ? [frame.width, frame.height * image.naturalWidth / image.naturalHeight] : [frame.height, frame.width * image.naturalHeight / image.naturalWidth]; return across.map(Math.round).join(' '); }})()",
+        js_string(&format!("{LIGHTBOX} figure .term-box")),
+        js_string(width),
+        js_string(height),
+        js_string(height)
+    );
+    eval_string(browser, &script)
+}
+
+fn next_steps_to_the_second_screenshot(browser: &Browser, shots: &Shots, after: u64) {
     browser.click_button("Next screenshot");
-    wait_for_title(&browser, "after.png");
+    wait_for_title(browser, "after.png");
     browser.wait_for_text("2 of 2");
-    assert_eq!(button_state(&browser, "Next screenshot"), "disabled");
-    assert_eq!(focused(&browser), "Previous screenshot");
+    assert_eq!(button_state(browser, "Next screenshot"), "disabled");
+    assert_eq!(focused(browser), "Previous screenshot");
     let after_path = shots.path("after.png");
     let by = format!("press Enter --wait two --screenshot {after_path}");
-    assert_eq!(captions(&browser), [format!("after.png · t1 · frame {after} · <time> · {by}")]);
+    assert_eq!(captions(browser), [format!("after.png · t1 · frame {after} · <time> · {by}")]);
+}
 
+fn copy_path_copies_it_and_escape_returns_to_the_thumbnail(browser: &Browser, shots: &Shots) {
+    let after_path = shots.path("after.png");
     browser.click_button("Copy path");
     browser.wait_until(&format!(
         "[...document.querySelectorAll('.toast')].some((toast) => toast.innerText.includes('Copied') && toast.innerText.includes({}))",
@@ -199,7 +231,14 @@ fn the_lightbox_steps_through_the_screenshots_copies_the_path_and_escape_returns
 
     browser.run(&["press", "Escape"]);
     browser.wait_until(&format!("document.querySelector({}) === null", js_string(LIGHTBOX)));
-    assert!(focus_is(&browser, &format!("{GALLERY} > li:nth-child(1) > button")), "focus is on {}", focused(&browser));
+    assert!(focus_is(browser, &format!("{GALLERY} > li:nth-child(1) > button")), "focus is on {}", focused(browser));
+}
+
+fn changed_marks() -> String {
+    format!(
+        "JSON.stringify([...document.querySelectorAll({})].map((figure) => figure.querySelectorAll('[data-testid=changed-cells]').length))",
+        js_string(&format!("{LIGHTBOX} figure"))
+    )
 }
 
 #[test]
@@ -213,49 +252,59 @@ fn compare_shows_the_older_screenshot_on_the_left_and_highlights_the_cells_that_
     open_screenshots(&browser);
     wait_for_shots(&browser, 3);
 
-    open_shot(&browser, 2);
-    browser.click_button("Compare with…");
-    browser.wait_until("document.activeElement.tagName === 'SELECT'");
-    browser.run(&["select", &format!("{LIGHTBOX} select"), "before.png"]);
-
-    wait_for_title(&browser, "after.png compared");
-    browser.wait_until(&format!(
-        "document.querySelector({})?.innerText === '3 cells changed'",
-        js_string(&format!("{LIGHTBOX} [role=status]"))
-    ));
-    let captions = captions(&browser);
-    assert_eq!(captions.len(), 2);
-    assert!(captions[0].starts_with(&format!("before.png · t1 · frame {before} · ")), "{captions:?}");
-    assert!(captions[1].starts_with(&format!("after.png · t1 · frame {after} · ")), "{captions:?}");
-    let marks = format!(
-        "JSON.stringify([...document.querySelectorAll({})].map((figure) => figure.querySelectorAll('[data-changed]').length))",
-        js_string(&format!("{LIGHTBOX} figure"))
-    );
-    assert_eq!(eval_string(&browser, &marks), "[1,1]");
-    assert_eq!(button_state(&browser, "Previous screenshot"), "disabled");
-    assert_eq!(button_state(&browser, "Next screenshot"), "disabled");
-    assert_eq!(focused(&browser), "Back to screenshot");
-
-    browser.click_button("Back to screenshot");
-    wait_for_title(&browser, "after.png");
-    assert_eq!(focused(&browser), "Compare with…");
-
-    browser.click_button("Compare with…");
-    browser.wait_until("document.activeElement.tagName === 'SELECT'");
-    browser.run(&["select", &format!("{LIGHTBOX} select"), "bigger.png"]);
-    wait_for_title(&browser, "after.png compared");
-    browser.wait_until(&format!(
-        "document.querySelector({})?.innerText === 'Different sizes: no cell comparison'",
-        js_string(&format!("{LIGHTBOX} [role=status]"))
-    ));
-    let captions = self::captions(&browser);
-    assert!(captions[0].starts_with("after.png"), "{captions:?}");
-    assert!(captions[1].starts_with("bigger.png"), "{captions:?}");
-    assert_eq!(eval_string(&browser, &marks), "[0,0]");
+    comparing_after_with_before_puts_before_on_the_left(&browser, before, after);
+    the_comparison_marks_the_changed_cells_and_cannot_step(&browser);
+    back_returns_to_the_screenshot(&browser);
+    comparing_screenshots_of_different_sizes_marks_no_cells(&browser);
 
     browser.run(&["press", "Escape"]);
     browser.wait_until(&format!("document.querySelector({}) === null", js_string(LIGHTBOX)));
     assert!(focus_is(&browser, &format!("{GALLERY} > li:nth-child(2) > button")), "focus is on {}", focused(&browser));
+}
+
+fn comparing_after_with_before_puts_before_on_the_left(browser: &Browser, before: u64, after: u64) {
+    open_shot(browser, 2);
+    browser.click_button("Compare with…");
+    browser.wait_until("document.activeElement.tagName === 'SELECT'");
+    browser.run(&["select", &format!("{LIGHTBOX} select"), "before.png"]);
+
+    wait_for_title(browser, "after.png compared");
+    browser.wait_until(&format!(
+        "document.querySelector({})?.innerText === '3 cells changed'",
+        js_string(&format!("{LIGHTBOX} [role=status]"))
+    ));
+    let captions = captions(browser);
+    assert_eq!(captions.len(), 2);
+    assert!(captions[0].starts_with(&format!("before.png · t1 · frame {before} · ")), "{captions:?}");
+    assert!(captions[1].starts_with(&format!("after.png · t1 · frame {after} · ")), "{captions:?}");
+}
+
+fn the_comparison_marks_the_changed_cells_and_cannot_step(browser: &Browser) {
+    assert_eq!(eval_string(browser, &changed_marks()), "[1,1]");
+    assert_eq!(button_state(browser, "Previous screenshot"), "disabled");
+    assert_eq!(button_state(browser, "Next screenshot"), "disabled");
+    assert_eq!(focused(browser), "Back to screenshot");
+}
+
+fn back_returns_to_the_screenshot(browser: &Browser) {
+    browser.click_button("Back to screenshot");
+    wait_for_title(browser, "after.png");
+    assert_eq!(focused(browser), "Compare with…");
+}
+
+fn comparing_screenshots_of_different_sizes_marks_no_cells(browser: &Browser) {
+    browser.click_button("Compare with…");
+    browser.wait_until("document.activeElement.tagName === 'SELECT'");
+    browser.run(&["select", &format!("{LIGHTBOX} select"), "bigger.png"]);
+    wait_for_title(browser, "after.png compared");
+    browser.wait_until(&format!(
+        "document.querySelector({})?.innerText === 'Different sizes: no cell comparison'",
+        js_string(&format!("{LIGHTBOX} [role=status]"))
+    ));
+    let captions = captions(browser);
+    assert!(captions[0].starts_with("after.png"), "{captions:?}");
+    assert!(captions[1].starts_with("bigger.png"), "{captions:?}");
+    assert_eq!(eval_string(browser, &changed_marks()), "[0,0]");
 }
 
 #[test]

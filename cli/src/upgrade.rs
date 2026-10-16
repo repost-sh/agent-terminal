@@ -3,16 +3,19 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output, Stdio};
 
-use semver::Version;
-use serde::Deserialize;
+use std::io;
+use std::path::Component;
 
-use crate::VERSION;
+use semver::Version;
+use serde::{Deserialize, Serialize};
+
 use crate::output;
 use crate::protocol::ErrorBody;
-use crate::skills::{self, Installed, Stub};
+use crate::skills::{self, Stub, StubInstall};
+use crate::version::VERSION;
 
-pub const PACKAGE: &str = "@repost/agent-terminal";
-pub const FORMULA: &str = "repost-sh/tap/agent-terminal";
+pub(crate) const PACKAGE: &str = "@repost/agent-terminal";
+pub(crate) const FORMULA: &str = "repost-sh/tap/agent-terminal";
 const LATEST: &str = "@repost/agent-terminal@latest";
 const NPM_NESTING: [&str; 4] = ["node_modules", "@repost", "agent-terminal", "node_modules"];
 
@@ -22,7 +25,7 @@ struct Installer {
     source: &'static str,
     refresh: Option<&'static [&'static str]>,
     latest: &'static [&'static str],
-    latest_in: fn(&str) -> Option<String>,
+    latest_in: Answer,
     reinstall: &'static [&'static str],
     listing: Option<&'static [&'static str]>,
     folder: &'static [&'static str],
@@ -35,7 +38,7 @@ const NPM: Installer = Installer {
     source: "the registry",
     refresh: None,
     latest: &["view", PACKAGE, "version"],
-    latest_in: printed_version,
+    latest_in: Answer::Printed,
     reinstall: &["install", "-g", LATEST],
     listing: Some(&["ls", "-g", "--depth=0"]),
     folder: &["prefix", "-g"],
@@ -48,7 +51,7 @@ const PNPM: Installer = Installer {
     source: "the registry",
     refresh: None,
     latest: &["view", PACKAGE, "version"],
-    latest_in: printed_version,
+    latest_in: Answer::Printed,
     reinstall: &["add", "-g", LATEST],
     listing: Some(&["ls", "-g", "--depth=0"]),
     folder: &["bin", "-g"],
@@ -61,7 +64,7 @@ const YARN: Installer = Installer {
     source: "the registry",
     refresh: None,
     latest: &["info", PACKAGE, "version", "--silent"],
-    latest_in: printed_version,
+    latest_in: Answer::Printed,
     reinstall: &["global", "add", LATEST],
     listing: Some(&["global", "list"]),
     folder: &["global", "bin"],
@@ -74,7 +77,7 @@ const BUN: Installer = Installer {
     source: "the registry",
     refresh: None,
     latest: &["pm", "view", PACKAGE, "version"],
-    latest_in: printed_version,
+    latest_in: Answer::Printed,
     reinstall: &["add", "-g", LATEST],
     listing: Some(&["pm", "ls", "-g"]),
     folder: &["pm", "bin", "-g"],
@@ -87,7 +90,7 @@ const HOMEBREW: Installer = Installer {
     source: "the Homebrew tap",
     refresh: Some(&["update"]),
     latest: &["info", "--json=v2", FORMULA],
-    latest_in: formula_version,
+    latest_in: Answer::FormulaInfo,
     reinstall: &["upgrade", FORMULA],
     listing: None,
     folder: &["--prefix", FORMULA],
@@ -96,60 +99,34 @@ const HOMEBREW: Installer = Installer {
 
 const EVERY_INSTALLER: [&Installer; 5] = [&NPM, &PNPM, &YARN, &BUN, &HOMEBREW];
 
-fn printed_version(printed: &str) -> Option<String> {
-    Some(printed.trim().to_string())
+#[derive(Clone, Copy)]
+enum Answer {
+    Printed,
+    FormulaInfo,
 }
 
-fn formula_version(printed: &str) -> Option<String> {
-    let info: serde_json::Value = serde_json::from_str(printed).ok()?;
-    info["formulae"][0]["versions"]["stable"].as_str().map(str::to_string)
+impl Answer {
+    fn version(self, printed: &str) -> Option<String> {
+        match self {
+            Answer::Printed => Some(printed.trim().to_string()),
+            Answer::FormulaInfo => {
+                let info: serde_json::Value = serde_json::from_str(printed).ok()?;
+                info.pointer("/formulae/0/versions/stable")?.as_str().map(str::to_string)
+            }
+        }
+    }
 }
 
 impl Installer {
     fn of(binary: &Path) -> Result<&'static Self, String> {
-        let parts: Vec<&OsStr> = binary.components().map(|part| part.as_os_str()).collect();
-        let has = |run: &[&str]| parts.windows(run.len()).any(|window| window == run);
-        let pnpm_store_links = parts.windows(2).any(|window| {
-            window[1] == "links"
-                && window[0]
-                    .to_str()
-                    .and_then(|name| name.strip_prefix('v'))
-                    .is_some_and(|number| !number.is_empty() && number.bytes().all(|digit| digit.is_ascii_digit()))
-        });
-        if has(&["Cellar"]) {
-            return Ok(&HOMEBREW);
+        let parts: Vec<&OsStr> = binary.components().map(Component::as_os_str).collect();
+        if let Some(installer) = by_path(&parts) {
+            return Ok(installer);
         }
-        if pnpm_store_links || has(&["node_modules", ".pnpm"]) {
-            return Ok(&PNPM);
-        }
-        if has(&["yarn", "global", "node_modules"]) {
-            return Ok(&YARN);
-        }
-        if has(&["install", "global", "node_modules"]) {
-            return Ok(&BUN);
-        }
-        if has(&NPM_NESTING) {
-            return Ok(&NPM);
-        }
-        if !has(&["node_modules"]) {
+        if !contains_run(&parts, &["node_modules"]) {
             return Err(undetectable(binary, &[]));
         }
-        let mut listed = Vec::new();
-        let mut failed = Vec::new();
-        for installer in EVERY_INSTALLER {
-            let Some(listing) = installer.listing else {
-                continue;
-            };
-            match installer.lists_agent_terminal(listing) {
-                Ok(true) => listed.push(installer),
-                Ok(false) => {}
-                Err(reason) => failed.push(reason),
-            }
-        }
-        match (&listed[..], &failed[..]) {
-            ([installer], []) => Ok(installer),
-            _ => Err(undetectable(binary, &failed)),
-        }
+        by_listing(binary)
     }
 
     fn lists_agent_terminal(&self, listing: &[&str]) -> Result<bool, String> {
@@ -162,9 +139,9 @@ impl Installer {
             return Err(format!("`{}` failed ({})", self.line(listing), listed.status));
         }
         let listed = String::from_utf8_lossy(&listed.stdout);
-        Ok(listed
-            .match_indices(PACKAGE)
-            .any(|(at, _)| matches!(listed[at + PACKAGE.len()..].chars().next(), Some('@' | ' '))))
+        Ok(listed.match_indices(PACKAGE).any(|(at, _)| {
+            matches!(listed.get(at + PACKAGE.len()..).and_then(|after| after.chars().next()), Some('@' | ' '))
+        }))
     }
 
     fn line(&self, args: &[&str]) -> String {
@@ -173,11 +150,12 @@ impl Installer {
 
     fn latest(&self) -> Result<Version, String> {
         if let Some(refresh) = self.refresh {
-            self.run(refresh, std::io::stderr().into(), |status| self.unreachable(refresh, status))?;
+            self.run(refresh, io::stderr().into(), |status| self.unreachable(refresh, status))?;
         }
         let answer = self.run(self.latest, Stdio::piped(), |status| self.unreachable(self.latest, status))?;
         let printed = String::from_utf8_lossy(&answer.stdout);
-        (self.latest_in)(&printed)
+        self.latest_in
+            .version(&printed)
             .and_then(|latest| Version::parse(&latest).ok())
             .ok_or_else(|| format!("`{}` printed {:?}, not a version", self.line(self.latest), printed.trim()))
     }
@@ -191,7 +169,7 @@ impl Installer {
     }
 
     fn reinstall(&self) -> Result<(), String> {
-        self.run(self.reinstall, std::io::stderr().into(), |status| self.failed(self.reinstall, status)).map(drop)
+        self.run(self.reinstall, io::stderr().into(), |status| self.failed(self.reinstall, status)).map(drop)
     }
 
     fn entry_point(&self) -> Result<PathBuf, String> {
@@ -212,12 +190,62 @@ impl Installer {
         format!("`{}` failed ({status}); see its output above", self.line(args))
     }
 
-    fn spawn(&self, args: &[&str], stdout: Stdio) -> std::io::Result<Output> {
+    fn spawn(&self, args: &[&str], stdout: Stdio) -> io::Result<Output> {
         Command::new(self.program).args(args).stdin(Stdio::null()).stdout(stdout).stderr(Stdio::inherit()).output()
     }
 
-    fn cannot_run(&self, args: &[&str], error: &std::io::Error) -> String {
+    fn cannot_run(&self, args: &[&str], error: &io::Error) -> String {
         format!("cannot run `{}`: {error}", self.line(args))
+    }
+}
+
+fn by_path(parts: &[&OsStr]) -> Option<&'static Installer> {
+    let has = |run: &[&str]| contains_run(parts, run);
+    if has(&["Cellar"]) {
+        return Some(&HOMEBREW);
+    }
+    if pnpm_store_links(parts) || has(&["node_modules", ".pnpm"]) {
+        return Some(&PNPM);
+    }
+    if has(&["yarn", "global", "node_modules"]) {
+        return Some(&YARN);
+    }
+    if has(&["install", "global", "node_modules"]) {
+        return Some(&BUN);
+    }
+    has(&NPM_NESTING).then_some(&NPM)
+}
+
+fn contains_run(parts: &[&OsStr], run: &[&str]) -> bool {
+    parts.windows(run.len()).any(|window| window == run)
+}
+
+fn pnpm_store_links(parts: &[&OsStr]) -> bool {
+    parts.iter().zip(parts.iter().skip(1)).any(|(version, links)| {
+        *links == "links"
+            && version
+                .to_str()
+                .and_then(|name| name.strip_prefix('v'))
+                .is_some_and(|number| !number.is_empty() && number.bytes().all(|digit| digit.is_ascii_digit()))
+    })
+}
+
+fn by_listing(binary: &Path) -> Result<&'static Installer, String> {
+    let mut listed = Vec::new();
+    let mut failed = Vec::new();
+    for installer in EVERY_INSTALLER {
+        let Some(listing) = installer.listing else {
+            continue;
+        };
+        match installer.lists_agent_terminal(listing) {
+            Ok(true) => listed.push(installer),
+            Ok(false) => {}
+            Err(reason) => failed.push(reason),
+        }
+    }
+    match (listed.as_slice(), failed.as_slice()) {
+        ([installer], []) => Ok(installer),
+        _ => Err(undetectable(binary, &failed)),
     }
 }
 
@@ -232,83 +260,103 @@ fn undetectable(binary: &Path, failed: &[String]) -> String {
     )
 }
 
-pub fn run(json: bool) -> i32 {
+pub(crate) fn run(json: bool) -> io::Result<i32> {
     match upgrade(json) {
-        Ok(()) => 0,
+        Ok(text) => output::print(&text).map(|()| 0),
         Err(message) => output::refuse(&message, json),
     }
 }
 
-fn upgrade(json: bool) -> Result<(), String> {
+#[derive(Serialize)]
+struct Upgraded {
+    installed_with: &'static str,
+    from: &'static str,
+    latest: String,
+    to: Option<String>,
+    stub_refreshed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version_unknown: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stub_error: Option<String>,
+}
+
+fn upgrade(json: bool) -> Result<String, String> {
     let invoked = std::env::current_exe().map_err(|e| format!("cannot find the agent-terminal binary: {e}"))?;
     let binary = invoked.canonicalize().map_err(|e| format!("cannot resolve {}: {e}", invoked.display()))?;
     let installer = Installer::of(&binary)?;
     let latest = installer.latest()?;
-    let from = VERSION;
-    let mut report = serde_json::json!({
-        "installed_with": installer.name,
-        "from": from,
-        "latest": latest.to_string(),
-        "to": from,
-        "stub_refreshed": false,
-    });
-    if latest == crate::this_version() {
-        if json {
-            println!("{report}");
-        } else {
-            println!("agent-terminal {from} is already the latest version");
-        }
-        return Ok(());
+    let mut report = Upgraded {
+        installed_with: installer.name,
+        from: VERSION,
+        latest: latest.to_string(),
+        to: Some(VERSION.to_string()),
+        stub_refreshed: false,
+        version_unknown: None,
+        stub_error: None,
+    };
+    let ours = crate::version::this_version().map_err(|e| format!("this agent-terminal's version {VERSION}: {e}"))?;
+    if latest == ours {
+        return printed(json, &report, &format!("agent-terminal {VERSION} is already the latest version"));
     }
-
     installer.reinstall()?;
     let entry = installer.entry_point();
     let new_binary = entry.as_deref().map_err(String::clone);
-    let to = new_binary.clone().and_then(installed_version);
-    let stub = match stub_installed() {
-        Ok(false) => Ok(None),
-        Ok(true) => new_binary.and_then(refresh_stub).map(Some),
-        Err(reason) => Err(reason),
-    };
-    let mut text = match &to {
-        Ok(to) => {
-            report["to"] = serde_json::json!(to);
-            format!("upgraded agent-terminal {from} to {to} with {}", installer.name)
-        }
-        Err(reason) => {
-            report["to"] = serde_json::Value::Null;
-            report["version_unknown"] = serde_json::json!(reason);
-            format!(
-                "upgraded agent-terminal {from} with {}, but cannot tell the version now installed ({reason}); run `agent-terminal version`",
-                installer.name
-            )
-        }
-    };
-    match &stub {
-        Ok(None) => {}
-        Ok(Some(refreshed)) => {
-            report["stub_refreshed"] = serde_json::json!(refreshed.installed);
-            if refreshed.installed {
-                text.push_str(&format!(
-                    "\nrefreshed the agent-terminal skill {} at {}",
-                    refreshed.version,
-                    refreshed.path.display()
-                ));
+    let upgraded = report.upgraded(installer, new_binary.clone());
+    let stub = report.stub(new_binary);
+    printed(json, &report, &format!("{upgraded}{stub}"))
+}
+
+impl Upgraded {
+    fn upgraded(&mut self, installer: &Installer, new_binary: Result<&Path, String>) -> String {
+        match new_binary.and_then(installed_version) {
+            Ok(to) => {
+                let text = format!("upgraded agent-terminal {VERSION} to {to} with {}", installer.name);
+                self.to = Some(to);
+                text
+            }
+            Err(reason) => {
+                let text = format!(
+                    "upgraded agent-terminal {VERSION} with {}, but cannot tell the version now installed ({reason}); run `agent-terminal version`",
+                    installer.name
+                );
+                self.to = None;
+                self.version_unknown = Some(reason);
+                text
             }
         }
-        Err(reason) => {
-            report["stub_error"] = serde_json::json!(reason);
-            text.push_str(&format!(
-                "\ncannot refresh the agent-terminal skill ({reason}); run `agent-terminal install --skills`"
-            ));
+    }
+
+    fn stub(&mut self, new_binary: Result<&Path, String>) -> String {
+        let refreshed = match stub_installed() {
+            Ok(false) => return String::new(),
+            Ok(true) => new_binary.and_then(refresh_stub),
+            Err(reason) => Err(reason),
+        };
+        match refreshed {
+            Ok(refreshed) => {
+                self.stub_refreshed = refreshed.installed;
+                if !refreshed.installed {
+                    return String::new();
+                }
+                format!("\nrefreshed the agent-terminal skill {} at {}", refreshed.version, refreshed.path.display())
+            }
+            Err(reason) => {
+                let note = format!(
+                    "\ncannot refresh the agent-terminal skill ({reason}); run `agent-terminal install --skills`"
+                );
+                self.stub_error = Some(reason);
+                note
+            }
         }
     }
-    if json {
-        println!("{report}");
-    } else {
-        println!("{text}");
+}
+
+fn printed(json: bool, report: &Upgraded, text: &str) -> Result<String, String> {
+    if !json {
+        return Ok(format!("{text}\n"));
     }
-    Ok(())
+    let report = serde_json::to_value(report).map_err(|e| format!("encode the upgrade report: {e}"))?;
+    Ok(format!("{report}\n"))
 }
 
 fn installed_version(binary: &Path) -> Result<String, String> {
@@ -332,7 +380,7 @@ fn stub_installed() -> Result<bool, String> {
     Ok(!matches!(installed.stub, Stub::Missing))
 }
 
-fn refresh_stub(binary: &Path) -> Result<Installed, String> {
+fn refresh_stub(binary: &Path) -> Result<StubInstall, String> {
     let args = ["--json", "install", "--skills"];
     let line = format!("{} {}", binary.display(), args.join(" "));
     let output = Command::new(binary)
