@@ -86,3 +86,6 @@ fn parse_duration(value: &str) -> Result<Duration, String> {
     };
     number.checked_mul(millis_per_unit).map(Duration::from_millis).ok_or_else(refused)
 }
+
+#[cfg(test)]
+mod tests;

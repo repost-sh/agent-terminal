@@ -192,3 +192,6 @@ fn send(request: Request, json: bool, idle_timeout: Duration) -> io::Result<i32>
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
