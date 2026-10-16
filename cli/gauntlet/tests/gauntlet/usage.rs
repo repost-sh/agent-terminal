@@ -1,7 +1,6 @@
 use crate::scratch::{Scratch, run};
 
-const USAGE: &str =
-    "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props";
+const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet mutation <outcomes.json>...";
 
 #[test]
 fn without_a_gate_and_a_report_it_prints_the_usage() {
@@ -15,8 +14,8 @@ fn without_a_gate_and_a_report_it_prints_the_usage() {
 #[test]
 fn an_unknown_gate_is_refused_before_the_report_is_read() {
     let dir = tempfile::tempdir().expect("scratch folder");
-    let refused = run(dir.path(), &["mutation", "missing.info"]);
-    assert_eq!((refused.code, refused.stderr), (1, format!("error: unknown gate mutation\n{USAGE}\n")));
+    let refused = run(dir.path(), &["duplication", "missing.info"]);
+    assert_eq!((refused.code, refused.stderr), (1, format!("error: unknown gate duplication\n{USAGE}\n")));
 }
 
 #[test]

@@ -21,9 +21,10 @@ rust() {
   step "fix the code each finding names; never allow a lint → GAUNTLET.md#rust-lint" cargo clippy --workspace --all-targets -- -D warnings
   step "fix the code each finding names; never allow a lint → GAUNTLET.md#rust-lint" cargo clippy --all-targets --features browser-tests -- -D warnings
   step "replace or update the crate cargo-deny names → GAUNTLET.md#dependency-policy" cargo deny check
-  step "remove the dependency cargo-machete names from its Cargo.toml → GAUNTLET.md#unused-dependencies" cargo machete . gauntlet perf tests/fixtures
+  step "remove the dependency cargo-machete names from its Cargo.toml → GAUNTLET.md#unused-dependencies" cargo machete . acceptance gauntlet perf tests/fixtures
   step "fix the code the failing test or static check names → GAUNTLET.md#rust-tests" cargo test --workspace
   step "state an invariant of the crate's behaviour as a proptest! → GAUNTLET.md#property-tests" cargo run --quiet -p at-gauntlet -- props
+  step "bind each Then step to a step that asserts and regenerate the IR with \`at-gauntlet gherkin-ir\` → GAUNTLET.md#acceptance" cargo run --quiet -p at-gauntlet -- gherkin
 }
 
 coverage() {
@@ -35,6 +36,80 @@ coverage() {
   step "fix the error cargo-llvm-cov printed → GAUNTLET.md#coverage-floor" cargo llvm-cov report --lcov --no-default-ignore-filename-regex --output-path target/lcov.info
   step "test the uncovered behaviour through the crate's real surface → GAUNTLET.md#coverage-floor" cargo run --quiet -p at-gauntlet -- coverage target/lcov.info
   step "cover every branch of each function it names, or split the function → GAUNTLET.md#crap" cargo run --quiet -p at-gauntlet -- crap target/lcov.info
+}
+
+MUTANTS_VERSION=27.1.0
+
+FAULTS=(
+  'src/commands/values\.rs:.*: replace escaped -> Result<u8, String> with Ok\(0\)$'
+  'src/native/daemon/mod\.rs:.*: replace Daemon::list -> Sessions with Default::default\(\)$'
+  'src/native/keyboard\.rs:.*: delete match arm \(1, false\) in letter$'
+  'src/native/terminal/typing\.rs:.*: replace Terminal::type_text -> Result<Delivery> with Ok\(Default::default\(\)\)$'
+  'src/native/daemon/waiting\.rs:.*: replace wait_for -> Result<u64, ErrorBody> with Ok\(0\)$'
+  'src/native/terminal/reading\.rs:.*: replace Terminal::snapshot -> Snapshot with Default::default\(\)$'
+)
+
+mutants_installed() {
+  command -v cargo-mutants >/dev/null && [ "$(cargo mutants --version)" = "cargo-mutants $MUTANTS_VERSION" ] ||
+    fail "cargo-mutants $MUTANTS_VERSION is not on PATH: run \`cargo install cargo-mutants --version $MUTANTS_VERSION --locked\` → GAUNTLET.md#mutation"
+}
+
+fresh_tree() {
+  git -C "$root" worktree prune
+  if [ -e "$1" ]; then
+    git -C "$root" worktree remove --force "$1"
+  fi
+  git -C "$root" worktree add --quiet --detach "$1" HEAD
+}
+
+mutate_shard() {
+  local crate="$1" shard="$2" tests="$1"
+  local k="${shard%%/*}"
+  case "$crate" in
+    at-acceptance | at-fixtures) tests=agent-terminal ;;
+  esac
+  cd "$work/w$k/cli"
+  CARGO_BUILD_BUILD_DIR="$root/cli/target/mb$k" cargo mutants --in-place -p "$crate" --test-package "$tests" \
+    --shard "$shard" --sharding round-robin -o "$work/out/$crate-$k" >"$work/out/$crate-$k.log" 2>&1
+}
+
+mutation() {
+  mutants_installed
+  local shards="${GAUNTLET_MUTATION_SHARDS:-4}" reports=()
+  work="$root/cli/target/mutation"
+  mkdir -p "$work/out"
+  for ((k = 0; k < shards; k++)); do
+    fresh_tree "$work/w$k"
+  done
+  for crate in agent-terminal at-acceptance at-fixtures at-gauntlet at-perf; do
+    for ((k = 0; k < shards; k++)); do
+      mkdir -p "$work/out/$crate-$k"
+      reports+=("$work/out/$crate-$k/mutants.out/outcomes.json")
+      (mutate_shard "$crate" "$k/$shards") &
+    done
+    wait
+  done
+  cd "$root/cli"
+  step "write a test whose expected value changes when the mutated line does → GAUNTLET.md#mutation" cargo run --quiet -p at-gauntlet -- mutation "${reports[@]}"
+}
+
+acceptance_faults() {
+  mutants_installed
+  local picked=()
+  work="$root/cli/target/acceptance-faults"
+  fresh_tree "$work/tree"
+  cd "$work/tree/cli"
+  for fault in "${FAULTS[@]}"; do
+    [ "$(cargo mutants --list -p agent-terminal --re "$fault" | wc -l | tr -d ' ')" = 1 ] ||
+      fail "the fault \`$fault\` names no single mutant: point it at the code that moved → GAUNTLET.md#acceptance"
+    picked+=(--re "$fault")
+  done
+  mkdir -p "$work/out"
+  if ! CARGO_BUILD_BUILD_DIR="$root/cli/target/mbf" cargo mutants --in-place -p agent-terminal "${picked[@]}" -o "$work/out" -- --test acceptance >"$work/out.log" 2>&1; then
+    printf 'cargo-mutants reported a fault the acceptance suite let through; the next step names it\n'
+  fi
+  cd "$root/cli"
+  step "add the scenario that would have caught the fault it names → GAUNTLET.md#acceptance" cargo run --quiet -p at-gauntlet -- mutation "$work/out/mutants.out/outcomes.json"
 }
 
 npm_tests() {
@@ -78,7 +153,9 @@ for area in "${areas[@]}"; do
     npm) npm_tests ;;
     browser) browser ;;
     coverage) coverage ;;
-    *) fail "unknown area \`$area\`: use rust, dashboard, npm, browser or coverage" ;;
+    mutation) mutation ;;
+    acceptance-faults) acceptance_faults ;;
+    *) fail "unknown area \`$area\`: use rust, dashboard, npm, browser, coverage, mutation or acceptance-faults" ;;
   esac
 done
 

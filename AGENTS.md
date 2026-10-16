@@ -5,6 +5,8 @@ Terminal automation CLI for AI agents, the terminal sibling of agent-browser. Sp
 ## Map
 
 - `cli/` is the Rust crate. A command runs `cli/src/commands/` (clap args, built into a `Request`) → `cli/src/protocol/` (the wire types between CLI and daemon) → `cli/src/native/daemon/` (handles the `Request`) → `cli/src/output/` (prints the `Reply`). Everything under `cli/src/native/` runs in the daemon.
+- `cli/acceptance/` holds the black-box acceptance scenarios: Gherkin features in `features/` with their steps in `src/`, run against the built binary by `cli/tests/acceptance.rs`. A feature change regenerates `features/ir.json` with `cargo run -p at-gauntlet -- gherkin-ir`.
+- `cli/gauntlet/` is `at-gauntlet`, the gauntlet's own checks (coverage, CRAP, property tests, acceptance, mutation results); `dashboard/gauntlet/` holds the dashboard's.
 - `cli/tests/cli/` holds one file per command. Each test runs the real binary through the harness in `support.rs` against the fixture programs in `cli/tests/fixtures/src/bin/`.
 - `dashboard/` is the web app (Vite, React, Tailwind, xterm.js), served by `cli/src/native/dashboard/`. Its wire types in `dashboard/src/lib/protocol.ts` are written by hand to match `cli/src/protocol/`, so change both together. `npm run build` writes the app into `cli/assets/dashboard`, which is committed and embedded in the binary. Its unit tests sit beside the code they test (`*.test.ts`, `*.test.tsx`) and drive it through `src/fake-daemon/`, which stands in for the daemon's sockets and HTTP API.
 - `skill-data/` holds the guides `agent-terminal skills get` prints, compiled into the binary by `cli/src/skills.rs`. When a command's flags or behaviour change, the guide that teaches it changes in the same commit. `skills/` holds the discovery stub.
@@ -12,7 +14,7 @@ Terminal automation CLI for AI agents, the terminal sibling of agent-browser. Sp
 
 ## Checks
 
-`scripts/gauntlet.sh` is the gauntlet, the one entry point for every check: work is done when it ends `GAUNTLET GREEN`. Its areas are `rust` (`cli/`), `dashboard`, `npm`, `browser` and `coverage` (each crate's line coverage with the browser tests, against a 90% floor, and each function's CRAP score, at most 6); with no argument it runs `rust dashboard npm`. Each failure names its fix.
+`scripts/gauntlet.sh` is the gauntlet, the one entry point for every check: work is done when it ends `GAUNTLET GREEN`. Its areas are `rust` (`cli/`), `dashboard`, `npm`, `browser`, `coverage` (each crate's line coverage with the browser tests, against a 90% floor, and each function's CRAP score, at most 6), `mutation` (every crate's cargo-mutants mutants, none missed; hours) and `acceptance-faults` (the acceptance suite alone catches a set of real faults); the last two test the committed `HEAD` in throwaway worktrees. With no argument it runs `rust dashboard npm`. Each failure names its fix.
 
 Rule Zero: fix the code a check flags, and leave every rule as it stands; a rule that seems wrong goes to the owner.
 

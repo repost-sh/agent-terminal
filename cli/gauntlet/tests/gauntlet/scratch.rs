@@ -31,6 +31,14 @@ impl Scratch {
         self
     }
 
+    pub(crate) fn root(&self) -> PathBuf {
+        self.dir.path().to_path_buf()
+    }
+
+    pub(crate) fn path(&self, path: &str) -> PathBuf {
+        self.dir.path().join("app").join(path)
+    }
+
     pub(crate) fn source(&self, path: &str) -> PathBuf {
         std::fs::canonicalize(self.dir.path().join("app/src").join(path)).expect("a source file")
     }

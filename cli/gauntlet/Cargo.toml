@@ -7,12 +7,16 @@ description = "Checks agent-terminal's coverage report against the gauntlet's co
 
 [dependencies]
 anyhow = "1"
+gherkin-cargo-test = "0.7"
 proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 syn = { version = "2", features = ["full", "visit"] }
 
 [dev-dependencies]
+serde_json = "1"
 proptest = { version = "1.12", default-features = false, features = ["std"] }
 tempfile = "3"
 

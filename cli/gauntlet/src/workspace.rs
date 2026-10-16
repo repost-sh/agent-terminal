@@ -20,6 +20,7 @@ struct Package {
 
 pub(crate) struct Member {
     pub(crate) name: String,
+    pub(crate) root: PathBuf,
     pub(crate) sources: Vec<PathBuf>,
     pub(crate) tests: Vec<PathBuf>,
 }
@@ -45,6 +46,7 @@ impl Workspace {
                     roots.iter().filter(|root| **root != package.root()).map(PathBuf::as_path).collect();
                 Ok(Member {
                     name: package.name.clone(),
+                    root: package.root(),
                     sources: rust_files(&package.root().join("src"), &others)?,
                     tests: rust_files(&package.root().join("tests"), &others)?,
                 })

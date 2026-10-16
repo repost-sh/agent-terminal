@@ -1,6 +1,8 @@
 mod coverage;
 mod crap;
+mod gherkin;
 mod lcov;
+mod mutation;
 mod offenses;
 mod properties;
 mod rust;
@@ -14,8 +16,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::offenses::Verdict;
 
-const USAGE: &str =
-    "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props";
+const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet mutation <outcomes.json>...";
 
 const FAILED: u8 = 2;
 
@@ -35,13 +36,19 @@ fn main() -> ExitCode {
 }
 
 fn run(args: &[String]) -> Result<Verdict> {
+    if let [gate, reports @ ..] = args
+        && gate == "mutation"
+        && !reports.is_empty()
+    {
+        return mutation::check(&reports.iter().map(Path::new).collect::<Vec<_>>());
+    }
     let gate = match args {
-        [gate] if gate == "props" => Gate::Props,
+        [gate] => Gate::Static(unmeasured(gate)?),
         [gate, report] => Gate::Measured { check: measured(gate)?, report: Path::new(report) },
         _ => bail!("{USAGE}"),
     };
     match gate {
-        Gate::Props => properties::check(&load()?),
+        Gate::Static(check) => check(&load()?),
         Gate::Measured { check, report } => {
             let lines = lcov::read(report)?;
             check(&load()?, &lines)
@@ -51,8 +58,10 @@ fn run(args: &[String]) -> Result<Verdict> {
 
 type MeasuredCheck = fn(&workspace::Workspace, &lcov::Lines) -> Result<Verdict>;
 
+type StaticCheck = fn(&workspace::Workspace) -> Result<Verdict>;
+
 enum Gate<'a> {
-    Props,
+    Static(StaticCheck),
     Measured { check: MeasuredCheck, report: &'a Path },
 }
 
@@ -61,6 +70,15 @@ fn measured(gate: &str) -> Result<MeasuredCheck> {
         "coverage" => Ok(coverage::check),
         "crap" => Ok(crap::check),
         other => bail!("unknown gate {other}\n{USAGE}"),
+    }
+}
+
+fn unmeasured(gate: &str) -> Result<StaticCheck> {
+    match gate {
+        "props" => Ok(properties::check),
+        "gherkin" => Ok(gherkin::check),
+        "gherkin-ir" => Ok(gherkin::write_ir),
+        _ => bail!("{USAGE}"),
     }
 }
 
