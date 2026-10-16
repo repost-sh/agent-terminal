@@ -10,7 +10,7 @@ agent-terminal runs programs in real terminals and lets you drive them the way a
 
 ## Start with your session
 
-A session is one conversation: everything this task runs (dev servers, the app under test, shells) is a tab in it, and every tab has a name you give it. There is one daemon and one dashboard per user, shared by every agent on the machine; sessions keep agents apart. Before anything else, create yours, named after the task (1 to 24 characters of `a-z`, `0-9` and `-`):
+A session is one conversation: everything this task runs (dev servers, the app under test, shells) is a tab in it, and every tab has a name you give it. Other agents on this machine use agent-terminal at the same time, each in its own session; yours keeps your tabs apart from theirs. Before anything else, create yours, named after the task (1 to 24 characters of `a-z`, `0-9` and `-`):
 
 ```bash
 agent-terminal session new repost-forward
@@ -179,7 +179,7 @@ agent-terminal wait --control --timeout 600000   # resumes when they hand it bac
 
 ## Finishing
 
-Close what you opened: `agent-terminal close` closes one tab, and the session stays, empty, holding its name. At the end of the task, `agent-terminal close --all --session <name>` closes every tab of that session and ends it, so its name is free again. `close --all` acts only on the session named on its own command line; the exported `AGENT_TERMINAL_SESSION` alone is refused. The daemon keeps running after that until a human stops it.
+Close what you opened: `agent-terminal close` closes one tab, and the session stays, empty, holding its name. At the end of the task, `agent-terminal close --all --session <name>` closes every tab of that session and ends it, so its name is free again. `close --all` acts only on the session named on its own command line; the exported `AGENT_TERMINAL_SESSION` alone is refused.
 
 ## Troubleshooting
 
