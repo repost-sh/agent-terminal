@@ -2,12 +2,13 @@ import { defineConfig, mergeConfig } from "vitest/config";
 
 import vite from "./vite.config.ts";
 
+process.env["TZ"] = "UTC";
+
 export default mergeConfig(
   vite,
   defineConfig({
     test: {
       environment: "happy-dom",
-      env: { TZ: "UTC" },
       include: ["src/**/*.test.{ts,tsx}"],
       setupFiles: ["src/test-setup.ts"],
       restoreMocks: true,
