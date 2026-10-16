@@ -15,8 +15,14 @@ fn branchy(a: u8) -> u8 { if a > 1 { 1 } else { 2 } }
 fn tried(a: &str) -> Option<u8> { Some(a.parse::<u8>().ok()?) }
 fn steps(a: u8) -> u8 { let b = a; b }
 fn half(a: u8) -> u8 { a / 2 }
+fn matched(a: u8) -> u8 { match a { 0 => 1, _ => 2 } }
+fn looped() -> u8 { loop { break 1 } }
+fn waited(a: u8) { while a > 9 {} }
+fn counted(a: u8) { for _ in 0..a {} }
 fn main() {
-    let flags = Flags(half(branchy(3)) + tried(\"1\").unwrap_or(steps(0)));
+    let flags = Flags(half(branchy(3)) + tried(\"1\").unwrap_or(steps(0)) + matched(0) + looped());
+    waited(0);
+    counted(0);
     let _ = flags.shown();
     let _ = flags.clone();
 }
