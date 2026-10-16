@@ -38,6 +38,23 @@ test("each session lists its tabs by name, then their program and state", async 
   expect(within(sidebar()).getAllByRole("button", { expanded: true }).map((head) => head.textContent)).toEqual(["work4, 4 tabs", "solo1, 1 tab"]);
 });
 
+const cutOff = (part: HTMLElement) => [part.textContent, part.dataset["tooltip"], part.hasAttribute("data-tooltip-overflow"), part.classList.contains("truncate")];
+
+test("session names, tab names and programs stay on one line, in full on hover when cut off", async () => {
+  await shownApp();
+  const solo = within(sidebar()).getByRole("button", { name: /^solo/ });
+  const app = within(sidebar()).getByRole("link", { name: /solo app/ });
+
+  expect([sidebar().innerHTML.includes("break-"), [within(solo).getByText("solo"), within(app).getByText("app"), within(app).getByText("zsh")].map(cutOff)]).toEqual([
+    false,
+    [
+      ["solo", "solo", true, true],
+      ["app", "app", true, true],
+      ["zsh", "zsh", true, true],
+    ],
+  ]);
+});
+
 test("a session whose tabs all closed stays listed with no tabs and a New tab row", async () => {
   const daemon = await shownApp();
 

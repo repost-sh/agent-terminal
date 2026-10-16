@@ -64,8 +64,8 @@ const TabRow = (props: TabRowProps) => {
         )}
       >
         <TabGlyph tab={tab} />
-        <span className="font-mono break-all">{tab.tab}</span>
-        <span className="min-w-0 flex-1 break-all text-muted-foreground">{tab.program}</span>
+        <span data-tooltip={tab.tab} data-tooltip-overflow className="min-w-0 truncate font-mono">{tab.tab}</span>
+        <span data-tooltip={tab.program} data-tooltip-overflow className="min-w-0 flex-1 truncate text-muted-foreground">{tab.program}</span>
         <span className="sr-only">
           , {tabName(session, tab.tab)}, {tabState(tab).label}
         </span>
@@ -98,7 +98,7 @@ const GroupHead = (props: GroupHeadProps) => {
       </span>
       <span className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-3 pl-1 text-left">
         <SquareTerminal aria-hidden="true" className="size-[15px] shrink-0" />
-        <span className="min-w-0 font-mono font-semibold break-all">{props.info.session}</span>
+        <span data-tooltip={props.info.session} data-tooltip-overflow className="min-w-0 truncate font-mono font-semibold">{props.info.session}</span>
         <Badge className="ml-auto">{count}</Badge>
         <span className="sr-only">
           , {count} {count === 1 ? "tab" : "tabs"}

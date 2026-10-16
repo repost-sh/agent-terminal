@@ -136,7 +136,7 @@ const CellHeader = (props: SplitCellProps) => {
           /
         </span>
         <span className="font-mono">{tab.tab}</span>
-        <span className="break-all text-muted-foreground">{tab.program}</span>
+        <span data-tooltip={tab.program} data-tooltip-overflow className="min-w-0 truncate text-muted-foreground">{tab.program}</span>
         <TabChip tab={tab} />
         <span className="sr-only">, {tabState(tab).label}</span>
       </button>
@@ -209,7 +209,7 @@ const PickerTab = (props: PickerTabProps) => {
       >
         <TabGlyph tab={tab} />
         <span className="font-mono">{tab.tab}</span>
-        <span className="min-w-0 flex-1 break-all text-muted-foreground">{tab.program}</span>
+        <span data-tooltip={tab.program} data-tooltip-overflow className="min-w-0 flex-1 truncate text-muted-foreground">{tab.program}</span>
         {already ? <Chip tone="muted">shown</Chip> : <TabChip tab={tab} />}
         <span className="sr-only">, {tabName(session, tab.tab)}</span>
       </button>

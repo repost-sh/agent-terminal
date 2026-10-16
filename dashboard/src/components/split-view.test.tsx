@@ -82,6 +82,22 @@ test("a cell can be removed, refilled from the picker and maximized", async () =
   expect(screen.getByRole("main")).toHaveFocus();
 });
 
+const cutOff = (part: HTMLElement) => [part.textContent, part.dataset["tooltip"], part.hasAttribute("data-tooltip-overflow"), part.classList.contains("truncate")];
+
+test("a cell header and the picker keep each program on one line, in full on hover when cut off", async () => {
+  await shownApp("/split/work:app,_");
+  const cell = header("work app vim");
+  const picker = region("Show a terminal");
+
+  expect([[cell, picker].map((part) => part?.innerHTML.includes("break-")), [within(region("work app vim")).getByText("vim"), within(picker).getByText("htop")].map(cutOff)]).toEqual([
+    [false, false],
+    [
+      ["vim", "vim", true, true],
+      ["htop", "htop", true, true],
+    ],
+  ]);
+});
+
 test("a grid with nothing focused offers only the layout switch, and closing it goes home", async () => {
   await shownApp("/split/_,_,_,_");
   expect([separators(), pressedLayout()]).toEqual([1, "Four terminals"]);

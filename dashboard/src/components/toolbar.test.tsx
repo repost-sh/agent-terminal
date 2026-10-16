@@ -28,12 +28,12 @@ test("the command line keeps the command and its working directory on one line e
   await shownTab("/s/work/app");
   expect([
     wrapping(commandLine()),
-    parts().map((part) => [part.textContent, part.getAttribute("data-tooltip"), part.classList.contains("truncate"), wrapping(part)]),
+    parts().map((part) => [part.textContent, part.getAttribute("data-tooltip"), part.hasAttribute("data-tooltip-overflow"), part.classList.contains("truncate"), wrapping(part)]),
   ]).toEqual([
     [],
     [
-      [COMMAND, COMMAND, true, []],
-      [CWD, CWD, true, []],
+      [COMMAND, COMMAND, true, true, []],
+      [CWD, CWD, true, true, []],
     ],
   ]);
 });

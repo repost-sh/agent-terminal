@@ -9,8 +9,8 @@ interface CommandLineProps { tab: TabInfo }
 
 const CommandLine = ({ tab }: CommandLineProps) => (
   <div role="group" aria-label="Command line" className="flex min-w-0 flex-1 items-center gap-x-2 rounded-md bg-muted py-0.5 pr-0.5 pl-2.5 font-mono text-xs">
-    <span data-tooltip={tab.command} className="min-w-0 truncate text-foreground">{tab.command}</span>
-    <span data-tooltip={tab.cwd} className="min-w-0 flex-1 truncate text-muted-foreground/70">{tab.cwd}</span>
+    <span data-tooltip={tab.command} data-tooltip-overflow className="min-w-0 truncate text-foreground">{tab.command}</span>
+    <span data-tooltip={tab.cwd} data-tooltip-overflow className="min-w-0 flex-1 truncate text-muted-foreground/70">{tab.cwd}</span>
     <CopyButton value={`cd ${shellWord(tab.cwd)} && ${tab.command}`} label="Copy the command with its working directory" />
   </div>
 );
