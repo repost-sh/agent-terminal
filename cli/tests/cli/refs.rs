@@ -1,9 +1,9 @@
-use crate::support::{AgentTerminal, Screen, Shown, fixture};
+use crate::support::{AgentTerminal, Screen, Shown, open_tui};
 
 #[test]
 fn snapshot_i_lists_refs_for_panels_the_selected_row_and_key_hints() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    open_tui(&at);
     insta::assert_snapshot!(at.run(&["snapshot", "-i"]).success().screen(), @r#"
     work app · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N
     1│┌Files─────────────┐┌Details─────────────────────┐
@@ -27,7 +27,7 @@ fn snapshot_i_lists_refs_for_panels_the_selected_row_and_key_hints() {
 #[test]
 fn snapshot_i_json_gives_each_ref_its_place_area_and_frame() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    open_tui(&at);
     let json = at.run(&["--json", "snapshot", "-i"]).success().json();
     let frame = json["frame"].as_u64().expect("a frame number");
     assert_eq!(

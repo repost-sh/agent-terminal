@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::native::daemon::tests::{ECHO, Running, on, open, text, waiting};
+use crate::native::daemon::tests::{ECHO, Running, on, open, rename, text, waiting};
 
 fn shown(snapshot: &Value) -> String {
     let lines: Vec<&str> = snapshot["lines"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect();
@@ -26,10 +26,6 @@ fn tabs(running: &Running) -> String {
     let listed = running.ok(&json!({ "command": "tabs", "session": "s" }));
     let names: Vec<&str> = listed["tabs"].as_array().unwrap().iter().map(|tab| tab["tab"].as_str().unwrap()).collect();
     format!("current {} of {}", listed["current"], names.join(" "))
-}
-
-fn rename(tab: Option<&str>, name: &str) -> Value {
-    on("rename-tab", &json!({ "tab": tab, "name": name }))
 }
 
 #[test]

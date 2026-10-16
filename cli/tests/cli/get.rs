@@ -1,4 +1,4 @@
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, fixture, open_tui};
 
 #[test]
 fn get_text_prints_the_screen_without_header_or_row_numbers() {
@@ -174,14 +174,14 @@ fn get_cwd_is_where_the_program_started_until_it_reports_another() {
 #[test]
 fn get_cursor_says_hidden_when_the_app_hides_it() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    open_tui(&at);
     assert_eq!(at.run(&["get", "cursor"]).success().stdout(), "hidden\n");
 }
 
 #[test]
 fn get_cell_shows_the_selected_row_is_inverse() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    open_tui(&at);
     assert_eq!(at.run(&["get", "cell", "2", "2"]).success().stdout(), "\"a\" fg=default bg=default inverse\n");
     assert_eq!(at.run(&["get", "cell", "3", "2"]).success().stdout(), "\"b\" fg=default bg=default\n");
 }

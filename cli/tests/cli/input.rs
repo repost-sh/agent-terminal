@@ -1,4 +1,4 @@
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, fixture, open_tui};
 
 fn open_input_echo(at: &AgentTerminal, modes: &[&str]) {
     let echo = fixture("input-echo");
@@ -147,7 +147,7 @@ fn press_repeats_the_whole_sequence() {
 #[test]
 fn press_drives_a_full_screen_app() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    open_tui(&at);
     at.run(&["press", "j", "Down", "--wait", "Selected: gamma.txt"]).success();
     at.run(&["press", "k", "--wait", "Selected: beta.txt"]).success();
     assert_eq!(

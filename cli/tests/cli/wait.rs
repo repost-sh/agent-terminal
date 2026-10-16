@@ -1,4 +1,4 @@
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, fixture, open_tui};
 
 fn numbers_as_n(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -106,7 +106,7 @@ fn wait_regex_refuses_an_invalid_pattern_with_exit_code_1() {
 #[test]
 fn wait_gone_returns_once_the_text_has_left_the_screen() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    open_tui(&at);
     at.run(&["press", "j"]).success();
     let waited = at.run(&["wait", "--gone", "Selected: alpha.txt"]).success();
     assert_eq!(numbers_as_n(&waited.stdout()), "waited N ms for \"Selected: alpha.txt\" to disappear in work app\n");
@@ -217,10 +217,6 @@ fn wait_idle_times_out_while_the_program_keeps_printing_the_same_screen() {
         "{}",
         waited.stderr()
     );
-}
-
-fn open_tui(at: &AgentTerminal) {
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
 }
 
 #[test]

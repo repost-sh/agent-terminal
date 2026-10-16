@@ -1,5 +1,5 @@
 use super::picture::png_size;
-use crate::support::{AgentTerminal, Call, fixture};
+use crate::support::{AgentTerminal, Call, fixture, open_tui};
 
 #[test]
 fn screenshot_saves_a_png_of_the_screen_named_after_session_tab_and_frame() {
@@ -69,7 +69,7 @@ fn screenshots_go_to_the_screenshot_dir_its_variable_or_the_path_given() {
 #[test]
 fn an_input_command_saves_a_screenshot_once_its_wait_is_over() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    open_tui(&at);
     let work = at.work_folder();
     let given = work.join("beta.png");
 

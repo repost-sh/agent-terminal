@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, fixture, open_tui};
 
 const NAME_THE_SESSION: &str = "error: name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)\n";
 
@@ -86,7 +86,7 @@ fn options_of_open_after_the_program_are_open_options_and_the_rest_goes_to_the_p
 #[test]
 fn snapshot_reads_a_full_screen_app() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    open_tui(&at);
     let run = at.run(&["snapshot"]).success();
     insta::assert_snapshot!(run.screen(), @r"
     work app · fixture-tui · 50x8 · alt-screen · cursor hidden · frame N

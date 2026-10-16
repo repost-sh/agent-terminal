@@ -103,6 +103,10 @@ pub(super) fn open(tab: &str, script: &str) -> Value {
     })
 }
 
+pub(super) fn rename(tab: Option<&str>, name: &str) -> Value {
+    on("rename-tab", &json!({ "tab": tab, "name": name }))
+}
+
 pub(super) fn waiting(mut request: Value, wait: Value) -> Value {
     request["wait"] = wait;
     request

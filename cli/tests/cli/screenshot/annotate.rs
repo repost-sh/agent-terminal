@@ -1,10 +1,10 @@
 use super::picture::{CELL_HEIGHT, CELL_WIDTH, MARGIN, Picture, REF_COLORS, Rgb, picture};
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, open_tui};
 
 #[test]
 fn annotate_draws_a_box_and_a_name_on_each_ref_with_a_legend_and_prints_the_refs() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    open_tui(&at);
     let work = at.work_folder();
     let path = work.join("annotated.png");
 
@@ -59,7 +59,7 @@ fn each_legend_line_starts_with_the_colour_of_its_first_ref(shot: &Picture) {
 #[test]
 fn an_annotated_svg_draws_the_legend_as_text() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    open_tui(&at);
     let path = at.work_folder().join("annotated.svg");
     at.run(&["screenshot", "--annotate", path.to_str().unwrap()]).success();
     let drawing = std::fs::read_to_string(&path).unwrap();

@@ -1,8 +1,4 @@
-use crate::support::{AgentTerminal, Screen, Shown, fixture};
-
-fn open_tui(at: &AgentTerminal) {
-    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
-}
+use crate::support::{AgentTerminal, Screen, Shown, open_tui};
 
 #[test]
 fn input_snapshot_rows_prints_only_that_range() {

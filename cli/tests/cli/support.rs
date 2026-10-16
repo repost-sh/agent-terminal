@@ -334,6 +334,10 @@ pub(crate) fn open_redraw(at: &AgentTerminal, redraw: &Redraw<'_>) {
     .success();
 }
 
+pub(crate) fn open_tui(at: &AgentTerminal) {
+    at.run(&["open", "--name", "app", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+}
+
 pub(crate) fn dashboard(at: &AgentTerminal) -> u16 {
     let started = at.run(&["--json", "dashboard", "start", "--port", "0"]).success().json();
     u16::try_from(started["port"].as_u64().expect("the dashboard's port")).expect("a port number")

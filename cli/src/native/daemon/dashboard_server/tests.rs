@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::native::daemon::tests::{ECHO, Running, on, open};
+use crate::native::daemon::tests::{ECHO, Running, open, rename};
 
 fn start(port: u64, origins: &[&str]) -> Value {
     json!({ "command": "dashboard-start", "port": port, "origins": origins })
@@ -208,15 +208,11 @@ fn on_close() -> Value {
     json!({ "command": "close", "session": "s", "tab": null, "scope": "tab" })
 }
 
-fn rename(name: &str) -> Value {
-    on("rename-tab", &json!({ "tab": null, "name": name }))
-}
-
 #[test]
 fn a_renamed_tab_keeps_its_activity_and_a_new_tab_with_its_old_name_starts_without() {
     let running = Running::new();
     running.respond(Some(&["open", "--name", "echo", "sh"]), &open("echo", ECHO));
-    running.respond(Some(&["tab", "rename", "web"]), &rename("web"));
+    running.respond(Some(&["tab", "rename", "web"]), &rename(None, "web"));
     running.respond(Some(&["open", "--name", "echo", "sh"]), &open("echo", ECHO));
     let port = running.ok(&start(0, &[]))["port"].as_u64().unwrap();
     let listed = |tab: &str| {
