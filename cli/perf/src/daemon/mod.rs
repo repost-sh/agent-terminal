@@ -9,22 +9,43 @@ use crate::log;
 
 pub(crate) const SESSION: &str = "perf";
 
-const A_BUILD_BEFORE_SESSION_NEW: &str = "unrecognized subcommand 'new'";
+const FIRST_UNNAMED_TAB: &str = "t1";
 
-const A_BUILD_BEFORE_TAB_NAMES: &str = "unexpected argument '--name'";
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Dialect {
+    Unnamed,
+    Named,
+}
 
-const FIRST_TAB_BEFORE_TAB_NAMES: &str = "t1";
+#[derive(Clone)]
+pub(crate) struct Binary {
+    pub path: PathBuf,
+    pub dialect: Dialect,
+}
+
+impl Binary {
+    pub(crate) fn detect(path: PathBuf) -> Binary {
+        let named = Command::new(&path)
+            .args(["session", "new", "--help"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        Binary { path, dialect: if named { Dialect::Named } else { Dialect::Unnamed } }
+    }
+}
 
 pub(crate) struct Agent {
     pub side: &'static str,
-    pub binary: PathBuf,
+    pub binary: Binary,
     pub work: PathBuf,
     pub home: String,
 }
 
 impl Agent {
     pub(crate) fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(&self.binary);
+        let mut command = Command::new(&self.binary.path);
         command
             .args(args)
             .current_dir(&self.work)
@@ -36,7 +57,7 @@ impl Agent {
     }
 
     pub(crate) fn run(&self, args: &[&str]) -> Result<Output> {
-        let output = self.command(args).output().with_context(|| format!("run {}", self.binary.display()))?;
+        let output = self.command(args).output().with_context(|| format!("run {}", self.binary.path.display()))?;
         ensure!(
             output.status.success(),
             "`agent-terminal {}` failed for the {} ({}): {}{}",
@@ -50,38 +71,23 @@ impl Agent {
     }
 
     pub(crate) fn new_session(&self, name: &str) -> Result<()> {
-        let output = self
-            .command(&["session", "new", name])
-            .output()
-            .with_context(|| format!("run {}", self.binary.display()))?;
-        let refusal = String::from_utf8_lossy(&output.stderr);
-        ensure!(
-            output.status.success() || refusal.contains(A_BUILD_BEFORE_SESSION_NEW),
-            "`agent-terminal session new {name}` failed for the {} ({}): {}",
-            self.side,
-            output.status,
-            refusal.trim_start()
-        );
+        if self.binary.dialect == Dialect::Named {
+            self.run(&["session", "new", name])?;
+        }
         Ok(())
     }
 
     pub(crate) fn open(&self, tab: &str, args: &[&str]) -> Result<String> {
-        let named = [&["open", "--name", tab][..], args].concat();
-        let output = self.command(&named).output().with_context(|| format!("run {}", self.binary.display()))?;
-        let refusal = String::from_utf8_lossy(&output.stderr);
-        if output.status.success() {
-            return Ok(tab.to_string());
+        match self.binary.dialect {
+            Dialect::Named => {
+                self.run(&[&["open", "--name", tab][..], args].concat())?;
+                Ok(tab.to_string())
+            }
+            Dialect::Unnamed => {
+                self.run(&[&["open"][..], args].concat())?;
+                Ok(FIRST_UNNAMED_TAB.to_string())
+            }
         }
-        ensure!(
-            refusal.contains(A_BUILD_BEFORE_TAB_NAMES),
-            "`agent-terminal {}` failed for the {} ({}): {}",
-            named.join(" "),
-            self.side,
-            output.status,
-            refusal.trim_start()
-        );
-        self.run(&[&["open"][..], args].concat())?;
-        Ok(FIRST_TAB_BEFORE_TAB_NAMES.to_string())
     }
 
     pub(crate) fn home(&self) -> PathBuf {
