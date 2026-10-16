@@ -430,7 +430,8 @@ proptest::proptest! {
             .flatten()
             .collect();
         let shown = shown_by_input_echo(&bytes);
-        at.run(&["send", &escaped, "--wait", &shown]).success();
-        proptest::prop_assert_eq!(at.received("default"), shown);
+        at.run(&["send", &escaped]).success();
+        at.run(&["wait", "--cursor", &format!("2,{}", shown.len() + 1)]).success();
+        proptest::prop_assert_eq!(at.received("default"), shown.trim_end());
     }
 }
