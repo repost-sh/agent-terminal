@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 import { checkProperties, propertiesIn } from "./props.ts";
+import { scratchFolder } from "./scratch.ts";
 
 const PROPERTY = `fc.assert(fc.property(fc.nat(), (n) => {
   expect(n * 2 % 2).toBe(0);
@@ -24,7 +24,7 @@ void test("a file that does not parse is an error naming it", () => {
 });
 
 const scratchRoot = (files: Record<string, string>) => {
-  const root = mkdtempSync(join(tmpdir(), "props-"));
+  const root = scratchFolder("props-");
 
   for (const [path, code] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });

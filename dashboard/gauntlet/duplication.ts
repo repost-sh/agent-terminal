@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, globSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, globSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
 import { TEST_CODE } from "./test-code.ts";
@@ -93,7 +93,7 @@ export const checkDuplication = (root: string): Verdict => {
   const { duplicates, statistics } = report(root);
   const offenses = statistics.total.sources === 0
     ? [`the duplication gate scanned no files: ${NOTHING}`]
-    : duplicates.map((clone) => offense(root, clone));
+    : duplicates.map((clone) => offense(realpathSync(root), clone));
 
   return offenses.length
     ? { lines: [...offenses, `${String(offenses.length)} offense(s)`], passed: false }

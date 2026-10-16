@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 import { checkDuplication, scope } from "./duplication.ts";
+import { scratchFolder } from "./scratch.ts";
 
 const FIX = "move the shared code into the module that owns it and call it from both places → GAUNTLET.md#duplication";
 
@@ -26,7 +26,7 @@ const PRODUCT = [
 ].join("\n");
 
 const scratchRoot = (files: Record<string, string>) => {
-  const root = mkdtempSync(join(tmpdir(), "duplication-"));
+  const root = scratchFolder("duplication-");
 
   for (const [path, code] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -50,6 +50,13 @@ void test("the scope is every crate's src folder outside target/, and the dashbo
     "dashboard",
   ]);
   assert.deepEqual(scope(scratchRoot({ "cli/Cargo.toml": "" })), []);
+});
+
+void test("a root reached through a symbolic link names files from the root", () => {
+  const link = join(scratchFolder("duplication-link-"), "checkout");
+
+  symlinkSync(scratchRoot({ ...crates, "cli/src/a.rs": RUST, "cli/perf/src/b.rs": RUST, "dashboard/src/a.ts": "export const a = 1;\n" }), link);
+  assert.deepEqual(checkDuplication(link).lines, [`cli/perf/src/b.rs:1-29 repeats cli/src/a.rs:1-29 (222 tokens): ${FIX}`, "1 offense(s)"]);
 });
 
 void test("a block repeated across two crates is an offense naming both places", () => {

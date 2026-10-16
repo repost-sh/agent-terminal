@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
@@ -11,6 +10,7 @@ import tseslint from "typescript-eslint";
 
 import { checkCrap, productFiles, scoreFile, scoreOf, type Coverage } from "./crap.ts";
 import { functionsIn } from "./functions.ts";
+import { scratchFolder } from "./scratch.ts";
 
 const ROOT = join(import.meta.dirname, "..");
 
@@ -80,7 +80,7 @@ const SOURCES: Record<string, string> = {
 };
 
 const scratchRoot = () => {
-  const root = mkdtempSync(join(tmpdir(), "crap-"));
+  const root = scratchFolder("crap-");
 
   for (const [path, code] of Object.entries(SOURCES)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -110,7 +110,7 @@ void test("a file that does not parse is an error naming it", () => {
 });
 
 void test("the command reads a coverage report and exits 2 on an offense", () => {
-  const report = join(mkdtempSync(join(tmpdir(), "crap-report-")), "coverage-final.json");
+  const report = join(scratchFolder("crap-report-"), "coverage-final.json");
 
   writeFileSync(report, "{}");
   const run = spawnSync(process.execPath, [join(import.meta.dirname, "crap.ts"), report], { encoding: "utf8" });

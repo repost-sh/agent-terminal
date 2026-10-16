@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
 import type { MutantResult, MutantStatus } from "@stryker-mutator/api/core";
 
 import { configFilesIn, judge } from "./mutation.ts";
+import { scratchFolder } from "./scratch.ts";
 
 const FIX = "write a test whose expected value changes when the mutated code does → GAUNTLET.md#mutation";
 
@@ -53,7 +53,7 @@ void test("a run that tested nothing, or timed out on more than one mutant in tw
 });
 
 void test("every config file name Stryker would read is found", () => {
-  const root = mkdtempSync(join(tmpdir(), "stryker-"));
+  const root = scratchFolder("stryker-");
 
   for (const file of ["stryker.conf.json", ".stryker.config.mjs", "stryker.config.cjs", "stryker.json", "package.json"]) {
     writeFileSync(join(root, file), "{}");
