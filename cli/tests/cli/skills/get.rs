@@ -104,3 +104,15 @@ fn skills_get_an_unknown_skill_fails_and_says_how_to_list_them() {
     assert_eq!(run.code(), 1);
     assert_eq!(run.stderr(), "error: no skill named nope; list them with `agent-terminal skills list`\n");
 }
+
+#[test]
+fn no_guide_in_its_full_form_speaks_of_the_daemon() {
+    let at = AgentTerminal::new();
+    let list = at.run(&["--json", "skills", "list"]).success().json();
+    let skills = list["skills"].as_array().expect("skills array");
+    for name in skills.iter().map(|skill| skill["name"].as_str().expect("a skill name")) {
+        let full = at.run(&["skills", "get", name, "--full"]).success().stdout();
+        let said: Vec<&str> = full.lines().filter(|line| line.to_lowercase().contains("daemon")).collect();
+        assert!(said.is_empty(), "`skills get {name} --full` speaks of the daemon:\n{}", said.join("\n"));
+    }
+}

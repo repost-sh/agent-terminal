@@ -344,3 +344,16 @@ async fn the_attach_tool_says_it_needs_a_terminal_and_what_to_use_instead() {
         } })
     );
 }
+
+#[tokio::test]
+async fn no_tool_names_or_describes_the_daemon() {
+    let at = AgentTerminal::new();
+    let client = connect(&at, &[]).await;
+    let tools = client.list_all_tools().await.expect("list tools");
+    let said: Vec<String> = tools
+        .iter()
+        .map(|tool| json!(tool).to_string())
+        .filter(|tool| tool.to_lowercase().contains("daemon"))
+        .collect();
+    assert!(said.is_empty(), "tools that speak of the daemon:\n{}", said.join("\n"));
+}
