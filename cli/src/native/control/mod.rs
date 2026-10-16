@@ -92,3 +92,6 @@ impl Drop for Hold {
         self.0.lifecycle.notify();
     }
 }
+
+#[cfg(test)]
+mod tests;

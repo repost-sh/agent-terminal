@@ -199,3 +199,6 @@ impl Record {
 pub(crate) fn epoch_ms(at: SystemTime) -> u64 {
     at.duration_since(UNIX_EPOCH).map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
 }
+
+#[cfg(test)]
+mod tests;
