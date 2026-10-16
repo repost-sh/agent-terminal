@@ -67,7 +67,7 @@ impl Browser {
         let browser = Self { session: format!("at-test-{}-{n}", std::process::id()) };
         browser.run(&["set", "viewport", "1440", "900"]);
         browser.run(&["set", "media", "reduced-motion"]);
-        browser.run(&["open", "--name", "app", url]);
+        browser.run(&["open", url]);
         browser
     }
 

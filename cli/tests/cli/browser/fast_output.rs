@@ -48,7 +48,7 @@ fn a_tab_that_redraws_sixty_times_a_second_leaves_the_dashboard_responsive_and_o
     at.run(&["--timeout", &limit, "wait", "--frame", &streamed.to_string()]).success();
     let measured: serde_json::Value = browser.eval_json(MEASURE_FIVE_SECONDS);
     let latest = at.frame("work");
-    browser.run(&["open", "--name", "app", "about:blank"]);
+    browser.run(&["open", "about:blank"]);
     let blank: f64 = browser.eval_json(PAINTS_ON_A_BLANK_PAGE);
 
     let paints = measured["paints"].as_f64().expect("paints");

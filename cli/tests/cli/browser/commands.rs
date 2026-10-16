@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use super::{Browser, Dashboard};
 use crate::support::{AgentTerminal, Run};
 
-const COMMANDS: &str = "ol[aria-label='Commands in work app']";
+const COMMANDS: &str = "ol[aria-label='Commands in work shell']";
 
 struct ShellTab {
     at: AgentTerminal,
@@ -13,7 +13,7 @@ struct ShellTab {
 
 impl ShellTab {
     fn opened() -> Self {
-        let at = AgentTerminal::new();
+        let at = AgentTerminal::unstarted();
         let home = at.home().join("user");
         let work = home.join("projects").join("demo-app");
         std::fs::create_dir_all(&work).expect("create the work folder");
@@ -21,6 +21,7 @@ impl ShellTab {
         let work = work.canonicalize().expect("canonical work folder");
         let shell = Self { at, home, work };
         let cwd = shell.work.to_string_lossy().into_owned();
+        shell.run(&["session", "new", "work"]).success();
         shell.run(&["shell", "--name", "shell", "--shell", "bash", "--size", "60x12", "--cwd", &cwd]).success();
         shell
     }
@@ -86,7 +87,7 @@ fn the_commands_tab_lists_each_command_with_its_exit_status_and_expands_to_its_o
     tab.run(&["exec", colored]).success();
     tab.run(&["exec", "echo failing; false"]).success();
     let dashboard = Dashboard::start(&tab.at);
-    let browser = Browser::open(&dashboard.url("/s/work/app"));
+    let browser = Browser::open(&dashboard.url("/s/work/shell"));
     open_commands(&browser);
 
     wait_for_listed(&browser, "echo failing; false");
@@ -134,7 +135,7 @@ fn expanding_the_second_command_shows_its_output_too(browser: &Browser) {
 fn new_commands_appear_as_they_finish_and_a_running_one_shows_as_running() {
     let tab = ShellTab::opened();
     let dashboard = Dashboard::start(&tab.at);
-    let browser = Browser::open(&dashboard.url("/s/work/app"));
+    let browser = Browser::open(&dashboard.url("/s/work/shell"));
     open_commands(&browser);
     browser.wait_for_text("No commands yet");
     assert_eq!(browser.text("#ppanel-commands [data-slot=badge]").trim(), "0");
@@ -205,7 +206,7 @@ fn tabs_without_commands_say_why_and_how_to_get_them() {
         ]
     );
 
-    browser.run(&["open", "--name", "app", &dashboard.url("/s/qa/api")]);
+    browser.run(&["open", &dashboard.url("/s/qa/api")]);
     open_commands(&browser);
     browser.wait_for_text("Shell integration is off for this tab");
     assert_eq!(

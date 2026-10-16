@@ -166,7 +166,7 @@ fn panel_width(browser: &Browser) -> String {
 fn the_side_panel_keeps_its_tab_and_width_from_one_terminal_to_the_next() {
     let at = AgentTerminal::without_session();
     at.run(&["session", "new", "qa"]).success();
-    for verb in [&["open"][..], &["tab", "new"][..]] {
+    for verb in [&["open", "--name", "app"][..], &["tab", "new", "--name", "api"][..]] {
         let printer = fixture("line-printer");
         let mut args = vec!["--session", "qa"];
         args.extend(verb);

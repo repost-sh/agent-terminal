@@ -112,9 +112,9 @@ fn an_exited_tab_keeps_its_last_screen_with_the_exit_bar_to_restart_or_close_it(
     at.run(&["press", "Enter"]).success();
     browser.wait_for_status("Exited");
     browser.click_button("Close tab");
-    browser.wait_for_text("No active sessions");
     browser.wait_until("location.pathname === '/'");
-    assert_eq!(at.run(&["session", "list"]).success().stdout(), "no sessions are open\n");
+    browser.wait_until("document.querySelector('nav')?.textContent.includes('work0, 0 tabs')");
+    assert_eq!(at.run(&["session", "list"]).success().stdout(), "work · no tabs\n");
 }
 
 fn the_exited_tab_keeps_its_screen_under_the_exit_bar(at: &AgentTerminal, browser: &Browser, dashboard: &Dashboard) {

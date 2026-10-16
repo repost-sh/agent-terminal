@@ -67,7 +67,7 @@ fn two_up_from_a_tab_shows_it_beside_the_tab_after_it_both_live() {
 
 fn open_qa_with_two_tabs_and_web(at: &AgentTerminal) -> Cue {
     at.run(&["session", "new", "qa"]).success();
-    hold(at, &["--session", "qa", "open"], "30x4", "1");
+    hold(at, &["--session", "qa", "open", "--name", "app"], "30x4", "1");
     let cue = Cue::new();
     at.run(&[
         "--session",
@@ -89,7 +89,7 @@ fn open_qa_with_two_tabs_and_web(at: &AgentTerminal) -> Cue {
     .success();
     cue.print("");
     at.run(&["session", "new", "web"]).success();
-    hold(at, &["--session", "web", "open"], "30x4", "3");
+    hold(at, &["--session", "web", "open", "--name", "app"], "30x4", "3");
     cue
 }
 
@@ -148,10 +148,10 @@ fn four_up_fills_with_the_current_tab_then_the_ones_after_it_and_single_returns_
     ])
     .success();
     at.run(&["session", "new", "chat"]).success();
-    hold(&at, &["--session", "chat", "open"], "30x4", "2");
+    hold(&at, &["--session", "chat", "open", "--name", "app"], "30x4", "2");
     at.run(&["session", "new", "qa"]).success();
-    hold(&at, &["--session", "qa", "open"], "30x4", "1");
-    hold(&at, &["--session", "qa", "tab", "new"], "30x4", "3");
+    hold(&at, &["--session", "qa", "open", "--name", "app"], "30x4", "1");
+    hold(&at, &["--session", "qa", "tab", "new", "--name", "api"], "30x4", "3");
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/s/chat/app"));
     browser.wait_for_status("Live");
@@ -215,10 +215,10 @@ fn single_returns_to_the_focused_tab(browser: &Browser) {
 
 fn open_qa_with_two_tabs_and_web_of_three_sizes(at: &AgentTerminal) {
     at.run(&["session", "new", "qa"]).success();
-    hold(at, &["--session", "qa", "open"], "30x4", "1");
-    hold(at, &["--session", "qa", "tab", "new"], "32x5", "2");
+    hold(at, &["--session", "qa", "open", "--name", "app"], "30x4", "1");
+    hold(at, &["--session", "qa", "tab", "new", "--name", "api"], "32x5", "2");
     at.run(&["session", "new", "web"]).success();
-    hold(at, &["--session", "web", "open"], "34x6", "3");
+    hold(at, &["--session", "web", "open", "--name", "app"], "34x6", "3");
 }
 
 #[test]
@@ -285,7 +285,7 @@ fn clicking_a_cell_focuses_it_and_a_tab_picked_in_the_sidebar_replaces_the_focus
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/split/qa:app,qa:api"));
     browser.wait_for_status("30 × 4");
-    assert_eq!(selected_in_sidebar(&browser), "\"line-printer, qa app, running\"");
+    assert_eq!(selected_in_sidebar(&browser), "\"appline-printer, qa app, running\"");
 
     clicking_a_cell_focuses_it_and_selects_it_in_the_sidebar(&at, &browser, &dashboard);
     a_tab_picked_in_the_sidebar_replaces_the_focused_cell(&at, &browser);
@@ -303,7 +303,7 @@ fn clicking_a_cell_focuses_it_and_selects_it_in_the_sidebar(
     browser.wait_for_status(&format!("frame {frame}"));
     assert_eq!(focused(browser), "\"qa api line-printer\"");
     assert_eq!(browser.status(), ["Live", &dashboard.stream("qa/api"), "32 × 5", &format!("frame {frame}")]);
-    assert_eq!(selected_in_sidebar(browser), "\"line-printer, qa api, running\"");
+    assert_eq!(selected_in_sidebar(browser), "\"apiline-printer, qa api, running\"");
     assert_eq!(browser.eval("location.pathname"), "\"/split/qa:app,qa:api\"");
 }
 
@@ -320,9 +320,9 @@ fn a_tab_picked_in_the_sidebar_replaces_the_focused_cell(at: &AgentTerminal, bro
 fn maximize_shows_the_tab_alone_and_a_split_route_survives_a_reload() {
     let at = AgentTerminal::without_session();
     at.run(&["session", "new", "qa"]).success();
-    hold(&at, &["--session", "qa", "open"], "30x4", "1");
+    hold(&at, &["--session", "qa", "open", "--name", "app"], "30x4", "1");
     at.run(&["session", "new", "web-app"]).success();
-    hold(&at, &["--session", "web-app", "open"], "32x5", "2");
+    hold(&at, &["--session", "web-app", "open", "--name", "app"], "32x5", "2");
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/s/qa/app"));
     browser.wait_for_status("Live");
@@ -346,7 +346,7 @@ fn maximize_shows_the_tab_alone_and_a_split_route_survives_a_reload() {
 fn a_split_route_with_three_cells_is_not_a_page() {
     let at = AgentTerminal::without_session();
     at.run(&["session", "new", "qa"]).success();
-    hold(&at, &["--session", "qa", "open"], "30x4", "1");
+    hold(&at, &["--session", "qa", "open", "--name", "app"], "30x4", "1");
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/split/qa:app,_,_"));
 
@@ -361,7 +361,7 @@ fn the_focused_cell_of_a_split_takes_the_keys_of_a_human_in_control() {
     at.run(&["--session", "app", "open", "--name", "app", "--size", "40x6", "--wait", "ready", &fixture("input-echo")])
         .success();
     at.run(&["session", "new", "web"]).success();
-    hold(&at, &["--session", "web", "open"], "30x4", "1");
+    hold(&at, &["--session", "web", "open", "--name", "app"], "30x4", "1");
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/split/app:app,web:app"));
     browser.wait_for_status("Live");

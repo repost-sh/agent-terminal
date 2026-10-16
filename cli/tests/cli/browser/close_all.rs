@@ -43,7 +43,7 @@ fn close_all_asks_first_naming_the_sessions_and_running_processes_then_closes_ev
 }
 
 fn open_two_sessions_with_a_running_and_an_exited_tab(at: &AgentTerminal) {
-    hold(at, "qa", &["open"]);
+    hold(at, "qa", &["open", "--name", "app"]);
     at.run(&[
         "--session",
         "qa",
@@ -61,7 +61,7 @@ fn open_two_sessions_with_a_running_and_an_exited_tab(at: &AgentTerminal) {
     ])
     .success();
     at.run(&["--session", "qa", "--tab", "api", "wait", "--exit"]).success();
-    hold(at, "build", &["open"]);
+    hold(at, "build", &["open", "--name", "app"]);
 }
 
 fn the_question_names_the_sessions_and_escape_dismisses_it(browser: &Browser) {
@@ -101,7 +101,7 @@ fn close_all_closes_every_session(at: &AgentTerminal, browser: &Browser) {
 }
 
 fn the_question_counts_one_session_in_the_singular(at: &AgentTerminal, browser: &Browser) {
-    hold(at, "solo", &["open"]);
+    hold(at, "solo", &["open", "--name", "app"]);
     browser.wait_until("location.pathname === '/s/solo/app'");
     browser.click_button("Close all sessions");
     browser.wait_until(ALERT_OPEN);

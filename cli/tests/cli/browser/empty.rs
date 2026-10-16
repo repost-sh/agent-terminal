@@ -78,7 +78,7 @@ fn losing_the_daemon_shows_reconnecting_then_disconnected_and_retry_reconnects()
 
 #[test]
 fn the_dashboard_starts_dark_and_switches_to_light_and_back() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/"));
     browser.wait_for_text("No active sessions");
