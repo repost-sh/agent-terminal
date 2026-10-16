@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 
 import { Announcers } from "./components/announcer";
 import { DialogLayer, useOpenDialog } from "./components/dialog";
-import { Disconnected, NoSessions, NotFound, NotOpen } from "./components/empty-screens";
+import { Disconnected, NotFound, NothingOpen, NotOpen } from "./components/empty-screens";
 import { ResizeHandle } from "./components/resize-handle";
 import { SessionsSidebar, type RouteOf, type Selected } from "./components/sessions-sidebar";
 import { SidePanel } from "./components/side-panel";
@@ -80,13 +80,21 @@ const tabScreen = (view: AppView, opened: Opened<"tab">): Screen => {
   };
 };
 
+const homeScreen = (sessions: SessionInfo[]): Screen => {
+  if (sessions.some((info) => info.tabs.length > 0)) {
+    return { title: null, center: null };
+  }
+
+  return { title: sessions.length ? "No open tabs" : "No active sessions", center: <NothingOpen sessions={sessions.map((info) => info.session)} /> };
+};
+
 interface Routed { route: Exclude<Route, { kind: "missing" }>; sessions: SessionInfo[] }
 
 const routedScreen = (view: AppView, routed: Routed): Screen => {
   const { route, sessions } = routed;
 
   if (route.kind === "home") {
-    return sessions.length ? { title: null, center: null } : { title: "No active sessions", center: <NoSessions /> };
+    return homeScreen(sessions);
   }
 
   return route.kind === "split" ? splitScreen(view, { route, sessions }) : tabScreen(view, { route, sessions });

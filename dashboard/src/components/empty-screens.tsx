@@ -7,35 +7,69 @@ import { Button, CliBlock, Dot } from "./ui";
 
 const DEFAULT_PORT = "4849";
 
-const START_COMMANDS = [
-  "agent-terminal session new <name>",
+const OPEN_COMMANDS = [
   "agent-terminal --session <name> open --name <tab> <program>",
   "agent-terminal --session <name> shell --name <tab>",
   "agent-terminal skills get core",
 ];
 
-export const NoSessions = () => (
-  <div className="flex h-full items-center justify-center p-6">
-    <div className="w-full max-w-sm space-y-4 text-center">
-      <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">No active sessions</p>
-        <p className="text-xs text-muted-foreground/60">Start a terminal from the CLI, or create a session here</p>
-      </div>
-      <ul className="space-y-1.5" aria-label="Commands to get started">
-        {START_COMMANDS.map((line) => (
-          <li key={line}>
-            <CliBlock line={line} />
-          </li>
-        ))}
-      </ul>
-      <Button look={{ icon: Plus }} onClick={() => {
-        showDialog((live) => <NewSessionDialog sessions={live} existing={null} />);
+const NO_SESSIONS = {
+  heading: "No active sessions",
+  note: "Start a terminal from the CLI, or create a session here",
+  commands: ["agent-terminal session new <name>", ...OPEN_COMMANDS],
+};
+
+const invitation = (sessions: string[]) =>
+  sessions.length
+    ? { heading: "No open tabs", note: `Open a tab in ${new Intl.ListFormat("en").format(sessions)} from the CLI, or here`, commands: OPEN_COMMANDS }
+    : NO_SESSIONS;
+
+interface NewTabsProps { sessions: string[] }
+
+const NewTabs = ({ sessions }: NewTabsProps) => (
+  <div className="flex flex-wrap justify-center gap-2">
+    {sessions.map((session) => (
+      <Button key={session} look={{ icon: Plus }} onClick={() => {
+        showDialog((live) => <NewSessionDialog sessions={live} existing={session} />);
       }}>
-        New session
+        New tab in {session}
       </Button>
-    </div>
+    ))}
   </div>
 );
+
+const NewSession = () => (
+  <Button look={{ icon: Plus }} onClick={() => {
+    showDialog((live) => <NewSessionDialog sessions={live} existing={null} />);
+  }}>
+    New session
+  </Button>
+);
+
+interface NothingOpenProps { sessions: string[] }
+
+export const NothingOpen = ({ sessions }: NothingOpenProps) => {
+  const invited = invitation(sessions);
+
+  return (
+    <div className="flex h-full items-center justify-center p-6">
+      <div className="w-full max-w-sm space-y-4 text-center">
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">{invited.heading}</p>
+          <p className="text-xs text-muted-foreground/60">{invited.note}</p>
+        </div>
+        <ul className="space-y-1.5" aria-label="Commands to get started">
+          {invited.commands.map((line) => (
+            <li key={line}>
+              <CliBlock line={line} />
+            </li>
+          ))}
+        </ul>
+        {sessions.length ? <NewTabs sessions={sessions} /> : <NewSession />}
+      </div>
+    </div>
+  );
+};
 
 interface DisconnectedProps { onRetry: () => void }
 

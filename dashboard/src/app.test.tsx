@@ -17,6 +17,27 @@ test("the dashboard opens the first tab of the first session", async () => {
   expect(document.title).toBe("work app · htop · agent-terminal");
 });
 
+test("sessions without a tab name themselves and offer the commands and a New tab button for each", async () => {
+  const daemon = startDaemon([sessionInfo("idle", []), sessionInfo("spare", [])]);
+
+  render(<App />);
+  await daemon.serve();
+  const main = within(screen.getByRole("main"));
+
+  expect([location.pathname, document.title, screen.getByRole("heading", { level: 1 }).textContent]).toEqual(["/", "No open tabs · agent-terminal", "No open tabs"]);
+  expect(main.getByText("Open a tab in idle and spare from the CLI, or here")).toBeTruthy();
+  expect(main.getAllByRole("code").map((line) => line.textContent)).toEqual([
+    "agent-terminal --session <name> open --name <tab> <program>",
+    "agent-terminal --session <name> shell --name <tab>",
+    "agent-terminal skills get core",
+  ]);
+  expect(main.getAllByRole("button", { name: /^New/ }).map((button) => button.textContent)).toEqual(["New tab in idle", "New tab in spare"]);
+  fireEvent.click(main.getByRole("button", { name: "New tab in spare" }));
+  expect(within(screen.getByRole("dialog")).getByRole("heading").textContent).toBe("New tab");
+  expect(within(screen.getByRole("dialog")).getByLabelText<HTMLSelectElement>("Session").value).toBe("spare");
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+});
+
 test("a route the dashboard does not serve is a 404, and a closed tab says it is not open", async () => {
   const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 

@@ -30,6 +30,37 @@ fn with_no_sessions_the_dashboard_offers_the_commands_to_get_started() {
 }
 
 #[test]
+fn with_sessions_but_no_tabs_the_dashboard_offers_to_open_a_tab_in_each() {
+    let at = AgentTerminal::new();
+    at.run(&["session", "new", "spare"]).success();
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/"));
+
+    browser.wait_for_text("No open tabs");
+    assert_eq!(browser.run(&["get", "title"]).trim(), "No open tabs · agent-terminal");
+    assert_eq!(
+        browser.text("main").lines().filter(|line| !line.trim().is_empty()).collect::<Vec<_>>(),
+        [
+            "No open tabs",
+            "No open tabs",
+            "Open a tab in spare and work from the CLI, or here",
+            "agent-terminal --session <name> open --name <tab> <program>",
+            "Copy agent-terminal --session <name> open --name <tab> <program>",
+            "agent-terminal --session <name> shell --name <tab>",
+            "Copy agent-terminal --session <name> shell --name <tab>",
+            "agent-terminal skills get core",
+            "Copy agent-terminal skills get core",
+            "New tab in spare",
+            "New tab in work",
+        ]
+    );
+
+    browser.click_button_in("main", "New tab in spare");
+    browser.wait_until("document.querySelector('[role=dialog] h2')?.textContent === 'New tab'");
+    assert_eq!(browser.run(&["get", "value", "[role=dialog] select"]).trim(), "spare");
+}
+
+#[test]
 fn losing_the_daemon_shows_reconnecting_then_disconnected_and_retry_reconnects() {
     let at = AgentTerminal::new();
     at.run(&[
