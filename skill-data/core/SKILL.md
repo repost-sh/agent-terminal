@@ -104,6 +104,8 @@ agent-terminal wait --command                    # a shell command should finish
 
 Prefer waiting for specific text. Use `--wait-stable` when you cannot know the text. Never use `wait <ms>` except when debugging: it is slow and flaky. Waits time out after 25 s by default (`--timeout`); a timeout exits 3 and prints the screen it saw.
 
+`open`, `tab new` and `restart` wait for the program's first output, then for the screen to stay unchanged, so they print the first screen it draws. A header ending `nothing printed yet` means the program has drawn nothing: they stop waiting for it after 2 s (or `--wait-stable`, if longer). When an app loads over the network after a key, wait for the text you expect, or give `--wait-stable` a longer window: `press Enter --wait-stable 1000`.
+
 ## Shells and command history
 
 For plain commands, use a shell tab and `exec`. It runs the command, waits for it, and gives you the output and the exit code:
@@ -179,7 +181,7 @@ Close what you opened: `agent-terminal close`, or `agent-terminal close --all --
 
 ## Troubleshooting
 
-- **Nothing appears after `open`.** Check `agent-terminal get exit-code` and `output`: the program may have exited at once (exit 5 on the next command).
+- **Nothing appears after `open`.** A header ending `nothing printed yet` means the program has drawn nothing so far; wait for its text with `agent-terminal wait "..."`. Otherwise check `agent-terminal get exit-code` and `output`: the program may have exited at once (exit 5 on the next command).
 - **Keys do nothing.** The app may want different keys in its current mode; check `get modes`, and read its own key hints. Try `--wait-stable` instead of a fixed text.
 - **Text wraps strangely.** The terminal is too narrow: `resize 160x40`.
 - **The screen is a mess of symbols.** Fonts in screenshots are bundled, but a missing glyph shows as `□`; run `agent-terminal doctor`.

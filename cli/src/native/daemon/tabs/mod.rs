@@ -12,6 +12,7 @@ use crate::native::pty;
 use crate::native::shell;
 use crate::native::store::SessionFolder;
 use crate::native::terminal::{HANG_UP_GRACE, Labelled, Settled, Starting, Terminal};
+use crate::native::wait::Condition;
 use crate::protocol::request::Closing;
 use crate::protocol::{Closed, ErrorBody, Reply, SessionInfo, Shell, TabId, TabRef, Target, Wait, request};
 
@@ -121,7 +122,7 @@ impl Daemon {
         self.replace(session, tab, &old, &terminal)?;
         self.changes.notify();
         drop(restarting);
-        settle(session, tab, &terminal, &restart.wait, timeout_ms)
+        first_screen(session, tab, &terminal, Some(&restart.wait), timeout_ms)
     }
 
     fn replace(&self, session: &str, tab: TabId, old: &Arc<Terminal>, new: &Arc<Terminal>) -> Result<(), ErrorBody> {
@@ -240,16 +241,25 @@ fn first_screen(
     wait: Option<&Wait>,
     timeout_ms: u64,
 ) -> Result<Reply, ErrorBody> {
+    let tab = tab.to_string();
+    let at = Labelled { session, tab: &tab, terminal };
     match wait {
-        Some(wait) => settle(session, tab, terminal, wait, timeout_ms),
-        None => Ok(Reply::Snapshot(Labelled { session, tab: &tab.to_string(), terminal }.snapshot())),
+        Some(wait) => {
+            let launch = condition(wait)?.after_launch(Instant::now(), Duration::from_millis(timeout_ms));
+            settled_on(at, wait, launch, timeout_ms)
+        }
+        None => Ok(Reply::Snapshot(at.snapshot())),
     }
 }
 
 fn settle(session: &str, tab: TabId, terminal: &Terminal, wait: &Wait, timeout_ms: u64) -> Result<Reply, ErrorBody> {
-    let tab = tab.to_string();
-    let settled = terminal.wait(condition(wait)?.counted_from(Instant::now()), Duration::from_millis(timeout_ms));
-    let snapshot = Labelled { session, tab: &tab, terminal }.snapshot();
+    let action = condition(wait)?.counted_from(Instant::now());
+    settled_on(Labelled { session, tab: &tab.to_string(), terminal }, wait, action, timeout_ms)
+}
+
+fn settled_on(at: Labelled<'_>, wait: &Wait, condition: Condition, timeout_ms: u64) -> Result<Reply, ErrorBody> {
+    let settled = at.terminal.wait(condition, Duration::from_millis(timeout_ms));
+    let snapshot = at.snapshot();
     match settled {
         Settled::Met { .. } | Settled::Exited => Ok(Reply::Snapshot(snapshot)),
         Settled::TimedOut => Err(Until { wait, timeout_ms }.timed_out(snapshot)),

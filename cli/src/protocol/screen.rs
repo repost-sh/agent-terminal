@@ -2,6 +2,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use super::Switch;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Baseline {
     pub name: String,
@@ -74,7 +76,7 @@ pub(crate) struct Snapshot {
     pub program: String,
     pub cols: u16,
     pub rows: u16,
-    pub alt_screen: bool,
+    pub alt_screen: Switch,
     pub mouse: Option<String>,
     pub cursor: [u16; 2],
     pub cursor_visible: bool,
@@ -87,6 +89,8 @@ pub(crate) struct Snapshot {
     pub lines: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refs: Option<Vec<Ref>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nothing_printed: bool,
     #[serde(default, skip_serializing_if = "BlankRows::are_kept")]
     pub blank_rows: BlankRows,
 }

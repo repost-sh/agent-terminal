@@ -258,15 +258,42 @@ fn snapshot_with_nothing_open_explains_how_to_start() {
 }
 
 #[test]
-fn a_program_that_prints_nothing_opens_with_a_blank_screen() {
+fn open_waits_for_the_first_output_of_a_program_that_starts_slowly() {
+    let at = AgentTerminal::new();
+    let late = ["--start-after-ms", "600", "--lines", "1", "--hold"];
+    let run = at.run(&[&["open", "--size", "20x2", &fixture("line-printer")], &late[..]].concat()).success();
+    insta::assert_snapshot!(run.screen(), @r"
+    default t1 · line-printer · 20x2 · cursor 2,1 · frame N
+    1│line 1
+    …│ (row 2 blank)
+    ");
+}
+
+#[test]
+fn restart_waits_for_the_first_output_of_the_program_run_again() {
+    let at = AgentTerminal::new();
+    let late = ["--start-after-ms", "600", "--lines", "1", "--hold"];
+    at.run(&[&["open", "--size", "20x2", "--wait", "line 1", &fixture("line-printer")], &late[..]].concat()).success();
+    let run = at.run(&["restart"]).success();
+    insta::assert_snapshot!(run.screen(), @r"
+    default t1 · line-printer · 20x2 · cursor 2,1 · frame N
+    1│line 1
+    …│ (row 2 blank)
+    ");
+}
+
+#[test]
+fn a_program_that_prints_nothing_opens_with_a_blank_screen_that_says_so() {
     let at = AgentTerminal::new();
     let started = std::time::Instant::now();
     let run = at.run(&["open", "--size", "20x2", "cat"]).success();
-    assert!(started.elapsed() < Duration::from_secs(5), "took {:?}", started.elapsed());
+    assert!(started.elapsed() < Duration::from_secs(4), "took {:?}", started.elapsed());
     insta::assert_snapshot!(run.screen(), @r"
-    default t1 · cat · 20x2 · cursor 1,1 · frame N
+    default t1 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
     …│ (rows 1-2 blank)
     ");
+    let opened = at.run(&["--json", "open", "--size", "20x2", "cat"]).success().json();
+    assert_eq!(opened["nothing_printed"], true);
 }
 
 #[test]
@@ -301,11 +328,11 @@ fn waiting_for_text_that_never_appears_times_out_and_shows_the_screen() {
 #[test]
 fn open_waits_for_a_stable_first_screen_by_default() {
     let at = AgentTerminal::new();
-    let run = at.run(&["--timeout", "200", "open", "--size", "20x2", "cat"]);
+    let run = at.run(&["--timeout", "2500", "open", "--size", "20x2", &fixture("ticker"), "--flash"]);
     assert_eq!(run.code(), 3, "{}", run.stderr());
     assert!(
         run.stderr().starts_with(
-            "error: timed out after 200 ms waiting for the screen to stay unchanged for 300 ms; default t1 is still running"
+            "error: timed out after 2500 ms waiting for the screen to stay unchanged for 300 ms; default t1 is still running"
         ),
         "{}",
         run.stderr()
@@ -324,7 +351,7 @@ fn open_no_wait_prints_the_screen_without_waiting() {
 #[test]
 fn open_wait_stable_takes_an_optional_quiet_period() {
     let at = AgentTerminal::new();
-    let run = at.run(&["--timeout", "200", "open", "--wait-stable", "--size", "20x2", "cat"]);
+    let run = at.run(&["--timeout", "2500", "open", "--wait-stable", "--size", "20x2", &fixture("ticker"), "--flash"]);
     assert_eq!(run.code(), 3, "{}", run.stderr());
     assert!(run.stderr().contains("waiting for the screen to stay unchanged for 300 ms;"), "{}", run.stderr());
     let run = at.run(&["open", "--wait-stable", "50", "--size", "20x2", "cat"]).success();

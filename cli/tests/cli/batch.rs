@@ -46,7 +46,7 @@ fn a_failed_command_does_not_stop_the_batch_and_sets_its_exit_code() {
     error: no terminal is open in session default; start one with `agent-terminal open <program>`
 
     [2] open --size 20x2 cat · exit 0
-    default t1 · cat · 20x2 · cursor 1,1 · frame N
+    default t1 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
     …│ (rows 1-2 blank)
 
     [3] close · exit 0
@@ -64,7 +64,7 @@ fn bail_stops_at_the_first_failure() {
     assert_eq!(run.code(), 1);
     insta::assert_snapshot!(run.screen(), @r"
     [1] open --size 20x2 cat · exit 0
-    default t1 · cat · 20x2 · cursor 1,1 · frame N
+    default t1 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
     …│ (rows 1-2 blank)
 
     [2] close · exit 0
@@ -95,12 +95,12 @@ fn commands_take_the_session_and_timeout_of_the_batch_unless_they_set_their_own(
     assert_eq!(run.code(), 3);
     insta::assert_snapshot!(run.screen(), @r#"
     [1] open --size 20x2 cat · exit 0
-    qa t1 · cat · 20x2 · cursor 1,1 · frame N
+    qa t1 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
     …│ (rows 1-2 blank)
 
     [2] open --size 20x2 --wait never cat · exit 3
     error: timed out after 300 ms waiting for "never" to appear; qa t2 is still running (read it with `agent-terminal snapshot`, stop it with `agent-terminal close`)
-    qa t2 · cat · 20x2 · cursor 1,1 · frame N
+    qa t2 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
     …│ (rows 1-2 blank)
 
     [3] snapshot --session other · exit 1
@@ -124,7 +124,7 @@ fn commands_act_on_the_tab_of_the_batch_unless_they_name_their_own() {
     …│ (row 2 blank)
 
     [2] snapshot --tab t2 · exit 0
-    default t2 · cat · 20x2 · cursor 1,1 · frame N
+    default t2 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
     …│ (rows 1-2 blank)
     ");
 }
@@ -282,7 +282,7 @@ fn stopping_the_daemon_cannot_be_part_of_a_batch() {
     assert_eq!(run.code(), 1);
     insta::assert_snapshot!(run.screen(), @r"
     [1] open --size 20x2 cat · exit 0
-    default t1 · cat · 20x2 · cursor 1,1 · frame N
+    default t1 · cat · 20x2 · cursor 1,1 · frame N · nothing printed yet
     …│ (rows 1-2 blank)
 
     [2] daemon stop · exit 1

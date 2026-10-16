@@ -13,6 +13,7 @@ struct Scene {
     frame: u64,
     last_change: Instant,
     last_output: Instant,
+    first_output: Option<Instant>,
     exited: bool,
     prompt: Option<PromptState>,
 }
@@ -21,8 +22,17 @@ impl Scene {
     fn new(bytes: &str) -> Self {
         let mut screen = Screen::new(Size { cols: 20, rows: 3 });
         screen.feed(bytes.as_bytes());
-        let start = Instant::now().checked_sub(MS * 100).unwrap();
-        Self { screen, start, frame: 5, last_change: start, last_output: start, exited: false, prompt: None }
+        let start = Instant::now().checked_sub(MS * 10_000).unwrap();
+        Self {
+            screen,
+            start,
+            frame: 5,
+            last_change: start,
+            last_output: start,
+            first_output: None,
+            exited: false,
+            prompt: None,
+        }
     }
 
     fn at(&self, ms: u32) -> Instant {
@@ -35,6 +45,7 @@ impl Scene {
             frame: self.frame,
             last_change: self.last_change,
             last_output: self.last_output,
+            first_output: self.first_output,
             exited: self.exited,
             prompt: self.prompt,
         };
@@ -110,6 +121,48 @@ fn quiet_is_counted_from_the_action_when_it_came_after_the_last_change() {
     };
     assert_eq!([stable(None), stable(Some(80)), stable(Some(0))], ["met", "pending until 130ms", "met"]);
     let idle = Condition::new(&Wait::Idle { quiet_ms: 50 }).unwrap().counted_from(scene.at(80));
+    assert_eq!(scene.judge(&idle, scene.at(100)), "pending until 130ms");
+}
+
+fn launched(scene: &Scene, quiet_ms: u64, timeout_ms: u64, at_ms: u32) -> String {
+    let condition = Condition::new(&Wait::Stable { quiet_ms })
+        .unwrap()
+        .after_launch(scene.at(0), MS * u32::try_from(timeout_ms).unwrap());
+    scene.judge(&condition, scene.at(at_ms))
+}
+
+#[test]
+fn a_launch_is_pending_until_the_first_output_and_met_when_the_grace_passes_without_any() {
+    let mut scene = Scene::new("");
+    assert_eq!(
+        [
+            launched(&scene, 300, 25_000, 1_999),
+            launched(&scene, 300, 25_000, 2_000),
+            launched(&scene, 5_000, 25_000, 4_000),
+            launched(&scene, 5_000, 25_000, 5_000),
+            launched(&scene, 300, 1_000, 999),
+            launched(&scene, 300, 1_000, 1_000),
+        ],
+        ["pending until 2000ms", "met", "pending until 5000ms", "met", "pending until 1000ms", "met"]
+    );
+    scene.exited = true;
+    assert_eq!(launched(&scene, 300, 25_000, 100), "met");
+}
+
+#[test]
+fn a_launch_counts_its_quiet_from_the_first_output_or_a_later_change() {
+    let mut scene = Scene::new("ready");
+    scene.first_output = Some(scene.at(600));
+    assert_eq!(
+        [launched(&scene, 300, 25_000, 800), launched(&scene, 300, 25_000, 900)],
+        ["pending until 900ms", "met"]
+    );
+    scene.last_change = scene.at(1_000);
+    assert_eq!(
+        [launched(&scene, 300, 25_000, 1_200), launched(&scene, 300, 25_000, 1_300)],
+        ["pending until 1300ms", "met"]
+    );
+    let idle = Condition::new(&Wait::Idle { quiet_ms: 50 }).unwrap().after_launch(scene.at(80), MS * 25_000);
     assert_eq!(scene.judge(&idle, scene.at(100)), "pending until 130ms");
 }
 
