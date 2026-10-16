@@ -7,10 +7,13 @@ use crate::native::commands::PromptState;
 use crate::native::screen::{Screen, ScreenView};
 use crate::protocol::{RowRange, TextMatch, Wait};
 
+const FIRST_OUTPUT_GRACE: Duration = Duration::from_secs(2);
+
 pub(crate) enum Condition {
     Text(Pattern),
     Gone(Pattern),
     Stable(Duration, Option<Instant>),
+    FirstStable { quiet: Duration, silent_by: Instant },
     Idle(Duration, Option<Instant>),
     Exit,
     Cursor(u16, u16),
@@ -60,6 +63,7 @@ pub(crate) struct Seen<'a> {
     pub frame: u64,
     pub last_change: Instant,
     pub last_output: Instant,
+    pub first_output: Option<Instant>,
     pub exited: bool,
     pub prompt: Option<PromptState>,
 }
@@ -107,6 +111,15 @@ impl Condition {
         }
     }
 
+    pub(crate) fn after_launch(self, launched: Instant, timeout: Duration) -> Self {
+        match self {
+            Condition::Stable(quiet, _) => {
+                Condition::FirstStable { quiet, silent_by: launched + quiet.max(FIRST_OUTPUT_GRACE).min(timeout) }
+            }
+            other => other.counted_from(launched),
+        }
+    }
+
     pub(crate) fn judge(&self, moment: &Moment<'_>, deadline: Instant) -> Verdict {
         let now = moment.now().min(deadline);
         match self {
@@ -114,6 +127,11 @@ impl Condition {
             Condition::Gone(pattern) => while_running(!pattern.found(&moment.view().lines), moment),
             Condition::Stable(quiet, since) => {
                 quiet_for(latest(moment.seen.last_change, *since) + *quiet, now, moment.seen.exited)
+            }
+            Condition::FirstStable { quiet, silent_by } => {
+                let until =
+                    moment.seen.first_output.map_or(*silent_by, |first| first.max(moment.seen.last_change) + *quiet);
+                quiet_for(until, now, moment.seen.exited)
             }
             Condition::Idle(quiet, since) => {
                 quiet_for(latest(moment.seen.last_output, *since) + *quiet, now, moment.seen.exited)

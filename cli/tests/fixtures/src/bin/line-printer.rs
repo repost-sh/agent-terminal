@@ -8,6 +8,7 @@ use std::time::Duration;
 
 struct Options {
     lines: u32,
+    start_after_ms: u64,
     delay_ms: u64,
     exit_code: u8,
     hold: bool,
@@ -16,10 +17,11 @@ struct Options {
 
 impl Options {
     fn parse(mut args: impl Iterator<Item = String>) -> Result<Self, String> {
-        let mut options = Options { lines: 3, delay_ms: 0, exit_code: 0, hold: false, cue: None };
+        let mut options = Options { lines: 3, start_after_ms: 0, delay_ms: 0, exit_code: 0, hold: false, cue: None };
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--lines" => options.lines = number(args.next(), "--lines N")?,
+                "--start-after-ms" => options.start_after_ms = number(args.next(), "--start-after-ms MS")?,
                 "--delay-ms" => options.delay_ms = number(args.next(), "--delay-ms MS")?,
                 "--exit" => options.exit_code = number(args.next(), "--exit CODE")?,
                 "--hold" => options.hold = true,
@@ -38,6 +40,7 @@ fn number<T: FromStr>(value: Option<String>, usage: &str) -> Result<T, String> {
 fn main() -> Result<ExitCode, Box<dyn Error>> {
     let options = Options::parse(std::env::args().skip(1))?;
     let mut out = std::io::stdout();
+    std::thread::sleep(Duration::from_millis(options.start_after_ms));
     for i in 1..=options.lines {
         writeln!(out, "line {i}")?;
         out.flush()?;

@@ -1,7 +1,7 @@
 use std::fmt;
 
 use super::count;
-use crate::protocol::{DiffBase, Ref, RefKind, Snapshot, SnapshotDiff};
+use crate::protocol::{DiffBase, Ref, RefKind, Snapshot, SnapshotDiff, Switch};
 
 pub(crate) fn screen(s: &Snapshot) -> String {
     fmt::from_fn(|f| write_screen(f, s)).to_string()
@@ -24,7 +24,7 @@ fn write_screen(f: &mut fmt::Formatter<'_>, s: &Snapshot) -> fmt::Result {
 
 fn header(s: &Snapshot) -> Vec<String> {
     let mut header = vec![format!("{} {}", s.session, s.tab), s.program.clone(), format!("{}x{}", s.cols, s.rows)];
-    if s.alt_screen {
+    if s.alt_screen == Switch::On {
         header.push("alt-screen".into());
     }
     if let Some(mouse) = &s.mouse {
@@ -37,6 +37,9 @@ fn header(s: &Snapshot) -> Vec<String> {
         (true, Some(code)) => header.push(format!("exited {code}")),
         (true, None) => header.push("exited".into()),
         (false, _) => {}
+    }
+    if s.nothing_printed {
+        header.push("nothing printed yet".into());
     }
     header
 }

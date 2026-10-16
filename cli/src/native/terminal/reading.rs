@@ -77,7 +77,7 @@ impl Terminal {
             program: self.program.clone(),
             cols: view.size.cols,
             rows: view.size.rows,
-            alt_screen: view.alt_screen,
+            alt_screen: view.alt_screen.into(),
             mouse: view.mouse.map(|m| m.as_str().to_string()),
             cursor: [view.cursor.0 + 1, view.cursor.1 + 1],
             cursor_visible: view.cursor_visible,
@@ -88,6 +88,7 @@ impl Terminal {
             scrollback: scrollback.map(|n| state.screen.rows(-lines(n)..0, options.ansi)),
             lines: state.screen.rows(i32::from(range.first) - 1..i32::from(range.last), options.ansi),
             refs,
+            nothing_printed: state.first_output.is_none(),
         }
     }
 

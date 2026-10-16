@@ -15,6 +15,7 @@ pub(super) struct State {
     pub(super) look: u64,
     pub(super) last_change: Instant,
     pub(super) last_output: Instant,
+    pub(super) first_output: Option<Instant>,
     pub(super) status: Status,
     pub(super) log: OutputLog,
     pub(super) last_shown: Option<Shown>,
@@ -51,6 +52,7 @@ impl State {
             frame: 0,
             last_change: started,
             last_output: started,
+            first_output: None,
             status: Status::Running,
             log: OutputLog::default(),
             last_shown: None,
@@ -69,6 +71,7 @@ impl State {
             frame: self.frame,
             last_change: self.last_change,
             last_output: self.last_output,
+            first_output: self.first_output,
             exited: self.status.exited(),
             prompt,
         })
@@ -89,7 +92,7 @@ impl State {
     }
 
     pub(super) fn publish(&mut self) {
-        let State { screen, frame, last_change, last_output, status, watches, commands, .. } = self;
+        let State { screen, frame, last_change, last_output, first_output, status, watches, commands, .. } = self;
         if watches.iter().all(|watch| watch.met.is_some()) {
             return;
         }
@@ -99,6 +102,7 @@ impl State {
             frame: *frame,
             last_change: *last_change,
             last_output: *last_output,
+            first_output: *first_output,
             exited: status.exited(),
             prompt,
         });
