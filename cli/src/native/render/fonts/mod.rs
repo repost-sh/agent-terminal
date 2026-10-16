@@ -13,7 +13,7 @@ const FONT_PX: f32 = 15.0;
 
 macro_rules! font_file {
     ($name:literal) => {
-        ($name, include_bytes!(concat!("../../../assets/fonts/", $name)).as_slice())
+        ($name, include_bytes!(concat!("../../../../assets/fonts/", $name)).as_slice())
     };
 }
 
@@ -218,11 +218,14 @@ impl Glyphs {
         }
         let emoji_first = text.contains('\u{fe0f}');
         let face = self.face_for(first, style, emoji_first)?;
-        let mut drawn = self.glyph(face, first, cell, span)?;
+        let (mut drawn, pen) = self.glyph(face, first, cell, span)?;
         for mark in chars.take_while(|c| *c != ZERO_WIDTH_JOINER).filter(|c| is_combining(*c)) {
             if let Some(merged) = self
                 .face_for(mark, style, false)
-                .and_then(|face| self.glyph(face, mark, cell, span))
+                .and_then(|face| self.font(face))
+                .and_then(|font| {
+                    self.rendered(&Outline { font, id: font.charmap().map(mark), px: cell.px, at: pen }, cell)
+                })
                 .and_then(|mark| merged(&drawn, &mark))
             {
                 drawn = merged;
@@ -240,7 +243,7 @@ impl Glyphs {
         order.into_iter().find(|face| self.covers(*face, c))
     }
 
-    fn glyph(&mut self, face: Face, c: char, cell: &CellSize, span: u16) -> Option<Mask> {
+    fn glyph(&mut self, face: Face, c: char, cell: &CellSize, span: u16) -> Option<(Mask, f32)> {
         let font = self.font(face)?;
         let id = font.charmap().map(c);
         let room = f32::from(cell.width * span);
@@ -248,19 +251,32 @@ impl Glyphs {
         let px = fitted_px(face, natural, room, cell.px);
         let advance = if face.is_text() && span == 1 { room } else { natural * px / cell.px };
         let shift = ((room - advance) / 2.0).max(0.0);
+        Some((self.rendered(&Outline { font, id, px, at: shift }, cell)?, shift + advance))
+    }
+
+    fn rendered(&mut self, outline: &Outline, cell: &CellSize) -> Option<Mask> {
+        let Outline { font, id, px, at } = *outline;
         let mut scaler = self.context.builder(font).size(px).hint(false).build();
         let image = Render::new(&[Source::Outline])
             .format(Format::Alpha)
-            .offset(Vector::new(shift.fract(), 0.0))
+            .offset(Vector::new(at.fract(), 0.0))
             .render(&mut scaler, id)?;
         Some(Mask {
-            left: shift.trunc().to_i32()? + image.placement.left,
+            left: at.trunc().to_i32()? + image.placement.left,
             top: i32::from(cell.baseline) - image.placement.top,
             width: image.placement.width,
             height: image.placement.height,
             alpha: image.data,
         })
     }
+}
+
+#[derive(Clone, Copy)]
+struct Outline {
+    font: FontRef<'static>,
+    id: swash::GlyphId,
+    px: f32,
+    at: f32,
 }
 
 fn merged(base: &Mask, mark: &Mask) -> Option<Mask> {
@@ -294,3 +310,6 @@ fn paint(alpha: &mut [u8], stride: usize, (across, down): (usize, usize), part: 
 fn fitted_px(face: Face, natural: f32, room: f32, px: f32) -> f32 {
     if !face.is_text() && natural > room && natural > 0.0 { px * room / natural } else { px }
 }
+
+#[cfg(test)]
+mod tests;
