@@ -1,5 +1,5 @@
-import { Copy, type LucideIcon } from "lucide-react";
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode, Ref } from "react";
+import { Check, Copy, type LucideIcon } from "lucide-react";
+import { useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
 
 import { reason } from "../lib/api";
 import { settle } from "../lib/settle";
@@ -129,6 +129,34 @@ export const copy = async (value: string) => {
   if (!copied.ok) {
     toast("error", { title: "Could not copy", description: reason(copied.error) });
   }
+
+  return copied.ok;
+};
+
+const COPIED_FOR_MS = 1500;
+
+interface CopyButtonProps { value: string; label: string }
+
+export const CopyButton = ({ value, label }: CopyButtonProps) => {
+  const [copied, setCopied] = useState(false);
+  const reset = useRef(0);
+  const look = copied ? { label, tooltip: "Copied", icon: Check } : { label, tooltip: "Copy", icon: Copy };
+
+  return (
+    <IconButton look={look} className={cn("size-6 p-0 [&_svg]:size-[13px]", copied && "[&_svg]:text-success")} onClick={() => {
+      void copy(value).then((ok) => {
+        if (!ok) {
+          return;
+        }
+
+        setCopied(true);
+        window.clearTimeout(reset.current);
+        reset.current = window.setTimeout(() => {
+          setCopied(false);
+        }, COPIED_FOR_MS);
+      });
+    }} />
+  );
 };
 
 interface CliBlockProps { line: string }
@@ -136,8 +164,6 @@ interface CliBlockProps { line: string }
 export const CliBlock = ({ line }: CliBlockProps) => (
   <div className="mx-auto mt-2 flex max-w-full items-center gap-2 rounded-md bg-muted px-2.5 py-1 text-left">
     <code className="min-w-0 flex-1 font-mono text-[11px] break-all text-foreground">{line}</code>
-    <IconButton look={{ label: `Copy ${line}`, tooltip: "Copy", icon: Copy }} className="size-6 p-0 [&_svg]:size-[13px]" onClick={() => {
-      void copy(line);
-    }} />
+    <CopyButton value={line} label={`Copy ${line}`} />
   </div>
 );

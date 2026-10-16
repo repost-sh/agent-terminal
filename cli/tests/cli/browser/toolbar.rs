@@ -3,7 +3,7 @@ use crate::support::{AgentTerminal, fixture};
 
 fn command_line(browser: &Browser) -> Vec<(String, String)> {
     let parts = browser.eval(
-        "JSON.stringify([...document.querySelector('[role=group][aria-label=\"Command line\"]').children].map((part) => [part.textContent, getComputedStyle(part).color]))",
+        "JSON.stringify([...document.querySelectorAll('[role=group][aria-label=\"Command line\"] > span')].map((part) => [part.textContent, getComputedStyle(part).color]))",
     );
     let parts: String = serde_json::from_str(&parts).expect("a JSON string");
     serde_json::from_str(&parts).expect("the command line parts")
