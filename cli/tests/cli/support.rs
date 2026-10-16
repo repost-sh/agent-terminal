@@ -297,7 +297,7 @@ pub(crate) fn open_redraw(at: &AgentTerminal, redraw: &Redraw<'_>) {
         "--size",
         "120x40",
         "--wait",
-        "ready",
+        "forward",
         &fixture("redraw"),
         "--hz",
         hz,
