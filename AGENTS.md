@@ -35,7 +35,7 @@ Rule Zero: fix the code a check flags, and leave every rule as it stands; a rule
 
 A file holds one concern and is named for it. If you cannot describe a file in one sentence without "and", it is a junk drawer.
 
-- Name modules for what they own (`output_log/`, `name.rs`, `screenshot-lightbox.tsx`), not for where they sit or what kind of code they hold. `support`, `utils`, `helpers`, `common`, `misc` and `shared` describe a location, not a concern; a file with one of those names still owns a single concern scoped to its folder, as `cli/tests/cli/support.rs` owns the harness every CLI test drives.
+- Name modules for what they own (`output_log/`, `session_id.rs`, `screenshot-lightbox.tsx`), not for where they sit or what kind of code they hold. `support`, `utils`, `helpers`, `common`, `misc` and `shared` describe a location, not a concern; a file with one of those names still owns a single concern scoped to its folder, as `cli/tests/cli/support.rs` owns the harness every CLI test drives.
 - Before adding code to an existing file, check that it shares the file's concern. Being imported by the same callers, or living in the same folder, does not make it the same concern. Put it in the module that owns the concern, or in a new file named for it.
 - Put code next to the contract it serves: a type that crosses the socket in `protocol/`, how a reply reads as text in `output/`.
 - When an area covers several concerns, give it a folder with one file per concern and a `mod.rs` for the entry point they share. Examples: `cli/src/native/render/` (boxes / diff / fonts / theme / vector), `cli/src/native/dashboard/`, one command per file in `cli/tests/cli/`, one concern per file in `dashboard/src/lib/`.
