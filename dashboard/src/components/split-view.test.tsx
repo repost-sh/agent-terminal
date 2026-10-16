@@ -23,7 +23,11 @@ const layout = (label: string) => {
   fireEvent.click(screen.getByRole("button", { name: label }));
 };
 
-const commandLine = () => screen.getByRole("group", { name: "Command line" }).textContent;
+const commandLine = () =>
+  within(screen.getByRole("group", { name: "Command line" }))
+    .getAllByText(/./, { ignore: ".sr-only" })
+    .map((part) => part.textContent)
+    .join("");
 
 const grid = () => screen.getByRole("group", { name: "Terminals" });
 

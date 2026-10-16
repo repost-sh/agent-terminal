@@ -1,4 +1,3 @@
-import { Copy } from "lucide-react";
 import { useId, useState } from "react";
 
 import { openTab, reason } from "../lib/api";
@@ -11,7 +10,7 @@ import { announceWhenLive } from "../lib/stream";
 import { closeDialog, Dialog } from "./dialog";
 import { INPUT, LABEL, Segmented, TextField } from "./form-fields";
 import { toast } from "../lib/toasts";
-import { Button, cn, copy, IconButton } from "./ui";
+import { Button, cn, CopyButton } from "./ui";
 
 interface NewSessionDialogProps { sessions: SessionInfo[]; existing: string | null }
 
@@ -204,9 +203,7 @@ const CliPreview = ({ dialog }: DialogPartProps) => {
         <code aria-labelledby={dialog.fieldId("cli")} className="min-w-0 flex-1 font-mono text-xs leading-6 break-all">
           {line}
         </code>
-        <IconButton look={{ label: "Copy the command line", tooltip: "Copy", icon: Copy }} className="size-6 p-0 [&_svg]:size-[13px]" onClick={() => {
-          void copy(line);
-        }} />
+        <CopyButton value={line} label="Copy the command line" />
       </div>
     </div>
   );

@@ -1,14 +1,17 @@
+import { shellWord } from "../lib/format";
 import type { TabInfo } from "../lib/protocol";
 import type { Layout } from "../lib/split";
 import { TOOLBAR_ACTIONS, type ToolbarTab } from "./toolbar-actions";
 import { LayoutSwitch } from "./layout-switch";
+import { CopyButton } from "./ui";
 
 interface CommandLineProps { tab: TabInfo }
 
 const CommandLine = ({ tab }: CommandLineProps) => (
-  <div role="group" aria-label="Command line" className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 rounded-md bg-muted px-2.5 py-1 font-mono text-xs">
-    <span className="break-all text-foreground">{tab.command}</span>
-    <span className="break-all text-muted-foreground/70">{tab.cwd}</span>
+  <div role="group" aria-label="Command line" className="flex min-w-0 flex-1 items-center gap-x-2 rounded-md bg-muted py-0.5 pr-0.5 pl-2.5 font-mono text-xs">
+    <span data-tooltip={tab.command} className="min-w-0 truncate text-foreground">{tab.command}</span>
+    <span data-tooltip={tab.cwd} className="min-w-0 flex-1 truncate text-muted-foreground/70">{tab.cwd}</span>
+    <CopyButton value={`cd ${shellWord(tab.cwd)} && ${tab.command}`} label="Copy the command with its working directory" />
   </div>
 );
 

@@ -3,7 +3,7 @@ import { Copy } from "lucide-react";
 import { expect, test, vi } from "vitest";
 
 import { toasts } from "../lib/toasts";
-import { Badge, Button, Chip, CliBlock, cn, Dot, IconButton, IconLink } from "./ui";
+import { Badge, Button, Chip, CliBlock, cn, CopyButton, Dot, IconButton, IconLink } from "./ui";
 
 test("class names join what is set and skip what is not", () => {
   expect(cn("a", false, null, undefined, "", "b")).toBe("a b");
@@ -80,4 +80,64 @@ test("a CLI line copies to the clipboard and says whether it could", async () =>
     await Promise.resolve();
   });
   expect(toasts.get()[0]).toEqual(expect.objectContaining({ type: "error", title: "Could not copy", description: "denied" }));
+});
+
+const copyLook = () => {
+  const button = screen.getByRole("button", { name: "Copy the line" });
+
+  return [button.getAttribute("data-tooltip"), button.innerHTML.includes("lucide-check"), button.className.includes("text-success")];
+};
+
+const clickCopy = async () => {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Copy the line" }));
+    await Promise.resolve();
+  });
+};
+
+test("a copy button copies its value and shows a green check for 1.5 s", async () => {
+  const writeText = vi.fn(() => Promise.resolve());
+
+  vi.stubGlobal("navigator", { clipboard: { writeText } });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  render(<CopyButton value="cd /srv && htop" label="Copy the line" />);
+  expect(copyLook()).toEqual(["Copy", false, false]);
+  await clickCopy();
+  expect([writeText.mock.calls, copyLook()]).toEqual([[["cd /srv && htop"]], ["Copied", true, true]]);
+  act(() => {
+    vi.advanceTimersByTime(1499);
+  });
+  expect(copyLook()).toEqual(["Copied", true, true]);
+  act(() => {
+    vi.advanceTimersByTime(1);
+  });
+  expect(copyLook()).toEqual(["Copy", false, false]);
+  vi.useRealTimers();
+});
+
+test("a copy clicked again shows the check for 1.5 s from the last click", async () => {
+  vi.stubGlobal("navigator", { clipboard: { writeText: () => Promise.resolve() } });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  render(<CopyButton value="htop" label="Copy the line" />);
+  await clickCopy();
+  act(() => {
+    vi.advanceTimersByTime(1000);
+  });
+  await clickCopy();
+  act(() => {
+    vi.advanceTimersByTime(1499);
+  });
+  expect(copyLook()).toEqual(["Copied", true, true]);
+  act(() => {
+    vi.advanceTimersByTime(1);
+  });
+  expect(copyLook()).toEqual(["Copy", false, false]);
+  vi.useRealTimers();
+});
+
+test("a refused copy keeps the copy icon", async () => {
+  vi.stubGlobal("navigator", { clipboard: { writeText: () => Promise.reject(new Error("denied")) } });
+  render(<CopyButton value="htop" label="Copy the line" />);
+  await clickCopy();
+  expect([copyLook(), toasts.get()[0]]).toEqual([["Copy", false, false], expect.objectContaining({ type: "error", title: "Could not copy" })]);
 });
