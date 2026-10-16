@@ -16,7 +16,7 @@ The escape hatches are sealed by checks of their own: [sealed lint table](#seale
 | `dashboard` | [dashboard lint](#dashboard-lint), [dashboard types](#dashboard-types), [gauntlet tools](#gauntlet-tools), [dashboard tests](#dashboard-tests), [CRAP](#crap), [property tests](#property-tests), [dashboard build](#dashboard-build) | default; pre-commit for `dashboard/`; CI on Linux and macOS |
 | `npm` | [npm tests](#npm-tests) | default; pre-commit for `npm/`; CI on Linux and macOS |
 | `duplication` | [duplication](#duplication) | default; pre-commit for `cli/`, `dashboard/`, `scripts/`; CI on Linux and macOS |
-| `browser` | [browser tests](#browser-tests) | CI on Linux and macOS; needs `agent-browser` and Chrome |
+| `browser` | [browser tests](#browser-tests) | CI on Linux; needs `agent-browser` and Chrome |
 | `coverage` | [coverage floor](#coverage-floor) and [CRAP](#crap) for the Rust crates | CI on Linux; needs `cargo-llvm-cov` and `agent-browser` |
 | `mutation` | [mutation](#mutation): cargo-mutants and Stryker on the lines the change touched since `main` | CI on each pull request against its base branch, and on a manual run against `mutation_base`; minutes for a typical change |
 | `acceptance-faults` | the fault self-test of [acceptance](#acceptance) | CI on Linux; about five minutes |

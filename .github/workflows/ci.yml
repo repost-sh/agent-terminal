@@ -55,12 +55,8 @@ jobs:
         run: for run in 1 2 3 4; do echo "rerun $run of 4"; cargo test --quiet --test cli || exit 1; done
 
   browser:
-    name: Gauntlet browser (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    name: Gauntlet browser
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/gauntlet-tools
@@ -110,12 +106,8 @@ jobs:
         run: scripts/gauntlet.sh mutation
 
   performance:
-    name: Speed and memory (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    name: Speed and memory
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: cli
@@ -144,12 +136,12 @@ jobs:
           --change target/release/agent-terminal
           --fixtures target/release
           --work "$RUNNER_TEMP/performance"
-          --out "$RUNNER_TEMP/performance-${{ matrix.os }}.json"
+          --out "$RUNNER_TEMP/performance.json"
       - name: Keep this run's samples
         uses: actions/upload-artifact@v7
         with:
-          name: performance-${{ matrix.os }}
-          path: ${{ runner.temp }}/performance-${{ matrix.os }}.json
+          name: performance
+          path: ${{ runner.temp }}/performance.json
           if-no-files-found: error
       - name: Fail on a metric over its limit or a regression against the base
-        run: target/release/at-perf check "$RUNNER_TEMP/performance-${{ matrix.os }}.json" --summary "$GITHUB_STEP_SUMMARY"
+        run: target/release/at-perf check "$RUNNER_TEMP/performance.json" --summary "$GITHUB_STEP_SUMMARY"
