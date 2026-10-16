@@ -2,7 +2,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdout, Command, Output, Stdio};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde_json::Value;
 
 use crate::log;
@@ -67,9 +67,14 @@ impl Daemon {
         let mut ready = BufReader::new(process.stdout.take().context("daemon stdout")?);
         let mut line = String::new();
         ready.read_line(&mut line).with_context(|| format!("wait for the {} daemon", agent.side))?;
-        let daemon = Daemon { agent, process, _ready: ready };
-        ensure!(line.trim() == "ready", "the {} daemon did not start: {line:?}", daemon.agent.side);
-        Ok(daemon)
+        if line.trim() != "ready" {
+            process.kill().with_context(|| format!("end the {} program that did not start a daemon", agent.side))?;
+            process
+                .wait()
+                .with_context(|| format!("wait for the {} program that did not start a daemon", agent.side))?;
+            bail!("the {} daemon did not start: {line:?}", agent.side);
+        }
+        Ok(Daemon { agent, process, _ready: ready })
     }
 
     pub(crate) fn agent(&self) -> &Agent {
