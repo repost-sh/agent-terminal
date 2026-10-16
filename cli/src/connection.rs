@@ -8,11 +8,11 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
-use crate::home::{home, socket_path, version_path};
+use crate::home::{home, running_build, socket_path};
 use crate::native::daemon::READY;
 use crate::output::count;
-use crate::protocol::{self, Call, ErrorBody, OtherVersion, Reply, Request, Response, daemon_stop_advice};
-use crate::version::VERSION;
+use crate::protocol::{self, Call, ErrorBody, OtherVersion, RESTART_ADVICE, Reply, Request, Response};
+use crate::version::{BUILD, daemon_of};
 
 const STOPS_WITHIN: Duration = Duration::from_secs(10);
 
@@ -25,29 +25,13 @@ pub(crate) struct Launch {
     pub idle_timeout: Duration,
 }
 
-pub(crate) fn running_version() -> Result<Option<String>> {
-    let path = version_path()?;
-    match std::fs::read_to_string(&path) {
-        Ok(version) => Ok(Some(version.trim().to_string())),
-        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e).with_context(|| format!("read the daemon's version from {}", path.display())),
-    }
-}
-
-pub(crate) fn started_version() -> Result<Option<String>> {
-    let running = running_version()?;
-    if running.as_deref() == Some(VERSION) {
+pub(crate) fn started_build() -> Result<Option<String>> {
+    let running = running_build(&home()?)?;
+    if running.as_deref() == Some(BUILD) {
         return Ok(running);
     }
     let _lock = start_lock(&home()?)?;
-    running_version()
-}
-
-pub(crate) fn daemon_of(version: Option<&str>) -> String {
-    match version {
-        Some(version) => format!("agent-terminal {version}"),
-        None => "an agent-terminal that does not record its version".to_string(),
-    }
+    running_build(&home()?)
 }
 
 enum Reached {
@@ -84,20 +68,20 @@ fn reach(request: &Request) -> Result<Reached> {
     let Some(stream) = connect()? else {
         return Ok(Reached::NotRunning);
     };
-    if matches!(request, Request::Stop) || running_version()?.as_deref() == Some(VERSION) {
+    if matches!(request, Request::Stop) || running_build(&home()?)?.as_deref() == Some(BUILD) {
         return Ok(Reached::Daemon(stream));
     }
     drop(stream);
-    replace_other_version()
+    replace_other_build()
 }
 
-fn replace_other_version() -> Result<Reached> {
+fn replace_other_build() -> Result<Reached> {
     let _lock = start_lock(&home()?)?;
     let Some(mut stream) = connect()? else {
         return Ok(Reached::NotRunning);
     };
-    let running = running_version()?;
-    if running.as_deref() == Some(VERSION) {
+    let running = running_build(&home()?)?;
+    if running.as_deref() == Some(BUILD) {
         return Ok(Reached::Daemon(stream));
     }
     let asking = || format!("ask the daemon ({}) to stop", daemon_of(running.as_deref()));
@@ -110,28 +94,27 @@ fn replace_other_version() -> Result<Reached> {
             Ok(Reached::NotRunning)
         }
         Some(Response::Ok(Reply::KeptRunning(kept))) => {
-            Ok(Reached::Refused(other_version(running.as_deref(), Some(kept.terminals))))
+            Ok(Reached::Refused(other_build(running.as_deref(), Some(kept.terminals))))
         }
         Some(Response::Ok(other)) => {
             bail!("{} answered the request to stop with {other:?}", daemon_of(running.as_deref()))
         }
         Some(Response::Err(error)) => Ok(Reached::Refused(error)),
-        None => Ok(Reached::Refused(other_version(running.as_deref(), None))),
+        None => Ok(Reached::Refused(other_build(running.as_deref(), None))),
     }
 }
 
-fn other_version(running: Option<&str>, terminals: Option<usize>) -> ErrorBody {
+fn other_build(running: Option<&str>, terminals: Option<usize>) -> ErrorBody {
     let open = match terminals {
         Some(terminals) => format!("it has {}", count(terminals, "open terminal")),
         None => "it did not say how many terminals it has open".to_string(),
     };
     ErrorBody::other_version(
         format!(
-            "the daemon is {}, not {VERSION} like this command, and {open}, so it was left running; {}",
+            "the daemon is {}, not {BUILD} like this command, and {open}, so it was left running; {RESTART_ADVICE}",
             daemon_of(running),
-            daemon_stop_advice(Some(VERSION))
         ),
-        OtherVersion { cli_version: Some(VERSION.to_string()), daemon_version: running.map(str::to_string), terminals },
+        OtherVersion { cli_version: Some(BUILD.to_string()), daemon_version: running.map(str::to_string), terminals },
     )
 }
 

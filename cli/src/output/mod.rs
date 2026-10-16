@@ -19,6 +19,7 @@ pub(crate) use screen::screen;
 
 use crate::protocol::{ErrorBody, Reply};
 use crate::session_id::SessionId;
+use crate::version::{BUILD, COMMIT, VERSION};
 
 pub(crate) fn print(text: &str) -> io::Result<()> {
     unless_the_reader_left(write_all(&mut io::stdout().lock(), text))
@@ -106,9 +107,9 @@ pub(crate) fn refuse(message: &str, json: bool) -> io::Result<i32> {
 
 pub(crate) fn version(json: bool) -> io::Result<i32> {
     if json {
-        print_json(&serde_json::json!({ "version": crate::version::VERSION }))?;
+        print_json(&serde_json::json!({ "version": VERSION, "build": BUILD }))?;
     } else {
-        print(&format!("agent-terminal {}\n", crate::version::VERSION))?;
+        print(&format!("agent-terminal {VERSION} ({COMMIT})\n"))?;
     }
     Ok(0)
 }

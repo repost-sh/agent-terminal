@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak, mpsc};
@@ -5,6 +6,7 @@ use std::sync::{Arc, Weak, mpsc};
 use serde_json::{Value, json};
 
 use super::Daemon;
+use crate::home::DAEMON_LOCK;
 use crate::protocol;
 
 pub(super) struct Running {
@@ -18,7 +20,9 @@ impl Running {
         let home = tempfile::tempdir().unwrap();
         let (ended, end) = mpsc::channel();
         let at = home.path().to_path_buf();
-        let daemon = Arc::new_cyclic(|me| Daemon::new(Weak::clone(me), ended, at));
+        let claim = File::create(home.path().join(DAEMON_LOCK)).unwrap();
+        claim.lock().unwrap();
+        let daemon = Arc::new_cyclic(|me| Daemon::new(Weak::clone(me), ended, at, claim));
         Self { daemon, home, ended: end }
     }
 
@@ -43,7 +47,7 @@ impl Running {
         let refusal = &response["Err"];
         let shown = refusal["message"].as_str().unwrap_or_else(|| panic!("{response}"));
         let shown = shown.replace(&*self.home.path().to_string_lossy(), "<home>");
-        (refusal["code"].as_i64().unwrap(), shown.replace(crate::version::VERSION, "<version>"))
+        (refusal["code"].as_i64().unwrap(), shown.replace(crate::version::BUILD, "<build>"))
     }
 
     pub(super) fn open(&self, script: &str) -> Value {
@@ -117,11 +121,11 @@ fn sessions_list_each_tab_with_its_program_size_and_owner() {
 }
 
 #[test]
-fn a_request_the_daemon_cannot_read_is_answered_with_its_version() {
+fn a_request_the_daemon_cannot_read_is_answered_with_its_build() {
     let running = Running::new();
     let (code, message) = running.refused(&json!({ "command": "teleport" }));
     assert_eq!(code, 6);
-    insta::assert_snapshot!(message, @"the daemon is agent-terminal <version> and does not understand this request, so the command is another version; it has 0 open terminals: `agent-terminal daemon stop` ends it and its terminals, and the next command starts a daemon of the command's version");
+    insta::assert_snapshot!(message, @"the daemon is agent-terminal <build> and does not understand this request, so the command is another build; it has 0 open terminals: a human restarts the daemon when it suits them, because it holds other agents' terminals");
 }
 
 #[test]

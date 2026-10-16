@@ -34,15 +34,26 @@ found=$(command -v agent-terminal)
 run agent-terminal --version
 [ "$(cat "$out")" = "agent-terminal $version" ] || fail "agent-terminal --version printed '$(cat "$out")', expected 'agent-terminal $version'"
 
+run agent-terminal version
+case $(cat "$out") in
+  "agent-terminal $version ("*")") ;;
+  *) fail "agent-terminal version printed '$(cat "$out")', expected 'agent-terminal $version (<commit>)'" ;;
+esac
+
 run agent-terminal --json version
-[ "$(cat "$out")" = "{\"version\":\"$version\"}" ] || fail "agent-terminal --json version printed '$(cat "$out")', expected {\"version\":\"$version\"}"
+case $(cat "$out") in
+  "{\"build\":\"$version+"*"\",\"version\":\"$version\"}") ;;
+  *) fail "agent-terminal --json version printed '$(cat "$out")', expected {\"build\":\"$version+<commit>\",\"version\":\"$version\"}" ;;
+esac
 
 run env HOME="$work/home" agent-terminal install --skills
 stub=$work/home/.claude/skills/agent-terminal/SKILL.md
 grep -qx "  version: \"$version\"" "$stub" || fail "the skill stub install --skills wrote does not carry version $version: $(grep -n 'version:' "$stub" || true)"
 
-AGENT_TERMINAL_HOME=$work/at
-export AGENT_TERMINAL_HOME
+agent-terminal doctor --json < /dev/null > "$out" 2>&1 || true
+grep -qF '{"message":"not running; the next command starts it","name":"daemon","status":"ok"}' "$out" ||
+  fail "this check needs a machine with no agent-terminal daemon; agent-terminal doctor --json printed $(cat "$out")"
+
 run agent-terminal open --size 40x10 --wait "line 3" "$fixture" --lines 3 --hold
 run agent-terminal snapshot
 grep -q '^default t1 · line-printer · 40x10 ·' "$out" || fail "the snapshot header does not name the fixture"

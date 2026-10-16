@@ -1,6 +1,7 @@
 mod activity;
 mod attach;
 mod batch;
+mod claim;
 mod dashboard_server;
 mod dispatch;
 mod expect;
@@ -13,9 +14,10 @@ mod tabs;
 mod waiting;
 
 use std::collections::{BTreeMap, HashMap};
-use std::io::{self, ErrorKind, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::{self, Write};
+use std::os::unix::net::UnixListener;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant, SystemTime};
@@ -23,7 +25,7 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{Context, Result};
 use tokio::sync::watch;
 
-use crate::home::{DAEMON_VERSION, SOCKET, home};
+use crate::home::home;
 use crate::native::changes::Changes;
 use crate::native::control::{Control, TabHold};
 use crate::native::dashboard::{self, Backend};
@@ -38,6 +40,7 @@ pub(crate) const READY: &str = "ready";
 
 struct Daemon {
     home: PathBuf,
+    claim: File,
     sessions: Mutex<BTreeMap<String, Session>>,
     restarting: Mutex<()>,
     activity: Mutex<Activity>,
@@ -65,16 +68,13 @@ pub(crate) fn run(idle_timeout: Duration) -> Result<()> {
     log::start()?;
     let home = home()?;
     std::fs::create_dir_all(&home).with_context(|| format!("create {}", home.display()))?;
-    let Some(listener) = listen(&home)? else {
-        return Ok(());
-    };
-    record_version(&home)?;
+    let (claim, listener) = claim::claim(&home)?;
 
     let mut stdout = io::stdout();
     writeln!(stdout, "{READY}").and_then(|()| stdout.flush()).context("tell the CLI the daemon is ready")?;
 
     let (ended, end) = mpsc::channel();
-    let daemon = Arc::new_cyclic(|me| Daemon::new(Weak::clone(me), ended, home));
+    let daemon = Arc::new_cyclic(|me| Daemon::new(Weak::clone(me), ended, home, claim));
     if !idle_timeout.is_zero() {
         let watching = Arc::clone(&daemon);
         std::thread::spawn(move || watching.stop_when_idle(idle_timeout));
@@ -84,31 +84,11 @@ pub(crate) fn run(idle_timeout: Duration) -> Result<()> {
     end.recv().context("every thread of the daemon ended without stopping it")
 }
 
-fn listen(home: &Path) -> Result<Option<UnixListener>> {
-    let path = home.join(SOCKET);
-    match UnixListener::bind(&path) {
-        Ok(listener) => Ok(Some(listener)),
-        Err(e) if e.kind() == ErrorKind::AddrInUse && UnixStream::connect(&path).is_ok() => Ok(None),
-        Err(e) if e.kind() == ErrorKind::AddrInUse => {
-            std::fs::remove_file(&path).with_context(|| format!("remove the stale socket {}", path.display()))?;
-            let listener = UnixListener::bind(&path).with_context(|| format!("listen on {}", path.display()))?;
-            Ok(Some(listener))
-        }
-        Err(e) => Err(e).with_context(|| format!("listen on {}", path.display())),
-    }
-}
-
-fn record_version(home: &Path) -> Result<()> {
-    let path = home.join(DAEMON_VERSION);
-    let written = home.join("daemon.version.new");
-    std::fs::write(&written, crate::version::VERSION).with_context(|| format!("write {}", written.display()))?;
-    std::fs::rename(&written, &path).with_context(|| format!("move {} to {}", written.display(), path.display()))
-}
-
 impl Daemon {
-    fn new(me: Weak<Daemon>, ended: Sender<()>, home: PathBuf) -> Self {
+    fn new(me: Weak<Daemon>, ended: Sender<()>, home: PathBuf, claim: File) -> Self {
         Self {
             home,
+            claim,
             sessions: Mutex::default(),
             restarting: Mutex::default(),
             activity: Mutex::default(),

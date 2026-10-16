@@ -81,7 +81,7 @@ impl Daemon {
         }
         activity.stopping = true;
         drop(activity);
-        log::note(format_args!("a command of another version stopped this daemon, which had no terminals"));
+        log::note(format_args!("a command of another build stopped this daemon, which had no terminals"));
         self.stop()
     }
 
@@ -99,6 +99,9 @@ impl Daemon {
             log::note(format_args!("removing the socket failed: {e:#}"));
         }
         self.close_all();
+        if let Err(e) = self.claim.unlock() {
+            log::note(format_args!("releasing the daemon's lock failed: {e:#}"));
+        }
     }
 }
 

@@ -21,7 +21,7 @@ clap = { version = "4.6", features = ["derive", "env", "string"] }
 humantime = "2"
 include_dir = "0.7"
 libc = "0.2"
-nix = { version = "0.28", features = ["fs", "signal"] }
+nix = { version = "0.28", features = ["fs", "signal", "user"] }
 num-traits = "0.2"
 png = "0.18"
 portable-pty = "0.9"
@@ -42,6 +42,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 
 [features]
 browser-tests = []
+private-daemon = []
 
 [dev-dependencies]
 at-acceptance = { path = "acceptance" }

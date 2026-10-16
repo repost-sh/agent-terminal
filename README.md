@@ -82,7 +82,9 @@ agent-terminal upgrade
 
 `upgrade` finds what installed agent-terminal (npm, pnpm, yarn, bun or Homebrew), asks it for the latest version, and says so when you already have it. Otherwise it reinstalls with that same tool and refreshes the skill stub if one is installed. `upgrade --json` reports the installer, the old and new versions, and whether the stub was refreshed. When it can't tell what installed agent-terminal, it prints the upgrade command of each tool instead. A source build is upgraded by running its `cargo install` command again.
 
-The daemon that holds your terminals keeps running the old version after an upgrade. The next command notices: if the old daemon has no open terminals, the command stops it, starts a daemon of the new version and carries on; if it still has open terminals, the command leaves them running and exits with code 6 and an error naming both versions and the number of terminals. `agent-terminal daemon stop` ends that daemon and its terminals, and the next command starts the new one.
+Each user account has one daemon. It holds every agent's terminals, serves the one dashboard, and keeps its socket and files in `.agent-terminal` in the home folder the user database gives your account, whatever `HOME` or any other variable says; an installed agent-terminal has no setting that points it at another daemon. A second daemon for the same user refuses to start and names the one that runs: its pid, its build and its socket.
+
+A daemon is known by its build: its version and the commit it was built from, which `agent-terminal version` prints. After an upgrade, or whenever a command meets a daemon of another build, the command notices: if that daemon has no open terminals, the command stops it, starts a daemon of its own build and carries on; if it has open terminals, the command leaves them running and exits with code 6 and an error naming both builds and the number of terminals. Those terminals may be other agents', so a human restarts the daemon when it suits them: `agent-terminal daemon stop` ends it and every terminal it holds, and the next command starts the new one.
 
 ```sh
 agent-terminal doctor

@@ -4,7 +4,8 @@ use super::Daemon;
 use super::refusals::stopping;
 use crate::native::log;
 use crate::output;
-use crate::protocol::{self, Call, ErrorBody, OtherVersion, Reply, Request, Response, daemon_stop_advice};
+use crate::protocol::{self, Call, ErrorBody, OtherVersion, RESTART_ADVICE, Reply, Request, Response};
+use crate::version::BUILD;
 
 impl Daemon {
     pub(super) fn serve(&self, mut stream: UnixStream) {
@@ -64,16 +65,10 @@ impl Daemon {
         let terminals = self.terminals();
         let response = Response::Err(ErrorBody::other_version(
             format!(
-                "the daemon is agent-terminal {} and does not understand this request, so the command is another version; it has {}: {}",
-                crate::version::VERSION,
+                "the daemon is agent-terminal {BUILD} and does not understand this request, so the command is another build; it has {}: {RESTART_ADVICE}",
                 output::count(terminals, "open terminal"),
-                daemon_stop_advice(None)
             ),
-            OtherVersion {
-                cli_version: None,
-                daemon_version: Some(crate::version::VERSION.to_string()),
-                terminals: Some(terminals),
-            },
+            OtherVersion { cli_version: None, daemon_version: Some(BUILD.to_string()), terminals: Some(terminals) },
         ));
         send(stream, &response);
     }

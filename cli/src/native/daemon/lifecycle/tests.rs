@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use crate::home::{DAEMON_VERSION, SOCKET};
+use crate::home::{DAEMON_LOCK, DAEMON_VERSION, SOCKET};
 use crate::native::daemon::tests::{ECHO, Running};
 
 const STOPPING: &str = "the daemon is stopping because it was idle; run the command again to start a new one";
@@ -18,6 +18,15 @@ fn a_stop_closes_every_tab_removes_the_socket_and_version_files_and_ends_the_dae
     assert_eq!(running.ended.try_recv(), Ok(()));
     let left = [SOCKET, DAEMON_VERSION].map(|file| running.home.path().join(file).exists());
     assert_eq!((left, running.ok(&json!({ "command": "sessions" }))), ([false, false], json!({ "sessions": [] })));
+}
+
+#[test]
+fn a_stopped_daemon_has_let_go_of_its_lock_by_the_time_it_answers() {
+    let running = Running::new();
+    let lock = std::fs::File::open(running.home.path().join(DAEMON_LOCK)).unwrap();
+    assert!(lock.try_lock().is_err(), "the running daemon holds its lock");
+    assert_eq!(running.respond(None, &json!({ "command": "stop" })), json!({ "Ok": { "reply": "Stopped" } }));
+    assert!(lock.try_lock().is_ok(), "the next daemon can take the lock");
 }
 
 #[test]

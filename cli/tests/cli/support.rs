@@ -12,6 +12,10 @@ const READ_TIMEOUT: Duration = Duration::from_secs(25);
 
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub(crate) const BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("AGENT_TERMINAL_COMMIT"));
+
+pub(crate) const COMMIT: &str = env!("AGENT_TERMINAL_COMMIT");
+
 pub(crate) struct AgentTerminal {
     home: tempfile::TempDir,
 }

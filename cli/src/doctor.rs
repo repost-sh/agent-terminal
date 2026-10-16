@@ -9,10 +9,12 @@ use crate::connection;
 use crate::home::{home, socket_path};
 use crate::native::{pty, render, shell};
 use crate::output;
-use crate::protocol::{Shell, daemon_stop_advice};
+use crate::protocol::{RESTART_ADVICE, Shell};
 use crate::skills::{self, Stub};
 use crate::upgrade;
-use crate::version::VERSION;
+use crate::version::{BUILD, VERSION, daemon_of};
+
+const OWN_THE_FOLDER: &str = "check that you own the .agent-terminal folder in your home folder and can write to it";
 
 #[derive(Serialize)]
 struct Check {
@@ -117,7 +119,7 @@ fn shell(fix: bool) -> Check {
     });
     match audited {
         Ok(audit) => audited_shell(&audit, fix),
-        Err(e) => Check::problem("shell", format!("{e:#}"), "set AGENT_TERMINAL_HOME to a folder you own"),
+        Err(e) => Check::problem("shell", format!("{e:#}"), OWN_THE_FOLDER),
     }
 }
 
@@ -174,7 +176,9 @@ fn your_shell() -> Result<Shell, String> {
 fn daemon(fix: bool) -> Check {
     match socket_path() {
         Ok(socket) => reach(&socket, fix),
-        Err(e) => Check::problem("daemon", format!("{e:#}"), "set HOME, or AGENT_TERMINAL_HOME"),
+        Err(e) => {
+            Check::problem("daemon", format!("{e:#}"), "give your user account a home folder in the user database")
+        }
     }
 }
 
@@ -197,7 +201,7 @@ fn unreachable(socket: &Path, e: &io::Error, fix: bool) -> Check {
         _ => Check::problem(
             "daemon",
             format!("cannot reach the daemon socket {}: {e}", socket.display()),
-            "set AGENT_TERMINAL_HOME to a short folder you own",
+            "the daemon's folder must be one you own, with a path short enough for a socket",
         ),
     }
 }
@@ -216,18 +220,18 @@ fn remove_stale(socket: &Path) -> Check {
 
 fn running(socket: &Path) -> Check {
     let socket = socket.display();
-    let running = match connection::started_version() {
+    let running = match connection::started_build() {
         Ok(running) => running,
-        Err(e) => return Check::problem("daemon", format!("{e:#}"), "set AGENT_TERMINAL_HOME to a folder you own"),
+        Err(e) => return Check::problem("daemon", format!("{e:#}"), OWN_THE_FOLDER),
     };
-    let daemon = connection::daemon_of(running.as_deref());
-    if running.as_deref() == Some(VERSION) {
+    let daemon = daemon_of(running.as_deref());
+    if running.as_deref() == Some(BUILD) {
         return Check::ok("daemon", format!("running {daemon}, listening on {socket}"));
     }
     Check::problem(
         "daemon",
-        format!("running {daemon}, not {VERSION} like this command, listening on {socket}"),
-        daemon_stop_advice(Some(VERSION)),
+        format!("running {daemon}, not {BUILD} like this command, listening on {socket}"),
+        format!("the next command replaces it if it has no open terminals; otherwise {RESTART_ADVICE}"),
     )
 }
 

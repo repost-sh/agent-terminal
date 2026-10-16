@@ -1,5 +1,5 @@
 use crate::skills::{put_stub, shipped, stub_in, stub_of_version};
-use crate::support::{AgentTerminal, Call, Run, VERSION};
+use crate::support::{AgentTerminal, BUILD, Call, Run, VERSION};
 
 const FONTS: &str = "ok       fonts    JetBrains Mono, Symbols Nerd Font Mono and Noto Emoji are built in\n";
 
@@ -43,15 +43,17 @@ fn doctor_checks_the_pty_the_fonts_and_the_daemon_without_starting_it() {
     assert_eq!(
         run.stdout(),
         format!(
-            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}ok       daemon   running agent-terminal {VERSION}, listening on {}\n{}",
+            "ok       pty      opened a pseudo-terminal\n{FONTS}{NO_SCRIPTS_YET}ok       daemon   running agent-terminal {BUILD}, listening on {}\n{}",
             socket.display(),
             no_skill(&at)
         )
     );
 }
 
+const REPLACED_OR_RESTARTED: &str = "the next command replaces it if it has no open terminals; otherwise a human restarts the daemon when it suits them, because it holds other agents' terminals";
+
 #[test]
-fn doctor_flags_a_daemon_of_another_version_and_says_how_to_replace_it() {
+fn doctor_flags_a_daemon_of_another_build_and_says_how_it_gets_replaced() {
     let at = AgentTerminal::new();
     let socket = at.home().join("daemon.sock");
     at.run(&["open", "--size", "20x2", "cat"]).success();
@@ -73,13 +75,11 @@ fn the_text_report_flags_the_other_version(at: &AgentTerminal, socket: &std::pat
         run.stdout().lines().skip(3).take(2).collect::<Vec<_>>(),
         [
             format!(
-                "problem  daemon   running agent-terminal 0.0.1, not {VERSION} like this command, listening on {}",
+                "problem  daemon   running agent-terminal 0.0.1, not {BUILD} like this command, listening on {}",
                 socket.display()
             )
             .as_str(),
-            &format!(
-                "                  fix: `agent-terminal daemon stop` ends it and its terminals, and the next command starts a {VERSION} daemon"
-            ),
+            &format!("                  fix: {REPLACED_OR_RESTARTED}"),
         ]
     );
 }
@@ -94,12 +94,10 @@ fn the_json_report_flags_the_other_version(at: &AgentTerminal, socket: &std::pat
             "name": "daemon",
             "status": "problem",
             "message": format!(
-                "running agent-terminal 0.0.1, not {VERSION} like this command, listening on {}",
+                "running agent-terminal 0.0.1, not {BUILD} like this command, listening on {}",
                 socket.display()
             ),
-            "fix": format!(
-                "`agent-terminal daemon stop` ends it and its terminals, and the next command starts a {VERSION} daemon"
-            )
+            "fix": REPLACED_OR_RESTARTED
         })
     );
 }
@@ -277,7 +275,10 @@ fn doctor_says_how_to_fix_a_socket_path_the_system_cannot_use() {
         lines[3].starts_with(&format!("problem  daemon   cannot reach the daemon socket {}: ", socket.display())),
         "{stdout}"
     );
-    assert_eq!(lines[4], "                  fix: set AGENT_TERMINAL_HOME to a short folder you own");
+    assert_eq!(
+        lines[4],
+        "                  fix: the daemon's folder must be one you own, with a path short enough for a socket"
+    );
 }
 
 #[test]

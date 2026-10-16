@@ -12,7 +12,7 @@ mod session;
 mod wait;
 
 pub(crate) use attach::{AttachEvent, AttachInput, Attached, HumanInput, Mirror};
-pub(crate) use error::{ErrorBody, OtherVersion, daemon_stop_advice};
+pub(crate) use error::{ErrorBody, OtherVersion, RESTART_ADVICE};
 pub(crate) use facts::{Cell, Cursor, Exit, Fact, Get, Modes, Mouse};
 pub(crate) use framing::{read, read_body, write};
 pub(crate) use history::{CommandOutput, CommandRecord, History};

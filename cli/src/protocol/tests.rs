@@ -4,8 +4,7 @@ use serde_json::json;
 
 use super::{
     Cell, ClickTarget, CommandRecord, Direction, ErrorBody, Modes, MouseButton, MouseEvent, OtherVersion, Reply,
-    ScreenshotFormat, Shell, Size, Snapshot, Style, TabId, TextMatch, Theme, daemon_stop_advice, read, read_body,
-    write,
+    ScreenshotFormat, Shell, Size, Snapshot, Style, TabId, TextMatch, Theme, read, read_body, write,
 };
 
 struct FailingOnce<'a> {
@@ -159,17 +158,6 @@ fn an_error_carries_the_screen_or_the_other_versions_it_met() {
             "message": "older daemon",
             "other_version": { "cli_version": "1.2.0", "daemon_version": "1.1.0", "terminals": 2 }
         })
-    );
-}
-
-#[test]
-fn stopping_the_daemon_is_advised_with_the_version_the_next_one_will_be() {
-    assert_eq!(
-        [daemon_stop_advice(Some("1.2.0")), daemon_stop_advice(None)],
-        [
-            "`agent-terminal daemon stop` ends it and its terminals, and the next command starts a 1.2.0 daemon",
-            "`agent-terminal daemon stop` ends it and its terminals, and the next command starts a daemon of the command's version"
-        ]
     );
 }
 
