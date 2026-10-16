@@ -20,7 +20,8 @@ impl Install {
         let at = AgentTerminal::new();
         let binary = at.home().join(binary);
         std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
-        written_in_a_child(Command::new("cp").arg(env!("CARGO_BIN_EXE_agent-terminal")).arg(&binary));
+        std::fs::hard_link(env!("CARGO_BIN_EXE_agent-terminal"), &binary)
+            .expect("link the built binary into the install");
         let bin = at.home().join("fake-bin");
         std::fs::create_dir_all(&bin).unwrap();
         let install = Self {
