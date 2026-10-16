@@ -6,12 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      mutation_base:
-        description: The commit the mutation area diffs HEAD against
+      base:
+        description: The commit the change is mutated and measured against
         default: HEAD~1
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -101,7 +101,7 @@ jobs:
           shells: true
           dashboard: true
       - env:
-          GAUNTLET_MUTATION_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || inputs.mutation_base }}
+          GAUNTLET_MUTATION_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || inputs.base }}
           GAUNTLET_MUTATION_SHARDS: 2
         run: scripts/gauntlet.sh mutation
 
@@ -122,7 +122,7 @@ jobs:
           workspaces: cli
       - name: Build agent-terminal at the base of this change
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base }}
         run: |
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
           cargo build --release --manifest-path "$RUNNER_TEMP/base/cli/Cargo.toml" --target-dir target --bin agent-terminal
