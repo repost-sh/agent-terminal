@@ -12,6 +12,7 @@ use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
 
+use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 
@@ -94,7 +95,15 @@ fn parsed(mut matches: ArgMatches) -> Result<Cli, clap::Error> {
     Cli::from_arg_matches_mut(&mut matches).map(|cli| Cli { session_typed, ..cli })
 }
 
+fn unnamed_tab(e: &clap::Error) -> bool {
+    e.kind() == ErrorKind::MissingRequiredArgument
+        && matches!(e.get(ContextKind::InvalidArg), Some(ContextValue::Strings(missing)) if *missing == ["--name <NAME>"])
+}
+
 fn usage(e: &clap::Error) -> io::Result<i32> {
+    if unnamed_tab(e) {
+        return output::refuse(programs::NAME_THE_TAB, json_asked());
+    }
     if e.use_stderr() && json_asked() {
         let rendered = e.render().to_string();
         let message = rendered.strip_prefix("error: ").unwrap_or(&rendered).trim_end();

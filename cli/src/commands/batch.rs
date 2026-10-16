@@ -3,8 +3,9 @@ use std::path::Path;
 
 use clap::CommandFactory;
 
+use super::programs::NAME_THE_TAB;
 use super::tools::BatchArgs;
-use super::{Cli, argv, parsed, request as single};
+use super::{Cli, argv, parsed, request as single, unnamed_tab};
 use crate::batch::NotValid;
 use crate::output;
 use crate::protocol::request;
@@ -44,6 +45,7 @@ pub(super) fn request(args: &BatchArgs, defaults: &Defaults<'_>) -> Result<Reque
 
 fn step(mut parser: clap::Command, call: &[String]) -> Result<Request, String> {
     let argv: Vec<OsString> = call.iter().map(OsString::from).collect();
-    let matches = argv::parse(&mut parser, &argv).map_err(|e| e.render().to_string())?;
+    let matches = argv::parse(&mut parser, &argv)
+        .map_err(|e| if unnamed_tab(&e) { NAME_THE_TAB.to_string() } else { e.render().to_string() })?;
     single(parsed(matches).map_err(|e| e.render().to_string())?)
 }

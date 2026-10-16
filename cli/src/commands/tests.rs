@@ -2,7 +2,8 @@ use std::ffi::OsString;
 
 use clap::CommandFactory;
 
-use super::{Cli, argv, parsed, request};
+use super::programs::NAME_THE_TAB;
+use super::{Cli, argv, parsed, request, unnamed_tab};
 
 fn own_parts(mut sent: serde_json::Value) -> String {
     if let Some(env) = sent["env"].as_array_mut() {
@@ -19,6 +20,7 @@ fn sent(words: Vec<String>) -> String {
             |refused| format!("refused: {refused}"),
             |request| own_parts(serde_json::to_value(&request).unwrap()),
         ),
+        Err(e) if unnamed_tab(&e) => format!("refused: {NAME_THE_TAB}"),
         Err(e) => format!("usage: {:?}", e.kind()),
     }
 }
@@ -62,7 +64,7 @@ fn a_session_is_created_by_session_new_and_named_on_every_command_that_acts_on_o
         "session id",
         "close --all --bypass-session",
         "snapshot",
-        "open htop",
+        "open --name top htop",
         "tab",
         "close",
         "--session Work snapshot",
@@ -76,7 +78,7 @@ fn a_session_is_created_by_session_new_and_named_on_every_command_that_acts_on_o
         session id -> usage: InvalidSubcommand
         close --all --bypass-session -> {"command":"close","env":null,"scope":"every-session"}
         snapshot -> refused: name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)
-        open htop -> refused: name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)
+        open --name top htop -> refused: name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)
         tab -> refused: name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)
         close -> refused: name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)
         --session Work snapshot -> usage: ValueValidation
