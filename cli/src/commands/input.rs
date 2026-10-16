@@ -41,7 +41,8 @@ impl InputCommand {
             .screenshot
             .map(|path| {
                 let path = path.chosen();
-                ScreenshotArgs { path, annotate: false, format: None, look: LookArgs::plain() }.shot(context.dir)
+                ScreenshotArgs { path, annotate: false, format: None, look: LookArgs::plain() }
+                    .shot(context.global.screenshot_dir)
             })
             .transpose()?;
         Ok(Request::Input(request::Deliver {
@@ -50,7 +51,7 @@ impl InputCommand {
             wait,
             snapshot: after.snapshot.then(|| after.view.options()),
             screenshot,
-            timeout_ms: context.timeout,
+            timeout_ms: context.global.timeout,
         }))
     }
 

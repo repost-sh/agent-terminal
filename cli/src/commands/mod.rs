@@ -10,7 +10,6 @@ mod values;
 
 use std::ffi::OsString;
 use std::io;
-use std::path::PathBuf;
 
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::parser::ValueSource;
@@ -18,7 +17,7 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::attach;
 use crate::connection::{self, IfNotRunning};
-use crate::global_options::{GlobalOptions, NAME_THE_SESSION};
+use crate::global_options::GlobalOptions;
 use crate::mcp;
 use crate::native::daemon;
 use crate::output;
@@ -37,9 +36,6 @@ struct Cli {
 
     #[command(subcommand)]
     command: Command,
-
-    #[arg(skip)]
-    session_typed: bool,
 }
 
 #[derive(Subcommand)]
@@ -63,20 +59,17 @@ enum Command {
 }
 
 struct Context {
-    session: Option<Name>,
-    tab: Option<Name>,
+    global: GlobalOptions,
     session_typed: bool,
-    dir: Option<PathBuf>,
-    timeout: u64,
 }
 
 impl Context {
     fn session(&self) -> Result<Name, String> {
-        self.session.clone().ok_or_else(|| NAME_THE_SESSION.to_string())
+        self.global.session().cloned().map_err(String::from)
     }
 
     fn target(&self) -> Result<Target, String> {
-        Ok(Target { session: self.session()?, tab: self.tab.clone() })
+        Ok(Target { session: self.session()?, tab: self.global.tab.clone() })
     }
 }
 
@@ -85,14 +78,15 @@ pub(crate) fn run() -> io::Result<i32> {
     let argv: Vec<OsString> = std::env::args_os().collect();
     let parsed = argv::parse(&mut parser, &argv).and_then(|matches| parsed(matches).map_err(|e| e.format(&mut parser)));
     match parsed {
-        Ok(cli) => dispatch(cli),
+        Ok((command, context)) => dispatch(command, context),
         Err(e) => usage(&e),
     }
 }
 
-fn parsed(mut matches: ArgMatches) -> Result<Cli, clap::Error> {
+fn parsed(mut matches: ArgMatches) -> Result<(Command, Context), clap::Error> {
     let session_typed = matches.value_source("session") == Some(ValueSource::CommandLine);
-    Cli::from_arg_matches_mut(&mut matches).map(|cli| Cli { session_typed, ..cli })
+    let Cli { global, command } = Cli::from_arg_matches_mut(&mut matches)?;
+    Ok((command, Context { global, session_typed }))
 }
 
 fn unnamed_tab(e: &clap::Error) -> bool {
@@ -116,9 +110,9 @@ fn usage(e: &clap::Error) -> io::Result<i32> {
     }
 }
 
-fn dispatch(cli: Cli) -> io::Result<i32> {
-    let json = cli.global.json;
-    let request = match cli.command {
+fn dispatch(command: Command, context: Context) -> io::Result<i32> {
+    let json = context.global.json;
+    let request = match command {
         Command::Tools(tools::ToolCommand::Daemon { action: tools::DaemonAction::Run }) => {
             return daemon_run();
         }
@@ -127,26 +121,27 @@ fn dispatch(cli: Cli) -> io::Result<i32> {
         }
         Command::Tools(tools::ToolCommand::Mcp) => return mcp::run(Cli::command()),
         Command::Tools(tools::ToolCommand::Attach { read_only }) => {
-            return attach::run(read_only, cli.global);
+            return attach::run(read_only, context.global);
         }
         Command::Tools(tools::ToolCommand::Version) => return output::version(json),
         Command::Tools(tools::ToolCommand::Upgrade) => return upgrade::run(json),
         Command::Tools(tools::ToolCommand::Batch(args)) => {
+            let global = &context.global;
             let defaults = batch::Defaults {
-                session: cli.global.session.as_ref(),
-                tab: cli.global.tab.as_ref(),
-                timeout: cli.global.timeout,
-                screenshot_dir: cli.global.screenshot_dir.as_deref(),
+                session: global.session.as_ref(),
+                tab: global.tab.as_ref(),
+                timeout: global.timeout,
+                screenshot_dir: global.screenshot_dir.as_deref(),
             };
             batch::request(&args, &defaults)
         }
         Command::Tabs(tabs::TabCommand::Session { action: None }) => {
-            return match &cli.global.session {
-                Some(session) => output::session(session, json).map(|()| 0),
-                None => output::refuse(NAME_THE_SESSION, json),
+            return match context.global.session() {
+                Ok(session) => output::session(session, json).map(|()| 0),
+                Err(unnamed) => output::refuse(unnamed, json),
             };
         }
-        command => request(Cli { command, ..cli }),
+        command => request(command, context),
     };
     match request {
         Ok(request) => send(request, json),
@@ -165,15 +160,8 @@ fn json_asked() -> bool {
     std::env::args_os().skip(1).take_while(|arg| arg != "--").any(|arg| arg == "--json")
 }
 
-fn request(cli: Cli) -> Result<Request, String> {
-    let context = Context {
-        session: cli.global.session,
-        tab: cli.global.tab,
-        session_typed: cli.session_typed,
-        dir: cli.global.screenshot_dir,
-        timeout: cli.global.timeout,
-    };
-    match cli.command {
+fn request(command: Command, context: Context) -> Result<Request, String> {
+    match command {
         Command::Programs(command) => command.request(&context),
         Command::Snapshot(args) => {
             Ok(Request::Snapshot(request::Snapshot { target: context.target()?, options: args.options() }))

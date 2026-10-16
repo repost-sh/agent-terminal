@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use rustix::termios::{self, OptionalActions};
 
 use crate::connection;
-use crate::global_options::{GlobalOptions, NAME_THE_SESSION};
+use crate::global_options::GlobalOptions;
 use crate::key::{Key, KeyCode, Mods};
 use crate::output;
 use crate::protocol::request;
@@ -35,8 +35,9 @@ enum Unopened {
 
 pub(crate) fn run(read_only: bool, global: GlobalOptions) -> io::Result<i32> {
     let json = global.json;
-    let Some(session) = global.session else {
-        return output::refuse(NAME_THE_SESSION, json);
+    let session = match global.session() {
+        Ok(session) => session.clone(),
+        Err(unnamed) => return output::refuse(unnamed, json),
     };
     let target = Target { session, tab: global.tab };
     if !on_a_terminal() {

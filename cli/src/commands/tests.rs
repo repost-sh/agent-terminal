@@ -16,7 +16,7 @@ fn sent(words: Vec<String>) -> String {
     let argv: Vec<OsString> = std::iter::once("agent-terminal".to_string()).chain(words).map(OsString::from).collect();
     let mut parser = Cli::command().mut_arg("session", |arg| arg.env(None::<&str>));
     match argv::parse(&mut parser, &argv).and_then(parsed) {
-        Ok(cli) => request(cli).map_or_else(
+        Ok((command, context)) => request(command, context).map_or_else(
             |refused| format!("refused: {refused}"),
             |request| own_parts(serde_json::to_value(&request).unwrap()),
         ),

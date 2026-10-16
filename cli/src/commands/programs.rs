@@ -44,7 +44,7 @@ pub(super) enum ProgramCommand {
 impl ProgramCommand {
     pub(super) fn request(self, context: &Context) -> Result<Request, String> {
         let target = context.target()?;
-        let timeout = context.timeout;
+        let timeout = context.global.timeout;
         match self {
             ProgramCommand::Open(args) => args.request(target.session, timeout),
             ProgramCommand::Shell(args) => shell(target.session, args, timeout),

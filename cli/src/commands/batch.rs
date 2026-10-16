@@ -47,5 +47,6 @@ fn step(mut parser: clap::Command, call: &[String]) -> Result<Request, String> {
     let argv: Vec<OsString> = call.iter().map(OsString::from).collect();
     let matches = argv::parse(&mut parser, &argv)
         .map_err(|e| if unnamed_tab(&e) { NAME_THE_TAB.to_string() } else { e.render().to_string() })?;
-    single(parsed(matches).map_err(|e| e.render().to_string())?)
+    let (command, context) = parsed(matches).map_err(|e| e.render().to_string())?;
+    single(command, context)
 }

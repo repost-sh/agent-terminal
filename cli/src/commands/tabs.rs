@@ -84,7 +84,7 @@ pub(super) enum TabAction {
 
 impl TabCommand {
     pub(super) fn request(self, context: &Context) -> Result<Request, String> {
-        let timeout = context.timeout;
+        let timeout = context.global.timeout;
         Ok(match self {
             TabCommand::Session { action: Some(SessionAction::New { name }) } => {
                 Request::NewSession(request::NewSession { session: name })
@@ -103,7 +103,7 @@ impl TabCommand {
             }
             TabCommand::Tab { action: Some(TabAction::Close { name }), .. } => {
                 Request::Close(request::Close::Tab(Target {
-                    tab: name.or_else(|| context.tab.clone()),
+                    tab: name.or_else(|| context.global.tab.clone()),
                     session: context.session()?,
                 }))
             }

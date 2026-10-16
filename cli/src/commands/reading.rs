@@ -59,7 +59,7 @@ pub(super) enum ReadCommand {
 impl ReadCommand {
     pub(super) fn request(self, context: Context) -> Result<Request, String> {
         let target = context.target()?;
-        let dir = context.dir;
+        let dir = context.global.screenshot_dir;
         Ok(match self {
             ReadCommand::Get { what } => Request::Get(request::Get { target, what: what.request() }),
             ReadCommand::Find { text, regex, all } => Request::Find(request::Find { target, text, regex, all }),

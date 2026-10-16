@@ -4,7 +4,7 @@ use clap::{ArgAction, Args};
 
 use crate::protocol::Name;
 
-pub(crate) const NAME_THE_SESSION: &str = "name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)";
+const NAME_THE_SESSION: &str = "name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)";
 
 #[derive(Args)]
 pub(crate) struct GlobalOptions {
@@ -41,6 +41,12 @@ pub(crate) struct GlobalOptions {
         value_name = "PATH"
     )]
     pub screenshot_dir: Option<PathBuf>,
+}
+
+impl GlobalOptions {
+    pub(crate) fn session(&self) -> Result<&Name, &'static str> {
+        self.session.as_ref().ok_or(NAME_THE_SESSION)
+    }
 }
 
 pub(crate) fn without_global_options(typed: &[String]) -> Vec<String> {
