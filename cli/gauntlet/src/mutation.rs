@@ -63,25 +63,29 @@ pub(crate) fn check_faults(report: &Path, faults: &[&str]) -> Result<Verdict> {
         offenses.push(format!("{}: the unmutated baseline did not pass", report.display()));
     }
     for fault in faults {
-        let pattern = Regex::new(fault).with_context(|| format!("the fault {fault:?}"))?;
-        let matched: Vec<(&str, &str)> = read
-            .outcomes
-            .iter()
-            .filter_map(|outcome| match &outcome.scenario {
-                Scenario::Mutant(mutant) if pattern.is_match(&mutant.name) => {
-                    Some((mutant.name.as_str(), outcome.summary.as_str()))
-                }
-                Scenario::Mutant(_) | Scenario::Baseline => None,
-            })
-            .collect();
-        match matched.as_slice() {
-            [(_, "CaughtMutant")] => {}
-            [(name, summary)] => offenses.push(format!("{name} got through the acceptance suite ({summary})")),
-            _ => offenses.push(format!("the fault {fault:?} matched {} tested mutants, not one", matched.len())),
-        }
+        offenses.extend(escaped(&read, fault)?);
     }
     let passed = format!("the acceptance suite caught all {} faults", faults.len());
     Ok(FAULTS.verdict(&offenses, vec![passed]))
+}
+
+fn escaped(read: &Outcomes, fault: &str) -> Result<Option<String>> {
+    let pattern = Regex::new(fault).with_context(|| format!("the fault {fault:?}"))?;
+    let matched: Vec<(&str, &str)> = read
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match &outcome.scenario {
+            Scenario::Mutant(mutant) if pattern.is_match(&mutant.name) => {
+                Some((mutant.name.as_str(), outcome.summary.as_str()))
+            }
+            Scenario::Mutant(_) | Scenario::Baseline => None,
+        })
+        .collect();
+    Ok(match matched.as_slice() {
+        [(_, "CaughtMutant")] => None,
+        [(name, summary)] => Some(format!("{name} got through the acceptance suite ({summary})")),
+        _ => Some(format!("the fault {fault:?} matched {} tested mutants, not one", matched.len())),
+    })
 }
 
 pub(crate) fn check(reports: &[&Path]) -> Result<Verdict> {

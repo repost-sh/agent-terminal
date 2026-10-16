@@ -38,40 +38,26 @@ fn main() -> ExitCode {
 }
 
 fn run(args: &[String]) -> Result<Verdict> {
-    if let [gate, reports @ ..] = args
-        && gate == "mutation"
-        && !reports.is_empty()
-    {
-        return mutation::check(&reports.iter().map(Path::new).collect::<Vec<_>>());
-    }
-    if let [gate, report, faults @ ..] = args
-        && gate == "faults"
-        && !faults.is_empty()
-    {
-        return mutation::check_faults(Path::new(report), &faults.iter().map(String::as_str).collect::<Vec<_>>());
-    }
-    let gate = match args {
-        [gate] => Gate::Static(unmeasured(gate)?),
-        [gate, report] => Gate::Measured { check: measured(gate)?, report: Path::new(report) },
-        _ => bail!("{USAGE}"),
-    };
-    match gate {
-        Gate::Static(check) => check(&load()?),
-        Gate::Measured { check, report } => {
-            let lines = lcov::read(report)?;
+    match args {
+        [gate, reports @ ..] if gate == "mutation" && !reports.is_empty() => {
+            mutation::check(&reports.iter().map(Path::new).collect::<Vec<_>>())
+        }
+        [gate, report, faults @ ..] if gate == "faults" && !faults.is_empty() => {
+            mutation::check_faults(Path::new(report), &faults.iter().map(String::as_str).collect::<Vec<_>>())
+        }
+        [gate] => unmeasured(gate)?(&load()?),
+        [gate, report] => {
+            let check = measured(gate)?;
+            let lines = lcov::read(Path::new(report))?;
             check(&load()?, &lines)
         }
+        _ => bail!("{USAGE}"),
     }
 }
 
 type MeasuredCheck = fn(&workspace::Workspace, &lcov::Lines) -> Result<Verdict>;
 
 type StaticCheck = fn(&workspace::Workspace) -> Result<Verdict>;
-
-enum Gate<'a> {
-    Static(StaticCheck),
-    Measured { check: MeasuredCheck, report: &'a Path },
-}
 
 fn measured(gate: &str) -> Result<MeasuredCheck> {
     match gate {

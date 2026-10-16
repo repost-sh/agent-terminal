@@ -140,3 +140,17 @@ fn every_named_fault_must_be_one_caught_mutant_and_other_mutants_do_not_count() 
         )
     );
 }
+
+#[test]
+fn faults_need_an_unmutated_baseline_that_passed() {
+    let caught = mutant("src/a.rs:1:1: replace f with ()", "CaughtMutant");
+    let failed = report("Failure", std::slice::from_ref(&caught), 1);
+    let without = json!({ "total_mutants": 1, "outcomes": [caught] });
+    for read in [failed, without] {
+        assert_eq!(
+            faults(&read, &[r"src/a\.rs:"]),
+            (2, format!("outcomes.json: the unmutated baseline did not pass: {FAULTS_FIX}\n1 offense(s)\n")),
+            "{read}"
+        );
+    }
+}

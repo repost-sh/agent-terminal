@@ -4,7 +4,7 @@ use syn::{Item, ItemMod, ItemUse, Macro, Path, UseTree, Visibility};
 
 pub(crate) fn crate_paths(source: &str, module: &[String]) -> syn::Result<Vec<Vec<String>>> {
     let file = syn::parse_file(source)?;
-    let mut paths = Paths { scopes: vec![Scope::of(module.to_vec(), &file.items)], found: Vec::new() };
+    let mut paths = Paths { scope: Scope::of(module.to_vec(), &file.items), found: Vec::new() };
     paths.visit_file(&file);
     paths.found.sort();
     paths.found.dedup();
@@ -27,35 +27,34 @@ impl Scope {
             .collect();
         Self { module, children }
     }
+
+    fn absolute(&self, segments: &[String]) -> Option<Vec<String>> {
+        let (mut module, rest) = match segments {
+            [first, rest @ ..] if first == "crate" => (Vec::new(), rest),
+            [first, rest @ ..] if first == "self" => (self.module.clone(), rest),
+            [first, _, ..] if self.children.contains(first) => (self.module.clone(), segments),
+            [first, ..] if first == "super" => self.climbed(segments),
+            _ => return None,
+        };
+        module.extend(rest.iter().cloned());
+        Some(module)
+    }
+
+    fn climbed<'s>(&self, segments: &'s [String]) -> (Vec<String>, &'s [String]) {
+        let climbs = segments.iter().take_while(|segment| *segment == "super").count();
+        let kept = self.module.len().saturating_sub(climbs);
+        (self.module.iter().take(kept).cloned().collect(), segments.get(climbs..).unwrap_or_default())
+    }
 }
 
 struct Paths {
-    scopes: Vec<Scope>,
+    scope: Scope,
     found: Vec<Vec<String>>,
 }
 
 impl Paths {
     fn resolve(&mut self, segments: &[String]) {
-        let Some(scope) = self.scopes.last() else {
-            return;
-        };
-        let mut module = scope.module.clone();
-        let rest = match segments {
-            [first, rest @ ..] if first == "crate" => {
-                module.clear();
-                rest
-            }
-            [first, rest @ ..] if first == "self" => rest,
-            [first, _, ..] if scope.children.contains(first) => segments,
-            [first, ..] if first == "super" => {
-                let climbs = segments.iter().take_while(|segment| *segment == "super").count();
-                module.truncate(module.len().saturating_sub(climbs));
-                segments.get(climbs..).unwrap_or_default()
-            }
-            _ => return,
-        };
-        module.extend(rest.iter().cloned());
-        self.found.push(module);
+        self.found.extend(self.scope.absolute(segments));
     }
 }
 
@@ -64,11 +63,11 @@ impl<'ast> Visit<'ast> for Paths {
         let Some((_, items)) = &item.content else {
             return;
         };
-        let mut module = self.scopes.last().map(|scope| scope.module.clone()).unwrap_or_default();
+        let mut module = self.scope.module.clone();
         module.push(item.ident.to_string());
-        self.scopes.push(Scope::of(module, items));
+        let outer = std::mem::replace(&mut self.scope, Scope::of(module, items));
         visit::visit_item_mod(self, item);
-        self.scopes.pop();
+        self.scope = outer;
     }
 
     fn visit_item_use(&mut self, item: &'ast ItemUse) {

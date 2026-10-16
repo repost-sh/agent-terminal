@@ -29,18 +29,19 @@ impl Scratch {
         scratch
     }
 
-    pub(crate) fn member(mut self, name: &str, manifest: &str) -> Self {
-        self.manifest(name, manifest);
-        write(&self.dir.path().join(name).join("src/lib.rs"), "");
+    pub(crate) fn member(mut self, path: &str, manifest: &str) -> Self {
+        self.manifest(path, manifest);
+        write(&self.dir.path().join(path).join("src/lib.rs"), "");
         self
     }
 
-    fn manifest(&mut self, name: &str, manifest: &str) {
+    fn manifest(&mut self, path: &str, manifest: &str) {
+        let name = path.rsplit('/').next().unwrap_or(path);
         write(
-            &self.dir.path().join(name).join("Cargo.toml"),
+            &self.dir.path().join(path).join("Cargo.toml"),
             &format!("[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\n{manifest}"),
         );
-        self.members.push(format!("{name:?}"));
+        self.members.push(format!("{path:?}"));
         write(
             &self.dir.path().join("Cargo.toml"),
             &format!("[workspace]\nmembers = [{}]\nresolver = \"3\"\n", self.members.join(", ")),

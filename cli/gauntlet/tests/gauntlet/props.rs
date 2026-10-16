@@ -52,3 +52,12 @@ fn a_test_file_that_does_not_parse_is_an_error_naming_it() {
     assert!(run.stderr.contains("tests/broken.rs: "), "{}", run.stderr);
     assert_eq!(run.code, 1);
 }
+
+#[test]
+fn a_member_inside_another_keeps_its_own_files() {
+    let run = Scratch::crate_with(&[("main.rs", "fn main() {}\n"), ("notes.txt", "proptest! #[test] prop_assert!\n")])
+        .member("app/tests/fixtures", "")
+        .with("tests/fixtures/tests/doubling.rs", PROPERTY)
+        .props();
+    assert_eq!((run.code, run.stdout), (2, offense()));
+}
