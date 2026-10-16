@@ -1,5 +1,3 @@
-use std::fmt::{self, Write as _};
-
 use crate::key::{Key, KeyCode, Mods};
 use crate::native::screen::KeyboardModes;
 
@@ -108,39 +106,36 @@ impl Kitty {
     fn sequence(&self, held: Mods, event: Event) -> Vec<u8> {
         let mods = u8::from(self.shift) + 2 * u8::from(held.alt) + 4 * u8::from(held.ctrl);
         let mods_field = mods != 0 || event == Event::Release;
-        fmt::from_fn(|f| {
-            f.write_str("\x1b[")?;
-            self.write_key(f, mods_field)?;
-            self.write_modifiers(f, mods_field.then_some(mods), event)?;
-            f.write_char(char::from(self.final_byte))
-        })
-        .to_string()
-        .into_bytes()
+        let mut sequence = String::from("\x1b[");
+        self.push_key(&mut sequence, mods_field);
+        self.push_modifiers(&mut sequence, mods_field.then_some(mods), event);
+        sequence.push(char::from(self.final_byte));
+        sequence.into_bytes()
     }
 
-    fn write_key(&self, f: &mut fmt::Formatter<'_>, mods_field: bool) -> fmt::Result {
+    fn push_key(&self, sequence: &mut String, mods_field: bool) {
         if self.number != 1 || self.alternate.is_some() || mods_field || self.text.is_some() {
-            write!(f, "{}", self.number)?;
+            sequence.push_str(&self.number.to_string());
         }
-        match self.alternate {
-            Some(alternate) => write!(f, ":{alternate}"),
-            None => Ok(()),
+        if let Some(alternate) = self.alternate {
+            sequence.push(':');
+            sequence.push_str(&alternate.to_string());
         }
     }
 
-    fn write_modifiers(&self, f: &mut fmt::Formatter<'_>, mods: Option<u8>, event: Event) -> fmt::Result {
+    fn push_modifiers(&self, sequence: &mut String, mods: Option<u8>, event: Event) {
         if mods.is_some() || self.text.is_some() {
-            f.write_char(';')?;
+            sequence.push(';');
         }
         if let Some(mods) = mods {
-            write!(f, "{}", mods + 1)?;
+            sequence.push_str(&(mods + 1).to_string());
         }
         if event == Event::Release {
-            f.write_str(":3")?;
+            sequence.push_str(":3");
         }
-        match self.text {
-            Some(text) => write!(f, ";{text}"),
-            None => Ok(()),
+        if let Some(text) = self.text {
+            sequence.push(';');
+            sequence.push_str(&text.to_string());
         }
     }
 }

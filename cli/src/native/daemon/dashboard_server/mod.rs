@@ -32,3 +32,6 @@ impl Daemon {
         server.is_some()
     }
 }
+
+#[cfg(test)]
+mod tests;

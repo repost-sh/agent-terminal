@@ -135,3 +135,6 @@ impl Drop for Daemon {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -104,17 +104,18 @@ fn rust_files(dir: &Path, others: &[&Path]) -> Result<Vec<PathBuf>> {
     if !dir.is_dir() {
         return Ok(files);
     }
-    for entry in std::fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
-        let path = entry?.path();
-        if others.contains(&path.as_path()) {
-            continue;
-        }
+    for path in entries(dir)?.into_iter().filter(|path| !others.contains(&path.as_path())) {
         if path.is_dir() {
             files.extend(rust_files(&path, others)?);
         } else if path.extension().is_some_and(|extension| extension == "rs") {
-            files.push(std::fs::canonicalize(&path)?);
+            files.push(std::fs::canonicalize(&path).with_context(|| format!("find where {} is", path.display()))?);
         }
     }
     files.sort();
     Ok(files)
+}
+
+fn entries(dir: &Path) -> Result<Vec<PathBuf>> {
+    let listed = std::fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))?;
+    listed.map(|entry| Ok(entry.with_context(|| format!("read {}", dir.display()))?.path())).collect()
 }

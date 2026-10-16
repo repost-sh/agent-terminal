@@ -328,3 +328,15 @@ fn a_ref_of_the_fixture_tui_works_while_its_cells_are_unchanged() {
     assert_eq!(clicked.stdout(), "clicked @t4 at 8,1 in default t1\n");
     at.run(&["expect", "Selected: beta.txt"]).success();
 }
+
+#[test]
+fn the_fixture_tui_dialog_answers_y_n_and_esc_from_the_keyboard() {
+    let at = AgentTerminal::new();
+    open_tui(&at, &[]);
+    for (answer, status) in [("y", "Deleted: alpha.txt"), ("n", "Kept: alpha.txt"), ("Esc", "Kept: alpha.txt")] {
+        at.run(&["press", "d", "--wait", "[ Yes ]"]).success();
+        at.run(&["press", "j"]).success();
+        at.run(&["press", answer, "--wait-gone", "[ Yes ]"]).success();
+        at.run(&["expect", status]).success();
+    }
+}

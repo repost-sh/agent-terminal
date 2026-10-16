@@ -6,7 +6,7 @@ use crate::home::{DAEMON_VERSION, SOCKET};
 use crate::native::log;
 use crate::protocol::{KeptRunning, Reply};
 
-const OTHER_CALLS_WITHIN: Duration = Duration::from_secs(5);
+pub(super) const OTHER_CALLS_WITHIN: Duration = Duration::from_secs(5);
 
 pub(super) struct Activity {
     in_flight: usize,
@@ -67,16 +67,14 @@ impl Daemon {
         activity.stopping = true;
     }
 
-    pub(super) fn stop_if_no_terminals(&self) -> Reply {
-        let deadline = Instant::now() + OTHER_CALLS_WITHIN;
-        let mut activity = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
-        while activity.in_flight > 1 && self.terminals() == 0 {
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                break;
-            }
-            activity = self.quiet.wait_timeout(activity, left).unwrap_or_else(PoisonError::into_inner).0;
-        }
+    pub(super) fn stop_if_no_terminals(&self, other_calls_within: Duration) -> Reply {
+        let activity = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
+        let (mut activity, _) = self
+            .quiet
+            .wait_timeout_while(activity, other_calls_within, |activity| {
+                activity.in_flight > 1 && self.terminals() == 0
+            })
+            .unwrap_or_else(PoisonError::into_inner);
         let terminals = self.terminals();
         if terminals > 0 {
             return Reply::KeptRunning(KeptRunning { terminals });

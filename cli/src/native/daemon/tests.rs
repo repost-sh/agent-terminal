@@ -74,6 +74,7 @@ impl Running {
 
 impl Drop for Running {
     fn drop(&mut self) {
+        self.daemon.stop_dashboard();
         self.daemon.close_all();
     }
 }

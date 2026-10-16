@@ -83,20 +83,17 @@ struct ExitUntil {
 }
 
 impl UntilArgs {
-    pub(super) fn request(self, context: Context) -> Result<Request, String> {
+    pub(super) fn request(self, context: Context) -> Request {
         let Context { target, timeout, .. } = context;
         let assert = self.assert;
         if self.control {
-            return Ok(Request::WaitControl(request::WaitControl { target, timeout_ms: timeout, assert }));
+            return Request::WaitControl(request::WaitControl { target, timeout_ms: timeout, assert });
         }
-        Ok(Request::Wait(request::WaitFor { target, wait: self.until()?, timeout_ms: timeout, assert }))
+        Request::Wait(request::WaitFor { target, wait: self.until(), timeout_ms: timeout, assert })
     }
 
-    fn until(self) -> Result<Wait, String> {
-        match self.chosen() {
-            Some(wait) => Ok(wait),
-            None => self.text.until(),
-        }
+    fn until(self) -> Wait {
+        self.chosen().unwrap_or_else(|| self.text.until())
     }
 
     fn chosen(&self) -> Option<Wait> {
@@ -111,16 +108,14 @@ impl UntilArgs {
 }
 
 impl TextUntil {
-    fn until(self) -> Result<Wait, String> {
-        let text = self
-            .text
-            .ok_or("wait needs text, a number of milliseconds, --stable, --idle, --exit, --cursor, --frame, --command or --control")?;
+    fn until(self) -> Wait {
+        let text = self.text.unwrap_or_default();
         let plain = !self.regex && !self.gone && self.rows.is_none();
         match text.parse() {
-            Ok(ms) if plain => Ok(Wait::Elapsed { ms }),
+            Ok(ms) if plain => Wait::Elapsed { ms },
             _ => {
                 let text = TextMatch { text, regex: self.regex, rows: self.rows };
-                Ok(if self.gone { Wait::Gone(text) } else { Wait::Text(text) })
+                if self.gone { Wait::Gone(text) } else { Wait::Text(text) }
             }
         }
     }

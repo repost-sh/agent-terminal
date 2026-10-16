@@ -81,3 +81,6 @@ impl Drop for Terminal {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

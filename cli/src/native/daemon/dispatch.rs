@@ -1,4 +1,5 @@
 use super::Daemon;
+use super::lifecycle::OTHER_CALLS_WITHIN;
 use super::reading::trace_export;
 use super::refusals::attach_on_its_own;
 use crate::protocol::{DashboardStopped, ErrorBody, Reply, Request};
@@ -32,7 +33,7 @@ impl Daemon {
             Request::History(history) => self.history(history),
             Request::HistoryShow(show) => self.history_show(show),
             Request::Stop => Ok(self.stop()),
-            Request::StopIfNoTerminals => Ok(self.stop_if_no_terminals()),
+            Request::StopIfNoTerminals => Ok(self.stop_if_no_terminals(OTHER_CALLS_WITHIN)),
             Request::Batch(batch) => Ok(self.batch(batch)),
             Request::DashboardStart(start) => self.start_dashboard(start).map(Reply::Dashboard),
             Request::DashboardStop => Ok(Reply::DashboardStopped(DashboardStopped { stopped: self.stop_dashboard() })),

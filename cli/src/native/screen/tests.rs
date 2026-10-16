@@ -1,3 +1,4 @@
+use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb};
 
 use super::{Colour, KeyboardModes, MouseMode, MouseReporting, MouseTracking, Screen, ShellReport};
@@ -279,4 +280,10 @@ fn a_colour_reads_as_its_terminal_name_its_index_or_its_hex() {
     ]
     .map(|colour| colour.to_string());
     assert_eq!(shown, ["default", "black", "bright-black", "bright-white", "16", "#0a0bff"]);
+}
+
+#[test]
+fn a_screens_dimensions_are_its_rows_with_no_lines_kept_beyond_them() {
+    let size = Size { cols: 7, rows: 3 };
+    assert_eq!((size.total_lines(), size.screen_lines(), size.columns()), (3, 3, 7));
 }

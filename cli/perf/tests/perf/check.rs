@@ -289,3 +289,41 @@ fn a_metric_the_base_could_not_measure_is_held_to_its_limit_and_shows_no_base() 
     );
     assert_eq!(checked.code, 2, "stderr: {}", checked.stderr);
 }
+
+const PASSING: &str = r#"{"metrics": [
+    {"metric": "round-trip", "base": [2.0], "change": [2.0]},
+    {"metric": "snapshot", "base": [2.0], "change": [2.0]},
+    {"metric": "png", "base": [6.0], "change": [6.0]},
+    {"metric": "press-wait-text", "base": [0.4], "change": [0.4]},
+    {"metric": "idle-memory", "base": [4.85], "change": [4.85]},
+    {"metric": "tab-memory", "base": [4.0], "change": [4.0]}
+]}"#;
+
+#[test]
+fn a_report_that_cannot_be_printed_or_appended_is_an_error() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let results = dir.path().join("results.json");
+    std::fs::write(&results, PASSING).expect("write the results");
+    let (reader, writer) = std::io::pipe().expect("a pipe");
+    drop(reader);
+    let unread = Command::new(env!("CARGO_BIN_EXE_at-perf"))
+        .arg("check")
+        .arg(&results)
+        .stdout(writer)
+        .output()
+        .expect("run at-perf");
+    let not_a_file = Command::new(env!("CARGO_BIN_EXE_at-perf"))
+        .arg("check")
+        .arg(&results)
+        .arg("--summary")
+        .arg(dir.path())
+        .output()
+        .expect("run at-perf");
+    assert_eq!([unread.status.code(), not_a_file.status.code()], [Some(1), Some(1)]);
+    assert!(String::from_utf8_lossy(&unread.stderr).starts_with("error: print the report: "), "{unread:?}");
+    assert!(
+        String::from_utf8_lossy(&not_a_file.stderr)
+            .starts_with(&format!("error: append the report to {}: ", dir.path().display())),
+        "{not_a_file:?}"
+    );
+}

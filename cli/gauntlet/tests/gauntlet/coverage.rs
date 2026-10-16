@@ -98,3 +98,23 @@ fn the_unit_tests_beside_a_module_do_not_count_towards_its_crate() {
         )
     );
 }
+
+#[test]
+fn a_member_inside_another_is_counted_as_its_own_crate() {
+    let scratch = Scratch::crate_with(&[("main.rs", "fn main() {}\n")]).member("app/src/inner", "");
+    std::fs::write(scratch.path("src/inner/src/lib.rs"), "pub fn inner() {}\n").expect("write the inner crate");
+    let (main, inner) = (scratch.source("main.rs"), scratch.source("inner/src/lib.rs"));
+    let run =
+        scratch.gauntlet("coverage", &lcov(&[(&main, &hits(1..=10, |_| true)), (&inner, &hits(1..=1, |_| true))]));
+    assert_eq!((run.code, run.stdout.as_str()), (0, "app: 10 of 10 lines covered\ninner: 1 of 1 lines covered\n"));
+}
+
+#[test]
+fn a_source_that_links_nowhere_is_an_error_naming_it() {
+    let scratch = Scratch::crate_with(&[("main.rs", "fn main() {}\n"), ("deep/real.rs", "pub fn real() {}\n")]);
+    let broken = scratch.path("src/deep/broken.rs");
+    std::os::unix::fs::symlink(scratch.path("src/deep/missing.rs"), &broken).expect("link to nothing");
+    let run = scratch.gauntlet("coverage", "");
+    assert!(run.stderr.contains(&format!("find where {} is: ", broken.display())), "{}", run.stderr);
+    assert_eq!(run.code, 1);
+}

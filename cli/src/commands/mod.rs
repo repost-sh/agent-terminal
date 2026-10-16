@@ -165,7 +165,7 @@ fn request(cli: Cli) -> Result<Request, String> {
         Command::Tabs(command) => command.request(context),
         Command::Reading(command) => command.request(context),
         Command::Input(command) => command.request(context),
-        Command::Wait(args) => args.request(context),
+        Command::Wait(args) => Ok(args.request(context)),
         Command::Expect(args) => Ok(Request::Expect(request::Expect { target: context.target, expect: args.check()? })),
         Command::Tools(command) => command.request(),
     }
