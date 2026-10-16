@@ -5,10 +5,12 @@ mod gherkin;
 mod lcov;
 mod mutation;
 mod offenses;
+mod parameter_bags;
 mod params;
 mod properties;
 mod regions;
 mod rust;
+mod trivial_helpers;
 mod workspace;
 
 use std::io::Write;
@@ -19,7 +21,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::offenses::Verdict;
 
-const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <coverage.json>\n       at-gauntlet props\n       at-gauntlet architecture\n       at-gauntlet params\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet mutation <outcomes.json>...\n       at-gauntlet faults <outcomes.json> <regex>...";
+const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <coverage.json>\n       at-gauntlet props\n       at-gauntlet architecture\n       at-gauntlet params\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet helpers\n       at-gauntlet bags\n       at-gauntlet mutation <outcomes.json>...\n       at-gauntlet faults <outcomes.json> <regex>...";
 
 const FAILED: u8 = 2;
 
@@ -70,6 +72,8 @@ fn unmeasured(gate: &str) -> Result<StaticCheck> {
         "params" => Ok(params::check),
         "gherkin" => Ok(gherkin::check),
         "gherkin-ir" => Ok(gherkin::write_ir),
+        "helpers" => Ok(trivial_helpers::check),
+        "bags" => Ok(parameter_bags::check),
         _ => bail!("{USAGE}"),
     }
 }

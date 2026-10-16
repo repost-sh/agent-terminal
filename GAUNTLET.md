@@ -81,6 +81,14 @@ Dependencies point one way. `at-gauntlet architecture` resolves every crate path
 
 A function, method or trait method visible beyond its module takes at most two parameters besides `self` (`at-gauntlet params`, after repost-go's G6). The dashboard holds every function to two (`better-max-params`). On offense: group the parameters into one value with named fields, or keep the function inside its module.
 
+### Trivial helpers
+
+Report only, in no area yet: `at-gauntlet helpers` names each private function with one call site in its crate whose body is one expression with no `if`, `match`, loop or `?`. AGENTS.md's Abstractions rule says a helper that only renames an expression is another place to keep in step. On offense: write the expression at its call site, or keep the helper for a second caller.
+
+### Parameter bags
+
+Report only, in no area yet: `at-gauntlet bags` names each struct with named fields, not serialized, that one struct literal in its crate builds and one function takes, its own methods counted as takers. Such a struct often exists only to get under the [parameter ceiling](#parameter-ceiling). On offense: pass what the function needs itself, or give the struct the methods that use its fields.
+
 ### Duplication
 
 No block of 100 tokens appears twice (jscpd 5.4.1 at repost-go's dupl threshold, no line minimum) across every crate's `src/` and the dashboard's TypeScript. Tests are left out, as repost-go leaves out `_test.go`, including a module's unit tests in `src/**/tests.rs`: they state expected screens literally. `dashboard/gauntlet/duplication.ts` passes jscpd its options and refuses a `.jscpd.json` or `package.json` key jscpd would merge. On offense: move the shared code into the module that owns it and call it from both places.
