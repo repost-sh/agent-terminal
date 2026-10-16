@@ -43,5 +43,10 @@ pub(crate) fn read(path: &Path) -> String {
 fn the_walk_finds_this_file_and_skips_build_output() {
     let files = rust_files();
     assert!(files.iter().any(|file| file.ends_with("tests/static_checks/repo_files.rs")), "{files:?}");
-    assert!(files.iter().all(|file| !file.components().any(|part| part.as_os_str() == "target")), "{files:?}");
+    let within_cli: Vec<&Path> =
+        files.iter().map(|file| file.strip_prefix(cli()).expect("the walk stays under cli/")).collect();
+    assert!(
+        within_cli.iter().all(|file| !file.components().any(|part| part.as_os_str() == "target")),
+        "{within_cli:?}"
+    );
 }
