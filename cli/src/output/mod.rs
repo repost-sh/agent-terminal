@@ -112,3 +112,6 @@ pub(crate) fn version(json: bool) -> io::Result<i32> {
     }
     Ok(0)
 }
+
+#[cfg(test)]
+mod tests;
