@@ -2,7 +2,7 @@ use std::sync::PoisonError;
 use std::time::{Duration, Instant};
 
 use super::Daemon;
-use crate::connection::{socket_path, version_path};
+use crate::home::{socket_path, version_path};
 use crate::native::log;
 use crate::protocol::{KeptRunning, Reply};
 

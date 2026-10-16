@@ -2,10 +2,9 @@ use std::os::unix::net::UnixStream;
 
 use super::Daemon;
 use super::refusals::stopping;
-use crate::connection::daemon_stop_advice;
 use crate::native::log;
 use crate::output;
-use crate::protocol::{self, Call, ErrorBody, OtherVersion, Reply, Request, Response};
+use crate::protocol::{self, Call, ErrorBody, OtherVersion, Reply, Request, Response, daemon_stop_advice};
 
 impl Daemon {
     pub(super) fn serve(&self, mut stream: UnixStream) {
@@ -66,13 +65,13 @@ impl Daemon {
         let response = Response::Err(ErrorBody::other_version(
             format!(
                 "the daemon is agent-terminal {} and does not understand this request, so the command is another version; it has {}: {}",
-                crate::VERSION,
+                crate::version::VERSION,
                 output::count(terminals, "open terminal"),
                 daemon_stop_advice(None)
             ),
             OtherVersion {
                 cli_version: None,
-                daemon_version: Some(crate::VERSION.to_string()),
+                daemon_version: Some(crate::version::VERSION.to_string()),
                 terminals: Some(terminals),
             },
         ));

@@ -7,6 +7,7 @@ use nix::sys::signal::{Signal as NativeSignal, kill, killpg};
 use nix::unistd::Pid;
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 
+use crate::failure::Failure;
 use crate::native::log;
 use crate::protocol::{Signal, Size};
 
@@ -126,7 +127,7 @@ fn native(signal: Signal) -> NativeSignal {
 pub(crate) fn spawn(command: &Command) -> Result<Spawned> {
     if !command.cwd.is_dir() {
         let missing = format!("the working directory {} does not exist", command.cwd.display());
-        return Err(crate::Failure::new(crate::exit::ERROR, missing).into());
+        return Err(Failure::new(crate::exit::ERROR, missing).into());
     }
     let path_var = command.env.iter().find(|(k, _)| k == "PATH").map_or("", |(_, v)| v.as_str());
     let program = resolve(&command.program, &command.cwd, path_var)?;
@@ -189,7 +190,7 @@ fn resolve(program: &str, cwd: &Path, path_var: &str) -> Result<PathBuf> {
     } else {
         std::env::split_paths(path_var).map(|dir| dir.join(program)).find(|candidate| is_executable(candidate))
     };
-    found.ok_or_else(|| crate::Failure::new(crate::exit::ERROR, format!("command not found: {program}")).into())
+    found.ok_or_else(|| Failure::new(crate::exit::ERROR, format!("command not found: {program}")).into())
 }
 
 fn is_executable(path: &Path) -> bool {

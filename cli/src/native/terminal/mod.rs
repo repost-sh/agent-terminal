@@ -14,6 +14,7 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::Result;
 use tokio::sync::watch;
 
+use crate::failure::Failure;
 use crate::native::changes::Changes;
 use crate::native::commands::Commands;
 use crate::native::log;
@@ -225,9 +226,9 @@ impl Terminal {
         }
     }
 
-    fn exited(&self, code: Option<i32>) -> crate::Failure {
+    fn exited(&self, code: Option<i32>) -> Failure {
         let how = code.map_or_else(String::new, |code| format!(" with code {code}"));
-        crate::Failure::new(
+        Failure::new(
             crate::exit::EXITED,
             format!(
                 "{} has exited{how}; nothing more can be sent to it (read its last screen with `agent-terminal snapshot`, run it again with `agent-terminal restart`)",

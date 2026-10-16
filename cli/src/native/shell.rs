@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::connection;
+use crate::home::home;
 use crate::native::pty;
 use crate::protocol::Shell;
 
@@ -29,7 +29,7 @@ pub(crate) struct Audit {
 }
 
 pub(crate) fn folder() -> Result<PathBuf> {
-    let folder = connection::home()?.join("shell");
+    let folder = home()?.join("shell");
     std::path::absolute(&folder).with_context(|| format!("find where {} is", folder.display()))
 }
 
@@ -110,7 +110,7 @@ pub(crate) fn repair() -> Result<Audit> {
 }
 
 fn lock() -> Result<File> {
-    let home = connection::home()?;
+    let home = home()?;
     std::fs::create_dir_all(&home).with_context(|| format!("create {}", home.display()))?;
     let path = home.join("shell.lock");
     let lock = File::create(&path).with_context(|| format!("create {}", path.display()))?;

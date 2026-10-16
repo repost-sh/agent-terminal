@@ -24,6 +24,7 @@ rust() {
   step "remove the dependency cargo-machete names from its Cargo.toml → GAUNTLET.md#unused-dependencies" cargo machete . acceptance gauntlet perf tests/fixtures
   step "fix the code the failing test or static check names → GAUNTLET.md#rust-tests" cargo test --workspace
   step "state an invariant of the crate's behaviour as a proptest! → GAUNTLET.md#property-tests" cargo run --quiet -p at-gauntlet -- props
+  step "move what both layers need into a contract module, and give every module and crate its place in the policy → GAUNTLET.md#architecture" cargo run --quiet -p at-gauntlet -- architecture
   step "bind each Then step to a step that asserts and regenerate the IR with \`at-gauntlet gherkin-ir\` → GAUNTLET.md#acceptance" cargo run --quiet -p at-gauntlet -- gherkin
 }
 

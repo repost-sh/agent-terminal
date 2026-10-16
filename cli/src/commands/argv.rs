@@ -2,9 +2,7 @@ use std::ffi::OsString;
 use std::iter::Peekable;
 use std::slice::Iter;
 
-use clap::{ArgAction, ArgMatches, CommandFactory};
-
-use super::Cli;
+use clap::{ArgAction, ArgMatches};
 
 enum Takes {
     Nothing,
@@ -109,32 +107,4 @@ fn takes(open: &clap::Command, token: &str) -> Option<Takes> {
         }
         _ => Takes::Nothing,
     })
-}
-
-pub(crate) fn without_global_options(typed: &[String]) -> Vec<String> {
-    let mut cli = Cli::command();
-    cli.build();
-    let global = |word: &str| {
-        let name = word.strip_prefix("--")?.split('=').next()?;
-        let arg = cli.get_arguments().find(|arg| arg.is_global_set() && arg.get_long() == Some(name))?;
-        let takes_value = matches!(arg.get_action(), ArgAction::Set | ArgAction::Append);
-        Some(takes_value && !word.contains('='))
-    };
-    let mut words = Vec::new();
-    let mut rest = typed.iter();
-    while let Some(word) = rest.next() {
-        if word == "--" {
-            words.push(word.clone());
-            words.extend(rest.cloned());
-            break;
-        }
-        match global(word) {
-            Some(true) => {
-                rest.next();
-            }
-            Some(false) => {}
-            None => words.push(word.clone()),
-        }
-    }
-    words
 }

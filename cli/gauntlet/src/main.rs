@@ -1,3 +1,4 @@
+mod architecture;
 mod coverage;
 mod crap;
 mod gherkin;
@@ -16,7 +17,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::offenses::Verdict;
 
-const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet mutation <outcomes.json>...\n       at-gauntlet faults <outcomes.json> <regex>...";
+const USAGE: &str = "usage: at-gauntlet coverage <lcov.info>\n       at-gauntlet crap <lcov.info>\n       at-gauntlet props\n       at-gauntlet architecture\n       at-gauntlet gherkin\n       at-gauntlet gherkin-ir\n       at-gauntlet mutation <outcomes.json>...\n       at-gauntlet faults <outcomes.json> <regex>...";
 
 const FAILED: u8 = 2;
 
@@ -82,6 +83,7 @@ fn measured(gate: &str) -> Result<MeasuredCheck> {
 fn unmeasured(gate: &str) -> Result<StaticCheck> {
     match gate {
         "props" => Ok(properties::check),
+        "architecture" => Ok(architecture::check),
         "gherkin" => Ok(gherkin::check),
         "gherkin-ir" => Ok(gherkin::write_ir),
         _ => bail!("{USAGE}"),

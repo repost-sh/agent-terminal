@@ -2,18 +2,18 @@ use std::io::{BufRead, BufReader, ErrorKind, Read};
 use std::os::fd::RawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
-use crate::VERSION;
+use crate::home::{home, socket_path, version_path};
+use crate::native::daemon::READY;
 use crate::output::count;
-use crate::protocol::{self, Call, ErrorBody, OtherVersion, Reply, Request, Response};
+use crate::protocol::{self, Call, ErrorBody, OtherVersion, Reply, Request, Response, daemon_stop_advice};
+use crate::version::VERSION;
 
-pub(crate) const READY: &str = "ready";
 const STOPS_WITHIN: Duration = Duration::from_secs(10);
 
 pub(crate) enum IfNotRunning {
@@ -23,24 +23,6 @@ pub(crate) enum IfNotRunning {
 
 pub(crate) struct Launch {
     pub idle_timeout: Duration,
-}
-
-pub(crate) fn home() -> Result<PathBuf> {
-    if let Some(home) = std::env::var_os("AGENT_TERMINAL_HOME") {
-        return Ok(PathBuf::from(home));
-    }
-    let user_home = std::env::var_os("HOME").ok_or_else(|| {
-        anyhow!("HOME is not set; set AGENT_TERMINAL_HOME to choose where agent-terminal keeps its files")
-    })?;
-    Ok(PathBuf::from(user_home).join(".agent-terminal"))
-}
-
-pub(crate) fn socket_path() -> Result<PathBuf> {
-    Ok(home()?.join("daemon.sock"))
-}
-
-pub(crate) fn version_path() -> Result<PathBuf> {
-    Ok(home()?.join("daemon.version"))
 }
 
 pub(crate) fn running_version() -> Result<Option<String>> {
@@ -59,14 +41,6 @@ pub(crate) fn started_version() -> Result<Option<String>> {
     }
     let _lock = start_lock(&home()?)?;
     running_version()
-}
-
-pub(crate) fn daemon_stop_advice(cli_version: Option<&str>) -> String {
-    let next = match cli_version {
-        Some(version) => format!("a {version} daemon"),
-        None => "a daemon of the command's version".to_string(),
-    };
-    format!("`agent-terminal daemon stop` ends it and its terminals, and the next command starts {next}")
 }
 
 pub(crate) fn daemon_of(version: Option<&str>) -> String {

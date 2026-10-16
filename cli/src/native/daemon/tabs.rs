@@ -6,7 +6,7 @@ use anyhow::Result;
 use super::refusals::{error_body, no_tab, no_terminal};
 use super::waiting::{condition, timed_out};
 use super::{Daemon, Session, Tab};
-use crate::connection::home;
+use crate::home::home;
 use crate::native::control::Control;
 use crate::native::log;
 use crate::native::pty;

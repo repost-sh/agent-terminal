@@ -11,7 +11,7 @@ use tokio::sync::watch;
 use super::follow::first;
 use super::stream::send;
 use super::{Backend, tab_id};
-use crate::commands::without_global_options;
+use crate::global_options::without_global_options;
 use crate::native::control::Hold;
 use crate::native::log;
 use crate::native::store::SessionFolder;

@@ -10,24 +10,38 @@ pub(crate) struct Run {
 
 pub(crate) struct Scratch {
     dir: tempfile::TempDir,
+    name: String,
+    members: Vec<String>,
 }
 
 impl Scratch {
     pub(crate) fn crate_with(files: &[(&str, &str)]) -> Self {
+        Self::package("app", files)
+    }
+
+    pub(crate) fn package(name: &str, files: &[(&str, &str)]) -> Self {
         let dir = tempfile::tempdir().expect("scratch workspace");
-        write(&dir.path().join("Cargo.toml"), "[workspace]\nmembers = [\"app\"]\nresolver = \"3\"\n");
+        Self { dir, name: name.to_string(), members: Vec::new() }.member(name, "", files)
+    }
+
+    pub(crate) fn member(mut self, name: &str, manifest: &str, files: &[(&str, &str)]) -> Self {
         write(
-            &dir.path().join("app/Cargo.toml"),
-            "[package]\nname = \"app\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+            &self.dir.path().join(name).join("Cargo.toml"),
+            &format!("[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\n{manifest}"),
         );
         for (path, code) in files {
-            write(&dir.path().join("app/src").join(path), code);
+            write(&self.dir.path().join(name).join("src").join(path), code);
         }
-        Self { dir }
+        self.members.push(format!("{name:?}"));
+        write(
+            &self.dir.path().join("Cargo.toml"),
+            &format!("[workspace]\nmembers = [{}]\nresolver = \"3\"\n", self.members.join(", ")),
+        );
+        self
     }
 
     pub(crate) fn with(self, path: &str, code: &str) -> Self {
-        write(&self.dir.path().join("app").join(path), code);
+        write(&self.dir.path().join(&self.name).join(path), code);
         self
     }
 
@@ -36,15 +50,19 @@ impl Scratch {
     }
 
     pub(crate) fn path(&self, path: &str) -> PathBuf {
-        self.dir.path().join("app").join(path)
+        self.dir.path().join(&self.name).join(path)
     }
 
     pub(crate) fn source(&self, path: &str) -> PathBuf {
-        std::fs::canonicalize(self.dir.path().join("app/src").join(path)).expect("a source file")
+        std::fs::canonicalize(self.dir.path().join(&self.name).join("src").join(path)).expect("a source file")
     }
 
     pub(crate) fn props(&self) -> Run {
         run(self.dir.path(), &["props"])
+    }
+
+    pub(crate) fn architecture(&self) -> Run {
+        run(self.dir.path(), &["architecture"])
     }
 
     pub(crate) fn gauntlet(&self, gate: &str, report: &str) -> Run {

@@ -23,7 +23,7 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{Context, Result};
 use tokio::sync::watch;
 
-use crate::connection::{READY, home, socket_path, version_path};
+use crate::home::{home, socket_path, version_path};
 use crate::native::changes::Changes;
 use crate::native::control::{Control, Hold};
 use crate::native::dashboard::{self, Backend};
@@ -33,6 +33,8 @@ use crate::native::terminal::Terminal;
 use crate::protocol::{ErrorBody, HumanInput, Reply, Request, SessionInfo, Sessions, TabId, Target};
 use lifecycle::Activity;
 use refusals::{error_body, no_tab, no_terminal, stopping};
+
+pub(crate) const READY: &str = "ready";
 
 struct Daemon {
     sessions: Mutex<BTreeMap<String, Session>>,
@@ -98,7 +100,7 @@ fn listen() -> Result<Option<UnixListener>> {
 fn record_version(home: &Path) -> Result<()> {
     let path = version_path()?;
     let written = home.join("daemon.version.new");
-    std::fs::write(&written, crate::VERSION).with_context(|| format!("write {}", written.display()))?;
+    std::fs::write(&written, crate::version::VERSION).with_context(|| format!("write {}", written.display()))?;
     std::fs::rename(&written, &path).with_context(|| format!("move {} to {}", written.display(), path.display()))
 }
 

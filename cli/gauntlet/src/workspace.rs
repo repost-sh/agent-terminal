@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -16,6 +17,21 @@ struct Package {
     id: String,
     name: String,
     manifest_path: PathBuf,
+    dependencies: Vec<Dependency>,
+}
+
+#[derive(Deserialize, Clone)]
+pub(crate) struct Dependency {
+    pub(crate) name: String,
+    pub(crate) kind: Option<Kind>,
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Kind {
+    Normal,
+    Dev,
+    Build,
 }
 
 pub(crate) struct Member {
@@ -23,6 +39,7 @@ pub(crate) struct Member {
     pub(crate) root: PathBuf,
     pub(crate) sources: Vec<PathBuf>,
     pub(crate) tests: Vec<PathBuf>,
+    pub(crate) dependencies: Vec<Dependency>,
 }
 
 pub(crate) struct Workspace {
@@ -49,6 +66,7 @@ impl Workspace {
                     root: package.root(),
                     sources: rust_files(&package.root().join("src"), &others)?,
                     tests: rust_files(&package.root().join("tests"), &others)?,
+                    dependencies: package.dependencies.clone(),
                 })
             })
             .collect::<Result<_>>()?;
@@ -57,6 +75,16 @@ impl Workspace {
 
     pub(crate) fn shown(&self, file: &Path) -> String {
         file.strip_prefix(&self.root).unwrap_or(file).display().to_string()
+    }
+}
+
+impl fmt::Display for Kind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Kind::Normal => "normal",
+            Kind::Dev => "dev",
+            Kind::Build => "build",
+        })
     }
 }
 

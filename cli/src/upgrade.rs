@@ -9,10 +9,10 @@ use std::path::Component;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-use crate::VERSION;
 use crate::output;
 use crate::protocol::ErrorBody;
 use crate::skills::{self, Stub, StubInstall};
+use crate::version::VERSION;
 
 pub(crate) const PACKAGE: &str = "@repost/agent-terminal";
 pub(crate) const FORMULA: &str = "repost-sh/tap/agent-terminal";
@@ -294,7 +294,7 @@ fn upgrade(json: bool) -> Result<String, String> {
         version_unknown: None,
         stub_error: None,
     };
-    let ours = crate::this_version().map_err(|e| format!("this agent-terminal's version {VERSION}: {e}"))?;
+    let ours = crate::version::this_version().map_err(|e| format!("this agent-terminal's version {VERSION}: {e}"))?;
     if latest == ours {
         return printed(json, &report, &format!("agent-terminal {VERSION} is already the latest version"));
     }

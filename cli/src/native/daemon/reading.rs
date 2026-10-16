@@ -1,6 +1,6 @@
 use super::Daemon;
 use super::refusals::{error_body, no_integration};
-use crate::connection::home;
+use crate::home::home;
 use crate::native::screenshots;
 use crate::native::store;
 use crate::protocol::{

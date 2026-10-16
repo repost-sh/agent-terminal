@@ -36,3 +36,11 @@ pub(crate) struct OtherVersion {
     pub daemon_version: Option<String>,
     pub terminals: Option<usize>,
 }
+
+pub(crate) fn daemon_stop_advice(cli_version: Option<&str>) -> String {
+    let next = match cli_version {
+        Some(version) => format!("a {version} daemon"),
+        None => "a daemon of the command's version".to_string(),
+    };
+    format!("`agent-terminal daemon stop` ends it and its terminals, and the next command starts {next}")
+}

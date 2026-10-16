@@ -1,4 +1,6 @@
 #[cfg(test)]
+mod architecture;
+#[cfg(test)]
 mod coverage;
 #[cfg(test)]
 mod crap;

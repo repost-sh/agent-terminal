@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use std::str::Chars;
-use std::time::Duration;
 
 use crate::protocol::{RowRange, Scrollback, Size};
 
@@ -26,21 +25,6 @@ impl ScreenshotPath {
             ScreenshotPath::At(path) => Some(path),
         }
     }
-}
-
-pub(super) fn parse_duration(value: &str) -> Result<Duration, String> {
-    let refused = || format!("invalid time: {value} (expected a duration like 30s, 10m, 1h or raw ms (0 = never))");
-    let unit_at = value.find(|c: char| !c.is_ascii_digit()).unwrap_or(value.len());
-    let (number, unit) = value.split_at(unit_at);
-    let number: u64 = number.parse().map_err(|e| format!("{}: {e}", refused()))?;
-    let millis_per_unit = match unit {
-        "" | "ms" => 1,
-        "s" => 1_000,
-        "m" => 60_000,
-        "h" => 3_600_000,
-        _ => return Err(refused()),
-    };
-    number.checked_mul(millis_per_unit).map(Duration::from_millis).ok_or_else(refused)
 }
 
 pub(super) fn parse_size(value: &str) -> Result<Size, String> {

@@ -106,9 +106,9 @@ pub(crate) fn refuse(message: &str, json: bool) -> io::Result<i32> {
 
 pub(crate) fn version(json: bool) -> io::Result<i32> {
     if json {
-        print_json(&serde_json::json!({ "version": crate::VERSION }))?;
+        print_json(&serde_json::json!({ "version": crate::version::VERSION }))?;
     } else {
-        print(&format!("agent-terminal {}\n", crate::VERSION))?;
+        print(&format!("agent-terminal {}\n", crate::version::VERSION))?;
     }
     Ok(0)
 }

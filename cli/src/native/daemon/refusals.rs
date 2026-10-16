@@ -36,6 +36,6 @@ pub(super) fn attach_on_its_own() -> ErrorBody {
 }
 
 pub(super) fn error_body(error: &anyhow::Error) -> ErrorBody {
-    let code = error.downcast_ref::<crate::Failure>().map_or(crate::exit::ERROR, |e| e.code);
+    let code = error.downcast_ref::<crate::failure::Failure>().map_or(crate::exit::ERROR, |e| e.code);
     ErrorBody::new(code, format!("{error:#}"))
 }

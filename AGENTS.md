@@ -26,6 +26,7 @@ Rule Zero: fix the code a check flags, and leave every rule as it stands; a rule
 
 - Keep logic in the module that owns the behaviour. `native/daemon/` owns sessions, tabs and dispatch; what happens inside one tab belongs in `native/terminal/` or a module beside it (`wait.rs`, `refs.rs`, `screenshots.rs`, `store.rs` for the session folder).
 - Logic for one command goes in that command's module, not in `commands/`, `protocol/` or `native/daemon/`, which every command passes through.
+- The daemon (`native/`) never reaches into the client (`commands/`, `connection.rs`, …); what both sides need lives in a contract module (`protocol/`, `home.rs`, `global_options.rs`, `version.rs`, …). `cli/gauntlet/src/architecture/policy.rs` gives every module its layer, and `at-gauntlet architecture` fails an edge the layers forbid or a module without a layer.
 - Each library sits behind the one module that wraps it, as `cli/tests/static_checks/` enforces for `alacritty_terminal` (`native/screen/`) and `portable_pty` (`native/pty.rs`). Give a new library the same treatment; other modules use the wrapper's types.
 - Code carries no comments: names and tests say what it does. `cli/tests/static_checks/` fails `cargo test` on a comment in Rust and on each workaround it lists; fix the cause rather than route around the check.
 

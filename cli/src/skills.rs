@@ -8,10 +8,10 @@ use clap::Subcommand;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-use crate::VERSION;
-use crate::connection;
+use crate::home::home;
 use crate::output;
 use crate::protocol::ErrorBody;
+use crate::version::VERSION;
 
 #[derive(Subcommand)]
 pub(crate) enum Action {
@@ -140,7 +140,7 @@ pub(crate) enum Stub {
 
 impl Stub {
     fn of(contents: &[u8]) -> Result<Self> {
-        let ours = crate::this_version()?;
+        let ours = crate::version::this_version()?;
         Ok(match stamped_version(&String::from_utf8_lossy(contents)) {
             None => Stub::Unversioned,
             Some(theirs) if theirs == ours => Stub::Current,
@@ -273,7 +273,7 @@ struct SkillPath<'a> {
 
 fn path(name: Option<&str>, json: bool) -> Result<String> {
     let skill = name.map(find).transpose()?;
-    let cache = connection::home()?.join("skills");
+    let cache = home()?.join("skills");
     let root = cache.join(VERSION);
     for each in SKILLS {
         for (relative, text) in each.files()? {
@@ -289,7 +289,7 @@ fn path(name: Option<&str>, json: bool) -> Result<String> {
 }
 
 fn remove_older_versions(cache: &Path) -> Result<()> {
-    let ours = crate::this_version()?;
+    let ours = crate::version::this_version()?;
     for entry in std::fs::read_dir(cache).with_context(|| format!("read {}", cache.display()))? {
         let entry = entry.with_context(|| format!("read {}", cache.display()))?;
         if is_an_older_version(&entry, &ours)? {

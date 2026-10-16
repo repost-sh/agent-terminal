@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::connection::home;
+use crate::home::home;
 use crate::native::render::{self, Cells};
 use crate::native::store::{self, ScreenshotEntry};
 use crate::native::terminal::Terminal;

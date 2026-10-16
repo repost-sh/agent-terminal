@@ -5,13 +5,14 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::VERSION;
 use crate::connection;
+use crate::home::socket_path;
 use crate::native::{pty, render, shell};
 use crate::output;
-use crate::protocol::Shell;
+use crate::protocol::{Shell, daemon_stop_advice};
 use crate::skills::{self, Stub};
 use crate::upgrade;
+use crate::version::VERSION;
 
 #[derive(Serialize)]
 struct Check {
@@ -168,7 +169,7 @@ fn your_shell() -> Result<Shell, String> {
 }
 
 fn daemon(fix: bool) -> Check {
-    match connection::socket_path() {
+    match socket_path() {
         Ok(socket) => reach(&socket, fix),
         Err(e) => Check::problem("daemon", format!("{e:#}"), "set HOME, or AGENT_TERMINAL_HOME"),
     }
@@ -223,7 +224,7 @@ fn running(socket: &Path) -> Check {
     Check::problem(
         "daemon",
         format!("running {daemon}, not {VERSION} like this command, listening on {socket}"),
-        connection::daemon_stop_advice(Some(VERSION)),
+        daemon_stop_advice(Some(VERSION)),
     )
 }
 
