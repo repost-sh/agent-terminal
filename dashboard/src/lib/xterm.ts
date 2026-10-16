@@ -55,6 +55,18 @@ const fontsReady = () =>
     }
   }));
 
+let gpu: boolean | null = null;
+
+const probedGpu = () => {
+  const probe = document.createElement("canvas").getContext("webgl2", { failIfMajorPerformanceCaveat: true });
+
+  probe?.getExtension("WEBGL_lose_context")?.loseContext();
+
+  return probe !== null;
+};
+
+const onGpu = () => (gpu ??= probedGpu());
+
 const drawWithWebgl = (terminal: Terminal) => {
   const drawing = settle(() => {
     const webgl = new WebglAddon();
@@ -100,7 +112,11 @@ export const openTerminal = (host: HTMLElement, use: (terminal: Terminal) => () 
     terminal.unicode.activeVersion = daemonWidths.version;
     terminal.open(host);
     unmirror = mirrorRows(terminal, host);
-    drawWithWebgl(terminal);
+
+    if (onGpu()) {
+      drawWithWebgl(terminal);
+    }
+
     release = use(terminal);
   });
 

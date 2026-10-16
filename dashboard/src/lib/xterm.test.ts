@@ -7,6 +7,23 @@ interface Webgl { lost: (() => void) | null; disposed: boolean; activated: unkno
 
 const webgl = vi.hoisted(() => ({ made: [] as Webgl[], failing: false }));
 
+const canvas = { gpu: true, asked: [] as unknown[][], released: 0 };
+
+const REAL_GET_CONTEXT = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
+
+const getContext = (kind: string, options?: unknown) => {
+  if (kind !== "webgl2") {
+    return null;
+  }
+
+  canvas.asked.push([kind, options]);
+  const loseContext = () => {
+    canvas.released += 1;
+  };
+
+  return canvas.gpu ? { getExtension: (name: string) => (name === "WEBGL_lose_context" ? { loseContext } : null) } : null;
+};
+
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class {
     lost: (() => void) | null = null;
@@ -113,12 +130,20 @@ beforeEach(() => {
   vi.resetModules();
   webgl.made.length = 0;
   webgl.failing = false;
+  canvas.gpu = true;
+  canvas.asked.length = 0;
+  canvas.released = 0;
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value: getContext, configurable: true });
   fonts.load.mockClear();
   Object.defineProperty(document, "fonts", { value: fonts, configurable: true });
 });
 
 afterEach(() => {
   Reflect.deleteProperty(document, "fonts");
+
+  if (REAL_GET_CONTEXT) {
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", REAL_GET_CONTEXT);
+  }
 });
 
 test("a terminal opens once its fonts are loaded, with the daemon's widths, a screen mirror and WebGL", async () => {
@@ -133,8 +158,43 @@ test("a terminal opens once its fonts are loaded, with the daemon's widths, a sc
   ]);
   expect(shown.host.querySelector('[role="list"][aria-label="Screen"]')).not.toBeNull();
   expect(webgl.made.map(contextLost)).toEqual([true]);
+  expect([canvas.asked, canvas.released]).toEqual([[["webgl2", { failIfMajorPerformanceCaveat: true }]], 1]);
   shown.close();
   expect([shown.release.mock.calls.length, shown.host.querySelector('[role="list"]')]).toEqual([1, null]);
+});
+
+test("a browser whose WebGL would run without a GPU draws the terminal with the DOM renderer, and says nothing", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+  canvas.gpu = false;
+  const shown = await opened();
+
+  await vi.waitFor(() => {
+    expect(shown.used).toHaveLength(1);
+  });
+  expect([webgl.made, canvas.released, warn.mock.calls]).toEqual([[], 0, []]);
+  shown.close();
+});
+
+test("the GPU is probed once for every terminal on the page", async () => {
+  motion(false);
+  const { openTerminal } = await import("./xterm");
+  const used: Terminal[] = [];
+  const closes = [0, 1].map(() =>
+    openTerminal(document.createElement("div"), (terminal) => {
+      used.push(terminal);
+
+      return () => undefined;
+    }),
+  );
+
+  await vi.waitFor(() => {
+    expect(used).toHaveLength(2);
+  });
+  expect([canvas.asked.length, webgl.made.map((made) => used.includes(made.activated as Terminal))]).toEqual([1, [true, true]]);
+  closes.forEach((close) => {
+    close();
+  });
 });
 
 test("the fonts load once for every terminal, and a blinking cursor waits for motion to be welcome", async () => {
