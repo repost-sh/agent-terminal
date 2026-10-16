@@ -115,6 +115,7 @@ fn a_source_that_links_nowhere_is_an_error_naming_it() {
     let broken = scratch.path("src/deep/broken.rs");
     std::os::unix::fs::symlink(scratch.path("src/deep/missing.rs"), &broken).expect("link to nothing");
     let run = scratch.gauntlet("coverage", "");
-    assert!(run.stderr.contains(&format!("find where {} is: ", broken.display())), "{}", run.stderr);
+    let named = scratch.source("deep").join("broken.rs");
+    assert!(run.stderr.contains(&format!("find where {} is: ", named.display())), "{}", run.stderr);
     assert_eq!(run.code, 1);
 }
