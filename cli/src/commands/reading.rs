@@ -86,6 +86,7 @@ impl ReadCommand {
 }
 
 #[derive(Args)]
+#[group(id = "view")]
 pub(super) struct SnapshotArgs {
     #[arg(long, help = "Only rows A to B, counted from 1 at the top", value_name = "A:B", value_parser = parse_rows)]
     rows: Option<RowRange>,
@@ -109,6 +110,9 @@ pub(super) struct SnapshotArgs {
         help = "Also list @t refs for what is on screen: panels, selected rows, buttons, links, key hints, the input under the cursor"
     )]
     interactive: bool,
+
+    #[arg(short, long, help = "Fold each run of 3 or more blank rows into one line")]
+    squeeze_blank: bool,
 }
 
 impl SnapshotArgs {
@@ -118,6 +122,7 @@ impl SnapshotArgs {
             scrollback: self.scrollback.unwrap_or_default(),
             ansi: self.ansi,
             refs: self.interactive,
+            squeeze_blank: self.squeeze_blank,
         }
     }
 }

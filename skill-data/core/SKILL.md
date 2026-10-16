@@ -19,7 +19,7 @@ agent-terminal screenshot ./evidence/files.png # 5. keep proof
 agent-terminal close                           # 6. close what you opened
 ```
 
-Acting and waiting in the same call (`--wait…`, `--snapshot`) is the fastest way to work. One call per step, not three.
+Acting and waiting in the same call (`--wait…`, `--snapshot`) is the fastest way to work. One call per step, not three. `--snapshot` takes the same view options as `snapshot` (`--rows`, `-i`, `-s`, `--scrollback`, `--ansi`), so one call can show just the part you need: `agent-terminal press Space --wait-stable --snapshot --rows 5:14 -i`.
 
 ## Always use your own session
 
@@ -37,6 +37,7 @@ The default session is shared with every other agent on the machine. Working in 
 agent-terminal snapshot            # the screen as text
 agent-terminal snapshot -i         # plus refs
 agent-terminal snapshot --rows 30:40
+agent-terminal snapshot -s         # each run of 3 or more blank rows folded into one line
 agent-terminal get text            # just the text, no header
 agent-terminal find "Error"        # where it is: row,col
 agent-terminal get cell 4 3        # one cell and its style
@@ -60,6 +61,8 @@ refs:
 ```
 
 The header tells you the size, whether the app took over the whole screen (`alt-screen`), whether it accepts the mouse, where the cursor is, and the `frame` number. The frame goes up every time the screen changes.
+
+The blank rows below the last line of text fold into one `…│ (rows 12-36 blank)` line. `-s` (`--squeeze-blank`) folds every run of 3 or more blank rows that way, wherever it falls, and keeps the row numbers exact: it reads a mostly empty screen compactly. Leave it off when the layout itself is what you are checking. `--json` is the same with or without it.
 
 Refs are guesses made from what is on screen: box titles (`panel`), highlighted rows (`selected`), `[ OK ]` and `< Yes >` buttons, OSC 8 links, key hints, the input under the cursor. Each one says where it is: `row r col c` is where a click lands. A ref stays valid while the cells it was found on are unchanged; once they change, using it fails and tells you to take a new `snapshot -i`.
 

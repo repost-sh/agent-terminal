@@ -1,7 +1,7 @@
 use clap::{ArgGroup, Args, Subcommand};
 
 use super::Context;
-use super::reading::{LookArgs, ScreenshotArgs};
+use super::reading::{LookArgs, ScreenshotArgs, SnapshotArgs};
 use super::values::{RawBytes, ScreenshotPath, parse_bytes, parse_position};
 use crate::key::Key;
 use crate::protocol::request;
@@ -47,7 +47,7 @@ impl InputCommand {
             target: context.target,
             input,
             wait,
-            snapshot: after.snapshot,
+            snapshot: after.snapshot.then(|| after.view.options()),
             screenshot,
             timeout_ms: context.timeout,
         }))
@@ -257,6 +257,7 @@ impl ButtonArgs {
 
 #[derive(Args)]
 #[command(group(ArgGroup::new("then").args(["wait", "wait_gone", "wait_stable"])))]
+#[command(mut_group("view", |view| view.requires("snapshot")))]
 pub(super) struct AfterInput {
     #[arg(long, help = "Then wait until this text is on screen", value_name = "TEXT")]
     wait: Option<String>,
@@ -273,8 +274,11 @@ pub(super) struct AfterInput {
     )]
     wait_stable: Option<u64>,
 
-    #[arg(long, help = "Then print the screen")]
+    #[arg(long, help = "Then print the screen, shaped by --rows, --scrollback, --ansi, -i and -s as on snapshot")]
     snapshot: bool,
+
+    #[command(flatten)]
+    view: SnapshotArgs,
 
     #[arg(
         long,

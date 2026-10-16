@@ -15,6 +15,8 @@ pub(crate) struct SnapshotOptions {
     pub ansi: bool,
     #[serde(default)]
     pub refs: bool,
+    #[serde(default)]
+    pub squeeze_blank: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +87,22 @@ pub(crate) struct Snapshot {
     pub lines: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refs: Option<Vec<Ref>>,
+    #[serde(default, skip_serializing_if = "BlankRows::are_kept")]
+    pub blank_rows: BlankRows,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum BlankRows {
+    #[default]
+    Kept,
+    Squeezed,
+}
+
+impl BlankRows {
+    pub(crate) fn are_kept(&self) -> bool {
+        *self == Self::Kept
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
