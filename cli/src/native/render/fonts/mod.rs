@@ -106,7 +106,7 @@ impl CellSize {
         let font = regular()?;
         let metrics = font.metrics(&[]).scale(px);
         let advance = font.glyph_metrics(&[]).scale(px).advance_width(font.charmap().map('M'));
-        let natural = metrics.ascent + metrics.descent + metrics.leading;
+        let natural = metrics.ascent + metrics.descent;
         let height = natural.round().max(1.0);
         let baseline = (metrics.ascent + (height - natural) / 2.0).round();
         let stroke = metrics.stroke_size.round().max(1.0);
@@ -117,8 +117,8 @@ impl CellSize {
             height: whole(height)?,
             baseline: whole(baseline)?,
             px,
-            underline: whole((baseline - metrics.underline_offset).round().clamp(0.0, height - stroke))?,
-            strikeout: whole((baseline - metrics.strikeout_offset).round().clamp(0.0, height - stroke))?,
+            underline: whole((baseline - metrics.underline_offset).round())?,
+            strikeout: whole((baseline - metrics.strikeout_offset).round())?,
             stroke: whole(stroke)?,
         })
     }

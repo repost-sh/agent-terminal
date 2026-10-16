@@ -180,3 +180,32 @@ fn the_skill_path_writes_every_skill_for_this_version_and_drops_older_versions()
     );
     assert!(path_in(home.path(), Some("nope"), false).is_err());
 }
+
+#[test]
+fn a_stub_that_cannot_be_opened_is_an_error_rather_than_missing() {
+    let home = tempfile::tempdir().unwrap();
+    let file = home.path().join("file");
+    std::fs::write(&file, "").unwrap();
+    let inside = file.join("SKILL.md");
+    let refused = installed_stub_at(inside.clone()).err().map(|e| e.to_string());
+    assert_eq!(refused, Some(format!("open {}", inside.display())));
+}
+
+#[test]
+fn removing_a_version_folder_ignores_one_already_gone_but_not_one_it_cannot_remove() {
+    let home = tempfile::tempdir().unwrap();
+    let file = home.path().join("1.0.0");
+    std::fs::write(&file, "").unwrap();
+    assert!(super::remove_version(&home.path().join("missing")).is_ok());
+    assert_eq!(super::remove_version(&file).unwrap_err().to_string(), format!("remove {}", file.display()));
+}
+
+#[test]
+fn the_command_reference_leaves_out_hidden_commands_and_help() {
+    let cli = Command::new("agent-terminal")
+        .subcommand(Command::new("open").about("Run it"))
+        .subcommand(Command::new("secret").about("Kept out").hide(true));
+    let full = get("core", true, false, cli).unwrap();
+    assert!(full.contains("Usage: agent-terminal open") && !full.contains("Kept out"), "{full}");
+    assert!(!full.contains("Usage: agent-terminal help"), "{full}");
+}

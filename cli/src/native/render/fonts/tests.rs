@@ -162,3 +162,17 @@ fn a_drawn_mask_is_kept_and_shared_for_the_same_letters_size_and_span() {
             && glyphs.covers(Face::Symbols, '\u{e0b0}')
     );
 }
+
+#[test]
+fn only_marks_are_drawn_over_a_letter_and_a_narrow_letter_is_centred_across_two_cells() {
+    assert_eq!(drawn("ab", Face::Regular, 1), drawn("a", Face::Regular, 1));
+    assert_eq!(drawn("M", Face::Regular, 2), Some((5, 4, 8, 11, 10087)));
+}
+
+#[test]
+fn a_box_drawing_letter_is_drawn_at_the_cells_scale() {
+    let cell = CellSize::at(2).unwrap();
+    let mask = GLYPHS.lock().unwrap().mask(&Letters { text: "─", face: Face::Regular, span: 1 }, &cell).unwrap();
+    let boxed = super::boxes::mask('─', &super::BoxCell { width: cell.width, height: cell.height, scale: 2 }).unwrap();
+    assert_eq!((mask.width, mask.height, &mask.alpha), (boxed.width, boxed.height, &boxed.alpha));
+}

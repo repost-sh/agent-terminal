@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
 use std::io::{self, ErrorKind, Seek, SeekFrom, Write};
@@ -145,9 +146,11 @@ impl Stub {
         let ours = crate::version::this_version()?;
         Ok(match stamped_version(&String::from_utf8_lossy(contents)) {
             None => Stub::Unversioned,
-            Some(theirs) if theirs == ours => Stub::Current,
-            Some(theirs) if theirs > ours => Stub::Newer(theirs),
-            Some(theirs) => Stub::Older(theirs),
+            Some(theirs) => match theirs.cmp(&ours) {
+                Ordering::Equal => Stub::Current,
+                Ordering::Greater => Stub::Newer(theirs),
+                Ordering::Less => Stub::Older(theirs),
+            },
         })
     }
 }

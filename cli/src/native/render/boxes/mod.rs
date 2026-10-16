@@ -2,7 +2,7 @@ mod blocks;
 mod junction;
 mod weights;
 
-use tiny_skia::{LineCap, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
+use tiny_skia::{Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 use super::fonts::Mask;
 use junction::{Axis, End, Junction, Side};
@@ -182,7 +182,7 @@ impl Canvas {
     }
 
     fn stroke(&mut self, path: &tiny_skia::Path) {
-        let stroke = Stroke { width: f32::from(self.thin), line_cap: LineCap::Butt, ..Stroke::default() };
+        let stroke = Stroke { width: f32::from(self.thin), ..Stroke::default() };
         self.pixmap.stroke_path(path, &Self::paint(255), &stroke, Transform::identity(), None);
     }
 
@@ -198,8 +198,8 @@ impl Canvas {
             '╯' => (0.0, 0.0),
             _ => (width, 0.0),
         };
-        let toward_x = if to_x > x { 1.0 } else { -1.0 };
-        let toward_y = if to_y > y { 1.0 } else { -1.0 };
+        let toward_x = (to_x - x).signum();
+        let toward_y = (to_y - y).signum();
         let handle = radius * 0.447_715;
         let mut path = PathBuilder::new();
         path.move_to(x, to_y);

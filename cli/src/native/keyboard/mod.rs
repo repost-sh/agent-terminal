@@ -27,7 +27,7 @@ pub(crate) fn paste(text: &str, modes: KeyboardModes) -> Vec<u8> {
 
 pub(crate) fn encode(key: Key, modes: KeyboardModes) -> Result<Vec<u8>, String> {
     let flags = modes.kitty_flags;
-    let mut bytes = if flags & (DISAMBIGUATE | ALL_KEYS_AS_ESCAPES) == 0 {
+    let mut bytes = if flags & DISAMBIGUATE == 0 && flags & ALL_KEYS_AS_ESCAPES == 0 {
         legacy(key, modes.app_cursor)?
     } else {
         kitty_press(key, flags)?
@@ -54,7 +54,7 @@ fn reports_release(key: Key, flags: u8) -> bool {
 }
 
 fn reports_text(flags: u8, event: Event) -> bool {
-    event == Event::Press && flags & ASSOCIATED_TEXT != 0 && flags & ALL_KEYS_AS_ESCAPES != 0
+    event == Event::Press && flags & ASSOCIATED_TEXT != 0
 }
 
 fn produces_text(key: Key) -> bool {

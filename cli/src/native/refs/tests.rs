@@ -163,3 +163,17 @@ fn a_found_ref_is_still_on_screen_only_while_its_area_is_unchanged() {
     grid.rows.clear();
     assert!(!found[0].still_on(&grid));
 }
+
+#[test]
+fn a_hint_inside_a_button_is_left_to_the_button() {
+    assert_eq!(
+        lines(&screen(&["[  q: quit  ]  x: close"])),
+        ["button \"q: quit\" at 0,3 over 0-0 0-12", "hint \"x: close\" at 0,15 over 0-0 15-22"]
+    );
+}
+
+#[test]
+fn a_panel_whose_side_breaks_off_ends_at_its_last_side_row() {
+    let gap = screen(&["┌─ Gap ─┐", "│       │", "x       │", "└───────┘"]);
+    assert_eq!(lines(&gap), ["panel \"Gap\" at 0,3 over 0-1 0-8"]);
+}

@@ -193,7 +193,7 @@ fn panels(grid: &Grid) -> Vec<Found> {
 
 fn panel_at(grid: &Grid, row: usize, col: usize) -> Option<Found> {
     let cells = grid.rows.get(row)?;
-    let right = (col + 1..cells.len()).find(|&c| at_is(cells, c, TOP_RIGHT))?;
+    let right = (col..cells.len()).find(|&c| at_is(cells, c, TOP_RIGHT))?;
     let bottom = bottom_of(grid, row, col)?;
     let title_start = (col + 1..right).find(|&c| !at_is(cells, c, HORIZONTAL))?;
     let title_end = (title_start..right).find(|&c| at_is(cells, c, HORIZONTAL)).unwrap_or(right);

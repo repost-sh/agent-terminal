@@ -24,6 +24,7 @@ fn art(chars: &str, cell: &BoxCell) -> String {
 
 const CELL: BoxCell = BoxCell { width: 7, height: 10, scale: 1 };
 const DOUBLED: BoxCell = BoxCell { width: 11, height: 14, scale: 2 };
+const WIDE: BoxCell = BoxCell { width: 12, height: 6, scale: 1 };
 
 #[test]
 fn only_box_drawing_and_block_characters_have_a_drawn_mask() {
@@ -335,5 +336,17 @@ fn mixed_joints_and_strokes_at_scale_two() {
     ....##..... ..##..##... ....##..... ..##..##... ....##..... ..##..##... ....##-.... +##+...+##+
     ....##..... ..##..##... ....##..... ..##..##... ....##..... ..##..##... ....##..... ##+.....+##
     ....##..... ..##..##... ....##..... ..##..##... ....##..... ..##..##... ....##..... #+.......+#
+    ");
+}
+
+#[test]
+fn round_corners_in_a_cell_wider_than_it_is_tall_bend_within_half_its_height() {
+    insta::assert_snapshot!(art("╭╮╯╰", &WIDE), @r"
+    ............ ............ ....-+...... .....+-.....
+    ............ ............ ...-+-...... .....-+-....
+    ......-++### ##++-....... ##++-....... ......-++###
+    .....-+-.... ...-+-...... ............ ............
+    .....+-..... ....-+...... ............ ............
+    .....+...... .....+...... ............ ............
     ");
 }
