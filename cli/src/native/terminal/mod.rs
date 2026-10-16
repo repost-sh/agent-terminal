@@ -75,8 +75,8 @@ pub(crate) struct Starting {
 
 #[derive(Clone, Copy)]
 pub(crate) struct Labelled<'a> {
-    pub session: &'a str,
-    pub tab: &'a str,
+    pub session: &'a Name,
+    pub tab: &'a Name,
     pub terminal: &'a Terminal,
 }
 

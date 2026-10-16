@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::Input;
+use super::{Input, Name};
 use crate::key::Key;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -59,8 +59,8 @@ pub(crate) struct Mirror {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Attached {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     pub program: String,
     pub read_only: bool,
 }

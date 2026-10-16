@@ -12,7 +12,9 @@ use crate::native::dashboard::Backend;
 use crate::native::log;
 use crate::native::store::TabId;
 use crate::native::terminal::{Picture, Status, Terminal};
-use crate::protocol::{self, AttachEvent, AttachInput, Attached, HumanInput, Mirror, Reply, Response, Size, request};
+use crate::protocol::{
+    self, AttachEvent, AttachInput, Attached, HumanInput, Mirror, Name, Reply, Response, Size, request,
+};
 
 struct Watched {
     terminal: Arc<Terminal>,
@@ -28,8 +30,8 @@ struct Shown {
 
 struct Mirroring<'a> {
     daemon: &'a Daemon,
-    session: &'a str,
-    name: &'a str,
+    session: &'a Name,
+    name: &'a Name,
     id: TabId,
     control: &'a Arc<Control>,
     hold: Option<&'a TabHold>,
@@ -39,7 +41,7 @@ impl Daemon {
     pub(super) fn attach(&self, mut stream: UnixStream, attach: &request::Attach) {
         let request::Attach { target, read_only } = attach;
         let read_only = *read_only;
-        let session: &str = &target.session;
+        let session = &target.session;
         match self.tab(target) {
             Ok((id, attached)) => {
                 let hold = (!read_only).then(|| TabHold {
@@ -48,8 +50,8 @@ impl Daemon {
                     hold: attached.control.take(),
                 });
                 let reply = Reply::Attached(Attached {
-                    session: session.to_string(),
-                    tab: attached.name.to_string(),
+                    session: session.clone(),
+                    tab: attached.name.clone(),
                     program: attached.terminal.program().to_string(),
                     read_only,
                 });

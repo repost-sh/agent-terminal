@@ -6,8 +6,8 @@ use crate::native::output_log::Output;
 use crate::native::refs::{self, Found, Grid};
 use crate::native::wait;
 use crate::protocol::{
-    Baseline, BlankRows, Cell, Cursor, DiffBase, Exit, Fact, Get, Match, Ref, RowChange, RowRange, Scrollback, Size,
-    Snapshot, SnapshotDiff, SnapshotOptions, request,
+    Baseline, BlankRows, Cell, Cursor, DiffBase, Exit, Fact, Get, Match, Name, Ref, RowChange, RowRange, Scrollback,
+    Size, Snapshot, SnapshotDiff, SnapshotOptions, request,
 };
 
 pub(crate) struct Capture {
@@ -18,8 +18,8 @@ pub(crate) struct Capture {
 }
 
 struct Rendered<'a> {
-    session: &'a str,
-    tab: &'a str,
+    session: &'a Name,
+    tab: &'a Name,
     range: RowRange,
 }
 
@@ -72,8 +72,8 @@ impl Terminal {
         };
         let range = rendered.range;
         Snapshot {
-            session: rendered.session.to_string(),
-            tab: rendered.tab.to_string(),
+            session: rendered.session.clone(),
+            tab: rendered.tab.clone(),
             program: self.program.clone(),
             cols: view.size.cols,
             rows: view.size.rows,

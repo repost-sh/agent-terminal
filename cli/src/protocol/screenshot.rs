@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Ref, RowRange};
+use super::{Name, Ref, RowRange};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -100,8 +100,8 @@ pub(crate) struct Shot {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct ScreenshotDiff {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     pub baseline: PathBuf,
     pub path: PathBuf,
     pub frame: u64,
@@ -128,8 +128,8 @@ impl ScreenshotDiff {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Screenshot {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     pub path: PathBuf,
     pub format: ScreenshotFormat,
     pub frame: u64,

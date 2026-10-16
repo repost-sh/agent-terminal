@@ -65,7 +65,7 @@ pub(crate) struct KeptRunning {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Export {
-    pub session: String,
+    pub session: Name,
     pub path: PathBuf,
     pub files: usize,
     pub bytes: u64,
@@ -93,8 +93,8 @@ pub(crate) struct Closed {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct WaitOutcome {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     pub until: String,
     pub waited_ms: u64,
     pub frame: u64,
@@ -104,15 +104,15 @@ pub(crate) struct WaitOutcome {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Checked {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     pub fact: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct TabRef {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

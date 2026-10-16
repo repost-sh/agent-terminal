@@ -58,7 +58,7 @@ impl Daemon {
         let request::WaitFor { target, wait, timeout_ms, assert } = waiting;
         let timeout_ms = longest(&wait, timeout_ms);
         let (tab, terminal) = self.target(&target)?;
-        let (session, tab) = (String::from(target.session), tab.to_string());
+        let session = target.session;
         let at = Labelled { session: &session, tab: &tab, terminal: &terminal };
         if matches!(wait, Wait::Command) && terminal.shell().is_none() {
             return Err(no_integration(&at));
@@ -75,8 +75,8 @@ impl Daemon {
 
     pub(super) fn wait_control(&self, waiting: request::WaitControl) -> Result<Reply, ErrorBody> {
         let request::WaitControl { target, timeout_ms, assert } = waiting;
-        let (id, Tab { name, terminal, control, .. }) = self.tab(&target)?;
-        let (session, tab) = (String::from(target.session), name.to_string());
+        let (id, Tab { name: tab, terminal, control, .. }) = self.tab(&target)?;
+        let session = target.session;
         let started = Instant::now();
         match control.wait_for_agent(Duration::from_millis(timeout_ms)) {
             Handed::Back => {
@@ -102,8 +102,8 @@ impl Daemon {
     }
 
     pub(super) fn exec(&self, exec: request::Exec) -> Result<Reply, ErrorBody> {
-        let (_, Tab { name, terminal, control, .. }) = self.tab(&exec.target)?;
-        let (session, tab) = (String::from(exec.target.session), name.to_string());
+        let (_, Tab { name: tab, terminal, control, .. }) = self.tab(&exec.target)?;
+        let session = exec.target.session;
         let at = Labelled { session: &session, tab: &tab, terminal: &terminal };
         if terminal.shell().is_none() {
             return Err(no_integration(&at));

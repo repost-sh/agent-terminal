@@ -192,7 +192,7 @@ impl Daemon {
         self.changes.notify();
         closing.control.close();
         stop_all(&[closing.terminal]);
-        Ok(TabRef { session: session.to_string(), tab: closing.name.to_string() })
+        Ok(TabRef { session: session.clone(), tab: closing.name })
     }
 
     fn close_session(&self, name: &Name) -> Result<Closed, ErrorBody> {
@@ -215,7 +215,7 @@ impl Daemon {
             for closing in session.tabs.into_values() {
                 closing.control.close();
                 terminals.push(closing.terminal);
-                closed.push(TabRef { session: name.to_string(), tab: closing.name.to_string() });
+                closed.push(TabRef { session: name.clone(), tab: closing.name });
             }
             ended.push(name);
         }
@@ -230,7 +230,7 @@ struct Opening<'a> {
     shell: Option<Shell>,
 }
 
-fn free(session: &str, holder: Option<(&TabId, &Tab)>) -> Result<(), ErrorBody> {
+fn free(session: &Name, holder: Option<(&TabId, &Tab)>) -> Result<(), ErrorBody> {
     match holder {
         Some((_, tab)) => Err(tab_taken(&Labelled { session, tab: &tab.name, terminal: &tab.terminal })),
         None => Ok(()),

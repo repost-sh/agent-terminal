@@ -19,7 +19,7 @@ use crate::native::changes::Changes;
 use crate::native::log;
 use crate::native::render::Cells;
 use crate::output::call_line;
-use crate::protocol::{CommandRecord, HumanInput, request};
+use crate::protocol::{CommandRecord, HumanInput, Name, request};
 
 pub(crate) use tab_id::TabId;
 
@@ -44,7 +44,7 @@ pub(crate) struct PendingCall {
     #[serde(skip)]
     pub tab_id: Option<TabId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tab: Option<String>,
+    pub tab: Option<Name>,
     pub command: String,
 }
 
@@ -78,7 +78,7 @@ pub(crate) struct ActivityEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<TabId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tab: Option<String>,
+    pub tab: Option<Name>,
     pub command: String,
     pub duration_ms: u64,
     pub exit: i32,
@@ -170,7 +170,7 @@ impl SessionFolder {
         next
     }
 
-    pub(crate) fn begin(self: &Arc<Self>, typed: &Typed<'_>, tab: Option<(TabId, String)>) -> Pending {
+    pub(crate) fn begin(self: &Arc<Self>, typed: &Typed<'_>, tab: Option<(TabId, Name)>) -> Pending {
         let mut calls = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
         let id = calls.next;
         calls.next += 1;

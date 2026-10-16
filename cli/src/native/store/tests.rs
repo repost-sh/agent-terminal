@@ -84,8 +84,8 @@ fn a_call_is_pending_from_its_start_and_listed_with_its_tab() {
     let started = Arc::new(SessionFolder::start(home.path(), "work").unwrap());
     let logged = started.logged();
     let words = typed(&["wait", "--idle"]);
-    let _pending =
-        started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, Some((TabId::FIRST, "app".to_string())));
+    let _pending = started
+        .begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, Some((TabId::FIRST, "app".parse().unwrap())));
     let _other = started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, None);
     let (entries, end, waiting) = started.activity_and_pending_since(0).unwrap();
     let listed: Vec<_> =

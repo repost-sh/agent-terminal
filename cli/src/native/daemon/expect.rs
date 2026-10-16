@@ -15,7 +15,7 @@ impl Daemon {
             Expect::ExitCode { code } => checking.exited_with(*code)?,
             Expect::Cell { row, col, style } => checking.cell(*row, *col, style)?,
         };
-        Ok(Reply::Checked(Checked { session: expect.target.session.to_string(), tab: tab.to_string(), fact }))
+        Ok(Reply::Checked(Checked { session: expect.target.session.clone(), tab, fact }))
     }
 }
 

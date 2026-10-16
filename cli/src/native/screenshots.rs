@@ -39,8 +39,8 @@ pub(crate) fn take(at: &Labelled<'_>, shot: &Shot) -> Result<Taken> {
         cells,
     });
     let screenshot = Screenshot {
-        session: session.to_string(),
-        tab: tab.to_string(),
+        session: session.clone(),
+        tab: tab.clone(),
         path,
         format: shot.format,
         frame: drawn.frame,
@@ -105,8 +105,8 @@ pub(crate) fn diff(at: &Labelled<'_>, diff: request::DiffScreenshot) -> Result<S
     let path = destination(&shot, || format!("{}-{tab}-{}-diff.png", store::file_name(session), capture.frame))?;
     store::write_whole(&path, &compared.image.png()?)?;
     Ok(ScreenshotDiff {
-        session: session.to_string(),
-        tab: tab.to_string(),
+        session: session.clone(),
+        tab: tab.clone(),
         baseline,
         path,
         frame: capture.frame,

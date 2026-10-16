@@ -231,7 +231,7 @@ impl Backend for Daemon {
         });
         let mut entry = ActivityEntry::at(&Typed { time, words: &input.call() }, started.elapsed());
         entry.tab_id = Some(tab);
-        entry.tab = Some(name.to_string());
+        entry.tab = Some(name);
         entry.frame = Some(terminal.frame());
         entry.human = Some(input.clone());
         if let Err(error) = &delivered {

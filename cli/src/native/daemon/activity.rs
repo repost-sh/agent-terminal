@@ -8,7 +8,7 @@ use crate::protocol::{Addressed, ErrorBody, Input, Name, Reply, Request, request
 
 pub(super) struct Logged {
     session: Name,
-    tab: Option<(TabId, String)>,
+    tab: Option<(TabId, Name)>,
     raw: bool,
     folder: Option<Arc<SessionFolder>>,
     pending: Option<Pending>,
@@ -25,7 +25,7 @@ impl Daemon {
             Addressed::Session(session) => (session, None),
             Addressed::Tab(session, tab) => {
                 let found = sessions.get(session).and_then(|s| s.find(session, tab.map(|name| &**name)).ok());
-                (session, found.map(|(id, tab)| (id, tab.name.to_string())))
+                (session, found.map(|(id, tab)| (id, tab.name.clone())))
             }
         };
         let time = SystemTime::now();
@@ -74,7 +74,6 @@ impl Daemon {
         entry.tab = entry
             .tab_id
             .and_then(|id| self.name_of(&logged.session, id))
-            .map(String::from)
             .or_else(|| shown.map(|snapshot| snapshot.tab.clone()))
             .or_else(|| logged.tab.as_ref().map(|(_, name)| name.clone()));
         entry.frame = shown

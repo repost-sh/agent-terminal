@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use super::Switch;
+use super::{Name, Switch};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Baseline {
@@ -71,8 +71,8 @@ pub(crate) struct Match {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Snapshot {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     pub program: String,
     pub cols: u16,
     pub rows: u16,
