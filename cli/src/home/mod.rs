@@ -1,15 +1,21 @@
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use anyhow::{Context, Result, anyhow};
 use nix::unistd::{User, getuid};
 
 pub(crate) fn home() -> Result<PathBuf> {
+    static HOME: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    HOME.get_or_init(resolved_home).clone().map_err(|unresolved| anyhow!(unresolved))
+}
+
+fn resolved_home() -> Result<PathBuf, String> {
     #[cfg(any(debug_assertions, feature = "private-daemon"))]
     if let Some(home) = std::env::var_os("AGENT_TERMINAL_HOME") {
         return Ok(PathBuf::from(home));
     }
-    user_home()
+    user_home().map_err(|e| format!("{e:#}"))
 }
 
 fn user_home() -> Result<PathBuf> {

@@ -4,7 +4,7 @@ use std::time::Instant;
 use super::refusals::{error_body, human_has_control};
 use super::waiting::{Until, condition};
 use super::{Daemon, Tab};
-use crate::native::screenshots;
+use crate::native::screenshots::Screenshots;
 use crate::native::terminal::Labelled;
 use crate::output::call_line;
 use crate::protocol::{Delivered, ErrorBody, Reply, Screenshot, Shot, request};
@@ -45,7 +45,7 @@ impl Daemon {
     }
 
     pub(super) fn screenshot(&self, shooting: &Shooting<'_>) -> Result<Screenshot, ErrorBody> {
-        let taken = screenshots::take(&shooting.at, shooting.shot).map_err(|e| error_body(&e))?;
+        let taken = Screenshots { home: &self.home }.take(&shooting.at, shooting.shot).map_err(|e| error_body(&e))?;
         let folder = self
             .sessions
             .lock()

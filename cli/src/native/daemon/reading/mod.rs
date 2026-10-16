@@ -1,7 +1,7 @@
 use super::Daemon;
 use super::input::Shooting;
 use super::refusals::{error_body, no_integration};
-use crate::native::screenshots;
+use crate::native::screenshots::Screenshots;
 use crate::native::store::{self, SessionFolder};
 use crate::native::terminal::Labelled;
 use crate::protocol::{
@@ -58,7 +58,8 @@ impl Daemon {
     pub(super) fn diff_screenshot(&self, diff: request::DiffScreenshot) -> Result<Reply, ErrorBody> {
         let (tab, terminal) = self.target(&diff.target)?;
         let session = diff.target.session.clone();
-        screenshots::diff(&Labelled { session: &session, tab: &tab, terminal: &terminal }, diff)
+        Screenshots { home: &self.home }
+            .diff(&Labelled { session: &session, tab: &tab, terminal: &terminal }, diff)
             .map(Reply::ScreenshotDiff)
             .map_err(|e| error_body(&e))
     }
