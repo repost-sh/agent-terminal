@@ -20,6 +20,9 @@ const fitFont = (terminal: Terminal, box: RefObject<HTMLDivElement | null>) => {
     return null;
   }
 
+  let fittedTo = "";
+  let overflowsFrom = Infinity;
+
   const fit = () => {
     const drawn = screen.getBoundingClientRect();
 
@@ -27,9 +30,21 @@ const fitFont = (terminal: Terminal, box: RefObject<HTMLDivElement | null>) => {
       return;
     }
 
+    const layout = `${String(area.clientWidth)}x${String(area.clientHeight)} ${String(terminal.cols)}x${String(terminal.rows)}`;
+
+    if (layout !== fittedTo) {
+      fittedTo = layout;
+      overflowsFrom = Infinity;
+    }
+
     const current = terminal.options.fontSize ?? LARGEST_FONT_PX;
     const room = Math.min((area.clientWidth - PADDING_PX) / drawn.width, (area.clientHeight - PADDING_PX) / drawn.height);
-    const wanted = Math.floor((current * room) / FONT_STEP_PX) * FONT_STEP_PX;
+
+    if (room < 1) {
+      overflowsFrom = Math.min(overflowsFrom, current);
+    }
+
+    const wanted = Math.min(Math.floor((current * room) / FONT_STEP_PX) * FONT_STEP_PX, overflowsFrom - FONT_STEP_PX);
 
     terminal.options.fontSize = Math.max(FONT_STEP_PX * 16, Math.min(LARGEST_FONT_PX, wanted));
   };

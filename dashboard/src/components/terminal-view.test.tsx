@@ -45,7 +45,7 @@ const resize = (box: DOMRect, watched = (observer: CapturingObserver) => observe
 
 const fontSize = () => /\.xterm-rows \{[^}]*font-size: ([\d.]+px)/.exec(screen.getByRole("group", { name: /live frame/ }).textContent)?.[1];
 
-test("the terminal's font shrinks to fit its area in quarter-pixel steps, and never grows past 13px", async () => {
+test("the terminal's font shrinks to fit its area in quarter-pixel steps, waits for a drawn screen, and stops at 4px", async () => {
   vi.stubGlobal("ResizeObserver", CapturingObserver);
   const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
 
@@ -55,17 +55,56 @@ test("the terminal's font shrinks to fit its area in quarter-pixel steps, and ne
   await daemon.push(STREAM, frameOf(1, { paint: "x" }));
   Object.defineProperties(viewport(), { clientWidth: { value: 432 }, clientHeight: { value: 332 } });
   expect(fontSize()).toBe("13px");
-  const fitted = [new DOMRect(0, 0, 0, 0), new DOMRect(0, 0, 0, 600), new DOMRect(0, 0, 800, 600), new DOMRect(0, 0, 400, 300), new DOMRect(0, 0, 100, 75), new DOMRect(0, 0, 800, 300), new DOMRect(0, 0, 100, 75), new DOMRect(0, 0, 400, 600), new DOMRect(0, 0, 8000, 6000)].map((box) => {
+  const fitted = [new DOMRect(0, 0, 0, 0), new DOMRect(0, 0, 0, 600), new DOMRect(0, 0, 800, 600), new DOMRect(0, 0, 400, 300)].map((box) => {
     resize(box);
 
     return fontSize();
   });
 
-  expect(fitted).toEqual(["13px", "13px", "6.5px", "6.5px", "13px", "6.5px", "13px", "6.5px", "4px"]);
+  expect(fitted).toEqual(["13px", "13px", "6.5px", "6.5px"]);
   const frameOfTab = screen.getByRole("group", { name: /live frame/ });
 
-  resize(new DOMRect(0, 0, 100, 75), (observer) => observer.targets.some((target) => target !== frameOfTab && frameOfTab.contains(target)));
-  expect(fontSize()).toBe("13px");
+  resize(new DOMRect(0, 0, 8000, 600), (observer) => observer.targets.some((target) => target !== frameOfTab && frameOfTab.contains(target)));
+  expect(fontSize()).toBe("4px");
+});
+
+interface Grid { cols: number; rows: number }
+
+const snappedScreen = (font: number, grid: Grid) => new DOMRect(0, 0, (grid.cols * Math.ceil(font * 1.2)) / 2, (grid.rows * Math.ceil(font * 2.4)) / 2);
+
+const resizeUntilSettled = (grid: Grid) => {
+  const sizes = [fontSize()];
+
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => snappedScreen(Number.parseFloat(fontSize() ?? "0"), grid));
+  for (let resizes = 0; resizes < 12 && sizes.at(-1) !== sizes.at(-2); resizes += 1) {
+    act(() => {
+      for (const observer of observers.filter((watching) => watching.targets.includes(viewport()))) {
+        observer.callback([], observer as unknown as ResizeObserver);
+      }
+    });
+    sizes.push(fontSize());
+  }
+
+  return sizes;
+};
+
+test("when cells snap to device pixels, the font settles on the largest quarter-pixel size that fits instead of flipping between two", async () => {
+  vi.stubGlobal("ResizeObserver", CapturingObserver);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+
+  render(<App />);
+  await daemon.serve();
+  await daemon.connected(STREAM);
+  await daemon.push(STREAM, frameOf(1, { cols: 120, rows: 40, paint: "x" }));
+  Object.defineProperties(viewport(), { clientWidth: { value: 672, configurable: true }, clientHeight: { value: 2032, configurable: true } });
+
+  expect(resizeUntilSettled({ cols: 120, rows: 40 })).toEqual(["13px", "8.5px", "8px", "8.25px", "8.25px"]);
+  await daemon.push(STREAM, frameOf(2, { cols: 60, rows: 40 }));
+  expect(resizeUntilSettled({ cols: 60, rows: 40 })).toEqual(["8.25px", "13px", "13px"]);
+  await daemon.push(STREAM, frameOf(3, { cols: 120, rows: 40 }));
+  expect(resizeUntilSettled({ cols: 120, rows: 40 })).toEqual(["13px", "8.5px", "8px", "8.25px", "8.25px"]);
+  Object.defineProperties(viewport(), { clientWidth: { value: 1032 } });
+  expect(resizeUntilSettled({ cols: 120, rows: 40 })).toEqual(["8.25px", "13px", "13px"]);
 });
 
 test("leaving a tab stops watching its size and closes its stream", async () => {
