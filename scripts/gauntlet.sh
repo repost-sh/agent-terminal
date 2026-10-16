@@ -43,9 +43,9 @@ coverage() {
 MUTANTS_VERSION=27.1.0
 
 FAULTS=(
-  'src/commands/values\.rs:.*: replace escaped -> Result<u8, String> with Ok\(0\)$'
+  'src/commands/values/mod\.rs:.*: replace escaped -> Result<u8, String> with Ok\(0\)$'
   'src/native/daemon/mod\.rs:.*: replace Daemon::list -> Sessions with Default::default\(\)$'
-  'src/native/keyboard\.rs:.*: delete match arm \(1, false\) in letter$'
+  'src/native/keyboard/mod\.rs:.*: delete match arm \(1, false\) in letter$'
   'src/native/terminal/typing\.rs:.*: replace Terminal::press -> Result<usize> with Ok\(0\)$'
   'src/native/daemon/waiting\.rs:.*: replace wait_for -> Result<u64, ErrorBody> with Ok\(0\)$'
   'src/native/screen/rows\.rs:.*: replace plain_row -> String with "xyzzy"\.into\(\)$'
