@@ -32,6 +32,8 @@ mod get;
 #[cfg(test)]
 mod input;
 #[cfg(test)]
+mod input_snapshot;
+#[cfg(test)]
 mod mcp;
 #[cfg(test)]
 mod mouse;

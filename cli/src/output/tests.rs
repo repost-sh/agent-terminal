@@ -1,6 +1,6 @@
 use crate::protocol::Reply;
 
-use super::reply_text;
+use super::{reply_data, reply_text};
 
 fn replied(replies: &[(&str, &str)]) -> String {
     replies
@@ -64,6 +64,22 @@ fn scrollback_rows_come_above_the_screen_with_negative_numbers() {
          3│row three
          4│row four
     "##);
+}
+
+#[test]
+fn squeezing_shapes_the_text_and_leaves_the_json_as_it_is() {
+    let replies = |blank_rows: &str| -> [Reply; 2] {
+        let shown = format!(
+            r#"{{"alt_screen":false,"cols":30,"cursor":[1,1],"cursor_visible":true,"exit_code":null,"exited":false,"first_row":1,"frame":1,"lines":["a","","","","b"],"mouse":null,"program":"sh","rows":5,"session":"rec","tab":"t1","blank_rows":"{blank_rows}"}}"#
+        );
+        let delivered =
+            format!(r#"{{"input":"paste","bytes":1,"bracketed":false,"session":"rec","tab":"t1","snapshot":{shown}}}"#);
+        [("Snapshot", shown), ("Delivered", delivered)]
+            .map(|(reply, data)| serde_json::from_str(&format!(r#"{{"reply":"{reply}","data":{data}}}"#)).unwrap())
+    };
+    let (squeezed, kept) = (replies("squeezed"), replies("kept"));
+    assert_ne!(reply_text(&squeezed[0]), reply_text(&kept[0]));
+    assert_eq!(squeezed.map(|reply| reply_data(&reply).unwrap()), kept.map(|reply| reply_data(&reply).unwrap()));
 }
 
 #[test]

@@ -1,7 +1,9 @@
 use std::fmt;
 
 use super::count;
-use crate::protocol::{DiffBase, Ref, RefKind, Snapshot, SnapshotDiff};
+use crate::protocol::{BlankRows, DiffBase, Ref, RefKind, Snapshot, SnapshotDiff};
+
+const SHORTEST_SQUEEZED_RUN: usize = 3;
 
 pub(crate) fn screen(s: &Snapshot) -> String {
     fmt::from_fn(|f| write_screen(f, s)).to_string()
@@ -47,20 +49,34 @@ fn label_width(s: &Snapshot, scrollback: &[String]) -> usize {
 }
 
 fn write_rows(f: &mut fmt::Formatter<'_>, s: &Snapshot, width: usize) -> fmt::Result {
-    let first = usize::from(s.first_row);
     let shown = s.lines.iter().rposition(|line| !line.is_empty()).map_or(0, |i| i + 1);
-    for (i, line) in s.lines.iter().take(shown).enumerate() {
-        writeln!(f, "{:>width$}│{line}", first + i)?;
+    let (printed, trailing) = s.lines.split_at(shown);
+    let mut row = usize::from(s.first_row);
+    for run in printed.chunk_by(|above, below| above.is_empty() == below.is_empty()) {
+        if s.blank_rows == BlankRows::Squeezed && is_squeezed(run) {
+            write_blank(f, width, row, run.len())?;
+        } else {
+            write_numbered(f, width, row, run)?;
+        }
+        row += run.len();
     }
-    if shown == s.lines.len() {
+    if trailing.is_empty() {
         return Ok(());
     }
-    let last = first + s.lines.len() - 1;
-    let blank = if first + shown == last {
-        format!("row {last} blank")
-    } else {
-        format!("rows {}-{last} blank", first + shown)
-    };
+    write_blank(f, width, row, trailing.len())
+}
+
+fn is_squeezed(run: &[String]) -> bool {
+    run.len() >= SHORTEST_SQUEEZED_RUN && run.iter().all(String::is_empty)
+}
+
+fn write_numbered(f: &mut fmt::Formatter<'_>, width: usize, first: usize, lines: &[String]) -> fmt::Result {
+    lines.iter().enumerate().try_for_each(|(i, line)| writeln!(f, "{:>width$}│{line}", first + i))
+}
+
+fn write_blank(f: &mut fmt::Formatter<'_>, width: usize, first: usize, count: usize) -> fmt::Result {
+    let last = first + count - 1;
+    let blank = if count == 1 { format!("row {last} blank") } else { format!("rows {first}-{last} blank") };
     writeln!(f, "{:>width$}│ ({blank})", "…")
 }
 
@@ -106,3 +122,6 @@ pub(super) fn write_diff(f: &mut fmt::Formatter<'_>, diff: &SnapshotDiff) -> fmt
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

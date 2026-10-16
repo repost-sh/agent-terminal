@@ -35,7 +35,12 @@ impl Daemon {
             .map(|shot| self.screenshot(&Shooting { at, shot, typed }))
             .transpose()?
             .map(Box::new);
-        let snapshot = input.snapshot.then(|| Box::new(at.snapshot()));
+        let snapshot = input
+            .snapshot
+            .map(|options| at.snapshot_with(&options))
+            .transpose()
+            .map_err(ErrorBody::failure)?
+            .map(Box::new);
         Ok(Reply::Delivered(Delivered { session, tab, delivery, screenshot, snapshot }))
     }
 

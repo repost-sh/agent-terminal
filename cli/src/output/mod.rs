@@ -59,7 +59,16 @@ pub(crate) fn reply(reply: &Reply, json: bool) -> io::Result<()> {
 
 pub(super) fn reply_data(reply: &Reply) -> serde_json::Result<Value> {
     let mut whole = serde_json::to_value(reply)?;
-    Ok(whole.get_mut("data").map(Value::take).unwrap_or_default())
+    let mut data = whole.get_mut("data").map(Value::take).unwrap_or_default();
+    let shown = match reply {
+        Reply::Snapshot(_) => Some(&mut data),
+        Reply::Delivered(_) => data.get_mut("snapshot"),
+        _ => None,
+    };
+    if let Some(Value::Object(screen)) = shown {
+        screen.remove("blank_rows");
+    }
+    Ok(data)
 }
 
 pub(crate) fn session(name: &str, json: bool) -> io::Result<()> {

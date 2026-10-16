@@ -6,8 +6,8 @@ use crate::native::output_log::Output;
 use crate::native::refs::{self, Found, Grid};
 use crate::native::wait;
 use crate::protocol::{
-    Baseline, Cell, Cursor, DiffBase, Exit, Fact, Get, Match, Ref, RowChange, RowRange, Scrollback, Size, Snapshot,
-    SnapshotDiff, SnapshotOptions, request,
+    Baseline, BlankRows, Cell, Cursor, DiffBase, Exit, Fact, Get, Match, Ref, RowChange, RowRange, Scrollback, Size,
+    Snapshot, SnapshotDiff, SnapshotOptions, request,
 };
 
 pub(crate) struct Capture {
@@ -88,6 +88,7 @@ impl Terminal {
             scrollback: scrollback.map(|n| state.screen.rows(-lines(n)..0, options.ansi)),
             lines: state.screen.rows(i32::from(range.first) - 1..i32::from(range.last), options.ansi),
             refs,
+            blank_rows: if options.squeeze_blank { BlankRows::Squeezed } else { BlankRows::Kept },
         }
     }
 

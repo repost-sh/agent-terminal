@@ -23,8 +23,8 @@ pub(crate) use reply::{
 };
 pub(crate) use request::{Addressed, BatchStep, Call, Request};
 pub(crate) use screen::{
-    Baseline, DiffBase, Match, Matches, Ref, RefKind, RowChange, RowRange, Scrollback, Snapshot, SnapshotDiff,
-    SnapshotOptions,
+    Baseline, BlankRows, DiffBase, Match, Matches, Ref, RefKind, RowChange, RowRange, Scrollback, Snapshot,
+    SnapshotDiff, SnapshotOptions,
 };
 pub(crate) use screenshot::{Look, Screenshot, ScreenshotDiff, ScreenshotFormat, Shot, Theme};
 pub(crate) use session::{Owner, SessionInfo, Sessions, Shell, Size, TabId, TabInfo, Target};

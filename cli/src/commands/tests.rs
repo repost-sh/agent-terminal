@@ -136,6 +136,7 @@ fn reading_commands_ask_for_the_screen_or_its_output() {
         "snapshot",
         "snapshot --rows 2:5 --scrollback --ansi -i",
         "snapshot --scrollback 10",
+        "snapshot -s",
         "find foo",
         "find 'a.c' --regex --all",
         "mark build",
@@ -147,9 +148,10 @@ fn reading_commands_ask_for_the_screen_or_its_output() {
         "screenshot shot.png --format html --cursor",
         "trace export /tmp/t.zip",
     ]), @r##"
-        snapshot -> {"command":"snapshot","env":null,"options":{"ansi":false,"refs":false,"rows":null,"scrollback":"none"},"session":"work","tab":null}
-        snapshot --rows 2:5 --scrollback --ansi -i -> {"command":"snapshot","env":null,"options":{"ansi":true,"refs":true,"rows":{"first":2,"last":5},"scrollback":"all"},"session":"work","tab":null}
-        snapshot --scrollback 10 -> {"command":"snapshot","env":null,"options":{"ansi":false,"refs":false,"rows":null,"scrollback":{"last":10}},"session":"work","tab":null}
+        snapshot -> {"command":"snapshot","env":null,"options":{"ansi":false,"refs":false,"rows":null,"scrollback":"none","squeeze_blank":false},"session":"work","tab":null}
+        snapshot --rows 2:5 --scrollback --ansi -i -> {"command":"snapshot","env":null,"options":{"ansi":true,"refs":true,"rows":{"first":2,"last":5},"scrollback":"all","squeeze_blank":false},"session":"work","tab":null}
+        snapshot --scrollback 10 -> {"command":"snapshot","env":null,"options":{"ansi":false,"refs":false,"rows":null,"scrollback":{"last":10},"squeeze_blank":false},"session":"work","tab":null}
+        snapshot -s -> {"command":"snapshot","env":null,"options":{"ansi":false,"refs":false,"rows":null,"scrollback":"none","squeeze_blank":true},"session":"work","tab":null}
         find foo -> {"all":false,"command":"find","env":null,"regex":false,"session":"work","tab":null,"text":"foo"}
         find 'a.c' --regex --all -> {"all":true,"command":"find","env":null,"regex":true,"session":"work","tab":null,"text":"a.c"}
         mark build -> {"command":"mark","env":null,"name":"build","session":"work","tab":null}
@@ -203,17 +205,23 @@ fn typing_and_keys_send_their_input_then_wait() {
         "press Enter",
         "press Ctrl+c Up --repeat 3",
         "press NotAKey",
+        "press Space --wait-stable --snapshot --rows 5:14 -i -s",
+        "press Space --snapshot --scrollback 3 --ansi",
+        "press Enter --rows 2:3",
         "paste 'a b'",
     ]), @r##"
-        type hello -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hello"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
-        type hi --delay 20 --wait done --snapshot -> {"command":"input","env":null,"input":{"delay_ms":20,"kind":"type","text":"hi"},"screenshot":null,"session":"work","snapshot":true,"tab":null,"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"done","until":"text"}}
-        type hi --wait-gone busy --screenshot -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hi"},"screenshot":{"annotate":false,"dir":"/shots","format":"png","look":{"cursor":true,"scale":1,"theme":"dark"},"path":null,"rows":null},"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"busy","until":"gone"}}
-        type hi --screenshot out.png -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hi"},"screenshot":{"annotate":false,"dir":"/shots","format":"png","look":{"cursor":true,"scale":1,"theme":"dark"},"path":"<here>/out.png","rows":null},"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
-        type hi --wait-stable -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hi"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
-        press Enter -> {"command":"input","env":null,"input":{"keys":["Enter"],"kind":"press","repeat":1},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
-        press Ctrl+c Up --repeat 3 -> {"command":"input","env":null,"input":{"keys":["Ctrl+c","Up"],"kind":"press","repeat":3},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        type hello -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hello"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        type hi --delay 20 --wait done --snapshot -> {"command":"input","env":null,"input":{"delay_ms":20,"kind":"type","text":"hi"},"screenshot":null,"session":"work","snapshot":{"ansi":false,"refs":false,"rows":null,"scrollback":"none","squeeze_blank":false},"tab":null,"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"done","until":"text"}}
+        type hi --wait-gone busy --screenshot -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hi"},"screenshot":{"annotate":false,"dir":"/shots","format":"png","look":{"cursor":true,"scale":1,"theme":"dark"},"path":null,"rows":null},"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":{"regex":false,"rows":null,"text":"busy","until":"gone"}}
+        type hi --screenshot out.png -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hi"},"screenshot":{"annotate":false,"dir":"/shots","format":"png","look":{"cursor":true,"scale":1,"theme":"dark"},"path":"<here>/out.png","rows":null},"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        type hi --wait-stable -> {"command":"input","env":null,"input":{"delay_ms":0,"kind":"type","text":"hi"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        press Enter -> {"command":"input","env":null,"input":{"keys":["Enter"],"kind":"press","repeat":1},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        press Ctrl+c Up --repeat 3 -> {"command":"input","env":null,"input":{"keys":["Ctrl+c","Up"],"kind":"press","repeat":3},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
         press NotAKey -> usage: ValueValidation
-        paste 'a b' -> {"command":"input","env":null,"input":{"kind":"paste","text":"a b"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        press Space --wait-stable --snapshot --rows 5:14 -i -s -> {"command":"input","env":null,"input":{"keys":["Space"],"kind":"press","repeat":1},"screenshot":null,"session":"work","snapshot":{"ansi":false,"refs":true,"rows":{"first":5,"last":14},"scrollback":"none","squeeze_blank":true},"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        press Space --snapshot --scrollback 3 --ansi -> {"command":"input","env":null,"input":{"keys":["Space"],"kind":"press","repeat":1},"screenshot":null,"session":"work","snapshot":{"ansi":true,"refs":false,"rows":null,"scrollback":{"last":3},"squeeze_blank":false},"tab":null,"timeout_ms":25000,"wait":null}
+        press Enter --rows 2:3 -> usage: MissingRequiredArgument
+        paste 'a b' -> {"command":"input","env":null,"input":{"kind":"paste","text":"a b"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
     "##);
 }
 
@@ -235,20 +243,20 @@ fn bytes_signals_and_the_mouse_send_their_input_then_wait() {
         "mouse wheel 2,3",
         "mouse wheel up 2,3",
     ]), @r##"
-        send '\e[A\x41' -> {"command":"input","env":null,"input":{"bytes":[27,91,65,65],"kind":"send"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        send '\e[A\x41' -> {"command":"input","env":null,"input":{"bytes":[27,91,65,65],"kind":"send"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
         send '\q' -> usage: ValueValidation
-        signal INT -> {"command":"input","env":null,"input":{"kind":"signal","signal":"INT"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
-        signal TERM --wait-stable 10 -> {"command":"input","env":null,"input":{"kind":"signal","signal":"TERM"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":10,"until":"stable"}}
-        click @t3 -> {"command":"input","env":null,"input":{"button":"left","double":false,"kind":"click","target":"@t3"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
-        click 4,3 --right --double -> {"command":"input","env":null,"input":{"button":"right","double":true,"kind":"click","target":"4,3"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
-        click OK -> {"command":"input","env":null,"input":{"button":"left","double":false,"kind":"click","target":"OK"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
-        scroll up -> {"command":"input","env":null,"input":{"count":1,"direction":"up","keys":false,"kind":"scroll"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
-        scroll down 5 --keys -> {"command":"input","env":null,"input":{"count":5,"direction":"down","keys":true,"kind":"scroll"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
-        mouse move 2,3 -> {"command":"input","env":null,"input":{"event":{"col":3,"event":"move","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
-        mouse down 2,3 -> {"command":"input","env":null,"input":{"event":{"button":"left","col":3,"event":"down","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
-        mouse up 2,3 -> {"command":"input","env":null,"input":{"event":{"button":"left","col":3,"event":"up","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        signal INT -> {"command":"input","env":null,"input":{"kind":"signal","signal":"INT"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        signal TERM --wait-stable 10 -> {"command":"input","env":null,"input":{"kind":"signal","signal":"TERM"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":10,"until":"stable"}}
+        click @t3 -> {"command":"input","env":null,"input":{"button":"left","double":false,"kind":"click","target":"@t3"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        click 4,3 --right --double -> {"command":"input","env":null,"input":{"button":"right","double":true,"kind":"click","target":"4,3"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        click OK -> {"command":"input","env":null,"input":{"button":"left","double":false,"kind":"click","target":"OK"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        scroll up -> {"command":"input","env":null,"input":{"count":1,"direction":"up","keys":false,"kind":"scroll"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        scroll down 5 --keys -> {"command":"input","env":null,"input":{"count":5,"direction":"down","keys":true,"kind":"scroll"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse move 2,3 -> {"command":"input","env":null,"input":{"event":{"col":3,"event":"move","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse down 2,3 -> {"command":"input","env":null,"input":{"event":{"button":"left","col":3,"event":"down","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse up 2,3 -> {"command":"input","env":null,"input":{"event":{"button":"left","col":3,"event":"up","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
         mouse wheel 2,3 -> usage: ValueValidation
-        mouse wheel up 2,3 -> {"command":"input","env":null,"input":{"event":{"col":3,"direction":"up","event":"wheel","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":false,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse wheel up 2,3 -> {"command":"input","env":null,"input":{"event":{"col":3,"direction":"up","event":"wheel","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
     "##);
 }
 

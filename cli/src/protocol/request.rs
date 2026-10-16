@@ -121,7 +121,7 @@ pub(crate) struct Deliver {
     pub input: super::Input,
     pub wait: Option<super::Wait>,
     #[serde(default)]
-    pub snapshot: bool,
+    pub snapshot: Option<SnapshotOptions>,
     #[serde(default)]
     pub screenshot: Option<Shot>,
     pub timeout_ms: u64,
