@@ -33,7 +33,7 @@ pub(crate) struct ChangedCells {
 }
 
 fn color(pixmap: &Pixmap, x: u32, y: u32) -> Option<[u8; 3]> {
-    let pixel = pixmap.pixel(x, y)?.demultiply();
+    let pixel = pixmap.pixel(x, y).filter(|_| x < pixmap.width())?.demultiply();
     Some([pixel.red(), pixel.green(), pixel.blue()])
 }
 
@@ -117,3 +117,6 @@ pub(crate) fn compare(baseline: &[u8], current: &Image) -> Result<Compared> {
     }
     Ok(Compared { image: Image { pixmap: image }, changed, pixels })
 }
+
+#[cfg(test)]
+mod tests;
