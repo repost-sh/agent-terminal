@@ -11,14 +11,22 @@ use crate::protocol::{Created, ErrorBody, Name, Reply, request};
 impl Daemon {
     pub(super) fn new_session(&self, new: request::NewSession) -> Result<Reply, ErrorBody> {
         let request::NewSession { session } = new;
-        free(&self.sessions.lock().unwrap_or_else(PoisonError::into_inner), &session)?;
-        let folder = self.session_folder(&session).map_err(|e| error_body(&e))?;
-        let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        free(&sessions, &session)?;
-        sessions.insert(session.clone(), Session::new(folder));
-        drop(sessions);
+        let folder = self.free_session_folder(&session)?;
+        self.add_session(&session, Session::new(folder))?;
         self.changes.notify();
         Ok(Reply::Created(Created { session }))
+    }
+
+    pub(super) fn free_session_folder(&self, session: &Name) -> Result<Arc<SessionFolder>, ErrorBody> {
+        free(&self.sessions.lock().unwrap_or_else(PoisonError::into_inner), session)?;
+        self.session_folder(session).map_err(|e| error_body(&e))
+    }
+
+    pub(super) fn add_session(&self, session: &Name, added: Session) -> Result<(), ErrorBody> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        free(&sessions, session)?;
+        sessions.insert(session.clone(), added);
+        Ok(())
     }
 
     fn session_folder(&self, session: &str) -> Result<Arc<SessionFolder>> {

@@ -204,7 +204,18 @@ fn shell(session: Name, args: ShellArgs, timeout_ms: u64) -> Result<Request, Str
         (false, None, Some(quiet_ms)) => Some(Wait::Stable { quiet_ms }),
         (false, None, None) => Some(Wait::Command),
     };
-    Ok(Request::Shell(request::OpenShell { session, tab, shell, program, size: args.size, cwd, env, wait, timeout_ms }))
+    Ok(Request::Shell(request::OpenShell {
+        session,
+        new_session: false,
+        tab,
+        shell,
+        program,
+        size: args.size,
+        cwd,
+        env,
+        wait,
+        timeout_ms,
+    }))
 }
 
 fn your_shell(env: &[(String, String)]) -> Result<(Shell, String), String> {
@@ -227,6 +238,7 @@ impl OpenArgs {
         let mut command = self.command.into_iter();
         Ok(Request::Open(request::Open {
             session,
+            new_session: false,
             tab: self.name,
             program: command.next().ok_or("open needs a program to run, e.g. open --name top htop")?,
             args: command.collect(),

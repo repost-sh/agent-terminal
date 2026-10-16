@@ -8,7 +8,7 @@ use crate::native::control::Control;
 use crate::native::log;
 use crate::native::pty;
 use crate::native::shell;
-use crate::native::store::TabId;
+use crate::native::store::{SessionFolder, TabId};
 use crate::native::terminal::{HANG_UP_GRACE, Labelled, Settled, Starting, Terminal};
 use crate::native::wait::Condition;
 use crate::protocol::{Closed, ErrorBody, Name, Reply, SessionInfo, Shell, TabRef, Target, Wait, request};
@@ -17,16 +17,18 @@ const KILLED_WITHIN: Duration = Duration::from_secs(5);
 
 impl Daemon {
     pub(super) fn open(&self, open: request::Open) -> Result<Reply, ErrorBody> {
-        let request::Open { session, tab, program, args, size, cwd, env, wait, timeout_ms } = open;
-        let (tab, terminal) = self.open_tab(&session, tab, None, pty::Command { program, args, cwd, env, size })?;
+        let request::Open { session, new_session, tab, program, args, size, cwd, env, wait, timeout_ms } = open;
+        let command = pty::Command { program, args, cwd, env, size };
+        let (tab, terminal) = self.open_tab(&session, new_session, tab, None, command)?;
         first_screen(Labelled { session: &session, tab: &tab, terminal: &terminal }, wait.as_ref(), timeout_ms)
     }
 
     pub(super) fn open_shell(&self, opening: request::OpenShell) -> Result<Reply, ErrorBody> {
-        let request::OpenShell { session, tab, shell: kind, program, size, cwd, env, wait, timeout_ms } = opening;
+        let request::OpenShell { session, new_session, tab, shell: kind, program, size, cwd, env, wait, timeout_ms } =
+            opening;
         let command = pty::Command { program, args: Vec::new(), cwd, env, size };
         let command = shell::Scripts { home: &self.home }.prepare(kind, command).map_err(|e| error_body(&e))?;
-        let (tab, terminal) = self.open_tab(&session, tab, Some(kind), command)?;
+        let (tab, terminal) = self.open_tab(&session, new_session, tab, Some(kind), command)?;
         let at = Labelled { session: &session, tab: &tab, terminal: &terminal };
         first_screen(at, wait.as_ref(), timeout_ms).map_err(|mut error| {
             if matches!(wait, Some(Wait::Command)) && error.code == crate::exit::TIMEOUT {
@@ -42,16 +44,12 @@ impl Daemon {
     fn open_tab(
         &self,
         session: &Name,
+        new_session: bool,
         tab: Name,
         shell: Option<Shell>,
         command: pty::Command,
     ) -> Result<(Name, Arc<Terminal>), ErrorBody> {
-        let folder = {
-            let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-            let entry = known_session(session, sessions.get(session))?;
-            free(session, entry.named(&tab))?;
-            Arc::clone(&entry.folder)
-        };
+        let folder = if new_session { self.free_session_folder(session)? } else { self.folder_for(session, &tab)? };
         let spawned = pty::spawn(&command).map_err(|e| error_body(&e))?;
         let id = folder.next_tab();
         let terminal = Terminal::start(Starting {
@@ -62,24 +60,38 @@ impl Daemon {
             lifecycle: self.changes.clone(),
             continued: None,
         });
-        {
-            let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-            let added = known_session(session, sessions.get_mut(session)).and_then(|entry| {
-                free(session, entry.named(&tab))?;
-                let control = Control::new(self.changes.clone());
-                let opened = Tab { name: tab.clone(), renamed_from: None, terminal: Arc::clone(&terminal), control };
-                entry.tabs.insert(id, opened);
-                entry.current = Some(id);
-                Ok(())
-            });
-            if let Err(refused) = added {
-                drop(sessions);
-                stop_all(std::slice::from_ref(&terminal));
-                return Err(refused);
-            }
+        let control = Control::new(self.changes.clone());
+        let opened = Tab { name: tab.clone(), renamed_from: None, terminal: Arc::clone(&terminal), control };
+        let added = if new_session {
+            let mut created = Session::new(folder);
+            created.tabs.insert(id, opened);
+            created.current = Some(id);
+            self.add_session(session, created)
+        } else {
+            self.add_tab(session, id, opened)
+        };
+        if let Err(refused) = added {
+            stop_all(std::slice::from_ref(&terminal));
+            return Err(refused);
         }
         self.changes.notify();
         Ok((tab, terminal))
+    }
+
+    fn folder_for(&self, session: &Name, tab: &Name) -> Result<Arc<SessionFolder>, ErrorBody> {
+        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        let entry = known_session(session, sessions.get(session))?;
+        free(session, entry.named(tab))?;
+        Ok(Arc::clone(&entry.folder))
+    }
+
+    fn add_tab(&self, session: &Name, id: TabId, opened: Tab) -> Result<(), ErrorBody> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        let entry = known_session(session, sessions.get_mut(session))?;
+        free(session, entry.named(&opened.name))?;
+        entry.tabs.insert(id, opened);
+        entry.current = Some(id);
+        Ok(())
     }
 
     pub(super) fn resize(&self, resize: &request::Resize) -> Result<Reply, ErrorBody> {

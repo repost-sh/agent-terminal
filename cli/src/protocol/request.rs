@@ -62,6 +62,8 @@ pub(crate) struct NewSession {
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Open {
     pub session: Name,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub new_session: bool,
     pub tab: Name,
     pub program: String,
     pub args: Vec<String>,
@@ -213,6 +215,8 @@ pub(crate) struct DashboardStart {
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct OpenShell {
     pub session: Name,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub new_session: bool,
     pub tab: Name,
     pub shell: super::Shell,
     pub program: String,

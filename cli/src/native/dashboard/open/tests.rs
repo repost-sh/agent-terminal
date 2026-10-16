@@ -20,10 +20,10 @@ fn opening(command: &str, shell_integration: bool) -> Opening {
 
 fn asked(opening: Opening) -> String {
     match opening.request() {
-        Ok((session, request)) => {
+        Ok(request) => {
             let mut sent = serde_json::to_value(request).unwrap();
             sent["env"] = json!("<inherited>");
-            format!("{session}: {sent}")
+            sent.to_string()
         }
         Err(refused) => format!("refused: {refused}"),
     }
@@ -32,8 +32,8 @@ fn asked(opening: Opening) -> String {
 #[test]
 fn an_opening_becomes_an_open_or_a_shell_request() {
     insta::assert_snapshot!([asked(opening("htop -d 5", false)), asked(opening("/bin/zsh -l", true))].join("\n"), @r#"
-        s: {"args":["-d","5"],"command":"open","cwd":"/srv","env":"<inherited>","program":"htop","session":"s","size":{"cols":30,"rows":4},"tab":"top","timeout_ms":0,"wait":null}
-        s: {"command":"shell","cwd":"/srv","env":"<inherited>","program":"/bin/zsh","session":"s","shell":"zsh","size":{"cols":30,"rows":4},"tab":"top","timeout_ms":0,"wait":null}
+        {"args":["-d","5"],"command":"open","cwd":"/srv","env":"<inherited>","new_session":true,"program":"htop","session":"s","size":{"cols":30,"rows":4},"tab":"top","timeout_ms":0,"wait":null}
+        {"command":"shell","cwd":"/srv","env":"<inherited>","new_session":true,"program":"/bin/zsh","session":"s","shell":"zsh","size":{"cols":30,"rows":4},"tab":"top","timeout_ms":0,"wait":null}
     "#);
 }
 
