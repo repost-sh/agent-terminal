@@ -15,6 +15,7 @@ fn open_eight_lines_in_five_rows(at: &AgentTerminal) {
         "--hold",
     ])
     .success();
+    at.run(&["wait", "--cursor", "5,1"]).success();
 }
 
 #[test]

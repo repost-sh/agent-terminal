@@ -4,16 +4,16 @@ use crate::support::{AgentTerminal, Call, fixture};
 fn batch_runs_commands_in_order_and_prints_each_output_and_exit_code() {
     let at = AgentTerminal::new();
     let run = at
-        .run(&["batch", "open --name app --size 20x3 --wait hi sh -c 'echo hi; read _'", "snapshot", "close"])
+        .run(&["batch", "open --name app --size 20x3 --wait hi sh -c 'printf hi; read _'", "snapshot", "close"])
         .success();
     insta::assert_snapshot!(run.screen(), @r"
-    [1] open --name app --size 20x3 --wait hi sh -c 'echo hi; read _' · exit 0
-    work app · sh · 20x3 · cursor 2,1 · frame N
+    [1] open --name app --size 20x3 --wait hi sh -c 'printf hi; read _' · exit 0
+    work app · sh · 20x3 · cursor 1,3 · frame N
     1│hi
     …│ (rows 2-3 blank)
 
     [2] snapshot · exit 0
-    work app · sh · 20x3 · cursor 2,1 · frame N
+    work app · sh · 20x3 · cursor 1,3 · frame N
     1│hi
     …│ (rows 2-3 blank)
 
@@ -26,11 +26,11 @@ fn batch_runs_commands_in_order_and_prints_each_output_and_exit_code() {
 fn options_of_open_after_the_program_are_open_options_in_a_batch_too() {
     let at = AgentTerminal::new();
     let run = at
-        .run(&["batch", "open sh -c 'echo \"args: $#\"; read _' sh --size 30x3 --wait args --name app", "close"])
+        .run(&["batch", "open sh -c 'printf \"args: $#\"; read _' sh --size 30x3 --wait args --name app", "close"])
         .success();
     insta::assert_snapshot!(run.screen(), @r#"
-    [1] open sh -c 'echo "args: $#"; read _' sh --size 30x3 --wait args --name app · exit 0
-    work app · sh · 30x3 · cursor 2,1 · frame N
+    [1] open sh -c 'printf "args: $#"; read _' sh --size 30x3 --wait args --name app · exit 0
+    work app · sh · 30x3 · cursor 1,8 · frame N
     1│args: 0
     …│ (rows 2-3 blank)
 
@@ -127,6 +127,7 @@ fn commands_take_the_session_and_timeout_of_the_batch_unless_they_set_their_own(
 fn commands_act_on_the_tab_of_the_batch_unless_they_name_their_own() {
     let at = AgentTerminal::new();
     at.run(&["open", "--name", "app", "--size", "20x2", "--wait", "one", "sh", "-c", "echo one; read _"]).success();
+    at.run(&["wait", "--cursor", "2,1"]).success();
     at.run(&["open", "--name", "api", "--size", "20x2", "cat"]).success();
     let run = at.run(&["--tab", "app", "batch", "snapshot", "snapshot --tab api"]).success();
     insta::assert_snapshot!(run.screen(), @r"
@@ -164,11 +165,11 @@ fn the_session_variable_applies_to_the_batch_unless_the_batch_names_a_session() 
 #[test]
 fn batch_reads_a_json_array_of_commands_from_stdin() {
     let at = AgentTerminal::new();
-    let stdin = r#"[["open", "--name", "app", "--size", "20x2", "--wait", "a b", "sh", "-c", "echo \"a b\"; read _"], "close"]"#;
+    let stdin = r#"[["open", "--name", "app", "--size", "20x2", "--wait", "a b", "sh", "-c", "printf \"a b\"; read _"], "close"]"#;
     let run = at.run_with(&Call { args: &["batch"], stdin, env: &[] }).success();
     insta::assert_snapshot!(run.screen(), @r#"
-    [1] open --name app --size 20x2 --wait 'a b' sh -c 'echo "a b"; read _' · exit 0
-    work app · sh · 20x2 · cursor 2,1 · frame N
+    [1] open --name app --size 20x2 --wait 'a b' sh -c 'printf "a b"; read _' · exit 0
+    work app · sh · 20x2 · cursor 1,4 · frame N
     1│a b
     …│ (row 2 blank)
 

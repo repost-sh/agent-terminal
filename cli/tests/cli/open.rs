@@ -39,12 +39,10 @@ fn open_in_a_session_that_was_not_created_fails_and_creates_nothing() {
 #[test]
 fn open_prints_the_programs_first_stable_screen() {
     let at = AgentTerminal::new();
-    let printer = fixture("line-printer");
-    let run = at
-        .run(&["open", "--name", "app", "--size", "40x10", "--wait", "line 3", &printer, "--lines", "3", "--hold"])
-        .success();
+    let script = "printf 'line 1\\nline 2\\nline 3'; read _";
+    let run = at.run(&["open", "--name", "app", "--size", "40x10", "--wait", "line 3", "sh", "-c", script]).success();
     insta::assert_snapshot!(run.screen(), @r"
-    work app · line-printer · 40x10 · cursor 4,1 · frame N
+    work app · sh · 40x10 · cursor 3,7 · frame N
      1│line 1
      2│line 2
      3│line 3
@@ -56,17 +54,17 @@ fn open_prints_the_programs_first_stable_screen() {
 fn options_of_open_after_the_program_are_open_options_and_the_rest_goes_to_the_program() {
     let at = AgentTerminal::new();
     let printer = fixture("line-printer");
-    let run = at
-        .run(&["open", "--name", "app", &printer, "--lines", "2", "--size", "30x4", "--hold", "--wait", "line 2"])
+    at.run(&["open", "--name", "app", &printer, "--lines", "2", "--size", "30x4", "--hold", "--wait", "line 2"])
         .success();
-    insta::assert_snapshot!(run.screen(), @r"
+    at.run(&["wait", "--cursor", "3,1"]).success();
+    insta::assert_snapshot!(at.run(&["snapshot"]).success().screen(), @r"
     work app · line-printer · 30x4 · cursor 3,1 · frame N
     1│line 1
     2│line 2
     …│ (rows 3-4 blank)
     ");
 
-    let script = "echo \"got $1 $2\"; read _";
+    let script = "printf \"got $1 $2\"; read _";
     let passed = at
         .run(&[
             "tab", "new", "--name", "api", "sh", "-c", script, "sh", "--size", "30x3", "--wait", "got", "--", "--size",
@@ -74,7 +72,7 @@ fn options_of_open_after_the_program_are_open_options_and_the_rest_goes_to_the_p
         ])
         .success();
     insta::assert_snapshot!(passed.screen(), @r"
-    work api · sh · 30x3 · cursor 2,1 · frame N
+    work api · sh · 30x3 · cursor 1,18 · frame N
     1│got --size --wait
     …│ (rows 2-3 blank)
     ");
@@ -147,11 +145,9 @@ fn restart_stops_a_program_that_ignores_sighup_and_runs_it_again() {
 #[test]
 fn json_output_for_open_snapshot_and_close() {
     let at = AgentTerminal::new();
-    let printer = fixture("line-printer");
+    let script = "printf 'line 1\\nline 2'; read _";
     let opened = at
-        .run(&[
-            "--json", "open", "--name", "app", "--size", "30x5", "--wait", "line 2", &printer, "--lines", "2", "--hold",
-        ])
+        .run(&["--json", "open", "--name", "app", "--size", "30x5", "--wait", "line 2", "sh", "-c", script])
         .success()
         .json();
     the_opened_tab_is_described(&opened);
@@ -167,13 +163,13 @@ fn json_output_for_open_snapshot_and_close() {
 fn the_opened_tab_is_described(opened: &serde_json::Value) {
     assert_eq!(opened["session"], "work");
     assert_eq!(opened["tab"], "app");
-    assert_eq!(opened["program"], "line-printer");
+    assert_eq!(opened["program"], "sh");
     assert_eq!((opened["cols"].as_u64(), opened["rows"].as_u64()), (Some(30), Some(5)));
 }
 
 fn the_opened_screen_is_described(opened: &serde_json::Value) {
     assert_eq!(opened["alt_screen"], false);
-    assert_eq!(opened["cursor"], serde_json::json!([3, 1]));
+    assert_eq!(opened["cursor"], serde_json::json!([2, 7]));
     assert_eq!(opened["lines"], serde_json::json!(["line 1", "line 2", "", "", ""]));
 }
 

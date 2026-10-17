@@ -77,11 +77,10 @@ fn sessions_never_see_each_others_terminals() {
         "--hold",
     ])
     .success();
-    at.run_with_session_env(
-        "b",
-        &["open", "--name", "app", "--size", "20x3", "--wait", "line 2", &printer, "--lines", "2", "--hold"],
-    )
-    .success();
+    at.run(&["--session", "a", "wait", "--cursor", "2,1"]).success();
+    let open_in_b = ["open", "--name", "app", "--size", "20x3", "--wait", "line 2", &printer, "--lines", "2", "--hold"];
+    at.run_with_session_env("b", &open_in_b).success();
+    at.run_with_session_env("b", &["wait", "--cursor", "3,1"]).success();
 
     let default = at.run(&["snapshot"]);
     assert_eq!(default.code(), 1);

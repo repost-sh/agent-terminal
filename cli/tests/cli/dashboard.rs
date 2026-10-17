@@ -110,6 +110,7 @@ fn the_api_lists_the_same_sessions_as_session_list() {
         &fixture("line-printer"),
         "--lines",
         "2",
+        "--hold",
     ])
     .success();
     let port = start(&at);
@@ -373,6 +374,7 @@ fn a_screenshot_taken_from_the_dashboard_is_saved_listed_without_a_call_and_serv
         "--hold",
     ])
     .success();
+    at.run(&["--session", "qa", "wait", "--cursor", "4,1"]).success();
     let frame: u64 = at.run(&["--session", "qa", "get", "frame"]).success().stdout().trim().parse().unwrap();
     let port = start(&at);
 

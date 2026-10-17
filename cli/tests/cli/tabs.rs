@@ -20,8 +20,10 @@ fn open_two_tabs(at: &AgentTerminal) {
     let printer = fixture("line-printer");
     at.run(&["open", "--name", "app", "--size", "20x2", "--wait", "line 1", &printer, "--lines", "1", "--hold"])
         .success();
+    at.run(&["wait", "--cursor", "2,1"]).success();
     at.run(&["tab", "new", "--name", "api", "--size", "20x3", "--wait", "line 2", &printer, "--lines", "2", "--hold"])
         .success();
+    at.run(&["wait", "--cursor", "3,1"]).success();
 }
 
 #[test]
@@ -30,10 +32,10 @@ fn tab_new_runs_another_terminal_in_the_same_session() {
     let printer = fixture("line-printer");
     at.run(&["open", "--name", "app", "--size", "20x2", "--wait", "line 1", &printer, "--lines", "1", "--hold"])
         .success();
-    let opened = at
-        .run(&["tab", "new", "--name", "api", "--size", "20x3", "--wait", "line 2", &printer, "--lines", "2", "--hold"])
+    at.run(&["tab", "new", "--name", "api", "--size", "20x3", "--wait", "line 2", &printer, "--lines", "2", "--hold"])
         .success();
-    insta::assert_snapshot!(opened.screen(), @r"
+    at.run(&["wait", "--cursor", "3,1"]).success();
+    insta::assert_snapshot!(at.run(&["snapshot"]).success().screen(), @r"
     work api · line-printer · 20x3 · cursor 3,1 · frame N
     1│line 1
     2│line 2

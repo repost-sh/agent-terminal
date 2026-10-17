@@ -6,6 +6,7 @@ fn screenshot_saves_a_png_of_the_screen_named_after_session_tab_and_frame() {
     let at = AgentTerminal::new();
     at.run(&["open", "--name", "printer", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"])
         .success();
+    at.run(&["wait", "--cursor", "4,1"]).success();
     let frame = at.frame("work");
 
     let run = at.run(&["screenshot"]).success();
@@ -20,6 +21,7 @@ fn screenshots_of_the_same_frame_taken_at_once_all_succeed_and_leave_one_whole_f
     let at = AgentTerminal::new();
     at.run(&["open", "--name", "app", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"])
         .success();
+    at.run(&["wait", "--cursor", "4,1"]).success();
     let frame = at.frame("work");
 
     let codes: Vec<i32> = std::thread::scope(|scope| {
@@ -42,6 +44,7 @@ fn screenshots_go_to_the_screenshot_dir_its_variable_or_the_path_given() {
     let at = AgentTerminal::new();
     at.run(&["open", "--name", "app", "--size", "20x4", "--wait", "line 3", &fixture("line-printer"), "--hold"])
         .success();
+    at.run(&["wait", "--cursor", "4,1"]).success();
     let frame = at.frame("work");
     let work = at.work_folder();
     let name = format!("work-app-{frame}.png");

@@ -269,6 +269,7 @@ async fn a_failing_command_is_a_tool_error_carrying_the_clis_json_error() {
     let at = AgentTerminal::new();
     at.run(&["open", "--name", "app", "--wait", "line 2", &fixture("line-printer"), "--lines", "2", "--hold"])
         .success();
+    at.run(&["wait", "--cursor", "3,1"]).success();
     let client = connect(&at, &[]).await;
 
     let checked = call(&client, "expect", json!({ "text": "line 9" })).await;
@@ -299,6 +300,7 @@ async fn options_without_a_value_and_switches_take_true() {
         "--hold",
     ])
     .success();
+    at.run(&["wait", "--cursor", "4,1"]).success();
     let client = connect(&at, &[]).await;
 
     let snapshot = json_of(&call(&client, "snapshot", json!({ "scrollback": true })).await);
