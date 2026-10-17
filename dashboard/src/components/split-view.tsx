@@ -128,15 +128,17 @@ const CellHeader = (props: SplitCellProps) => {
         type="button"
         ref={focusWhenShown(`cell-${String(props.at)}`)}
         aria-pressed={props.focused}
-        className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 rounded px-1 py-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex min-w-0 flex-1 items-center gap-x-1.5 rounded px-1 py-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <TabGlyph tab={tab} />
-        <span className="font-mono font-semibold">{session}</span>
-        <span className="text-muted-foreground" aria-hidden="true">
-          /
+        <span className="flex min-w-0 items-center gap-x-1.5">
+          <span data-tooltip={session} data-tooltip-overflow className="min-w-[2ch] flex-1 truncate font-mono font-semibold">{session}</span>
+          <span className="text-muted-foreground" aria-hidden="true">
+            /
+          </span>
+          <span data-tooltip={tab.tab} data-tooltip-overflow className="min-w-0 truncate font-mono">{tab.tab}</span>
         </span>
-        <span className="font-mono">{tab.tab}</span>
-        <span data-tooltip={tab.program} data-tooltip-overflow className="min-w-0 truncate text-muted-foreground">{tab.program}</span>
+        <span data-tooltip={tab.program} data-tooltip-overflow className="min-w-0 max-w-max flex-1 truncate text-muted-foreground">{tab.program}</span>
         <TabChip tab={tab} />
         <span className="sr-only">, {tabState(tab).label}</span>
       </button>

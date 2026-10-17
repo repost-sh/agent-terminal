@@ -84,14 +84,17 @@ test("a cell can be removed, refilled from the picker and maximized", async () =
 
 const cutOff = (part: HTMLElement) => [part.textContent, part.dataset["tooltip"], part.hasAttribute("data-tooltip-overflow"), part.classList.contains("truncate")];
 
-test("a cell header and the picker keep each program on one line, in full on hover when cut off", async () => {
+test("a cell header keeps its session, tab and program on one line and the picker each program, each in full on hover when cut off", async () => {
   await shownApp("/split/work:app,_");
   const cell = header("work app vim");
   const picker = region("Show a terminal");
+  const names = ["work", "app", "vim"].map((name) => within(region("work app vim")).getByText(name));
 
-  expect([[cell, picker].map((part) => part?.innerHTML.includes("break-")), [within(region("work app vim")).getByText("vim"), within(picker).getByText("htop")].map(cutOff)]).toEqual([
+  expect([[cell, picker].map((part) => /break-|flex-wrap/.test(part?.outerHTML ?? "")), [...names, within(picker).getByText("htop")].map(cutOff)]).toEqual([
     [false, false],
     [
+      ["work", "work", true, true],
+      ["app", "app", true, true],
       ["vim", "vim", true, true],
       ["htop", "htop", true, true],
     ],
