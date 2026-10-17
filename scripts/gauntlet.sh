@@ -175,6 +175,12 @@ browser() {
   step "fix the dashboard behaviour the failing browser test names → GAUNTLET.md#browser-tests" cargo test --features browser-tests --test cli browser::
 }
 
+workflows() {
+  command -v actionlint >/dev/null || fail "actionlint is not on PATH: install it (brew install actionlint) → GAUNTLET.md#workflows"
+  cd "$root"
+  step "fix the workflow line each finding names → GAUNTLET.md#workflows" actionlint
+}
+
 areas=("$@")
 if [ "${#areas[@]}" -eq 0 ]; then
   areas=(rust dashboard npm duplication)
@@ -190,7 +196,8 @@ for area in "${areas[@]}"; do
     coverage) coverage ;;
     mutation) mutation ;;
     acceptance-faults) acceptance_faults ;;
-    *) fail "unknown area \`$area\`: use rust, dashboard, npm, duplication, browser, coverage, mutation or acceptance-faults" ;;
+    workflows) workflows ;;
+    *) fail "unknown area \`$area\`: use rust, dashboard, npm, duplication, browser, coverage, mutation, acceptance-faults or workflows" ;;
   esac
 done
 
