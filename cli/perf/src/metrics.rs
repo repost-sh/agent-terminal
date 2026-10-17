@@ -24,13 +24,6 @@ impl Unit {
             Unit::Megabytes => "MB",
         }
     }
-
-    pub(crate) fn tolerance(self) -> Tolerance {
-        match self {
-            Unit::Milliseconds => Tolerance { percent: 25.0, amount: 0.25 },
-            Unit::Megabytes => Tolerance { percent: 10.0, amount: 0.25 },
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -67,12 +60,23 @@ impl Metric {
         }
     }
 
+    pub(crate) fn tolerance(self) -> Tolerance {
+        match self {
+            Metric::RoundTrip | Metric::Snapshot => Tolerance { percent: 10.0, amount: 0.15 },
+            Metric::Png => Tolerance { percent: 12.0, amount: 1.0 },
+            Metric::PressWaitText => Tolerance { percent: 15.0, amount: 0.08 },
+            Metric::IdleMemory => Tolerance { percent: 5.0, amount: 0.5 },
+            Metric::TabMemory => Tolerance { percent: 3.0, amount: 0.15 },
+        }
+    }
+
     pub(crate) fn target(self) -> Option<Target> {
         match self {
-            Metric::RoundTrip => Some(Target::Limit(5.0)),
-            Metric::Snapshot | Metric::IdleMemory => Some(Target::Limit(10.0)),
-            Metric::Png => Some(Target::Limit(40.0)),
+            Metric::RoundTrip => Some(Target::Limit { limit: 5.0, margin: 0.1 }),
+            Metric::Snapshot => Some(Target::Limit { limit: 10.0, margin: 0.1 }),
+            Metric::Png => Some(Target::Limit { limit: 40.0, margin: 1.0 }),
             Metric::PressWaitText => None,
+            Metric::IdleMemory => Some(Target::Limit { limit: 10.0, margin: 0.25 }),
             Metric::TabMemory => Some(Target::Reference(5.0)),
         }
     }
@@ -80,16 +84,8 @@ impl Metric {
 
 #[derive(Clone, Copy)]
 pub(crate) enum Target {
-    Limit(f64),
+    Limit { limit: f64, margin: f64 },
     Reference(f64),
-}
-
-impl Target {
-    pub(crate) fn value(self) -> f64 {
-        match self {
-            Target::Limit(value) | Target::Reference(value) => value,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize)]

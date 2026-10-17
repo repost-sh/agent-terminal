@@ -146,24 +146,29 @@ jobs:
         with:
           workspaces: cli
           cache-on-failure: true
-      - name: Build agent-terminal at the base of this change
+      - name: Build agent-terminal at the base and at this change with the same command
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base }}
         run: |
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
-          set --
-          if grep -q '^private-daemon = ' "$RUNNER_TEMP/base/cli/Cargo.toml"; then
-            set -- --features private-daemon
-          fi
-          cargo build --release --manifest-path "$RUNNER_TEMP/base/cli/Cargo.toml" --target-dir target --bin agent-terminal "$@"
-          cp target/release/agent-terminal "$RUNNER_TEMP/agent-terminal-base"
-      - name: Build this change's agent-terminal, the fixtures and at-perf
-        run: cargo build --release --workspace --bins --features agent-terminal/private-daemon
+          build() {
+            features=()
+            if grep -q '^private-daemon = ' "$1/Cargo.toml"; then
+              features=(--features private-daemon)
+            fi
+            cargo clean --release --manifest-path "$1/Cargo.toml" --target-dir target -p agent-terminal
+            cargo build --release --manifest-path "$1/Cargo.toml" --target-dir target -p agent-terminal "${features[@]}"
+            cp target/release/agent-terminal "$2"
+          }
+          build "$RUNNER_TEMP/base/cli" "$RUNNER_TEMP/agent-terminal-base"
+          build . "$RUNNER_TEMP/agent-terminal-change"
+      - name: Build the fixtures and at-perf
+        run: cargo build --release -p at-fixtures -p at-perf --bins
       - name: Measure the base and this change, interleaved on this runner
         run: >-
           target/release/at-perf measure
           --base "$RUNNER_TEMP/agent-terminal-base"
-          --change target/release/agent-terminal
+          --change "$RUNNER_TEMP/agent-terminal-change"
           --fixtures target/release
           --work "$RUNNER_TEMP/performance"
           --out "$RUNNER_TEMP/performance.json"

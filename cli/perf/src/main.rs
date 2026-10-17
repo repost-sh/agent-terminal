@@ -7,6 +7,7 @@ mod metrics;
 
 use std::error::Error;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -15,7 +16,7 @@ use anyhow::{Context, Result, bail};
 use crate::measure::Setup;
 use crate::metrics::Results;
 
-const USAGE: &str = "usage: at-perf measure --base <agent-terminal> --change <agent-terminal> --fixtures <dir> --work <empty dir> --out <results.json>\n       at-perf check <results.json> [--summary <file>]\n       at-perf load --agent <agent-terminal> --fixtures <dir> --work <empty dir> --out <rows.json> [--seconds 10] [--rates 1,30,60,120] [--tabs 1,10,20] [--repaints partial,full] [--viewers none,dashboard]";
+const USAGE: &str = "usage: at-perf measure --base <agent-terminal> --change <agent-terminal> --fixtures <dir> --work <empty dir> --out <results.json> [--runs 100] [--memory-runs 9]\n       at-perf check <results.json> [--summary <file>]\n       at-perf load --agent <agent-terminal> --fixtures <dir> --work <empty dir> --out <rows.json> [--seconds 10] [--rates 1,30,60,120] [--tabs 1,10,20] [--repaints partial,full] [--viewers none,dashboard]";
 
 const FAILED: u8 = 2;
 
@@ -42,6 +43,7 @@ fn run() -> Result<ExitCode> {
 
 fn measure(mut args: impl Iterator<Item = String>) -> Result<ExitCode> {
     let (mut base, mut change, mut fixtures, mut work, mut out) = (None, None, None, None, None);
+    let (mut runs, mut memory_runs) = (100, 9);
     while let Some(arg) = args.next() {
         let slot = match arg.as_str() {
             "--base" => &mut base,
@@ -49,6 +51,14 @@ fn measure(mut args: impl Iterator<Item = String>) -> Result<ExitCode> {
             "--fixtures" => &mut fixtures,
             "--work" => &mut work,
             "--out" => &mut out,
+            "--runs" => {
+                runs = count(&arg, args.next())?;
+                continue;
+            }
+            "--memory-runs" => {
+                memory_runs = count(&arg, args.next())?;
+                continue;
+            }
             other => bail!("unexpected argument {other}\n{USAGE}"),
         };
         *slot = Some(PathBuf::from(args.next().with_context(|| format!("{arg} needs a path"))?));
@@ -59,12 +69,20 @@ fn measure(mut args: impl Iterator<Item = String>) -> Result<ExitCode> {
         change: change.with_context(|| missing("--change"))?,
         fixtures: fixtures.with_context(|| missing("--fixtures"))?,
         work: work.with_context(|| missing("--work"))?,
+        runs,
+        memory_runs,
     };
     let out = out.with_context(|| missing("--out"))?;
     let results = measure::measure(&setup)?;
     let json = serde_json::to_string_pretty(&results).context("serialize the results")?;
     std::fs::write(&out, json).with_context(|| format!("write {}", out.display()))?;
     Ok(ExitCode::SUCCESS)
+}
+
+fn count(arg: &str, value: Option<String>) -> Result<usize> {
+    let value = value.with_context(|| format!("{arg} needs a number"))?;
+    let count: NonZeroUsize = value.parse().with_context(|| format!("{arg} needs a whole number above zero"))?;
+    Ok(count.get())
 }
 
 struct LoadArgs {

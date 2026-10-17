@@ -45,9 +45,9 @@ proptest::proptest! {
     }
 
     #[test]
-    fn a_round_trip_median_a_quarter_and_a_quarter_millisecond_over_its_base_regresses(samples in samples()) {
+    fn a_round_trip_more_than_a_tenth_and_0_15_ms_slower_in_every_round_regresses(samples in samples()) {
         let slower = |at: usize, base: &[f64]| {
-            if at == 0 { base.iter().map(|ms| ms * 1.3 + 0.3).collect() } else { base.to_vec() }
+            if at == 0 { base.iter().map(|ms| ms * 1.1 + 0.16).collect() } else { base.to_vec() }
         };
         let (code, rows) = verdicts(&samples, slower);
         proptest::prop_assert_eq!(code, Some(2));
