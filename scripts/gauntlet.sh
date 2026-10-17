@@ -84,7 +84,7 @@ mutate_shard() {
     at-acceptance | at-fixtures) tests=agent-terminal ;;
   esac
   cd "$work/w$k/cli"
-  CARGO_BUILD_BUILD_DIR="$root/cli/target/mb$k" cargo mutants --in-place -p "$crate" --test-package "$tests" \
+  CARGO_TARGET_DIR="$root/cli/target/mt$k" CARGO_BUILD_BUILD_DIR="$root/cli/target/mb$k" cargo mutants --in-place -p "$crate" --test-package "$tests" \
     --in-diff "$work/rust.diff" --shard "$shard" --sharding round-robin -o "$work/out/$crate-$k" >"$work/out/$crate-$k.log" 2>&1
 }
 
