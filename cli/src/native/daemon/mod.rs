@@ -220,6 +220,9 @@ impl Backend for Daemon {
             error.message = format!("{session} {name}: {}", error.message);
             error
         });
+        if !input.logged() {
+            return delivered;
+        }
         let mut entry = ActivityEntry::at(&Typed { time, words: &input.call() }, started.elapsed());
         entry.tab_id = Some(tab);
         entry.tab = Some(name);

@@ -116,7 +116,7 @@ export const releaseControl = (session: string, tab: string) => {
   announce("Control returned to the agent");
 };
 
-const send = (address: TabAddress, input: HumanInput) => {
+export const sendInput = (address: TabAddress, input: HumanInput) => {
   const held = holds.get(tabKey(address.session, address.tab));
 
   if (held?.state === "held" && held.socket.readyState === WebSocket.OPEN) {
@@ -211,7 +211,7 @@ const leftChord = (address: TabAddress, keystroke: Keystroke) => {
     return true;
   }
 
-  send(address, { pressed: "Ctrl+p" });
+  sendInput(address, { pressed: "Ctrl+p" });
 
   return false;
 };
@@ -228,7 +228,7 @@ const pressedIn = (address: TabAddress, keystroke: Keystroke) => {
   const input = humanInput(keystroke.event);
 
   if (input) {
-    send(address, input);
+    sendInput(address, input);
   }
 
   return false;
@@ -252,9 +252,17 @@ export const controlKeys = (session: string, tab: string) => {
     const text = event.clipboardData.getData("text");
 
     if (text) {
-      send(address, { pasted: text });
+      sendInput(address, { pasted: text });
     }
   };
 
-  return { keys, paste };
+  const focus = () => {
+    sendInput(address, { focused: true });
+  };
+
+  const blur = () => {
+    sendInput(address, { focused: false });
+  };
+
+  return { keys, paste, focus, blur };
 };

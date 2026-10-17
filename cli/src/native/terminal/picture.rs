@@ -8,6 +8,7 @@ pub(crate) struct Glance {
     pub size: Size,
     pub alt_screen: bool,
     pub mouse: Option<&'static str>,
+    pub mouse_tracking: Option<&'static str>,
     pub bracketed_paste: bool,
     pub status: Status,
 }
@@ -20,6 +21,7 @@ impl Glance {
             size: screen.size(),
             alt_screen: screen.alt_screen(),
             mouse: screen.mouse().map(crate::native::screen::MouseMode::as_str),
+            mouse_tracking: screen.mouse_reporting().map(|reporting| reporting.tracking.as_str()),
             bracketed_paste: screen.keyboard_modes().bracketed_paste,
             status: *status,
         }

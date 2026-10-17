@@ -1,6 +1,6 @@
 import { tabFeedPath } from "./api";
 import { useFeed, type Received } from "./feed";
-import type { ActivityEntry, ActivityUpdate, HumanInput, PendingCall } from "./protocol";
+import type { ActivityEntry, ActivityUpdate, HumanInput, Mods, MouseEvent, PendingCall } from "./protocol";
 
 interface Activity { entries: ActivityEntry[]; pending: PendingCall[] }
 
@@ -43,6 +43,26 @@ export interface ActivityRow { at: number; entry: ActivityEntry; human: string |
 
 const quoted = (text: string) => `"${text}"`;
 
+const heldNote = (mods: Mods) => {
+  const held = [mods.ctrl && "Ctrl", mods.alt && "Alt", mods.shift && "Shift"].filter((name): name is string => Boolean(name));
+
+  return held.length > 0 ? ` with ${held.join("+")}` : "";
+};
+
+const mouseAction = (mouse: MouseEvent) => {
+  const at = `${String(mouse.row)},${String(mouse.col)}`;
+  const button = "button" in mouse && mouse.button !== "left" ? ` ${mouse.button} button` : "";
+
+  switch (mouse.event) {
+    case "move":
+      return `mouse move to ${at}${heldNote(mouse.mods)}`;
+    case "wheel":
+      return `mouse wheel ${mouse.direction} at ${at}${heldNote(mouse.mods)}`;
+    default:
+      return `mouse ${mouse.event} at ${at}${button}${heldNote(mouse.mods)}`;
+  }
+};
+
 const humanAction = (human: HumanInput) => {
   if ("typed" in human) {
     return `typed ${quoted(human.typed)}`;
@@ -50,6 +70,14 @@ const humanAction = (human: HumanInput) => {
 
   if ("pasted" in human) {
     return `pasted ${quoted(human.pasted)}`;
+  }
+
+  if ("mouse" in human) {
+    return mouseAction(human.mouse);
+  }
+
+  if ("focused" in human) {
+    return human.focused ? "focus in" : "focus out";
   }
 
   return `pressed ${human.pressed}`;

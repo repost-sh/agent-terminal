@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::{Input, Name};
-use crate::key::Key;
+use super::{Input, MouseButton, MouseEvent, Name};
+use crate::key::{Key, Mods};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -9,6 +9,8 @@ pub(crate) enum HumanInput {
     Typed(String),
     Pressed(Key),
     Pasted(String),
+    Mouse(MouseEvent),
+    Focused(bool),
 }
 
 impl HumanInput {
@@ -17,6 +19,8 @@ impl HumanInput {
             HumanInput::Typed(text) => Input::Type { text: text.clone(), delay_ms: 0 },
             HumanInput::Pressed(key) => Input::Press { keys: vec![*key], repeat: 1 },
             HumanInput::Pasted(text) => Input::Paste { text: text.clone() },
+            HumanInput::Mouse(event) => Input::Mouse { event: *event },
+            HumanInput::Focused(focused) => Input::Focus { focused: *focused },
         }
     }
 
@@ -25,8 +29,48 @@ impl HumanInput {
             HumanInput::Typed(text) => vec!["type".into(), text.clone()],
             HumanInput::Pressed(key) => vec!["press".into(), key.to_string()],
             HumanInput::Pasted(text) => vec!["paste".into(), text.clone()],
+            HumanInput::Mouse(event) => mouse_call(*event),
+            HumanInput::Focused(focused) => vec!["focus".into(), if *focused { "in" } else { "out" }.into()],
         }
     }
+
+    pub(crate) fn logged(&self) -> bool {
+        !matches!(self, HumanInput::Mouse(MouseEvent::Move { .. }) | HumanInput::Focused(_))
+    }
+}
+
+fn mouse_call(event: MouseEvent) -> Vec<String> {
+    let (row, col) = event.at();
+    let mut words = vec!["mouse".to_string()];
+    let button = match event {
+        MouseEvent::Move { .. } => {
+            words.push("move".into());
+            None
+        }
+        MouseEvent::Down { button, .. } => {
+            words.push("down".into());
+            Some(button)
+        }
+        MouseEvent::Up { button, .. } => {
+            words.push("up".into());
+            Some(button)
+        }
+        MouseEvent::Wheel { direction, .. } => {
+            words.extend(["wheel".into(), direction.to_string()]);
+            None
+        }
+    };
+    words.push(format!("{row},{col}"));
+    words.extend(button.filter(|button| *button != MouseButton::Left).map(|button| format!("--{button}")));
+    words.extend(held_flags(event.mods()));
+    words
+}
+
+fn held_flags(mods: Mods) -> impl Iterator<Item = String> {
+    [(mods.shift, "--shift"), (mods.alt, "--alt"), (mods.ctrl, "--ctrl")]
+        .into_iter()
+        .filter(|(on, _)| *on)
+        .map(|(_, flag)| flag.to_string())
 }
 
 #[derive(Serialize, Deserialize, Debug)]

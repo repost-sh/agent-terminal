@@ -31,6 +31,23 @@ fn click_right_and_double_send_the_right_button_twice() {
 }
 
 #[test]
+fn click_and_mouse_events_carry_the_held_modifiers() {
+    let at = AgentTerminal::new();
+    open_echo(&at, "100x4", &["--mouse", "motion", "--mouse-encoding", "sgr"]);
+    let clicked = at.run(&["click", "2,5", "--ctrl", "--wait", r"\e[<16;5;2M\e[<16;5;2m"]).success();
+    assert_eq!(clicked.stdout(), "clicked 2,5 in work app (Ctrl held)\n");
+    assert_eq!(
+        at.run(&["mouse", "down", "3,4", "--alt", "--shift"]).success().stdout(),
+        "mouse down at 3,4 in work app (Alt+Shift held)\n"
+    );
+    at.run(&["mouse", "move", "3,5", "--alt", "--shift"]).success();
+    at.run(&["mouse", "up", "3,5", "--right", "--alt"]).success();
+    let expected = r"\e[<16;5;2M\e[<16;5;2m\e[<12;4;3M\e[<44;5;3M\e[<10;5;3m\e[<80;5;3M";
+    at.run(&["mouse", "wheel", "up", "3,5", "--ctrl", "--wait", expected]).success();
+    assert_eq!(at.received("work"), expected);
+}
+
+#[test]
 fn click_uses_the_x10_encoding_when_the_app_asks_for_no_other() {
     let at = AgentTerminal::new();
     open_echo(&at, "100x4", &["--mouse", "click"]);
@@ -93,7 +110,7 @@ fn click_on_a_ref_clicks_where_the_ref_starts() {
         clicked.json(),
         serde_json::json!({
             "session": "work", "tab": "app", "input": "click", "target": "@t1",
-            "row": 2, "col": 1, "button": "left", "double": false, "bytes": 18
+            "row": 2, "col": 1, "button": "left", "double": false, "mods": { "shift": false, "alt": false, "ctrl": false }, "bytes": 18
         })
     );
 }

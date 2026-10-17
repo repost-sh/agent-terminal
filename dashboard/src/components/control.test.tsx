@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 
 import { App } from "../app";
 import { startDaemon, type FakeDaemon } from "../fake-daemon/daemon";
@@ -64,8 +64,8 @@ test("taking control focuses the terminal, and its keys and pastes reach the pro
   fireEvent.paste(terminal, { clipboardData: { getData: () => "pasted text" } });
   fireEvent.paste(terminal, { clipboardData: { getData: () => "" } });
   expect(daemon.sent(controlOf("keys"))).toEqual([
-    { typed: "a" },
-    { typed: "é" },
+    { focused: true },
+    { typed: "a" }, { typed: "é" },
     { pressed: "Enter" },
     { pressed: "Shift+Tab" },
     { pressed: "Ctrl+F5" },
@@ -83,11 +83,11 @@ test("ctrl+p ctrl+q leaves the terminal, while ctrl+p then another key sends bot
 
   fireEvent.keyDown(terminal, { key: "p", code: "KeyP", ctrlKey: true });
   fireEvent.keyDown(terminal, { key: "x" });
-  expect(daemon.sent(controlOf("chord"))).toEqual([{ pressed: "Ctrl+p" }, { typed: "x" }]);
+  expect(daemon.sent(controlOf("chord"))).toEqual([{ focused: true }, { pressed: "Ctrl+p" }, { typed: "x" }]);
   fireEvent.keyDown(terminal, { key: "p", code: "KeyP", ctrlKey: true });
   fireEvent.keyDown(terminal, { key: "q", code: "KeyQ", ctrlKey: true });
   expect(screen.getByRole("button", { name: "Release control" })).toHaveFocus();
-  expect(daemon.sent(controlOf("chord"))).toHaveLength(2);
+  expect(daemon.sent(controlOf("chord"))).toHaveLength(4);
   fireEvent.click(screen.getByRole("button", { name: "Release control" }));
   expect(announced()).toBe("Control returned to the agent");
   expect(screen.getByRole("button", { name: "Take control" })).toBeTruthy();
@@ -134,4 +134,37 @@ test("control ends when the daemon closes the socket, and a second take is ignor
   });
   await daemon.push(streamOf("dropped"), frameOf(2, { exited: true }));
   expect(screen.queryByText(/Keys go to/)).toBeNull();
+});
+
+const terminalFrame = () => screen.getByRole("group", { name: /live frame/ });
+
+test("the mouse goes to an app that tracks it, as the hint says, until it is switched off on the toolbar, and shift keeps selecting text", async () => {
+  const daemon = await liveApp("mouse");
+
+  await daemon.push(streamOf("mouse"), frameOf(2, { cols: 80, rows: 24, mouse: "sgr", mouse_tracking: "click" }));
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 800, 240));
+  const terminal = await held(daemon, "mouse");
+
+  expect(screen.getByText("Keys and mouse go to vim · shift selects text · ctrl+p ctrl+q moves focus out")).toBeTruthy();
+  fireEvent.mouseDown(terminalFrame(), { clientX: 25, clientY: 15, button: 0 });
+  fireEvent.mouseUp(terminalFrame(), { clientX: 25, clientY: 15, button: 0 });
+  fireEvent.mouseDown(terminalFrame(), { clientX: 25, clientY: 15, button: 0, shiftKey: true });
+  expect(daemon.sent(controlOf("mouse")).slice(1)).toEqual([
+    { mouse: { event: "down", row: 2, col: 3, button: "left", mods: { shift: false, alt: false, ctrl: false } } },
+    { mouse: { event: "up", row: 2, col: 3, button: "left", mods: { shift: false, alt: false, ctrl: false } } },
+  ]);
+  expect(terminalFrame().className).toContain("cursor-default");
+
+  const toggle = screen.getByRole("button", { name: "Mouse on" });
+
+  expect([toggle.getAttribute("aria-pressed"), toggle.getAttribute("data-tooltip")]).toEqual(["true", "While you hold control, the mouse goes to the app when it asks for it; shift+click selects text"]);
+  fireEvent.click(toggle);
+  expect([screen.getByRole("button", { name: "Mouse off" }).getAttribute("aria-pressed"), localStorage.getItem("agent-terminal-mouse")]).toEqual(["false", "off"]);
+  expect(screen.getByText("Keys go to vim · ctrl+p ctrl+q moves focus out")).toBeTruthy();
+  fireEvent.mouseDown(terminalFrame(), { clientX: 25, clientY: 15, button: 0 });
+  expect([daemon.sent(controlOf("mouse")).length, terminalFrame().className.includes("cursor-default")]).toEqual([3, false]);
+  fireEvent.click(screen.getByRole("button", { name: "Mouse off" }));
+  fireEvent.blur(terminal);
+  fireEvent.focus(terminal);
+  expect(daemon.sent(controlOf("mouse")).slice(3)).toEqual([{ focused: false }, { focused: true }]);
 });

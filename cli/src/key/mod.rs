@@ -30,11 +30,31 @@ pub enum KeyCode {
     F(u8),
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Mods {
     pub shift: bool,
     pub alt: bool,
     pub ctrl: bool,
+}
+
+impl Mods {
+    pub fn is_none(self) -> bool {
+        self == Mods::default()
+    }
+
+    fn names(self) -> impl Iterator<Item = &'static str> {
+        [(self.ctrl, "Ctrl"), (self.alt, "Alt"), (self.shift, "Shift")]
+            .into_iter()
+            .filter(|(on, _)| *on)
+            .map(|(_, name)| name)
+    }
+}
+
+impl fmt::Display for Mods {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.names().collect::<Vec<_>>().join("+"))
+    }
 }
 
 const NAMED: &[(&str, KeyCode)] = &[
@@ -136,10 +156,8 @@ fn named(name: &str) -> Option<KeyCode> {
 
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (on, name) in [(self.mods.ctrl, "Ctrl+"), (self.mods.alt, "Alt+"), (self.mods.shift, "Shift+")] {
-            if on {
-                f.write_str(name)?;
-            }
+        for name in self.mods.names() {
+            write!(f, "{name}+")?;
         }
         let name = match self.code {
             KeyCode::Char(' ') => "Space",

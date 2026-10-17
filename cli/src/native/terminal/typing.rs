@@ -16,6 +16,7 @@ struct Click<'a> {
     target: &'a ClickTarget,
     button: MouseButton,
     double: bool,
+    mods: Mods,
 }
 
 impl Terminal {
@@ -30,9 +31,12 @@ impl Terminal {
                 Ok(Delivery::Raw { bytes: bytes.len() })
             }
             Input::Signal { signal } => self.signal(*signal),
-            Input::Click { target, button, double } => self.click(&Click { target, button: *button, double: *double }),
+            Input::Click { target, button, double, mods } => {
+                self.click(&Click { target, button: *button, double: *double, mods: *mods })
+            }
             Input::Mouse { event } => self.mouse(*event),
             Input::Scroll { direction, count, keys } => self.scroll(*direction, *count, *keys),
+            Input::Focus { focused } => self.focus(*focused),
         }
     }
 
@@ -84,10 +88,11 @@ impl Terminal {
             let mut state = self.running()?;
             let reporting = state.screen.mouse_reporting().ok_or_else(no_mouse)?;
             let (row, col) = click_target(&state, click.target)?;
-            let press = mouse::Event { action: Action::Press(click.button), row, col }
+            let mods = click.mods;
+            let press = mouse::Event { action: Action::Press(click.button), row, col, mods }
                 .encode(reporting)
                 .map_err(anyhow::Error::msg)?;
-            let release = mouse::Event { action: Action::Release(click.button), row, col }
+            let release = mouse::Event { action: Action::Release(click.button), row, col, mods }
                 .encode(reporting)
                 .map_err(anyhow::Error::msg)?;
             state.mouse_held = None;
@@ -100,6 +105,7 @@ impl Terminal {
             col,
             button: click.button,
             double: click.double,
+            mods: click.mods,
             bytes: bytes.len(),
         })
     }
@@ -116,7 +122,8 @@ impl Terminal {
                 MouseEvent::Up { button, .. } => Action::Release(button),
                 MouseEvent::Wheel { direction, .. } => Action::Wheel(direction),
             };
-            let bytes = mouse::Event { action, row, col }.encode(reporting).map_err(anyhow::Error::msg)?;
+            let bytes =
+                mouse::Event { action, row, col, mods: event.mods() }.encode(reporting).map_err(anyhow::Error::msg)?;
             match event {
                 MouseEvent::Down { button, .. } => state.mouse_held = Some(button),
                 MouseEvent::Up { .. } => state.mouse_held = None,
@@ -136,7 +143,7 @@ impl Terminal {
             if let Some(reporting) = state.screen.mouse_reporting().filter(|_| !keys) {
                 let size = state.screen.size();
                 let (row, col) = (size.rows.div_ceil(2), size.cols.div_ceil(2));
-                let notch = mouse::Event { action: Action::Wheel(direction), row, col }
+                let notch = mouse::Event { action: Action::Wheel(direction), row, col, mods: Mods::default() }
                     .encode(reporting)
                     .map_err(anyhow::Error::msg)?;
                 (notch, ScrollBy::Wheel)
@@ -147,6 +154,19 @@ impl Terminal {
         let bytes = bytes.repeat(usize::try_from(count).context("the scroll count")?);
         self.write(&bytes)?;
         Ok(Delivery::Scroll { direction, count, by, bytes: bytes.len() })
+    }
+
+    fn focus(&self, focused: bool) -> Result<Delivery> {
+        let reported = self.running()?.screen.focus_events();
+        let bytes: &[u8] = match (reported, focused) {
+            (false, _) => b"",
+            (true, true) => b"\x1b[I",
+            (true, false) => b"\x1b[O",
+        };
+        if !bytes.is_empty() {
+            self.write(bytes)?;
+        }
+        Ok(Delivery::Focus { focused, bytes: bytes.len() })
     }
 
     fn running(&self) -> Result<MutexGuard<'_, State>> {

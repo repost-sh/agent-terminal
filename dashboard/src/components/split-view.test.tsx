@@ -4,7 +4,9 @@ import { expect, test, vi } from "vitest";
 import { App } from "../app";
 import { startDaemon, type FakeDaemon } from "../fake-daemon/daemon";
 import { frameOf, sessionInfo, tabInfo } from "../fake-daemon/messages";
+import { controlButtonId } from "../lib/control";
 import { navigate } from "../lib/route";
+import type { TabAddress } from "../lib/tabs";
 
 const shownApp = async (path = "/") => {
   const daemon = startDaemon([
@@ -167,8 +169,13 @@ test("the grid lays out two or four cells, and only the focused cell is pressed 
   expect(grid().className).toBe("split-grid grid min-h-0 flex-1 grid-cols-2 gap-px bg-border grid-rows-2");
 });
 
-const held = async (daemon: FakeDaemon, path: string) => {
-  fireEvent.click(await screen.findByRole("button", { name: "Take control" }));
+const held = async (daemon: FakeDaemon, address: TabAddress) => {
+  const path = controlOf(address.session, address.tab);
+  const buttons = await screen.findAllByRole("button", { name: "Take control" });
+  const [own] = buttons.filter((button) => button.id === controlButtonId(address.session, address.tab));
+
+  expect(own).toBeDefined();
+  fireEvent.click(own ?? buttons[0] ?? document.body);
   await daemon.connected(path);
   await daemon.push(path, { type: "held" });
 };
@@ -180,9 +187,9 @@ test("a held cell takes keys only while it is focused and its program runs, and 
 
   await drawn(daemon, streamOf("work", "app"));
   await drawn(daemon, streamOf("work", "api"));
-  await held(daemon, controlOf("work", "app"));
+  await held(daemon, { session: "work", tab: "app" });
   fireEvent.keyDown(screen.getByRole("application", { name: "Terminal work app, you have control" }), { key: "a" });
-  expect([daemon.sent(controlOf("work", "app")), hint()]).toEqual([[{ typed: "a" }], "Keys go to vim · ctrl+p ctrl+q moves focus out"]);
+  expect([daemon.sent(controlOf("work", "app")), hint()]).toEqual([[{ focused: true }, { typed: "a" }], "Keys go to vim · ctrl+p ctrl+q moves focus out"]);
   fireEvent.click(region("work api make"));
   expect([screen.queryByRole("application"), hint(), ringed("work api make", ".ring-warning")]).toEqual([null, undefined, false]);
   expect(ringed("work app vim", String.raw`.rounded-\[2px\].ring-2.ring-warning.ring-offset-2.ring-offset-background`)).toBe(true);
@@ -200,9 +207,9 @@ test("a cell that switches to another tab sends its keys to that tab", async () 
     await Promise.resolve();
   });
   await drawn(daemon, streamOf("play", "app"));
-  await held(daemon, controlOf("play", "app"));
+  await held(daemon, { session: "play", tab: "app" });
   fireEvent.keyDown(screen.getByRole("application", { name: "Terminal play app, you have control" }), { key: "b" });
-  expect(daemon.sent(controlOf("play", "app"))).toEqual([{ typed: "b" }]);
+  expect(daemon.sent(controlOf("play", "app"))).toEqual([{ focused: true }, { typed: "b" }]);
 });
 
 test("removing a cell keeps the focused cell and focuses the main content without scrolling", async () => {

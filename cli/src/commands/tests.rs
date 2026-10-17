@@ -312,16 +312,35 @@ fn bytes_signals_and_the_mouse_send_their_input_then_wait() {
         send '\q' -> usage: ValueValidation
         signal INT -> {"command":"input","env":null,"input":{"kind":"signal","signal":"INT"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
         signal TERM --wait-stable 10 -> {"command":"input","env":null,"input":{"kind":"signal","signal":"TERM"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":10,"until":"stable"}}
-        click @t3 -> {"command":"input","env":null,"input":{"button":"left","double":false,"kind":"click","target":"@t3"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
-        click 4,3 --right --double -> {"command":"input","env":null,"input":{"button":"right","double":true,"kind":"click","target":"4,3"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
-        click OK -> {"command":"input","env":null,"input":{"button":"left","double":false,"kind":"click","target":"OK"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        click @t3 -> {"command":"input","env":null,"input":{"button":"left","double":false,"kind":"click","mods":{"alt":false,"ctrl":false,"shift":false},"target":"@t3"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        click 4,3 --right --double -> {"command":"input","env":null,"input":{"button":"right","double":true,"kind":"click","mods":{"alt":false,"ctrl":false,"shift":false},"target":"4,3"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        click OK -> {"command":"input","env":null,"input":{"button":"left","double":false,"kind":"click","mods":{"alt":false,"ctrl":false,"shift":false},"target":"OK"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
         scroll up -> {"command":"input","env":null,"input":{"count":1,"direction":"up","keys":false,"kind":"scroll"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
         scroll down 5 --keys -> {"command":"input","env":null,"input":{"count":5,"direction":"down","keys":true,"kind":"scroll"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
-        mouse move 2,3 -> {"command":"input","env":null,"input":{"event":{"col":3,"event":"move","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
-        mouse down 2,3 -> {"command":"input","env":null,"input":{"event":{"button":"left","col":3,"event":"down","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
-        mouse up 2,3 -> {"command":"input","env":null,"input":{"event":{"button":"left","col":3,"event":"up","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse move 2,3 -> {"command":"input","env":null,"input":{"event":{"col":3,"event":"move","mods":{"alt":false,"ctrl":false,"shift":false},"row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse down 2,3 -> {"command":"input","env":null,"input":{"event":{"button":"left","col":3,"event":"down","mods":{"alt":false,"ctrl":false,"shift":false},"row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse up 2,3 -> {"command":"input","env":null,"input":{"event":{"button":"left","col":3,"event":"up","mods":{"alt":false,"ctrl":false,"shift":false},"row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
         mouse wheel 2,3 -> usage: ValueValidation
-        mouse wheel up 2,3 -> {"command":"input","env":null,"input":{"event":{"col":3,"direction":"up","event":"wheel","row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse wheel up 2,3 -> {"command":"input","env":null,"input":{"event":{"col":3,"direction":"up","event":"wheel","mods":{"alt":false,"ctrl":false,"shift":false},"row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+    "##);
+}
+
+#[test]
+fn held_modifiers_ride_on_clicks_and_mouse_events_and_focus_goes_in_or_out() {
+    insta::assert_snapshot!(table(&[
+        "click 4,3 --ctrl",
+        "mouse down 2,3 --alt --shift",
+        "mouse wheel down 2,3 --ctrl",
+        "focus in",
+        "focus out --wait-stable",
+        "focus sideways",
+    ]), @r##"
+        click 4,3 --ctrl -> {"command":"input","env":null,"input":{"button":"left","double":false,"kind":"click","mods":{"alt":false,"ctrl":true,"shift":false},"target":"4,3"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse down 2,3 --alt --shift -> {"command":"input","env":null,"input":{"event":{"button":"left","col":3,"event":"down","mods":{"alt":true,"ctrl":false,"shift":true},"row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        mouse wheel down 2,3 --ctrl -> {"command":"input","env":null,"input":{"event":{"col":3,"direction":"down","event":"wheel","mods":{"alt":false,"ctrl":true,"shift":false},"row":2},"kind":"mouse"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        focus in -> {"command":"input","env":null,"input":{"focused":true,"kind":"focus"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":null}
+        focus out --wait-stable -> {"command":"input","env":null,"input":{"focused":false,"kind":"focus"},"screenshot":null,"session":"work","snapshot":null,"tab":null,"timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
+        focus sideways -> usage: ValueValidation
     "##);
 }
 

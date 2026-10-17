@@ -16,7 +16,17 @@ const modesOf = (shown: Shown) =>
     (mode): mode is string => Boolean(mode),
   );
 
-export const controlHint = (typing: boolean, program: string) => (typing ? `Keys go to ${program} · ctrl+p ctrl+q moves focus out` : null);
+export interface Hinted { program: string; mouse: boolean }
+
+export const controlHint = (typing: boolean, hinted: Hinted) => {
+  if (!typing) {
+    return null;
+  }
+
+  const goes = hinted.mouse ? `Keys and mouse go to ${hinted.program} · shift selects text` : `Keys go to ${hinted.program}`;
+
+  return `${goes} · ctrl+p ctrl+q moves focus out`;
+};
 
 interface Status { tone: Tone; label: string }
 

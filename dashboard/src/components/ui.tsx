@@ -21,6 +21,7 @@ const BUTTON_VARIANT = {
 const BUTTON_SIZE = {
   sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] [&_svg]:size-3.5",
   "icon-sm": "size-7 rounded-[min(var(--radius-md),12px)] text-sm [&_svg]:size-4",
+  lg: "h-10 gap-2 rounded-xl px-5 text-sm font-semibold [&_svg]:size-4",
 };
 
 interface ButtonLook {

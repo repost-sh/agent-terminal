@@ -1,12 +1,17 @@
 import type { Terminal } from "@xterm/xterm";
 import { LoaderCircle, RotateCw } from "lucide-react";
-import { useRef, useState, type ClipboardEventHandler, type KeyboardEventHandler, type ReactNode, type RefObject } from "react";
+import { useRef, useState, type ClipboardEventHandler, type KeyboardEventHandler, type ReactNode, type RefCallback, type RefObject } from "react";
 
-import type { controlKeys } from "../lib/control";
+import { controlKeys, useControl } from "../lib/control";
 import { focusWhenShown } from "../lib/focus";
-import type { StreamState, Shown } from "../lib/stream";
+import { controlMouse, trackedIn, type Tracked } from "../lib/mouse";
+import { useMouseWanted } from "../lib/mouse-preference";
+import type { TabInfo } from "../lib/protocol";
+import { useTabStream, type StreamState, type Shown } from "../lib/stream";
 import { tabKey, tabName, type TabAddress } from "../lib/tabs";
 import { LARGEST_FONT_PX, openTerminal } from "../lib/xterm";
+import { ControlButton } from "./control-button";
+import { controlHint } from "./status-bar";
 import { Button, cn } from "./ui";
 
 const PADDING_PX = 32;
@@ -68,21 +73,64 @@ export interface HeldTerminal {
   focus: string;
   keys?: KeyboardEventHandler<HTMLDivElement> | undefined;
   paste?: ClipboardEventHandler<HTMLDivElement> | undefined;
+  focusIn?: (() => void) | undefined;
+  focusOut?: (() => void) | undefined;
+  mouse?: RefCallback<HTMLElement> | undefined;
 }
 
-export interface Holding { held: boolean; typing: boolean; keyboard: ReturnType<typeof controlKeys> }
+export interface Holding {
+  held: boolean;
+  typing: boolean;
+  keyboard: ReturnType<typeof controlKeys>;
+  mouse: ReturnType<typeof controlMouse>;
+  tracked: Tracked | null;
+}
 
-export const heldTerminal = (address: TabAddress, holding: Holding): HeldTerminal | null =>
-  holding.held
+const typedInto = (holding: Holding): Partial<HeldTerminal> =>
+  holding.typing
     ? {
-        name: tabName(address.session, address.tab),
-        focus: tabKey(address.session, address.tab),
-        keys: holding.typing ? holding.keyboard.keys : undefined,
-        paste: holding.typing ? holding.keyboard.paste : undefined,
+        keys: holding.keyboard.keys,
+        paste: holding.keyboard.paste,
+        focusIn: holding.keyboard.focus,
+        focusOut: holding.keyboard.blur,
+        mouse: holding.tracked ? holding.mouse.attach : undefined,
       }
-    : null;
+    : {};
+
+export const heldTerminal = (address: TabAddress, holding: Holding): HeldTerminal | null => {
+  holding.mouse.track(holding.typing ? holding.tracked : null);
+
+  return holding.held ? { name: tabName(address.session, address.tab), focus: tabKey(address.session, address.tab), ...typedInto(holding) } : null;
+};
 
 export const liveLabel = (title: string, shown: Shown | null) => `${title}, live frame ${String(shown?.frame ?? 0)}`;
+
+export interface HeldTab { session: string; tab: TabInfo; focused: boolean }
+
+export const useHeldViewport = (heldTab: HeldTab) => {
+  const { session, tab } = heldTab;
+  const stream = useTabStream(session, tab.tab);
+  const [keyboard] = useState(() => controlKeys(session, tab.tab));
+  const [mouse] = useState(() => controlMouse({ session, tab: tab.tab }));
+  const tracked = useMouseWanted() ? trackedIn(stream.shown) : null;
+  const held = useControl(session, tab.tab) === "held";
+  const typing = held && heldTab.focused && !stream.shown?.exited;
+  const name = tabName(session, tab.tab);
+
+  return {
+    stream,
+    hint: controlHint(typing, { program: tab.program, mouse: tracked !== null }),
+    viewport: {
+      paint: stream.paint,
+      state: stream.state,
+      shown: stream.shown,
+      program: tab.program,
+      label: liveLabel(`${name} ${tab.program}`, stream.shown),
+      held: heldTerminal({ session, tab: tab.tab }, { held, typing, keyboard, mouse, tracked }),
+      overlay: <ControlButton session={session} tab={tab} stream={stream.state} shown={stream.shown} />,
+    },
+  };
+};
 
 interface ViewportProps {
   paint: Paint;
@@ -93,6 +141,7 @@ interface ViewportProps {
   held?: HeldTerminal | null;
   compact?: boolean;
   exit?: ExitActions;
+  overlay?: ReactNode;
 }
 
 interface HeldRingProps { held: HeldTerminal | null; compact: boolean; children: ReactNode }
@@ -110,6 +159,8 @@ const HeldRing = (props: HeldRingProps) => {
       aria-describedby="control-hint"
       onKeyDown={held.keys}
       onPaste={held.paste}
+      onFocus={held.focusIn}
+      onBlur={held.focusOut}
       className="rounded-[2px] ring-2 ring-warning ring-offset-4 ring-offset-background outline-none focus-visible:ring-[3px]"
     >
       {props.children}
@@ -151,19 +202,30 @@ const frameLook = (props: ViewportProps): FrameLook => ({
 const ExitOverlay = (props: ViewportProps) =>
   props.shown?.exited ? <ExitBar program={props.program} code={props.shown.exit_code} actions={props.exit ?? null} /> : null;
 
+interface FrameProps { look: FrameLook; label: string; mouse: RefCallback<HTMLElement> | undefined; host: RefCallback<HTMLDivElement> }
+
+const Frame = (props: FrameProps) => {
+  const { look, mouse } = props;
+
+  return (
+    <div ref={mouse} role="group" aria-label={props.label} className={cn("term-frame", look.dim && "is-dim", look.loading && "opacity-0", mouse && "[&_.xterm]:cursor-default")}>
+      <div ref={props.host} />
+    </div>
+  );
+};
+
 export const Viewport = (props: ViewportProps) => {
   const box = useRef<HTMLDivElement>(null);
   const host = useTerminalHost(props.paint, box);
   const look = frameLook(props);
 
   return (
-    <div id={props.exit ? "viewport-region" : undefined} data-testid="viewport" ref={box} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+    <div id={props.exit ? "viewport-region" : undefined} data-testid="viewport" ref={box} className="group/viewport relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
       {look.loading && <WaitingForFirstFrame />}
       <HeldRing held={props.held ?? null} compact={Boolean(props.compact)}>
-        <div role="group" aria-label={props.label} className={cn("term-frame", look.dim && "is-dim", look.loading && "opacity-0")}>
-          <div ref={host} />
-        </div>
+        <Frame look={look} label={props.label} mouse={props.held?.mouse} host={host} />
       </HeldRing>
+      {props.overlay}
       <ExitOverlay {...props} />
     </div>
   );

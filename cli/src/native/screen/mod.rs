@@ -193,7 +193,7 @@ impl Screen {
             }),
             bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE).into(),
             app_cursor: mode.contains(TermMode::APP_CURSOR).into(),
-            focus_events: mode.contains(TermMode::FOCUS_IN_OUT).into(),
+            focus_events: self.focus_events().into(),
             keyboard: KITTY_FLAGS
                 .iter()
                 .filter(|(flag, ..)| mode.contains(*flag))
@@ -288,6 +288,10 @@ impl Screen {
 
     pub(crate) fn mouse(&self) -> Option<MouseMode> {
         mouse_encoding(*self.term.mode())
+    }
+
+    pub(crate) fn focus_events(&self) -> bool {
+        self.term.mode().contains(TermMode::FOCUS_IN_OUT)
     }
 }
 

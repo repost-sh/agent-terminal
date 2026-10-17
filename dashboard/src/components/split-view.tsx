@@ -2,16 +2,14 @@ import { Maximize2, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { controlKeys, useControl } from "../lib/control";
 import { focusNext, focusWhenShown } from "../lib/focus";
 import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { followLink, navigate, splitRoute, tabRoute, type Cell } from "../lib/route";
 import { isShown, resizeCells, shownCells, withCell, type Layout, type ShownCell } from "../lib/split";
-import { useTabStream } from "../lib/stream";
 import { tabName, tabState } from "../lib/tabs";
 import { TabChip, TabGlyph } from "./sessions-sidebar";
-import { controlHint, StatusBar } from "./status-bar";
-import { heldTerminal, liveLabel, Viewport } from "./terminal-view";
+import { StatusBar } from "./status-bar";
+import { useHeldViewport, Viewport } from "./terminal-view";
 import { Toolbar } from "./toolbar";
 import { Chip, IconButton, IconLink, cn } from "./ui";
 
@@ -160,11 +158,9 @@ const Portaled = ({ target, children }: PortaledProps) => (target ? createPortal
 
 const SplitCell = (props: SplitCellProps) => {
   const { session, tab } = props;
-  const stream = useTabStream(session, tab.tab);
+  const view = useHeldViewport({ session, tab, focused: props.focused });
+  const { stream } = view;
   const name = tabName(session, tab.tab);
-  const [keyboard] = useState(() => controlKeys(session, tab.tab));
-  const held = useControl(session, tab.tab) === "held";
-  const typing = held && props.focused && !stream.shown?.exited;
 
   return (
     <>
@@ -173,17 +169,9 @@ const SplitCell = (props: SplitCellProps) => {
       </Portaled>
       <section aria-label={`${name} ${tab.program}`} onClick={props.onFocus} className={cn("flex min-h-0 min-w-0 flex-col bg-background", props.focused && "ring-1 ring-foreground/40 ring-inset")}>
         <CellHeader {...props} />
-        <Viewport
-          compact={!props.focused}
-          paint={stream.paint}
-          state={stream.state}
-          shown={stream.shown}
-          program={tab.program}
-          label={liveLabel(`${name} ${tab.program}`, stream.shown)}
-          held={heldTerminal({ session, tab: tab.tab }, { held, typing, keyboard })}
-        />
+        <Viewport compact={!props.focused} {...view.viewport} />
         <Portaled target={props.slots.status}>
-          <StatusBar session={session} tab={tab} state={stream.state} shown={stream.shown} hint={controlHint(typing, tab.program)} />
+          <StatusBar session={session} tab={tab} state={stream.state} shown={stream.shown} hint={view.hint} />
         </Portaled>
       </section>
     </>

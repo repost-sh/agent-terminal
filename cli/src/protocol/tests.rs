@@ -2,10 +2,12 @@ use std::io::{self, Read};
 
 use serde_json::json;
 
+use crate::key::Mods;
+
 use super::{
-    Addressed, Cell, ClickTarget, CommandRecord, Direction, ErrorBody, Modes, MouseButton, MouseEvent, Name,
-    OtherVersion, Reply, Request, ScreenshotFormat, Shell, Size, Snapshot, Squeeze, Style, TextMatch, Theme, read,
-    read_body, write,
+    Addressed, Cell, ClickTarget, CommandRecord, Direction, ErrorBody, HumanInput, Input, Modes, MouseButton,
+    MouseEvent, Name, OtherVersion, Reply, Request, ScreenshotFormat, Shell, Size, Snapshot, Squeeze, Style, TextMatch,
+    Theme, read, read_body, write,
 };
 
 struct FailingOnce<'a> {
@@ -81,12 +83,36 @@ fn a_click_target_is_a_ref_a_cell_counted_from_one_or_text() {
 #[test]
 fn a_mouse_event_is_at_its_cell() {
     let events = [
-        MouseEvent::Move { row: 1, col: 2 },
-        MouseEvent::Down { row: 3, col: 4, button: MouseButton::Left },
-        MouseEvent::Up { row: 5, col: 6, button: MouseButton::Right },
-        MouseEvent::Wheel { row: 7, col: 8, direction: Direction::Down },
+        MouseEvent::Move { row: 1, col: 2, mods: Mods::default() },
+        MouseEvent::Down { row: 3, col: 4, button: MouseButton::Left, mods: Mods { ctrl: true, ..Mods::default() } },
+        MouseEvent::Up { row: 5, col: 6, button: MouseButton::Right, mods: Mods { alt: true, ..Mods::default() } },
+        MouseEvent::Wheel { row: 7, col: 8, direction: Direction::Down, mods: Mods { shift: true, ..Mods::default() } },
     ];
     assert_eq!(events.map(MouseEvent::at), [(1, 2), (3, 4), (5, 6), (7, 8)]);
+    assert_eq!(events.map(|event| event.mods().to_string()), ["", "Ctrl", "Alt", "Shift"]);
+}
+
+#[test]
+fn a_mouse_event_carries_its_modifiers_and_reads_missing_ones_as_none() {
+    let plain = MouseEvent::Move { row: 1, col: 2, mods: Mods::default() };
+    let held = MouseEvent::Down {
+        row: 3,
+        col: 4,
+        button: MouseButton::Left,
+        mods: Mods { ctrl: true, alt: true, shift: false },
+    };
+    assert_eq!(
+        serde_json::to_string(&plain).unwrap(),
+        r#"{"event":"move","row":1,"col":2,"mods":{"shift":false,"alt":false,"ctrl":false}}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&held).unwrap(),
+        r#"{"event":"down","row":3,"col":4,"button":"left","mods":{"shift":false,"alt":true,"ctrl":true}}"#
+    );
+    let partial: MouseEvent =
+        serde_json::from_str(r#"{"event":"up","row":1,"col":1,"button":"middle","mods":{"shift":true}}"#).unwrap();
+    assert_eq!(partial.mods(), Mods { shift: true, alt: false, ctrl: false });
+    assert_eq!(serde_json::from_str::<MouseEvent>(r#"{"event":"move","row":1,"col":2}"#).unwrap(), plain);
 }
 
 #[test]
@@ -370,4 +396,60 @@ fn a_name_is_1_to_24_lowercase_letters_digits_and_dashes_starting_with_a_letter_
         (&*sent, serde_json::to_value(&sent).unwrap(), serde_json::from_value::<Name>(json!("Bad")).is_err()),
         ("repost-forward", json!("repost-forward"), true)
     );
+}
+
+fn human_mouse_inputs() -> [HumanInput; 8] {
+    let ctrl = Mods { ctrl: true, ..Mods::default() };
+    let all = Mods { shift: true, alt: true, ctrl: true };
+    [
+        HumanInput::Mouse(MouseEvent::Move { row: 2, col: 3, mods: Mods::default() }),
+        HumanInput::Mouse(MouseEvent::Down { row: 2, col: 3, button: MouseButton::Left, mods: ctrl }),
+        HumanInput::Mouse(MouseEvent::Up { row: 2, col: 4, button: MouseButton::Right, mods: all }),
+        HumanInput::Mouse(MouseEvent::Wheel { row: 2, col: 4, direction: Direction::Down, mods: Mods::default() }),
+        HumanInput::Mouse(MouseEvent::Down { row: 1, col: 1, button: MouseButton::Middle, mods: Mods::default() }),
+        HumanInput::Focused(true),
+        HumanInput::Focused(false),
+        HumanInput::Typed("x".into()),
+    ]
+}
+
+#[test]
+fn a_human_mouse_event_or_focus_change_reads_as_the_command_it_stands_for() {
+    assert_eq!(
+        human_mouse_inputs().iter().map(|input| input.call().join(" ")).collect::<Vec<_>>(),
+        [
+            "mouse move 2,3",
+            "mouse down 2,3 --ctrl",
+            "mouse up 2,4 --right --shift --alt --ctrl",
+            "mouse wheel down 2,4",
+            "mouse down 1,1 --middle",
+            "focus in",
+            "focus out",
+            "type x",
+        ]
+    );
+}
+
+#[test]
+fn mouse_moves_and_focus_changes_are_not_logged_as_activity() {
+    assert_eq!(
+        human_mouse_inputs().iter().map(HumanInput::logged).collect::<Vec<_>>(),
+        [false, true, true, true, true, false, false, true]
+    );
+}
+
+#[test]
+fn a_human_mouse_event_or_focus_change_arrives_as_json_and_becomes_the_matching_input() {
+    let ctrl = Mods { ctrl: true, ..Mods::default() };
+    let sent = r#"{"mouse":{"event":"down","row":2,"col":3,"button":"left","mods":{"ctrl":true}}}"#;
+    let sent = serde_json::from_str::<HumanInput>(sent).unwrap();
+    let down = MouseEvent::Down { row: 2, col: 3, button: MouseButton::Left, mods: ctrl };
+    assert_eq!(sent, HumanInput::Mouse(down));
+    assert_eq!(
+        serde_json::to_string(&sent.input()).unwrap(),
+        serde_json::to_string(&Input::Mouse { event: down }).unwrap()
+    );
+    let focus = serde_json::from_str::<HumanInput>(r#"{"focused":false}"#).unwrap();
+    assert_eq!(focus, HumanInput::Focused(false));
+    assert_eq!(serde_json::to_string(&focus.input()).unwrap(), r#"{"kind":"focus","focused":false}"#);
 }

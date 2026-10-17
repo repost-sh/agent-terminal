@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 
-import { ControlButton } from "./control-button";
 import { LayoutSwitch } from "./layout-switch";
+import { MouseButton } from "./mouse-button";
 import { RestartButton } from "./restart-button";
 import { ScreenshotButton } from "./screenshot-button";
 import type { TabInfo } from "../lib/protocol";
@@ -12,4 +12,4 @@ export interface ToolbarTab { session: string; tab: TabInfo; stream: StreamState
 
 export type ToolbarActionProps = ToolbarTab & { layout: Layout; onLayout: (count: Layout) => void };
 
-export const TOOLBAR_ACTIONS: ComponentType<ToolbarActionProps>[] = [RestartButton, ScreenshotButton, LayoutSwitch, ControlButton];
+export const TOOLBAR_ACTIONS: ComponentType<ToolbarActionProps>[] = [RestartButton, ScreenshotButton, LayoutSwitch, MouseButton];

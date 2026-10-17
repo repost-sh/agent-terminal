@@ -33,6 +33,7 @@ export interface FrameUpdate {
   paint: string;
   alt_screen: boolean;
   mouse: string | null;
+  mouse_tracking: string | null;
   bracketed_paste: boolean;
   exited: boolean;
   exit_code: number | null;
@@ -58,7 +59,17 @@ export interface ActivityEntry {
   human?: HumanInput;
 }
 
-export type HumanInput = { typed: string } | { pressed: string } | { pasted: string };
+export interface Mods { shift: boolean; alt: boolean; ctrl: boolean }
+
+export type MouseButton = "left" | "middle" | "right";
+
+export type MouseEvent =
+  | { event: "move"; row: number; col: number; mods: Mods }
+  | { event: "down"; row: number; col: number; button: MouseButton; mods: Mods }
+  | { event: "up"; row: number; col: number; button: MouseButton; mods: Mods }
+  | { event: "wheel"; row: number; col: number; direction: "up" | "down"; mods: Mods };
+
+export type HumanInput = { typed: string } | { pressed: string } | { pasted: string } | { mouse: MouseEvent } | { focused: boolean };
 
 export interface PendingCall { time: string; tab?: string; command: string }
 

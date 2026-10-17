@@ -56,3 +56,29 @@ test("typing that empties keeps its row until something else is typed", () => {
 
   expect(rows.map((row) => row.human)).toEqual(['typed ""', "pressed Backspace", 'typed "b"']);
 });
+
+test("mouse and focus input read as what the person did, with the button and the held modifiers", () => {
+  const none = { shift: false, alt: false, ctrl: false };
+  const rows = activityRows(
+    [
+      entryOf("mouse", { human: { mouse: { event: "down", row: 2, col: 3, button: "left", mods: { ...none, ctrl: true } } } }),
+      entryOf("mouse", { human: { mouse: { event: "up", row: 2, col: 4, button: "right", mods: { shift: true, alt: true, ctrl: true } } } }),
+      entryOf("mouse", { human: { mouse: { event: "wheel", row: 2, col: 4, direction: "down", mods: none } } }),
+      entryOf("mouse", { human: { mouse: { event: "move", row: 5, col: 6, mods: { ...none, alt: true } } } }),
+      entryOf("mouse", { human: { mouse: { event: "down", row: 1, col: 1, button: "middle", mods: none } } }),
+      entryOf("focus", { human: { focused: true } }),
+      entryOf("focus", { human: { focused: false } }),
+    ],
+    0,
+  );
+
+  expect(rows.map((row) => row.human)).toEqual([
+    "mouse down at 2,3 with Ctrl",
+    "mouse up at 2,4 right button with Ctrl+Alt+Shift",
+    "mouse wheel down at 2,4",
+    "mouse move to 5,6 with Alt",
+    "mouse down at 1,1 middle button",
+    "focus in",
+    "focus out",
+  ]);
+});

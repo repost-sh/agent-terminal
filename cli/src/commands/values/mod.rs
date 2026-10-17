@@ -69,6 +69,14 @@ pub(super) fn parse_position(value: &str) -> Result<(u16, u16), String> {
     Ok((row, col))
 }
 
+pub(super) fn parse_focus(value: &str) -> Result<bool, String> {
+    match value {
+        "in" => Ok(true),
+        "out" => Ok(false),
+        other => Err(format!("focus goes in or out, not {other}")),
+    }
+}
+
 pub(super) fn parse_origin(value: &str) -> Result<String, String> {
     let refused = || format!("{value} is not an origin; an origin is http://host:port, like http://localhost:5173");
     let rest = value.strip_prefix("http://").or_else(|| value.strip_prefix("https://")).ok_or_else(refused)?;
