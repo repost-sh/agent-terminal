@@ -52,14 +52,14 @@ struct Pace {
 }
 
 impl Pace {
-    fn wake(&self, terminal: &Terminal) -> Option<Wake> {
+    fn wake(&self, glance: Glance, now: Instant) -> Option<Wake> {
         if self.in_flight >= WINDOW {
             return Some(Wake::OnMessage);
         }
-        if self.shown.as_ref().is_some_and(|shown| shown.glance == terminal.glance()) {
+        if self.shown.as_ref().is_some_and(|shown| shown.glance == glance) {
             return Some(Wake::OnChange);
         }
-        self.last_sent.map(|sent| sent + INTERVAL).filter(|due| *due > Instant::now()).map(Wake::At)
+        self.last_sent.map(|sent| sent + INTERVAL).filter(|due| *due > now).map(Wake::At)
     }
 
     async fn show(&mut self, socket: &mut WebSocket, terminal: &Terminal) -> Event {
@@ -91,7 +91,7 @@ async fn follow_tab(mut socket: WebSocket, route: TabRoute) {
         if replaced {
             pace.shown = None;
         }
-        let event = match pace.wake(&terminal) {
+        let event = match pace.wake(terminal.glance(), Instant::now()) {
             Some(wake) => follow.event(&mut socket, wake).await,
             None => pace.show(&mut socket, &terminal).await,
         };
@@ -161,3 +161,6 @@ impl LastSent {
 pub(super) fn hung_up(received: Option<&Result<Message, axum::Error>>) -> bool {
     matches!(received, None | Some(Err(_) | Ok(Message::Close(_))))
 }
+
+#[cfg(test)]
+mod tests;
