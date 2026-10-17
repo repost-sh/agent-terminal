@@ -62,6 +62,19 @@ test("a call with output opens and closes it, and the list stops following while
   expect(screen.getByRole("button", { name: /pressed x/ }).getAttribute("aria-expanded")).toBe("false");
 });
 
+test("a person's call opens only when it printed something, and shows what it printed but no command", async () => {
+  const daemon = await shownActivity();
+
+  await pushed(daemon, {
+    entries: [entryOf("paste", { action: 'pasted "a"', human: { pasted: "a" }, output: "pasted a" }), entryOf("type", { action: 'typed "b"', human: { typed: "b" }, exit: 4, error: "refused" })],
+  });
+  const printed = screen.getByRole("button", { name: /pasted "a"/ });
+
+  expect([printed.getAttribute("aria-expanded"), screen.getByRole("button", { name: /typed "b"/ }).hasAttribute("aria-expanded")]).toEqual(["false", false]);
+  fireEvent.click(printed);
+  expect([screen.getByRole("group", { name: "Output" }).textContent, screen.queryByRole("group", { name: "Command" })]).toEqual(["pasted a", null]);
+});
+
 test("scrolling away from the newest call stops following and scrolling back resumes", async () => {
   const daemon = await shownActivity();
 

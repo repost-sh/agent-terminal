@@ -197,6 +197,28 @@ test("a held cell takes keys only while it is focused and its program runs, and 
   expect(within(region("work app vim")).getByTestId("viewport-bottom").className.split(" ").at(-1)).toBe("bottom-2");
 });
 
+test("a held cell sends the mouse only while it is focused and its program runs", async () => {
+  const daemon = await shownApp("/split/work:app,work:api");
+  const press = () => {
+    fireEvent.mouseDown(within(region("work api make")).getByRole("group", { name: /live frame/ }), { clientX: 5, clientY: 5, button: 0 });
+  };
+
+  await drawn(daemon, streamOf("work", "app"));
+  await drawn(daemon, streamOf("work", "api"));
+  await daemon.push(streamOf("work", "api"), frameOf(4, { mouse: "sgr", mouse_tracking: "click" }));
+  fireEvent.click(region("work api make"));
+  await held(daemon, { session: "work", tab: "api" });
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 800, 240));
+  fireEvent.click(region("work app vim"));
+  press();
+  fireEvent.click(region("work api make"));
+  await daemon.push(streamOf("work", "api"), frameOf(5, { mouse: "sgr", mouse_tracking: "click", exited: true }));
+  await within(region("work api make")).findByRole("status");
+  press();
+  fireEvent.keyDown(screen.getByRole("application", { name: "Terminal work api, you have control" }), { key: "a" });
+  expect(daemon.sent(controlOf("work", "api")).filter((sent) => !("focused" in (sent as object)))).toEqual([]);
+});
+
 test("a cell that switches to another tab sends its keys to that tab", async () => {
   const daemon = await shownApp("/split/work:app,work:api");
 

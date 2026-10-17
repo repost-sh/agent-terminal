@@ -150,7 +150,9 @@ test("nothing is sent while the app does not track the mouse, the screen is not 
 
   press();
   held.mouse.track(tracked("click"));
-  held.screen.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+  held.screen.getBoundingClientRect = () => new DOMRect(0, 0, 0, 240);
+  press();
+  held.screen.getBoundingClientRect = () => new DOMRect(0, 0, 800, 0);
   press();
   held.screen.getBoundingClientRect = () => BOX;
   held.detach();
@@ -210,4 +212,24 @@ test("a frame says which cells the app tracks, and nothing when it does not take
     trackedIn(frameOf(1, { mouse: "sgr", mouse_tracking: "drag" })),
     trackedIn(frameOf(1, { mouse: "sgr", mouse_tracking: "pixels" })),
   ]).toEqual([null, null, { tracking: "motion", cols: 100, rows: 30 }, { tracking: "drag", cols: 80, rows: 24 }, null]);
+});
+
+test("a move to the next row in the same column is a new cell, and a forwarded release is kept from xterm", async () => {
+  const held = await heldTerminal();
+  const reachedXterm: string[] = [];
+
+  held.screen.addEventListener("mouseup", (event) => reachedXterm.push(event.type));
+  held.mouse.track(tracked("motion"));
+  held.screen.dispatchEvent(mouseEvent("mousemove", clientAt({ row: 2, col: 4 })));
+  held.screen.dispatchEvent(mouseEvent("mousemove", clientAt({ row: 3, col: 4 })));
+  held.screen.dispatchEvent(mouseEvent("mousedown", { ...clientAt({ row: 3, col: 4 }), button: 0 }));
+  held.screen.dispatchEvent(mouseEvent("mouseup", { ...clientAt({ row: 3, col: 4 }), button: 0 }));
+  held.screen.dispatchEvent(mouseEvent("mouseup", { ...clientAt({ row: 3, col: 4 }), button: 0 }));
+  expect(held.sent()).toEqual([
+    { event: "move", row: 2, col: 4, mods: NONE },
+    { event: "move", row: 3, col: 4, mods: NONE },
+    { event: "down", row: 3, col: 4, button: "left", mods: NONE },
+    { event: "up", row: 3, col: 4, button: "left", mods: NONE },
+  ]);
+  expect(reachedXterm).toEqual(["mouseup"]);
 });

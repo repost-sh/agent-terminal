@@ -28,6 +28,13 @@ const DELTA_LINE = 1;
 
 const DELTA_PAGE = 2;
 
+const WHEEL_TURNS = new Map<number, "up" | "down">([
+  [1, "down"],
+  [-1, "up"],
+]);
+
+const CAPTURE = { capture: true };
+
 const modsOf = (event: MouseEvent): Mods => ({ shift: event.shiftKey, alt: event.altKey, ctrl: event.ctrlKey });
 
 const screenBox = (node: HTMLElement) => {
@@ -72,7 +79,7 @@ const pressed = (forwarding: Forwarding, event: MouseEvent) => {
 
 const released = (forwarding: Forwarding, event: MouseEvent) => {
   const button = forwarding.gesture.held;
-  const located = button === null ? null : locate(forwarding, event);
+  const located = locate(forwarding, event);
 
   forwarding.gesture.held = null;
   if (button === null || !located) {
@@ -127,8 +134,14 @@ const wheeled = (forwarding: Forwarding, event: WheelEvent) => {
   const notches = Math.trunc(gesture.wheelRest);
 
   gesture.wheelRest -= notches;
-  for (let turned = 0; turned < Math.abs(notches); turned += 1) {
-    send(forwarding, { event: "wheel", ...located.cell, direction: notches > 0 ? "down" : "up", mods: modsOf(event) });
+  const direction = WHEEL_TURNS.get(Math.sign(notches));
+
+  if (direction) {
+    const turn: MouseInput = { event: "wheel", ...located.cell, direction, mods: modsOf(event) };
+
+    Array.from({ length: Math.abs(notches) }, () => turn).forEach((turned) => {
+      send(forwarding, turned);
+    });
   }
 };
 
@@ -160,18 +173,18 @@ const listen = (forwarding: Forwarding) => {
     menu(forwarding, event);
   };
 
-  node.addEventListener("mousedown", down, { capture: true });
-  node.addEventListener("mousemove", move, { capture: true });
-  node.addEventListener("wheel", wheel, { capture: true, passive: false });
-  node.addEventListener("contextmenu", context, { capture: true });
-  window.addEventListener("mouseup", up, { capture: true });
+  node.addEventListener("mousedown", down, CAPTURE);
+  node.addEventListener("mousemove", move, CAPTURE);
+  node.addEventListener("wheel", wheel, CAPTURE);
+  node.addEventListener("contextmenu", context, CAPTURE);
+  window.addEventListener("mouseup", up, CAPTURE);
 
   return () => {
-    node.removeEventListener("mousedown", down, { capture: true });
-    node.removeEventListener("mousemove", move, { capture: true });
-    node.removeEventListener("wheel", wheel, { capture: true });
-    node.removeEventListener("contextmenu", context, { capture: true });
-    window.removeEventListener("mouseup", up, { capture: true });
+    node.removeEventListener("mousedown", down, CAPTURE);
+    node.removeEventListener("mousemove", move, CAPTURE);
+    node.removeEventListener("wheel", wheel, CAPTURE);
+    node.removeEventListener("contextmenu", context, CAPTURE);
+    window.removeEventListener("mouseup", up, CAPTURE);
   };
 };
 

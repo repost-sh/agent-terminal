@@ -152,8 +152,12 @@ test("the mouse goes to an app that tracks it until it is switched off on the to
   const toggle = screen.getByRole("button", { name: "Mouse on" });
 
   expect([toggle.getAttribute("aria-pressed"), toggle.getAttribute("data-tooltip")]).toEqual(["true", "While you hold control, the mouse goes to the app when it asks for it; shift+click selects text"]);
+  const lookOn = toggle.className;
+
   fireEvent.click(toggle);
-  expect([screen.getByRole("button", { name: "Mouse off" }).getAttribute("aria-pressed"), localStorage.getItem("agent-terminal-mouse")]).toEqual(["false", "off"]);
+  const off = screen.getByRole("button", { name: "Mouse off" });
+
+  expect([off.getAttribute("aria-pressed"), off.getAttribute("data-tooltip"), localStorage.getItem("agent-terminal-mouse"), off.className === lookOn]).toEqual(["false", "The mouse selects text and never reaches the app", "off", false]);
   fireEvent.mouseDown(terminalFrame(), { clientX: 25, clientY: 15, button: 0 });
   expect([daemon.sent(controlOf("mouse")).length, terminalFrame().className.includes("is-mouse")]).toEqual([3, false]);
   fireEvent.click(screen.getByRole("button", { name: "Mouse off" }));
@@ -188,5 +192,4 @@ test("take control shows while the pointer moves over the terminal and fades onc
   expect(visible()).toBe(false);
   await held(daemon, "moving");
   expect([screen.queryByRole("button", { name: "Take control" }), within(screen.getByTestId("viewport-bottom")).getByRole("button").textContent]).toEqual([null, "Release control"]);
-  vi.useRealTimers();
 });
