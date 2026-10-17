@@ -22,16 +22,28 @@ impl Takes {
     }
 }
 
-pub(super) fn parse(parser: &mut clap::Command, argv: &[OsString]) -> Result<ArgMatches, clap::Error> {
-    let mut unnamed = tab_name_optional(parser);
-    let reordered =
-        unnamed.try_get_matches_from_mut(argv).ok().and_then(|matches| open_options_first(&unnamed, &matches, argv));
-    parser.try_get_matches_from_mut(reordered.as_deref().unwrap_or(argv))
+pub(super) fn parse(command: impl Fn() -> clap::Command, argv: &[OsString]) -> Result<ArgMatches, clap::Error> {
+    let mut parser = command();
+    let parsed = parser.try_get_matches_from_mut(argv);
+    let reordered = match &parsed {
+        Ok(matches) => open_options_first(&parser, matches, argv),
+        Err(_) => named_after_the_program(command(), argv),
+    };
+    match reordered {
+        Some(reordered) => parser.try_get_matches_from_mut(reordered),
+        None => parsed,
+    }
 }
 
-fn tab_name_optional(parser: &clap::Command) -> clap::Command {
+fn named_after_the_program(command: clap::Command, argv: &[OsString]) -> Option<Vec<OsString>> {
+    let mut unnamed = tab_name_optional(command);
+    let matches = unnamed.try_get_matches_from_mut(argv).ok()?;
+    open_options_first(&unnamed, &matches, argv)
+}
+
+fn tab_name_optional(command: clap::Command) -> clap::Command {
     let optional = |opening: clap::Command| opening.mut_arg("name", |name| name.required(false));
-    parser.clone().mut_subcommand("open", optional).mut_subcommand("tab", |tab| tab.mut_subcommand("new", optional))
+    command.mut_subcommand("open", optional).mut_subcommand("tab", |tab| tab.mut_subcommand("new", optional))
 }
 
 fn open_options_first(parser: &clap::Command, matches: &ArgMatches, argv: &[OsString]) -> Option<Vec<OsString>> {

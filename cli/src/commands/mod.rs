@@ -74,9 +74,9 @@ impl Context {
 }
 
 pub(crate) fn run() -> io::Result<i32> {
-    let mut parser = Cli::command();
     let argv: Vec<OsString> = std::env::args_os().collect();
-    let parsed = argv::parse(&mut parser, &argv).and_then(|matches| parsed(matches).map_err(|e| e.format(&mut parser)));
+    let parsed =
+        argv::parse(Cli::command, &argv).and_then(|matches| parsed(matches).map_err(|e| e.format(&mut Cli::command())));
     match parsed {
         Ok((command, context)) => dispatch(command, context),
         Err(e) => usage(&e),
