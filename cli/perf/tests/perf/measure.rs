@@ -5,14 +5,11 @@ use serde_json::Value;
 
 use crate::programs::{at_perf, bins, stderr};
 
-const METRICS: [(&str, usize); 6] = [
-    ("round-trip", 100),
-    ("snapshot", 100),
-    ("png", 100),
-    ("press-wait-text", 100),
-    ("idle-memory", 5),
-    ("tab-memory", 5),
-];
+const RUNS: &str = "3";
+const MEMORY_RUNS: &str = "1";
+
+const METRICS: [(&str, usize); 6] =
+    [("round-trip", 3), ("snapshot", 3), ("png", 3), ("press-wait-text", 3), ("idle-memory", 1), ("tab-memory", 1)];
 
 struct Measured {
     output: Output,
@@ -34,6 +31,10 @@ fn measure(base: &Path, change: &Path) -> Measured {
         dir.path().join("work").as_os_str(),
         "--out".as_ref(),
         out.as_os_str(),
+        "--runs".as_ref(),
+        RUNS.as_ref(),
+        "--memory-runs".as_ref(),
+        MEMORY_RUNS.as_ref(),
     ]);
     let results = std::fs::read_to_string(&out).ok().map(|json| serde_json::from_str(&json).expect("results are JSON"));
     Measured { output, results }

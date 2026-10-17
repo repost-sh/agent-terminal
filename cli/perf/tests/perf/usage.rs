@@ -1,6 +1,6 @@
 use crate::programs::{at_perf, stderr};
 
-const USAGE: &str = "usage: at-perf measure --base <agent-terminal> --change <agent-terminal> --fixtures <dir> --work <empty dir> --out <results.json>\n       at-perf check <results.json> [--summary <file>]\n       at-perf load --agent <agent-terminal> --fixtures <dir> --work <empty dir> --out <rows.json> [--seconds 10] [--rates 1,30,60,120] [--tabs 1,10,20] [--repaints partial,full] [--viewers none,dashboard]";
+const USAGE: &str = "usage: at-perf measure --base <agent-terminal> --change <agent-terminal> --fixtures <dir> --work <empty dir> --out <results.json> [--runs 100] [--memory-runs 9]\n       at-perf check <results.json> [--summary <file>]\n       at-perf load --agent <agent-terminal> --fixtures <dir> --work <empty dir> --out <rows.json> [--seconds 10] [--rates 1,30,60,120] [--tabs 1,10,20] [--repaints partial,full] [--viewers none,dashboard]";
 
 fn refused(args: &[&str]) -> String {
     let output = at_perf(args);
@@ -23,6 +23,23 @@ fn measure_names_the_argument_it_cannot_use() {
     assert_eq!(
         refused(&["measure", "--base", "a", "--change", "b", "--fixtures", "c", "--work", "d"]),
         format!("error: --out is missing\n{USAGE}\n")
+    );
+}
+
+#[test]
+fn measure_refuses_a_round_count_that_is_not_a_whole_number_above_zero() {
+    assert_eq!(refused(&["measure", "--runs"]), "error: --runs needs a number\n");
+    assert_eq!(
+        refused(&["measure", "--runs", "0"]),
+        "error: --runs needs a whole number above zero: number would be zero for non-zero type\n"
+    );
+    assert_eq!(
+        refused(&["measure", "--memory-runs", "nine"]),
+        "error: --memory-runs needs a whole number above zero: invalid digit found in string\n"
+    );
+    assert_eq!(
+        refused(&["measure", "--runs", "3", "--memory-runs", "2", "--base", "a"]),
+        format!("error: --change is missing\n{USAGE}\n")
     );
 }
 

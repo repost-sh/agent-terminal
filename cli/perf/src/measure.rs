@@ -6,8 +6,6 @@ use anyhow::{Context, Result, ensure};
 use crate::daemon::{Agent, Binary, Daemon, SESSION};
 use crate::metrics::{Metric, Results, Samples};
 
-const RUNS: usize = 100;
-const MEMORY_RUNS: usize = 5;
 const TABS: u32 = 10;
 pub(crate) const SIZE: &str = "120x40";
 const SCROLLBACK: &str = "2000";
@@ -17,6 +15,8 @@ pub(crate) struct Setup {
     pub change: PathBuf,
     pub fixtures: PathBuf,
     pub work: PathBuf,
+    pub runs: usize,
+    pub memory_runs: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -66,8 +66,8 @@ pub(crate) fn measure(setup: &Setup) -> Result<Results> {
         base: Binary::detect(canonical(&setup.base)?),
         change: Binary::detect(canonical(&setup.change)?),
     };
-    let (idle, tab) = memory_runs(&sides, &busy_screen)?;
-    let timings = timings(&sides, &busy_screen)?;
+    let (idle, tab) = memory_runs(&sides, &busy_screen, setup.memory_runs)?;
+    let timings = timings(&sides, &busy_screen, setup.runs)?;
     Ok(Results {
         metrics: vec![
             timings.round_trip.samples(Metric::RoundTrip),
@@ -80,10 +80,10 @@ pub(crate) fn measure(setup: &Setup) -> Result<Results> {
     })
 }
 
-fn memory_runs(sides: &Sides, busy_screen: &Path) -> Result<(Sampled, Sampled)> {
+fn memory_runs(sides: &Sides, busy_screen: &Path, runs: usize) -> Result<(Sampled, Sampled)> {
     let mut idle = Sampled::default();
     let mut tab = Sampled::default();
-    for run in 0..MEMORY_RUNS {
+    for run in 0..runs {
         for side in order(run) {
             match memory(sides.agent(side, format!("{}-memory-{run}", side.name())), busy_screen) {
                 Ok((without_tabs, per_tab)) => {
@@ -100,14 +100,14 @@ fn memory_runs(sides: &Sides, busy_screen: &Path) -> Result<(Sampled, Sampled)> 
     Ok((idle, tab))
 }
 
-fn timings(sides: &Sides, busy_screen: &Path) -> Result<Timings> {
+fn timings(sides: &Sides, busy_screen: &Path, runs: usize) -> Result<Timings> {
     let mut base = Screen::open(sides.agent(Side::Base, Side::Base.name().to_string()), busy_screen);
     let mut change = Screen::open(sides.agent(Side::Change, Side::Change.name().to_string()), busy_screen)?;
     let timings = Timings {
-        round_trip: interleave(&mut base, &mut change, |screen| screen.time(&["get", "frame"]))?,
-        snapshot: interleave(&mut base, &mut change, |screen| screen.time(&["snapshot"]))?,
-        png: interleave(&mut base, &mut change, |screen| screen.time(&["screenshot", &screen.screenshot]))?,
-        wait: interleave(&mut base, &mut change, Screen::press_wait_after_text)?,
+        round_trip: interleave(&mut base, &mut change, runs, |screen| screen.time(&["get", "frame"]))?,
+        snapshot: interleave(&mut base, &mut change, runs, |screen| screen.time(&["snapshot"]))?,
+        png: interleave(&mut base, &mut change, runs, |screen| screen.time(&["screenshot", &screen.screenshot]))?,
+        wait: interleave(&mut base, &mut change, runs, Screen::press_wait_after_text)?,
     };
     if let Ok(screen) = &mut base {
         screen.daemon.stop()?;
@@ -170,10 +170,11 @@ fn first_line(text: &str) -> String {
 fn interleave(
     base: &mut Result<Screen>,
     change: &mut Screen,
+    runs: usize,
     mut sample: impl FnMut(&mut Screen) -> Result<f64>,
 ) -> Result<Sampled> {
     let mut sampled = Sampled::default();
-    for run in 0..RUNS {
+    for run in 0..runs {
         for side in order(run) {
             let taken = match (side, &mut *base) {
                 (Side::Base, Ok(screen)) => sample(screen),
