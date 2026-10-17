@@ -103,6 +103,10 @@ fn usage(e: &clap::Error) -> io::Result<i32> {
         let message = rendered.strip_prefix("error: ").unwrap_or(&rendered).trim_end();
         return output::refuse(message, true);
     }
+    print_usage(e)
+}
+
+fn print_usage(e: &clap::Error) -> io::Result<i32> {
     let code = if e.use_stderr() { crate::exit::ERROR } else { 0 };
     match e.print() {
         Ok(()) => Ok(code),

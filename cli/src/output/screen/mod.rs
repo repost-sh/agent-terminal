@@ -25,25 +25,27 @@ fn write_screen(f: &mut fmt::Formatter<'_>, s: &Snapshot, squeeze: &Squeeze) -> 
 }
 
 fn header(s: &Snapshot) -> Vec<String> {
-    let mut header = vec![format!("{} {}", s.session, s.tab), s.program.clone(), format!("{}x{}", s.cols, s.rows)];
-    if s.alt_screen == Switch::On {
-        header.push("alt-screen".into());
-    }
-    if let Some(mouse) = &s.mouse {
-        header.push(format!("mouse:{mouse}"));
-    }
     let [row, col] = s.cursor;
-    header.push(if s.cursor_visible { format!("cursor {row},{col}") } else { "cursor hidden".into() });
-    header.push(format!("frame {}", s.frame));
-    match (s.exited, s.exit_code) {
-        (true, Some(code)) => header.push(format!("exited {code}")),
-        (true, None) => header.push("exited".into()),
-        (false, _) => {}
-    }
-    if s.nothing_printed {
-        header.push("nothing printed yet".into());
-    }
-    header
+    let cursor = if s.cursor_visible { format!("cursor {row},{col}") } else { "cursor hidden".into() };
+    let exit = match (s.exited, s.exit_code) {
+        (true, Some(code)) => Some(format!("exited {code}")),
+        (true, None) => Some("exited".into()),
+        (false, _) => None,
+    };
+    [
+        Some(format!("{} {}", s.session, s.tab)),
+        Some(s.program.clone()),
+        Some(format!("{}x{}", s.cols, s.rows)),
+        (s.alt_screen == Switch::On).then(|| "alt-screen".into()),
+        s.mouse.as_ref().map(|mouse| format!("mouse:{mouse}")),
+        Some(cursor),
+        Some(format!("frame {}", s.frame)),
+        exit,
+        s.nothing_printed.then(|| "nothing printed yet".into()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn label_width(s: &Snapshot, scrollback: &[String]) -> usize {
