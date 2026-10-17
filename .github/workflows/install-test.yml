@@ -15,6 +15,7 @@ jobs:
   rows:
     name: List the platforms to install on
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       install: ${{ steps.rows.outputs.install }}
       fixtures: ${{ steps.rows.outputs.fixtures }}
@@ -35,6 +36,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.rows.outputs.fixtures) }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
         with:
@@ -62,6 +64,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.rows.outputs.install) }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     env:
       VERSION: ${{ inputs.version }}
     steps:
@@ -124,6 +127,7 @@ jobs:
             target: aarch64-unknown-linux-gnu
             fixture: aarch64-unknown-linux-musl
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
     env:
       VERSION: ${{ inputs.version }}
     steps:

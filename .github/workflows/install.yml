@@ -1,6 +1,19 @@
 name: Clean install
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - npm/**
+      - dist-workspace.toml
+      - cli/Cargo.toml
+      - cli/Cargo.lock
+      - rust-toolchain.toml
+      - .github/install-test/**
+      - .github/workflows/install.yml
+      - .github/workflows/install-test.yml
+      - .github/workflows/build.yml
+      - .github/workflows/release.yml
   pull_request:
   workflow_dispatch:
 

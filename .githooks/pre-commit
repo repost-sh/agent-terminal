@@ -5,7 +5,7 @@ root="$(git rev-parse --show-toplevel)"
 staged="$(git diff --cached --name-only)"
 areas=()
 
-if grep -qE '^(cli|scripts|\.githooks)/' <<<"$staged"; then
+if grep -qE '^((cli|scripts|\.githooks|skill-data|skills)/|GAUNTLET\.md$|rust-toolchain\.toml$)' <<<"$staged"; then
   areas+=(rust)
 fi
 
@@ -23,10 +23,8 @@ if grep -qE '^(cli|dashboard|scripts|\.githooks)/' <<<"$staged"; then
   areas+=(duplication)
 fi
 
-workflows="$(git diff --cached --name-only --diff-filter=d | grep -E '^\.github/workflows/.+\.ya?ml$' || true)"
-if [ -n "$workflows" ]; then
-  command -v actionlint >/dev/null || { echo "pre-commit: install actionlint (brew install actionlint) to check .github/workflows" >&2; exit 1; }
-  (cd "$root" && actionlint $workflows)
+if grep -qE '^\.github/(workflows|actions)/' <<<"$staged"; then
+  areas+=(workflows)
 fi
 
 if [ "${#areas[@]}" -gt 0 ]; then

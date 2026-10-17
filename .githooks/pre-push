@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+pushed=""
+
+while read -r _ local_sha _ remote_sha; do
+  if [[ "$local_sha" =~ ^0+$ ]]; then
+    continue
+  fi
+  base="$("$root/scripts/push-base.sh" "$remote_sha" 2>/dev/null)" || base=origin/main
+  pushed+="$(git diff --name-only "$base...$local_sha")"$'\n'
+done
+
+if grep -qE '^((cli|scripts|\.githooks|skill-data|skills|dashboard|npm|\.github|\.claude-plugin)/|GAUNTLET\.md$|rust-toolchain\.toml$|\.gitignore$)' <<<"$pushed"; then
+  "$root/scripts/gauntlet.sh" coverage
+fi

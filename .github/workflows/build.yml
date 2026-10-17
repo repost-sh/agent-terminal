@@ -19,6 +19,7 @@ jobs:
   plan:
     name: Plan the release files
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
       dist-version: ${{ steps.dist.outputs.version }}
@@ -63,6 +64,7 @@ jobs:
             runner: ubuntu-22.04
             container: ghcr.io/rust-cross/rust-musl-cross:x86_64-musl@sha256:ce75e9174325d4fbb3de85c309e2d7ca29f7500169bc4b5d2c611ff7e86d549a
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
     container: ${{ matrix.container }}
     steps:
       - uses: actions/checkout@v6
@@ -96,6 +98,7 @@ jobs:
     name: Build the Homebrew formula, the source archive and sha256.sum
     needs: [plan, archive]
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
         with:
@@ -125,6 +128,7 @@ jobs:
     name: Pack the npm packages
     needs: [plan, archive]
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
         with:
