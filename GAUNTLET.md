@@ -18,11 +18,11 @@ The escape hatches are sealed by checks of their own: [sealed lint table](#seale
 | `duplication` | [duplication](#duplication) | default; pre-commit for `cli/`, `dashboard/`, `scripts/`; CI on Linux and macOS |
 | `browser` | [browser tests](#browser-tests) | CI on Linux; needs `agent-browser` and Chrome |
 | `coverage` | [coverage floor](#coverage-floor) and [CRAP](#crap) for the Rust crates | pre-push for `cli/`; CI on Linux; needs `cargo-llvm-cov` and `agent-browser` |
-| `mutation` | [mutation](#mutation): cargo-mutants and Stryker on the lines the change touched since `main` | CI on each pull request against its base branch, and on a manual run against its `base` input; minutes for a typical change |
+| `mutation` | [mutation](#mutation): cargo-mutants and Stryker on the lines the change touched since `main` | CI on every push to `main` against the pushed range (against `HEAD~1` after a force-push), on each pull request against its base branch, and on a manual run against its `base` input; minutes for a typical change |
 | `acceptance-faults` | the fault self-test of [acceptance](#acceptance) | CI on Linux; about five minutes |
 | `workflows` | [workflows](#workflows) | pre-commit for `.github/workflows/`, `.github/actions/`; CI on Linux; needs `actionlint` |
 
-With no area, `scripts/gauntlet.sh` runs `rust dashboard npm duplication`. Enable the pre-commit and pre-push hooks once per clone with `git config core.hooksPath .githooks`. `git commit --no-verify` skips the hook, so CI runs the gauntlet on every push and pull request: `.github/workflows/ci.yml` gives each area its own job, and `.github/actions/gauntlet-tools` installs what the job's areas need.
+With no area, `scripts/gauntlet.sh` runs `rust dashboard npm duplication`. Enable the pre-commit and pre-push hooks once per clone with `git config core.hooksPath .githooks`. `git commit --no-verify` skips the hook, so CI runs the gauntlet on every push and pull request: `.github/workflows/ci.yml` gives each area its own job, and `.github/actions/gauntlet-tools` installs what the job's areas need. `.github/workflows/install.yml` builds the release files and installs them on every platform, on each pull request and on each push to `main` that touches the packaging: `npm/`, `dist-workspace.toml`, `cli/Cargo.toml`, `cli/Cargo.lock`, `rust-toolchain.toml`, `.github/install-test/`, or the install, build and release workflows.
 
 ## Rules
 

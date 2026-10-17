@@ -24,6 +24,7 @@ runs:
     - uses: Swatinem/rust-cache@v2
       with:
         workspaces: cli
+        cache-on-failure: true
     - if: inputs.cargo-tools != ''
       uses: taiki-e/install-action@v2
       with:

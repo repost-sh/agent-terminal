@@ -18,6 +18,7 @@ jobs:
   commits:
     name: Conventional Commits
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,7 +28,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          if [[ "$BASE" =~ ^0+$ ]]; then shas=$(git rev-list -1 "$HEAD"); else shas=$(git rev-list "$BASE..$HEAD"); fi
+          if base=$(scripts/push-base.sh "$BASE"); then shas=$(git rev-list "$base..$HEAD"); else shas=$(git rev-list -1 "$HEAD"); fi
           status=0
           for sha in $shas; do
             git log -1 --format=%B "$sha" > "$RUNNER_TEMP/msg"
@@ -42,6 +43,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 50 || 30 }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/gauntlet-tools
@@ -49,7 +51,20 @@ jobs:
           cargo-tools: cargo-deny@0.20.2,cargo-machete@0.9.2,cargo-mutants@27.1.0
           shells: true
           dashboard: true
+      - name: Install actionlint 1.7.12
+        if: runner.os == 'Linux'
+        env:
+          ARCHIVE: actionlint_1.7.12_linux_amd64.tar.gz
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSLo "$RUNNER_TEMP/$ARCHIVE" "https://github.com/rhysd/actionlint/releases/download/v1.7.12/$ARCHIVE"
+          echo "$SHA256  $RUNNER_TEMP/$ARCHIVE" | sha256sum --check --strict
+          mkdir "$RUNNER_TEMP/actionlint"
+          tar -xzf "$RUNNER_TEMP/$ARCHIVE" -C "$RUNNER_TEMP/actionlint" actionlint
+          echo "$RUNNER_TEMP/actionlint" >> "$GITHUB_PATH"
       - run: scripts/gauntlet.sh
+      - if: runner.os == 'Linux'
+        run: scripts/gauntlet.sh workflows
       - name: Rerun the CLI tests to surface timing flakes
         working-directory: cli
         run: for run in 1 2 3 4; do echo "rerun $run of 4"; cargo test --quiet --test cli || exit 1; done
@@ -57,6 +72,7 @@ jobs:
   browser:
     name: Gauntlet browser
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/gauntlet-tools
@@ -67,6 +83,7 @@ jobs:
   coverage:
     name: Gauntlet coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/gauntlet-tools
@@ -80,6 +97,7 @@ jobs:
   acceptance-faults:
     name: Gauntlet acceptance faults
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/gauntlet-tools
@@ -89,8 +107,8 @@ jobs:
 
   mutation:
     name: Gauntlet mutation
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
@@ -100,14 +118,21 @@ jobs:
           cargo-tools: cargo-mutants@27.1.0
           shells: true
           dashboard: true
+      - name: Take the commit the push started from, or the one before HEAD after a force-push
+        id: pushed
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: echo "base=$(scripts/push-base.sh "$BEFORE" || echo HEAD~1)" >> "$GITHUB_OUTPUT"
       - env:
-          GAUNTLET_MUTATION_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || inputs.base }}
+          GAUNTLET_MUTATION_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || steps.pushed.outputs.base || inputs.base }}
           GAUNTLET_MUTATION_SHARDS: 2
         run: scripts/gauntlet.sh mutation
 
   performance:
     name: Speed and memory
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: cli
@@ -120,6 +145,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: cli
+          cache-on-failure: true
       - name: Build agent-terminal at the base of this change
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base }}
