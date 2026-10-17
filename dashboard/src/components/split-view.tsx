@@ -132,7 +132,7 @@ const CellHeader = (props: SplitCellProps) => {
       >
         <TabGlyph tab={tab} />
         <span className="flex min-w-0 items-center gap-x-1.5">
-          <span data-tooltip={session} data-tooltip-overflow className="min-w-0 flex-1 truncate font-mono font-semibold">{session}</span>
+          <span data-tooltip={session} data-tooltip-overflow className="min-w-[2ch] flex-1 truncate font-mono font-semibold">{session}</span>
           <span className="text-muted-foreground" aria-hidden="true">
             /
           </span>
