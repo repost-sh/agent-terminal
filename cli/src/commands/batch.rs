@@ -36,16 +36,16 @@ pub(super) fn request(args: &BatchArgs, defaults: &Defaults<'_>) -> Result<Reque
         });
     let mut steps = Vec::new();
     for (index, call) in crate::batch::calls(&args.commands)?.into_iter().enumerate() {
-        let request = step(parser.clone(), &call)
+        let request = step(&parser, &call)
             .map_err(|reason| NotValid { index, call: &output::call_line(&call), reason: &reason }.to_string())?;
         steps.push(BatchStep { args: call, request });
     }
     Ok(Request::Batch(request::Batch { steps, bail: args.bail }))
 }
 
-fn step(mut parser: clap::Command, call: &[String]) -> Result<Request, String> {
+fn step(parser: &clap::Command, call: &[String]) -> Result<Request, String> {
     let argv: Vec<OsString> = call.iter().map(OsString::from).collect();
-    let matches = argv::parse(&mut parser, &argv)
+    let matches = argv::parse(|| parser.clone(), &argv)
         .map_err(|e| if unnamed_tab(&e) { NAME_THE_TAB.to_string() } else { e.render().to_string() })?;
     let (command, context) = parsed(matches).map_err(|e| e.render().to_string())?;
     single(command, context)

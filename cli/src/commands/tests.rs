@@ -14,8 +14,7 @@ fn own_parts(mut sent: serde_json::Value) -> String {
 
 fn sent(words: Vec<String>) -> String {
     let argv: Vec<OsString> = std::iter::once("agent-terminal".to_string()).chain(words).map(OsString::from).collect();
-    let mut parser = Cli::command().mut_arg("session", |arg| arg.env(None::<&str>));
-    match argv::parse(&mut parser, &argv).and_then(parsed) {
+    match argv::parse(|| Cli::command().mut_arg("session", |arg| arg.env(None::<&str>)), &argv).and_then(parsed) {
         Ok((command, context)) => request(command, context).map_or_else(
             |refused| format!("refused: {refused}"),
             |request| own_parts(serde_json::to_value(&request).unwrap()),
@@ -117,6 +116,33 @@ fn opening_a_program_takes_its_options_before_or_after_it_and_keeps_its_own_flag
         tab new make all --env X=y --name make -> {"args":["all"],"command":"open","cwd":"<here>","env":[["X","y"]],"program":"make","session":"work","size":{"cols":120,"rows":40},"tab":"make","timeout_ms":25000,"wait":{"quiet_ms":300,"until":"stable"}}
         open --name top --size 9 htop -> usage: ValueValidation
     "##);
+}
+
+#[test]
+fn a_command_line_builds_one_parser_unless_the_tab_name_comes_after_the_program() {
+    let built = std::cell::Cell::new(0);
+    let command = || {
+        built.set(built.get() + 1);
+        Cli::command().mut_arg("session", |arg| arg.env(None::<&str>))
+    };
+    let parsers = |line: &str| {
+        built.set(0);
+        let argv: Vec<OsString> =
+            ["agent-terminal", "--session", "work"].into_iter().chain(line.split(' ')).map(OsString::from).collect();
+        let parsed = argv::parse(command, &argv).map_or("usage", |_| "parsed");
+        format!("{line} -> {parsed} with {} parser(s)", built.get())
+    };
+    insta::assert_snapshot!([
+        "get frame",
+        "open --name top htop --size 80x24",
+        "open htop --size 80x24 --name top",
+        "get frame --bogus",
+    ].map(parsers).join("\n"), @"
+    get frame -> parsed with 1 parser(s)
+    open --name top htop --size 80x24 -> parsed with 1 parser(s)
+    open htop --size 80x24 --name top -> parsed with 2 parser(s)
+    get frame --bogus -> usage with 2 parser(s)
+    ");
 }
 
 #[test]
