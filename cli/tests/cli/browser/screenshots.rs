@@ -75,7 +75,7 @@ fn thumbnail_width(browser: &Browser, nth: usize) -> String {
 }
 
 fn open_shot(browser: &Browser, nth: usize) {
-    browser.run(&["click", &format!("{GALLERY} > li:nth-child({nth}) > button")]);
+    browser.click(&format!("{GALLERY} > li:nth-child({nth}) > button"));
     browser.wait_until(&format!("document.querySelector({}) !== null", js_string(LIGHTBOX)));
 }
 

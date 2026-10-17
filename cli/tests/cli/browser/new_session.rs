@@ -28,7 +28,7 @@ fn focused_label(browser: &Browser) -> String {
 fn submit(browser: &Browser, label: &str) {
     let button = "[role=dialog] button[type=submit]";
     assert_eq!(browser.text(button).trim(), label);
-    browser.run(&["click", button]);
+    browser.click(button);
 }
 
 fn wait_for_cli_line(browser: &Browser, line: &str) {

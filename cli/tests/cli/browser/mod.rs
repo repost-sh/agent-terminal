@@ -161,12 +161,34 @@ impl Browser {
         serde_json::from_str(&value).unwrap_or_else(|e| panic!("{script} gave {value}, not the JSON expected: {e}"))
     }
 
+    #[track_caller]
+    fn wait_for_ready(&self, element: &str) {
+        self.wait_until(&format!(
+            "((element) => element?.checkVisibility() === true && !element.matches(':disabled'))({element})"
+        ));
+    }
+
+    #[track_caller]
+    pub(crate) fn click(&self, selector: &str) {
+        self.wait_for_ready(&format!("document.querySelector({})", js_string(selector)));
+        self.run(&["click", selector]);
+    }
+
+    #[track_caller]
     pub(crate) fn click_button(&self, name: &str) {
+        self.wait_for_ready(&named("button", name));
         self.run(&["find", "role", "button", "click", "--name", name, "--exact"]);
     }
 
     #[track_caller]
+    pub(crate) fn click_link(&self, name: &str) {
+        self.wait_for_ready(&named("a[href]", name));
+        self.run(&["find", "role", "link", "click", "--name", name, "--exact"]);
+    }
+
+    #[track_caller]
     pub(crate) fn click_button_in(&self, scope: &str, name: &str) {
+        self.wait_for_ready(&named(&format!("{scope} button"), name));
         let listed = self.run(&["snapshot", "-i", "-s", scope]);
         let button = format!("button {}", js_string(name));
         let reference = listed
@@ -179,11 +201,15 @@ impl Browser {
         self.run(&["click", &format!("@{reference}")]);
     }
 
+    #[track_caller]
     pub(crate) fn fill(&self, label: &str, text: &str) {
+        self.wait_for_ready(&labelled(label));
         self.run(&["find", "label", label, "fill", text, "--exact"]);
     }
 
+    #[track_caller]
     pub(crate) fn check(&self, label: &str) {
+        self.wait_for_ready(&labelled(label));
         self.run(&["find", "label", label, "check", "--exact"]);
     }
 
@@ -221,4 +247,19 @@ impl Drop for Browser {
 
 pub(crate) fn js_string(text: &str) -> String {
     serde_json::to_string(text).expect("a JSON string")
+}
+
+fn named(elements: &str, name: &str) -> String {
+    format!(
+        "[...document.querySelectorAll({})].find((element) => element.checkVisibility() && (element.ariaLabel ?? element.textContent).replace(/\\s/g, '') === {})",
+        js_string(elements),
+        js_string(&name.split_whitespace().collect::<String>())
+    )
+}
+
+fn labelled(label: &str) -> String {
+    format!(
+        "[...document.querySelectorAll('label')].find((label) => label.textContent.trim() === {})?.control",
+        js_string(label)
+    )
 }

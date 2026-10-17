@@ -104,7 +104,7 @@ fn the_commands_tab_lists_each_command_with_its_exit_status_and_expands_to_its_o
 }
 
 fn expanding_the_first_command_shows_its_output_in_its_colours(browser: &Browser) {
-    browser.run(&["click", &format!("{COMMANDS} > li:nth-child(1) button")]);
+    browser.click(&format!("{COMMANDS} > li:nth-child(1) button"));
     browser.wait_until(&format!(
         "document.querySelector(\"{COMMANDS} > li:nth-child(1) > div > button + div\")?.innerText.trim() === 'green passing'"
     ));
@@ -115,7 +115,7 @@ fn expanding_the_first_command_shows_its_output_in_its_colours(browser: &Browser
 }
 
 fn expanding_the_second_command_shows_its_output_too(browser: &Browser) {
-    browser.run(&["click", &format!("{COMMANDS} > li:nth-child(2) button")]);
+    browser.click(&format!("{COMMANDS} > li:nth-child(2) button"));
     browser.wait_until(&format!(
         "document.querySelector(\"{COMMANDS} > li:nth-child(2) > div > button + div\")?.innerText.trim() === 'failing'"
     ));

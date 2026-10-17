@@ -128,7 +128,7 @@ fn the_modes_follow_the_program(browser: &Browser, cue: &Cue) {
 
 fn the_environment_opens_with_its_count(browser: &Browser) -> Vec<(String, String)> {
     assert_eq!(browser.eval("document.querySelector('#ppanel-info details').open"), "false");
-    browser.run(&["click", "#ppanel-info summary"]);
+    browser.click("#ppanel-info summary");
     browser.wait_until("document.querySelector('#ppanel-info details').open");
     let environment = lists(browser).remove(2);
     let summary: String =
