@@ -3,7 +3,7 @@ use super::tab::ShellTab;
 in_every_shell!(the_command_log_keeps_every_finished_command_with_its_output);
 
 fn logged_commands(tab: &ShellTab) -> Vec<serde_json::Value> {
-    let path = tab.at.home().join("sessions/default/t1.commands.jsonl");
+    let path = tab.at.home().join("sessions/work/t1.commands.jsonl");
     let log = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     log.lines().map(|line| serde_json::from_str(line).expect("a command log line")).collect()
 }

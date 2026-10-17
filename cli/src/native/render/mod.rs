@@ -48,25 +48,6 @@ impl Image {
     }
 }
 
-pub(crate) fn check_fonts() -> Result<Vec<&'static str>, String> {
-    let glyphs = GLYPHS.lock().unwrap_or_else(PoisonError::into_inner);
-    let samples = [
-        (Face::Regular, 'A'),
-        (Face::Bold, 'A'),
-        (Face::Italic, 'A'),
-        (Face::BoldItalic, 'A'),
-        (Face::Symbols, '\u{e0b0}'),
-        (Face::Emoji, '\u{1f600}'),
-    ];
-    let missing: Vec<&str> =
-        samples.iter().filter(|(face, c)| !glyphs.covers(*face, *c)).map(|(face, _)| face.name()).collect();
-    if missing.is_empty() {
-        Ok(vec![Face::Regular.name(), Face::Symbols.name(), Face::Emoji.name()])
-    } else {
-        Err(missing.join(", "))
-    }
-}
-
 #[derive(Clone, Copy)]
 struct Span {
     cols: u16,

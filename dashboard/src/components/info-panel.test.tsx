@@ -6,7 +6,7 @@ import { startDaemon, type FakeDaemon } from "../fake-daemon/daemon";
 import { sessionInfo, tabInfo } from "../fake-daemon/messages";
 import type { TabSetup } from "../lib/info";
 
-const INFO = "/api/session/work/t1/info";
+const INFO = "/api/session/work/app/info";
 
 const setup = (change: Partial<TabSetup>): TabSetup => ({
   program: "bash",
@@ -26,7 +26,7 @@ const setup = (change: Partial<TabSetup>): TabSetup => ({
 });
 
 const shownInfo = async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();

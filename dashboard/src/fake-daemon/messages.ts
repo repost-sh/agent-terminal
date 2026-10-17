@@ -53,7 +53,7 @@ export const commandOf = (id: number, change: Partial<CommandRecord> = {}): Comm
 
 export const shotOf = (name: string, change: Partial<Screenshot> = {}): Screenshot => ({
   time: new Date(2026, 0, 2, 3, 4, 5).toISOString(),
-  tab: "t1",
+  tab: "app",
   frame: 3,
   path: `/home/me/.agent-terminal/work/${name}`,
   by: null,

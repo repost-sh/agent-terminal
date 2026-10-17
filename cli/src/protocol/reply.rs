@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Attached, CommandOutput, Delivered, ErrorBody, Fact, History, Matches, Screenshot, ScreenshotDiff, SessionInfo,
-    Sessions, Snapshot, SnapshotDiff,
+    Attached, CommandOutput, Delivered, ErrorBody, Fact, History, Matches, Name, Screenshot, ScreenshotDiff,
+    SessionInfo, Sessions, Snapshot, SnapshotDiff,
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -16,6 +16,7 @@ pub(crate) enum Response {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "reply", content = "data")]
 pub(crate) enum Reply {
+    Created(Created),
     Snapshot(Snapshot),
     Closed(Closed),
     Sessions(Sessions),
@@ -42,6 +43,11 @@ pub(crate) enum Reply {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct Created {
+    pub session: Name,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Dashboard {
     pub url: String,
     pub port: u16,
@@ -59,7 +65,7 @@ pub(crate) struct KeptRunning {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Export {
-    pub session: String,
+    pub session: Name,
     pub path: PathBuf,
     pub files: usize,
     pub bytes: u64,
@@ -81,12 +87,14 @@ pub(crate) struct Printed {
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Closed {
     pub closed: Vec<TabRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ended: Vec<Name>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct WaitOutcome {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     pub until: String,
     pub waited_ms: u64,
     pub frame: u64,
@@ -96,15 +104,15 @@ pub(crate) struct WaitOutcome {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Checked {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     pub fact: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct TabRef {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

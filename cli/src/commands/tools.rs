@@ -28,11 +28,6 @@ pub(super) enum ToolCommand {
         #[arg(long, help = "Only watch: your keys are not sent and the agent keeps control")]
         read_only: bool,
     },
-    #[command(about = "Install the agent skill stub into ~/.claude/skills")]
-    Install {
-        #[arg(long, help = "Install the agent skill stub (the default)")]
-        skills: bool,
-    },
     #[command(hide = true)]
     Daemon {
         #[command(subcommand)]
@@ -40,24 +35,12 @@ pub(super) enum ToolCommand {
     },
     #[command(
         about = "Several commands in one call (args or stdin)",
-        long_about = "Run several commands in order in one call to the daemon.\n\nPass each command as one quoted argument, e.g. batch \"open htop\" \"snapshot\", or pipe a JSON array to stdin whose items are command lines or argument arrays, e.g. [[\"open\", \"htop\"], \"snapshot\"]. Commands use the batch's --session, --tab and --timeout unless they set their own. Every command is parsed before any of them runs. Each command's output and exit code are printed in order, and batch exits with the code of the first command that failed."
+        long_about = "Run several commands in order in one call.\n\nPass each command as one quoted argument, e.g. batch \"open --name top htop\" \"snapshot\", or pipe a JSON array to stdin whose items are command lines or argument arrays, e.g. [[\"open\", \"--name\", \"top\", \"htop\"], \"snapshot\"]. Commands use the batch's --session, --tab and --timeout unless they set their own. Every command is parsed before any of them runs. Each command's output and exit code are printed in order, and batch exits with the code of the first command that failed."
     )]
     Batch(BatchArgs),
     #[command(about = "MCP stdio server with the same commands as tools")]
     Mcp,
-    #[command(
-        about = "Check PTY support, the built-in fonts, shell integration, the daemon (its socket and version) and the installed skill stub's version, and say how to fix each problem"
-    )]
-    Doctor {
-        #[arg(
-            long,
-            help = "Remove stale sockets and state, bring shell integration scripts and an older skill stub up to date"
-        )]
-        fix: bool,
-    },
-    #[command(
-        about = "Upgrade to the latest version with what installed this one (npm, pnpm, yarn, bun or Homebrew), and refresh the installed skill stub"
-    )]
+    #[command(about = "Upgrade to the latest version with what installed this one (npm, pnpm, yarn, bun or Homebrew)")]
     Upgrade,
     #[command(about = "Print the version")]
     Version,
@@ -77,11 +60,9 @@ impl ToolCommand {
             }
             ToolCommand::Daemon { action: DaemonAction::Run }
             | ToolCommand::Skills { .. }
-            | ToolCommand::Install { .. }
             | ToolCommand::Batch(_)
             | ToolCommand::Mcp
             | ToolCommand::Attach { .. }
-            | ToolCommand::Doctor { .. }
             | ToolCommand::Upgrade
             | ToolCommand::Version => Err(ON_ITS_OWN.into()),
         }

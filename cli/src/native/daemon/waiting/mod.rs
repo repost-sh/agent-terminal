@@ -7,9 +7,7 @@ use crate::native::commands::Submitted;
 use crate::native::control::{Control, Handed};
 use crate::native::terminal::{Labelled, Settled, Status, Terminal};
 use crate::native::wait::Condition;
-use crate::protocol::{
-    CommandOutput, ErrorBody, Reply, RowRange, Snapshot, Target, TextMatch, Wait, WaitOutcome, request,
-};
+use crate::protocol::{CommandOutput, ErrorBody, Reply, RowRange, Snapshot, TextMatch, Wait, WaitOutcome, request};
 
 const CONTROL_HANDED_BACK: &str = "a human to hand back control";
 
@@ -59,8 +57,8 @@ impl Daemon {
     pub(super) fn wait(&self, waiting: request::WaitFor) -> Result<Reply, ErrorBody> {
         let request::WaitFor { target, wait, timeout_ms, assert } = waiting;
         let timeout_ms = longest(&wait, timeout_ms);
-        let (id, terminal) = self.target(&target)?;
-        let (session, tab) = (target.session, id.to_string());
+        let (tab, terminal) = self.target(&target)?;
+        let session = target.session;
         let at = Labelled { session: &session, tab: &tab, terminal: &terminal };
         if matches!(wait, Wait::Command) && terminal.shell().is_none() {
             return Err(no_integration(&at));
@@ -77,13 +75,12 @@ impl Daemon {
 
     pub(super) fn wait_control(&self, waiting: request::WaitControl) -> Result<Reply, ErrorBody> {
         let request::WaitControl { target, timeout_ms, assert } = waiting;
-        let (id, Tab { terminal, control }) = self.tab(&target)?;
-        let (session, tab) = (target.session, id.to_string());
+        let (id, Tab { name: tab, terminal, control, .. }) = self.tab(&target)?;
+        let session = target.session;
         let started = Instant::now();
         match control.wait_for_agent(Duration::from_millis(timeout_ms)) {
             Handed::Back => {
-                let frame =
-                    self.target(&Target::tab(&session, id)).map_or_else(|_| terminal.frame(), |(_, now)| now.frame());
+                let frame = self.terminal_of(&session, id).unwrap_or(terminal).frame();
                 let waited_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
                 let until = CONTROL_HANDED_BACK.to_string();
                 Ok(Reply::Waited(WaitOutcome { session, tab, until, waited_ms, frame, exit_code: None }))
@@ -105,8 +102,8 @@ impl Daemon {
     }
 
     pub(super) fn exec(&self, exec: request::Exec) -> Result<Reply, ErrorBody> {
-        let (id, Tab { terminal, control }) = self.tab(&exec.target)?;
-        let (session, tab) = (exec.target.session, id.to_string());
+        let (_, Tab { name: tab, terminal, control, .. }) = self.tab(&exec.target)?;
+        let session = exec.target.session;
         let at = Labelled { session: &session, tab: &tab, terminal: &terminal };
         if terminal.shell().is_none() {
             return Err(no_integration(&at));

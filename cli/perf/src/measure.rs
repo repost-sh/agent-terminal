@@ -3,7 +3,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, ensure};
 
-use crate::daemon::{Agent, Daemon};
+use crate::daemon::{Agent, Binary, Daemon, SESSION};
 use crate::metrics::{Metric, Results, Samples};
 
 const RUNS: usize = 100;
@@ -36,8 +36,8 @@ impl Side {
 
 struct Sides {
     work: PathBuf,
-    base: PathBuf,
-    change: PathBuf,
+    base: Binary,
+    change: Binary,
 }
 
 impl Sides {
@@ -61,7 +61,11 @@ pub(crate) fn measure(setup: &Setup) -> Result<Results> {
     std::fs::create_dir_all(&setup.work).with_context(|| format!("create {}", setup.work.display()))?;
     let work = canonical(&setup.work)?;
     let busy_screen = canonical(&setup.fixtures.join("busy-screen"))?;
-    let sides = Sides { work, base: canonical(&setup.base)?, change: canonical(&setup.change)? };
+    let sides = Sides {
+        work,
+        base: Binary::detect(canonical(&setup.base)?),
+        change: Binary::detect(canonical(&setup.change)?),
+    };
     let (idle, tab) = memory_runs(&sides, &busy_screen)?;
     let timings = timings(&sides, &busy_screen)?;
     Ok(Results {
@@ -115,20 +119,12 @@ fn timings(sides: &Sides, busy_screen: &Path) -> Result<Timings> {
 fn memory(agent: Agent, busy_screen: &Path) -> Result<(f64, Result<f64>)> {
     let mut daemon = Daemon::start(agent)?;
     daemon.agent().run(&["session", "list"])?;
+    daemon.agent().new_session(SESSION)?;
     let without_tabs = daemon.memory()?;
     let per_tab = (|| {
-        for _ in 0..TABS {
-            daemon.agent().run(&[
-                "tab",
-                "new",
-                "--size",
-                SIZE,
-                "--wait",
-                "ready",
-                utf8(busy_screen)?,
-                "--scrollback",
-                SCROLLBACK,
-            ])?;
+        for tab in 0..TABS {
+            let args = ["--size", SIZE, "--wait", "ready", utf8(busy_screen)?, "--scrollback", SCROLLBACK];
+            daemon.agent().open(&format!("tab-{tab}"), &args)?;
         }
         Ok((daemon.memory()? - without_tabs) / f64::from(TABS))
     })();
@@ -214,16 +210,10 @@ impl Screen {
         let stamps = agent.work.join(&agent.home).join("stamps");
         let screenshot = format!("{}.png", agent.home);
         let daemon = Daemon::start(agent)?;
-        daemon.agent().run(&[
-            "open",
-            "--size",
-            SIZE,
-            "--wait",
-            "ready",
-            utf8(busy_screen)?,
-            "--stamps",
-            utf8(&stamps)?,
-        ])?;
+        daemon.agent().new_session(SESSION)?;
+        daemon
+            .agent()
+            .open("screen", &["--size", SIZE, "--wait", "ready", utf8(busy_screen)?, "--stamps", utf8(&stamps)?])?;
         Ok(Screen { daemon, stamps, screenshot, pressed: 0 })
     }
 

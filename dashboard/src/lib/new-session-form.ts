@@ -1,5 +1,6 @@
 import { shellWord } from "./format";
-import type { SessionInfo } from "./protocol";
+import { NAME, NAME_RULE, type SessionInfo } from "./protocol";
+import { findTab } from "./tabs";
 
 interface Size { cols: string; rows: string }
 
@@ -13,8 +14,6 @@ export const sizeLabel = (size: Size) => `${size.cols}x${size.rows}`;
 
 const SHELLS = ["zsh", "bash", "fish"];
 
-const NAME = /^[A-Za-z0-9_-]+$/;
-
 export type Mode = "new" | "existing";
 
 export interface Form {
@@ -27,9 +26,12 @@ export interface Form {
   cols: string;
   rows: string;
   integration: boolean | null;
+  tab: string | null;
 }
 
-export interface Errors { name?: string; command?: string; size?: string }
+export interface Errors { name?: string; command?: string; tab?: string; size?: string }
+
+export interface Chosen { shell: string | null; tab: string }
 
 export const freeName = (sessions: SessionInfo[]) => {
   const taken = new Set(sessions.map((entry) => entry.session));
@@ -48,10 +50,13 @@ export const initialForm = (sessions: SessionInfo[], existing: string | null): F
   cols: "120",
   rows: "40",
   integration: null,
+  tab: null,
 });
 
+const programOf = (command: string) => String(String(command.trim().split(/\s/)[0]).split("/").pop());
+
 export const shellOf = (command: string) => {
-  const name = String(command.trim().split(/\s/)[0]).split("/").pop();
+  const name = programOf(command);
 
   return SHELLS.find((shell) => shell === name) ?? null;
 };
@@ -61,19 +66,35 @@ export const sizeOf = (form: Form): Size =>
 
 export const sessionOf = (form: Form) => (form.mode === "new" ? form.name.trim() : form.existing);
 
+const heldIn = (form: Form, sessions: SessionInfo[]) => (tab: string) =>
+  form.mode === "existing" && findTab(sessions, { session: form.existing, tab }) !== null;
+
+export const tabField = (form: Form, sessions: SessionInfo[]) => {
+  const program = programOf(form.command);
+
+  return form.tab ?? (NAME.test(program) && !heldIn(form, sessions)(program) ? program : "");
+};
+
+export const tabOf = (form: Form, sessions: SessionInfo[]) => tabField(form, sessions).trim();
+
 const cwdPart = (form: Form) => {
   const cwd = form.cwd.trim();
 
   return cwd && cwd !== "~" ? ` --cwd ${cwd}` : "";
 };
 
-const verbPart = (form: Form, shell: string | null) => (shell ? `shell --shell ${shell}` : `open ${form.command.trim() || "<program>"}`);
+const verbPart = (form: Form, chosen: Chosen) => {
+  const tab = chosen.tab ? shellWord(chosen.tab) : "<tab>";
 
-export const cliLine = (form: Form, shell: string | null) => {
+  return chosen.shell ? `shell --name ${tab} --shell ${chosen.shell}` : `open --name ${tab} ${form.command.trim() || "<program>"}`;
+};
+
+export const cliLine = (form: Form, chosen: Chosen) => {
   const session = sessionOf(form) ? shellWord(sessionOf(form)) : "<name>";
   const size = sizeOf(form);
+  const created = form.mode === "new" ? `agent-terminal session new ${session} && ` : "";
 
-  return `agent-terminal --session ${session} ${verbPart(form, shell)}${cwdPart(form)} --size ${size.cols || "?"}x${size.rows || "?"}`;
+  return `${created}agent-terminal --session ${session} ${verbPart(form, chosen)}${cwdPart(form)} --size ${size.cols || "?"}x${size.rows || "?"}`;
 };
 
 interface Range { low: number; high: number }
@@ -88,29 +109,39 @@ const nameRefusal = (form: Form, sessions: SessionInfo[]) => {
   }
 
   if (!NAME.test(name)) {
-    return "Use letters, numbers, - and _.";
+    return NAME_RULE;
   }
 
   return sessions.some((entry) => entry.session === name) ? `A session named ${name} already exists.` : undefined;
 };
 
+const tabRefusal = (form: Form, sessions: SessionInfo[]) => {
+  const tab = tabOf(form, sessions);
+
+  if (!tab) {
+    return "Name the tab after the program or app it runs, e.g. api.";
+  }
+
+  if (!NAME.test(tab)) {
+    return NAME_RULE;
+  }
+
+  return heldIn(form, sessions)(tab) ? `${form.existing} already has a tab named ${tab}.` : undefined;
+};
+
 const sizeFits = (form: Form) => inRange(form.cols.trim(), { low: 20, high: 500 }) && inRange(form.rows.trim(), { low: 5, high: 200 });
 
+const commandRefusal = (form: Form) => (form.command.trim() ? undefined : "Enter a command.");
+
+const sizeRefusal = (form: Form) => (form.size === "custom" && !sizeFits(form) ? "Columns 20–500, rows 5–200." : undefined);
+
 export const refusals = (form: Form, sessions: SessionInfo[]): Errors => {
-  const errors: Errors = {};
-  const name = form.mode === "new" ? nameRefusal(form, sessions) : undefined;
+  const found = {
+    name: form.mode === "new" ? nameRefusal(form, sessions) : undefined,
+    command: commandRefusal(form),
+    tab: tabRefusal(form, sessions),
+    size: sizeRefusal(form),
+  };
 
-  if (name) {
-    errors.name = name;
-  }
-
-  if (!form.command.trim()) {
-    errors.command = "Enter a command.";
-  }
-
-  if (form.size === "custom" && !sizeFits(form)) {
-    errors.size = "Columns 20–500, rows 5–200.";
-  }
-
-  return errors;
+  return Object.fromEntries(Object.entries(found).filter(([, refusal]) => refusal !== undefined));
 };

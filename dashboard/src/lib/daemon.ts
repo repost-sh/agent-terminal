@@ -1,6 +1,7 @@
 import { announce } from "./announcements";
 import { sessionsStreamUrl } from "./api";
 import type { SessionInfo, Sessions } from "./protocol";
+import { followRenames } from "./renames";
 import { leadHomeTo, tabRoute } from "./route";
 import { createStore, useStore } from "./store";
 import { firstTab } from "./tabs";
@@ -36,7 +37,10 @@ const connect = () => {
   socket = opening;
   opening.onmessage = (event: MessageEvent<string>) => {
     failures = 0;
-    publish({ connection: "connected", sessions: (JSON.parse(event.data) as Sessions).sessions });
+    const sessions = (JSON.parse(event.data) as Sessions).sessions;
+
+    publish({ connection: "connected", sessions });
+    followRenames(sessions);
     if (retried) {
       announce("Connected");
     }

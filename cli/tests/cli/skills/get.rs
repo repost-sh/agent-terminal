@@ -68,12 +68,11 @@ fn skills_get_core_full_appends_the_full_command_reference() {
     assert!(reference.starts_with("\n--- command reference ---\n\n"), "{reference}");
     for help in [
         &["-h"][..],
-        &["open", "-h"],
+        &["open", "--name", "app", "-h"],
         &["snapshot", "-h"],
         &["close", "-h"],
         &["skills", "-h"],
         &["skills", "get", "-h"],
-        &["install", "-h"],
     ] {
         let text = at.run(help).success().stdout();
         assert!(reference.contains(&text), "the reference lacks `agent-terminal {}`:\n{text}", help.join(" "));
@@ -103,4 +102,16 @@ fn skills_get_an_unknown_skill_fails_and_says_how_to_list_them() {
     let run = at.run(&["skills", "get", "nope"]);
     assert_eq!(run.code(), 1);
     assert_eq!(run.stderr(), "error: no skill named nope; list them with `agent-terminal skills list`\n");
+}
+
+#[test]
+fn no_guide_in_its_full_form_speaks_of_the_daemon() {
+    let at = AgentTerminal::new();
+    let list = at.run(&["--json", "skills", "list"]).success().json();
+    let skills = list["skills"].as_array().expect("skills array");
+    for name in skills.iter().map(|skill| skill["name"].as_str().expect("a skill name")) {
+        let full = at.run(&["skills", "get", name, "--full"]).success().stdout();
+        let said: Vec<&str> = full.lines().filter(|line| line.to_lowercase().contains("daemon")).collect();
+        assert!(said.is_empty(), "`skills get {name} --full` speaks of the daemon:\n{}", said.join("\n"));
+    }
 }

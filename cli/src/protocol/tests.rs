@@ -3,9 +3,9 @@ use std::io::{self, Read};
 use serde_json::json;
 
 use super::{
-    Cell, ClickTarget, CommandRecord, Direction, ErrorBody, Modes, MouseButton, MouseEvent, OtherVersion, Reply,
-    ScreenshotFormat, Shell, Size, Snapshot, Style, TabId, TextMatch, Theme, daemon_stop_advice, read, read_body,
-    write,
+    Addressed, Cell, ClickTarget, CommandRecord, Direction, ErrorBody, Modes, MouseButton, MouseEvent, Name,
+    OtherVersion, Reply, Request, ScreenshotFormat, Shell, Size, Snapshot, Squeeze, Style, TextMatch, Theme, read,
+    read_body, write,
 };
 
 struct FailingOnce<'a> {
@@ -130,7 +130,7 @@ fn a_command_failed_once_it_ended_with_a_nonzero_exit_code() {
 fn an_error_carries_the_screen_or_the_other_versions_it_met() {
     let screen: Snapshot = serde_json::from_value(json!({
         "session": "default",
-        "tab": "t1",
+        "tab": "app",
         "program": "bash",
         "cols": 80,
         "rows": 24,
@@ -163,17 +163,6 @@ fn an_error_carries_the_screen_or_the_other_versions_it_met() {
 }
 
 #[test]
-fn stopping_the_daemon_is_advised_with_the_version_the_next_one_will_be() {
-    assert_eq!(
-        [daemon_stop_advice(Some("1.2.0")), daemon_stop_advice(None)],
-        [
-            "`agent-terminal daemon stop` ends it and its terminals, and the next command starts a 1.2.0 daemon",
-            "`agent-terminal daemon stop` ends it and its terminals, and the next command starts a daemon of the command's version"
-        ]
-    );
-}
-
-#[test]
 fn a_cell_reads_as_its_character_colours_and_the_styles_it_has() {
     assert_eq!(
         [cell(true, false, true).to_string(), cell(false, true, false).to_string()],
@@ -190,7 +179,7 @@ fn screenshot_diff(passed: bool) -> serde_json::Value {
         "reply": "ScreenshotDiff",
         "data": {
             "session": "default",
-            "tab": "t1",
+            "tab": "app",
             "baseline": "/home/me/work/before.png",
             "path": "/home/me/work/diff.png",
             "frame": 4,
@@ -225,7 +214,7 @@ fn a_checked_command_exits_with_its_own_code_and_a_failed_screenshot_diff_with_a
             "reply": "Command",
             "data": {
                 "session": "default",
-                "tab": "t1",
+                "tab": "app",
                 "id": 1,
                 "command": "make",
                 "cwd": "/home/me/work",
@@ -266,18 +255,46 @@ fn a_screenshot_format_and_theme_are_named_in_any_case() {
 }
 
 #[test]
-fn tabs_count_up_from_t1_and_parse_with_or_without_their_t() {
-    assert_eq!(TabId::FIRST.next().next().to_string(), "t3");
+fn only_a_snapshot_asked_with_squeeze_blank_is_squeezed_and_a_batch_squeezes_step_by_step() {
+    let options = |squeeze_blank: bool| json!({ "rows": null, "scrollback": "none", "ansi": false, "refs": false, "squeeze_blank": squeeze_blank });
+    let snapshot = |squeeze_blank| json!({ "command": "snapshot", "session": "w", "tab": null, "options": options(squeeze_blank) });
+    let typed = json!({ "command": "input", "session": "w", "tab": null, "input": { "kind": "type", "text": "x", "delay_ms": 0 }, "wait": null, "snapshot": options(true), "timeout_ms": 1 });
+    let steps = [snapshot(true), snapshot(false), json!({ "command": "sessions" })];
+    let batch = json!({ "command": "batch", "bail": false, "steps": steps.map(|request| json!({ "args": [], "request": request })) });
+    let squeeze = |request: serde_json::Value| serde_json::from_value::<Request>(request).unwrap().squeeze();
     assert_eq!(
-        ["t2", "7"].map(|text| text.parse::<TabId>().map(|tab| tab.to_string())),
-        [Ok("t2".into()), Ok("t7".into())]
+        [snapshot(true), snapshot(false), typed, batch].map(squeeze),
+        [Squeeze::On, Squeeze::Off, Squeeze::On, Squeeze::PerStep(vec![Squeeze::On, Squeeze::Off, Squeeze::Off])]
     );
+}
+
+#[test]
+fn a_request_addresses_a_tab_by_its_name() {
+    let addressed = |request: serde_json::Value| match serde_json::from_value::<Request>(request) {
+        Ok(request) => match request.addressed() {
+            Addressed::Tab(session, tab) => format!("{session} {}", tab.map_or("(current)", |tab| &**tab)),
+            Addressed::Opens(session, tab) => format!("{session} opens {tab}"),
+            Addressed::Session(session) => session.to_string(),
+            Addressed::Nothing => "nothing".to_string(),
+        },
+        Err(refused) => refused.to_string(),
+    };
     assert_eq!(
-        ["t0", "tab", ""].map(|text| text.parse::<TabId>().unwrap_err()),
         [
-            "invalid tab id: t0 (expected t1, t2, ...)",
-            "invalid tab id: tab (expected t1, t2, ...)",
-            "invalid tab id:  (expected t1, t2, ...)"
+            addressed(json!({ "command": "snapshot", "session": "work", "tab": "api" })),
+            addressed(json!({ "command": "rename-tab", "session": "work", "tab": null, "name": "web" })),
+            addressed(json!({ "command": "switch-tab", "session": "work", "tab": "web" })),
+            addressed(json!({ "command": "snapshot", "session": "work", "tab": "T1" })),
+            addressed(
+                json!({ "command": "open", "session": "work", "tab": "api", "program": "sh", "args": [], "size": { "cols": 2, "rows": 2 }, "cwd": "/", "env": [], "wait": null, "timeout_ms": 1 })
+            ),
+        ],
+        [
+            "work api",
+            "work (current)",
+            "work web",
+            "\"T1\" is not a name: a name is 1 to 24 characters of a-z, 0-9 and -, starting with a letter or digit, such as repost-forward",
+            "work opens api"
         ]
     );
 }
@@ -327,5 +344,30 @@ fn a_cell_holds_a_style_when_it_has_that_flag_or_colour() {
     assert_eq!(
         [held(&cell(true, false, false)), held(&cell(false, true, true))],
         [[true, false, false, true, false, true, false], [false, true, true, true, false, true, false]]
+    );
+}
+
+#[test]
+fn a_name_is_1_to_24_lowercase_letters_digits_and_dashes_starting_with_a_letter_or_digit() {
+    let named = |text: &str| text.parse::<Name>().is_ok();
+    assert_eq!(
+        ["repost-forward", "9lives", "a", "x-", "abcdefghijklmnopqrstuvwx"].map(named),
+        [true, true, true, true, true]
+    );
+    assert_eq!(
+        ["", "-x", "Repost", "a_b", "a b", "abcdefghijklmnopqrstuvwxy", "caf\u{e9}"].map(named),
+        [false, false, false, false, false, false, false]
+    );
+    assert_eq!(
+        "Repost".parse::<Name>().err(),
+        Some(
+            "\"Repost\" is not a name: a name is 1 to 24 characters of a-z, 0-9 and -, starting with a letter or digit, such as repost-forward"
+                .to_string()
+        )
+    );
+    let sent: Name = serde_json::from_value(json!("repost-forward")).unwrap();
+    assert_eq!(
+        (&*sent, serde_json::to_value(&sent).unwrap(), serde_json::from_value::<Name>(json!("Bad")).is_err()),
+        ("repost-forward", json!("repost-forward"), true)
     );
 }

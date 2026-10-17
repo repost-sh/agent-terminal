@@ -92,6 +92,7 @@ impl Terminal {
             .record(started, &Chunk { raw: bytes, text: printed.text.as_bytes(), styled: printed.styled.as_bytes() });
         let now = Instant::now();
         state.last_output = now;
+        state.first_output.get_or_insert(now);
         state.advance(now);
         let reported = Reported { start, started, shown: state.frame };
         let history_changed = self.report(&mut state, reports, reported);

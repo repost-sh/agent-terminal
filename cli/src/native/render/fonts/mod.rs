@@ -59,17 +59,6 @@ impl Face {
         self.file().0
     }
 
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Face::Regular => "JetBrains Mono",
-            Face::Bold => "JetBrains Mono Bold",
-            Face::Italic => "JetBrains Mono Italic",
-            Face::BoldItalic => "JetBrains Mono Bold Italic",
-            Face::Symbols => "Symbols Nerd Font Mono",
-            Face::Emoji => "Noto Emoji",
-        }
-    }
-
     pub(crate) fn font(self) -> Option<FontRef<'static>> {
         FontRef::from_index(self.bytes(), 0)
     }

@@ -1,8 +1,8 @@
-use crate::support::{AgentTerminal, fixture};
+use crate::support::{AgentTerminal, fixture, open_tui};
 
 fn open_input_echo(at: &AgentTerminal, modes: &[&str]) {
     let echo = fixture("input-echo");
-    let mut args = vec!["open", "--size", "100x4", "--wait", "ready", echo.as_str()];
+    let mut args = vec!["open", "--name", "app", "--size", "100x4", "--wait", "ready", echo.as_str()];
     args.extend_from_slice(modes);
     at.run(&args).success();
 }
@@ -12,8 +12,8 @@ fn type_types_text_key_by_key() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &[]);
     let typed = at.run(&["type", "héllo\tworld\n", "--wait", r"h\xc3\xa9llo\tworld\r"]).success();
-    assert_eq!(typed.stdout(), "typed 12 keys into default t1\n");
-    assert_eq!(at.received("default"), r"h\xc3\xa9llo\tworld\r");
+    assert_eq!(typed.stdout(), "typed 12 keys into work app\n");
+    assert_eq!(at.received("work"), r"h\xc3\xa9llo\tworld\r");
 }
 
 #[test]
@@ -23,7 +23,7 @@ fn type_with_a_delay_sends_each_key_on_its_own() {
     let started = std::time::Instant::now();
     at.run(&["type", "abc", "--delay", "60", "--wait", "a|b|c|"]).success();
     assert!(started.elapsed() >= std::time::Duration::from_millis(120), "took {:?}", started.elapsed());
-    assert_eq!(at.received("default"), "a|b|c|");
+    assert_eq!(at.received("work"), "a|b|c|");
 }
 
 #[test]
@@ -53,8 +53,8 @@ fn press_sends_named_keys_in_order() {
     args.extend(keys);
     args.extend(["--wait", expected]);
     let pressed = at.run(&args).success();
-    assert_eq!(pressed.stdout(), "pressed 16 keys in default t1\n");
-    assert_eq!(at.received("default"), expected);
+    assert_eq!(pressed.stdout(), "pressed 16 keys in work app\n");
+    assert_eq!(at.received("work"), expected);
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn press_sends_function_keys() {
     let mut args = vec!["press", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"];
     args.extend(["--wait", expected]);
     at.run(&args).success();
-    assert_eq!(at.received("default"), expected);
+    assert_eq!(at.received("work"), expected);
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn press_sends_ctrl_alt_and_shift_chords() {
     ];
     args.extend(["--wait", expected]);
     at.run(&args).success();
-    assert_eq!(at.received("default"), expected);
+    assert_eq!(at.received("work"), expected);
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn cursor_keys_follow_application_cursor_mode_when_the_app_turns_it_on() {
     open_input_echo(&at, &["--app-cursor"]);
     let expected = r"\eOA\eOB\eOC\eOD\eOH\eOF\e[1;5A";
     at.run(&["press", "Up", "Down", "Right", "Left", "Home", "End", "Ctrl+Up", "--wait", expected]).success();
-    assert_eq!(at.received("default"), expected);
+    assert_eq!(at.received("work"), expected);
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn keys_use_the_kitty_keyboard_protocol_when_the_app_turns_it_on() {
     ];
     args.extend(["--wait", expected]);
     at.run(&args).success();
-    assert_eq!(at.received("default"), expected);
+    assert_eq!(at.received("work"), expected);
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn every_kitty_enhancement_shapes_the_keys_the_app_receives() {
     at.run(&["press", "Shift+a", "Enter", "--wait", pressed]).success();
     let typed = format!(r"{pressed}\e[98;;98u\e[98;1:3u");
     at.run(&["type", "b", "--wait", &typed]).success();
-    assert_eq!(at.received("default"), typed);
+    assert_eq!(at.received("work"), typed);
 }
 
 #[test]
@@ -140,14 +140,14 @@ fn press_repeats_the_whole_sequence() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &[]);
     let pressed = at.run(&["press", "a", "b", "--repeat", "3", "--wait", "ababab"]).success();
-    assert_eq!(pressed.stdout(), "pressed 6 keys in default t1\n");
-    assert_eq!(at.received("default"), "ababab");
+    assert_eq!(pressed.stdout(), "pressed 6 keys in work app\n");
+    assert_eq!(at.received("work"), "ababab");
 }
 
 #[test]
 fn press_drives_a_full_screen_app() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "50x8", "--wait", "Quit: q", &fixture("fixture-tui")]).success();
+    open_tui(&at);
     at.run(&["press", "j", "Down", "--wait", "Selected: gamma.txt"]).success();
     at.run(&["press", "k", "--wait", "Selected: beta.txt"]).success();
     assert_eq!(
@@ -180,7 +180,7 @@ fn press_names_the_plus_key_and_refuses_an_unknown_modifier() {
         (plus.code(), plus.stderr()),
         (
             1,
-            "error: default t1: Ctrl++ has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on\n".to_string()
+            "error: work app: Ctrl++ has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on\n".to_string()
         )
     );
     let unknown = at.run(&["press", "Hyper+a"]);
@@ -190,7 +190,7 @@ fn press_names_the_plus_key_and_refuses_an_unknown_modifier() {
         "{}",
         unknown.stderr()
     );
-    assert_eq!(at.received("default"), r"\x08");
+    assert_eq!(at.received("work"), r"\x08");
 }
 
 #[test]
@@ -198,7 +198,7 @@ fn ctrl_plus_reaches_an_app_that_turned_on_the_kitty_protocol() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &["--kitty", "1"]);
     at.run(&["press", "Ctrl++", "--wait", r"\e[43;5u"]).success();
-    assert_eq!(at.received("default"), r"\e[43;5u");
+    assert_eq!(at.received("work"), r"\e[43;5u");
 }
 
 #[test]
@@ -209,10 +209,10 @@ fn a_chord_the_app_cannot_receive_is_refused_before_any_key_is_sent() {
     assert_eq!(pressed.code(), 1, "{}", pressed.stderr());
     assert_eq!(
         pressed.stderr(),
-        "error: default t1: Ctrl+1 has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on\n"
+        "error: work app: Ctrl+1 has no code a terminal can send; it needs the Kitty keyboard protocol, which this app has not turned on\n"
     );
     at.run(&["press", "b", "--wait", "b"]).success();
-    assert_eq!(at.received("default"), "b");
+    assert_eq!(at.received("work"), "b");
 }
 
 #[test]
@@ -221,8 +221,8 @@ fn paste_is_a_bracketed_paste_when_the_app_turned_it_on() {
     open_input_echo(&at, &["--bracketed-paste"]);
     let expected = r"\e[200~one\ntwo\e[201~";
     let pasted = at.run(&["paste", "one\ntwo", "--wait", expected]).success();
-    assert_eq!(pasted.stdout(), "pasted 19 bytes into default t1 (bracketed paste)\n");
-    assert_eq!(at.received("default"), expected);
+    assert_eq!(pasted.stdout(), "pasted 19 bytes into work app (bracketed paste)\n");
+    assert_eq!(at.received("work"), expected);
 }
 
 #[test]
@@ -231,7 +231,7 @@ fn a_bracketed_paste_cannot_end_itself_early() {
     open_input_echo(&at, &["--bracketed-paste"]);
     let expected = r"\e[200~a[201~b\e[201~";
     at.run(&["paste", "a\x1b[201~b", "--wait", expected]).success();
-    assert_eq!(at.received("default"), expected);
+    assert_eq!(at.received("work"), expected);
 }
 
 #[test]
@@ -240,8 +240,8 @@ fn paste_writes_the_text_as_typed_lines_when_the_app_has_no_bracketed_paste() {
     open_input_echo(&at, &[]);
     let expected = r"one\rtwo\rthree";
     let pasted = at.run(&["paste", "one\ntwo\r\nthree", "--wait", expected]).success();
-    assert_eq!(pasted.stdout(), "pasted 13 bytes into default t1 (plain, the app has not turned on bracketed paste)\n");
-    assert_eq!(at.received("default"), expected);
+    assert_eq!(pasted.stdout(), "pasted 13 bytes into work app (plain, the app has not turned on bracketed paste)\n");
+    assert_eq!(at.received("work"), expected);
 }
 
 #[test]
@@ -260,16 +260,16 @@ fn signal_sends_each_supported_signal_to_the_program() {
         expected.push_str(shown);
         let sent = at.run(&["signal", signal, "--wait", &expected]).success();
         let name = shown.trim_matches(['[', ']']);
-        assert!(sent.stdout().starts_with(&format!("sent {name} to default t1 (process group ")), "{}", sent.stdout());
+        assert!(sent.stdout().starts_with(&format!("sent {name} to work app (process group ")), "{}", sent.stdout());
     }
-    assert_eq!(at.received("default"), expected);
+    assert_eq!(at.received("work"), expected);
 }
 
 #[test]
 fn signal_reaches_the_foreground_process_group_not_just_the_shell() {
     let at = AgentTerminal::new();
     let script = format!("set -m; {}; printf '\\r\\nafter: %s\\r\\n' \"$?\"; read _", fixture("input-echo"));
-    at.run(&["open", "--size", "100x10", "--wait", "ready", "bash", "-c", &script]).success();
+    at.run(&["open", "--name", "app", "--size", "100x10", "--wait", "ready", "bash", "-c", &script]).success();
     let sent = at.run(&["--json", "signal", "INT", "--wait", "[INT]"]).success().json();
     assert_eq!((&sent["input"], &sent["signal"]), (&serde_json::json!("signal"), &serde_json::json!("INT")));
     assert!(sent["process_group"].as_i64().is_some_and(|group| group > 1), "{sent}");
@@ -303,7 +303,7 @@ fn simultaneous_input_calls_never_interleave_their_keys() {
         assert_eq!((first.join().unwrap(), second.join().unwrap()), (0, 0));
     });
     at.run(&["type", "z", "--wait", "z"]).success();
-    let line = at.received("default");
+    let line = at.received("work");
     assert!(line == "aaaabbbbz" || line == "bbbbaaaaz", "{line}");
 }
 
@@ -312,8 +312,8 @@ fn send_writes_raw_bytes_given_with_escapes() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &[]);
     let sent = at.run(&["send", r"a\x01\e[Z\t\\", "--wait", r"a\x01\e[Z\t\\"]).success();
-    assert_eq!(sent.stdout(), "sent 7 raw bytes to default t1\n");
-    assert_eq!(at.received("default"), r"a\x01\e[Z\t\\");
+    assert_eq!(sent.stdout(), "sent 7 raw bytes to work app\n");
+    assert_eq!(at.received("work"), r"a\x01\e[Z\t\\");
 }
 
 #[test]
@@ -327,27 +327,52 @@ fn send_refuses_an_unknown_escape_with_exit_code_1() {
 #[test]
 fn input_to_a_program_that_has_exited_fails_with_exit_code_5() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x3", "--no-wait", &fixture("line-printer"), "--lines", "1", "--exit", "7"]).success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "20x3",
+        "--no-wait",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--exit",
+        "7",
+    ])
+    .success();
     at.run(&["wait", "--exit"]).success();
     let sent = at.run(&["send", "x"]);
     assert_eq!(sent.code(), 5, "{}", sent.stderr());
     assert_eq!(
         sent.stderr(),
-        "error: default t1: line-printer has exited with code 7; nothing more can be sent to it (read its last screen with `agent-terminal snapshot`, run it again with `agent-terminal restart`)\n"
+        "error: work app: line-printer has exited with code 7; nothing more can be sent to it (read its last screen with `agent-terminal snapshot`, run it again with `agent-terminal restart`)\n"
     );
 }
 
 #[test]
 fn typing_stops_with_exit_code_5_as_soon_as_the_program_exits() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x3", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
-        .success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "20x3",
+        "--wait",
+        "line 1",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--hold",
+    ])
+    .success();
     let started = std::time::Instant::now();
     let typed = at.run(&["type", "\nab", "--delay", "10000"]);
     assert!(started.elapsed() < std::time::Duration::from_secs(5), "took {:?}", started.elapsed());
     assert_eq!(typed.code(), 5, "{}", typed.stderr());
     assert!(
-        typed.stderr().starts_with("error: default t1: line-printer has exited with code 0; nothing more can be sent"),
+        typed.stderr().starts_with("error: work app: line-printer has exited with code 0; nothing more can be sent"),
         "{}",
         typed.stderr()
     );
@@ -362,7 +387,7 @@ fn waiting_after_input_for_text_that_never_appears_times_out_and_shows_the_scree
     let stderr = pressed.stderr();
     assert!(
         stderr.starts_with(
-            "error: timed out after 300 ms waiting for \"never shown\" to appear; default t1 is still running"
+            "error: timed out after 300 ms waiting for \"never shown\" to appear; work app is still running"
         ),
         "{stderr}"
     );
@@ -377,10 +402,10 @@ fn type_refuses_control_characters_and_sends_nothing() {
     assert_eq!(typed.code(), 1, "{}", typed.stderr());
     assert_eq!(
         typed.stderr(),
-        "error: default t1: cannot type the control character U+001B; press it as a key (Ctrl+c, Esc) or send it with `agent-terminal send`\n"
+        "error: work app: cannot type the control character U+001B; press it as a key (Ctrl+c, Esc) or send it with `agent-terminal send`\n"
     );
     at.run(&["type", "c", "--wait", "c"]).success();
-    assert_eq!(at.received("default"), "c");
+    assert_eq!(at.received("work"), "c");
 }
 
 #[test]
@@ -390,7 +415,7 @@ fn input_with_nothing_open_explains_how_to_start() {
     assert_eq!(pressed.code(), 1);
     assert_eq!(
         pressed.stderr(),
-        "error: no terminal is open in session default; start one with `agent-terminal open <program>`\n"
+        "error: no terminal is open in session work; start one with `agent-terminal open --name <name> <program>`\n"
     );
 }
 
@@ -399,7 +424,7 @@ fn send_is_marked_as_raw_in_its_json_result() {
     let at = AgentTerminal::new();
     open_input_echo(&at, &[]);
     let sent = at.run(&["--json", "send", r"\r\n", "--wait", r"\r\n"]).success().json();
-    assert_eq!(sent, serde_json::json!({ "session": "default", "tab": "t1", "input": "raw", "bytes": 2 }));
+    assert_eq!(sent, serde_json::json!({ "session": "work", "tab": "app", "input": "raw", "bytes": 2 }));
 }
 
 fn shown_by_input_echo(bytes: &[u8]) -> String {
@@ -432,6 +457,6 @@ proptest::proptest! {
         let shown = shown_by_input_echo(&bytes);
         at.run(&["send", &escaped]).success();
         at.run(&["wait", "--cursor", &format!("2,{}", shown.len() + 1)]).success();
-        proptest::prop_assert_eq!(at.received("default"), shown.trim_end());
+        proptest::prop_assert_eq!(at.received("work"), shown.trim_end());
     }
 }

@@ -6,8 +6,8 @@ use crate::native::output_log::Output;
 use crate::native::refs::{self, Found, Grid};
 use crate::native::wait;
 use crate::protocol::{
-    Baseline, Cell, Cursor, DiffBase, Exit, Fact, Get, Match, Ref, RowChange, RowRange, Scrollback, Size, Snapshot,
-    SnapshotDiff, SnapshotOptions, request,
+    Baseline, Cell, Cursor, DiffBase, Exit, Fact, Get, Match, Name, Ref, RowChange, RowRange, Scrollback, Size,
+    Snapshot, SnapshotDiff, SnapshotOptions, request,
 };
 
 pub(crate) struct Capture {
@@ -18,8 +18,8 @@ pub(crate) struct Capture {
 }
 
 struct Rendered<'a> {
-    session: &'a str,
-    tab: &'a str,
+    session: &'a Name,
+    tab: &'a Name,
     range: RowRange,
 }
 
@@ -72,12 +72,12 @@ impl Terminal {
         };
         let range = rendered.range;
         Snapshot {
-            session: rendered.session.to_string(),
-            tab: rendered.tab.to_string(),
+            session: rendered.session.clone(),
+            tab: rendered.tab.clone(),
             program: self.program.clone(),
             cols: view.size.cols,
             rows: view.size.rows,
-            alt_screen: view.alt_screen,
+            alt_screen: view.alt_screen.into(),
             mouse: view.mouse.map(|m| m.as_str().to_string()),
             cursor: [view.cursor.0 + 1, view.cursor.1 + 1],
             cursor_visible: view.cursor_visible,
@@ -88,6 +88,7 @@ impl Terminal {
             scrollback: scrollback.map(|n| state.screen.rows(-lines(n)..0, options.ansi)),
             lines: state.screen.rows(i32::from(range.first) - 1..i32::from(range.last), options.ansi),
             refs,
+            nothing_printed: state.first_output.is_none(),
         }
     }
 

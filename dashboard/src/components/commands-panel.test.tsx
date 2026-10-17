@@ -6,10 +6,10 @@ import { startDaemon, type FakeDaemon } from "../fake-daemon/daemon";
 import { commandOf, sessionInfo, tabInfo } from "../fake-daemon/messages";
 import type { CommandRecord } from "../lib/protocol";
 
-const COMMANDS = "/api/session/my%20work/t1/commands/stream";
+const COMMANDS = "/api/session/my%20work/app/commands/stream";
 
 const shownCommands = async (program = "zsh") => {
-  const daemon = startDaemon([sessionInfo("my work", [tabInfo("t1", { program })])]);
+  const daemon = startDaemon([sessionInfo("my work", [tabInfo("app", { program })])]);
 
   render(<App />);
   await daemon.serve();
@@ -59,7 +59,7 @@ test("commands list their result, short path, duration and start time", async ()
   await pushed(daemon, {
     commands: [commandOf(1), commandOf(2, { exit_code: 2 }), commandOf(3, { exit_code: null }), commandOf(4, { ended_at_ms: null, exit_code: null })],
   });
-  const rows = within(screen.getByRole("list", { name: "Commands in my work t1" })).getAllByRole("listitem");
+  const rows = within(screen.getByRole("list", { name: "Commands in my work app" })).getAllByRole("listitem");
 
   expect(rows.map((row) => row.textContent)).toEqual([
     "✓exit 0step 1~/p/src · 1.0 s · 03:04:05+",
@@ -75,10 +75,10 @@ test("opening a command loads its output once, styled, and shows an empty or fai
   const answered = vi.fn((id: string) => ({ "11": "\x1b[1mbuilt\x1b[0m\nok", "12": "" })[id]);
 
   for (const id of ["11", "12"]) {
-    daemon.answer(`GET /api/session/my%20work/t1/commands/${id}`, () => ({ status: 200, body: { output: answered(id) } }));
+    daemon.answer(`GET /api/session/my%20work/app/commands/${id}`, () => ({ status: 200, body: { output: answered(id) } }));
   }
 
-  daemon.answer("GET /api/session/my%20work/t1/commands/13", () => ({ status: 500, body: "disk full" }));
+  daemon.answer("GET /api/session/my%20work/app/commands/13", () => ({ status: 500, body: "disk full" }));
   await pushed(daemon, { commands: [commandOf(11), commandOf(12), commandOf(13)] });
   await opened(/step 11/);
   expect((await within(panel()).findByText("built")).style.fontWeight).toBe("700");
@@ -116,12 +116,12 @@ test("each result has its own mark, a failed command its own background, and an 
     commands: [commandOf(1), commandOf(2, { exit_code: 2 }), commandOf(3, { exit_code: null }), commandOf(4, { ended_at_ms: null, exit_code: null })],
   });
   const looks = () =>
-    within(screen.getByRole("list", { name: "Commands in my work t1" }))
+    within(screen.getByRole("list", { name: "Commands in my work app" }))
       .getAllByRole("listitem")
       .map((row) => [row.className, within(row).getByRole("button").outerHTML]);
 
   expect(looks()).toMatchSnapshot();
-  daemon.answer("GET /api/session/my%20work/t1/commands/2", () => ({ status: 200, body: { output: "failed" } }));
+  daemon.answer("GET /api/session/my%20work/app/commands/2", () => ({ status: 200, body: { output: "failed" } }));
   await opened(/step 2/);
   expect(looks()[1]).toMatchSnapshot();
   await within(panel()).findByText("failed");

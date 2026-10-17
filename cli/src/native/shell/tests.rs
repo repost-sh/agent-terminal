@@ -1,7 +1,7 @@
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use super::{Audit, SCRIPTS, Scripts, entries, fish_quoted, read};
+use super::{SCRIPTS, Scripts, fish_quoted, read};
 use crate::native::pty;
 use crate::protocol::{Shell, Size};
 
@@ -24,7 +24,8 @@ fn files(home: &Path) -> Vec<String> {
     let mut found = Vec::new();
     let mut folders = vec![home.to_path_buf()];
     while let Some(folder) = folders.pop() {
-        for entry in entries(&folder).unwrap() {
+        for entry in std::fs::read_dir(&folder).unwrap() {
+            let entry = entry.unwrap().path();
             if entry.is_dir() {
                 folders.push(entry);
             } else {
@@ -34,19 +35,6 @@ fn files(home: &Path) -> Vec<String> {
     }
     found.sort();
     found
-}
-
-fn audited(audit: &Audit, home: &Path) -> String {
-    let relative = |paths: &[PathBuf]| -> Vec<String> {
-        paths.iter().map(|path| path.strip_prefix(home).unwrap().display().to_string()).collect()
-    };
-    format!(
-        "{} current {} outdated {:?} leftovers {:?}",
-        audit.folder.strip_prefix(home).unwrap().display(),
-        audit.current,
-        relative(&audit.outdated),
-        relative(&audit.leftovers)
-    )
 }
 
 #[test]
@@ -92,51 +80,12 @@ fn a_script_is_written_only_when_it_changed() {
     assert_eq!(files(home.path()), ["shell.lock", "shell/bash/agent-terminal.bash"]);
 }
 
-fn every_shell_with_stray_and_stale_files(home: &Path) -> String {
-    for shell in Shell::ALL {
-        Scripts { home }.prepare(shell, command(&[])).unwrap();
-    }
-    let complete = audited(&Scripts { home }.audit().unwrap(), home);
-    std::fs::write(home.join("shell/fish/agent-terminal.fish"), "old").unwrap();
-    std::fs::write(home.join("shell/zsh/extra.zsh"), "").unwrap();
-    std::fs::write(home.join("shell/notes"), "").unwrap();
-    std::fs::create_dir_all(home.join("shell/csh/deep")).unwrap();
-    complete
-}
-
 #[test]
-fn an_audit_counts_current_scripts_and_names_outdated_ones_and_leftovers() {
-    let home = tempfile::tempdir().unwrap();
-    assert_eq!(
-        audited(&Scripts { home: home.path() }.audit().unwrap(), home.path()),
-        "shell current 0 outdated [] leftovers []"
-    );
-    let complete = every_shell_with_stray_and_stale_files(home.path());
-    assert_eq!(complete, "shell current 4 outdated [] leftovers []");
-    insta::assert_snapshot!(audited(&Scripts { home: home.path() }.audit().unwrap(), home.path()), @r#"shell current 3 outdated ["shell/fish/agent-terminal.fish"] leftovers ["shell/csh", "shell/notes", "shell/zsh/extra.zsh"]"#);
-}
-
-#[test]
-fn a_repair_removes_the_leftovers_and_rewrites_what_is_outdated() {
-    let home = tempfile::tempdir().unwrap();
-    every_shell_with_stray_and_stale_files(home.path());
-    let found = audited(&Scripts { home: home.path() }.audit().unwrap(), home.path());
-    assert_eq!(audited(&Scripts { home: home.path() }.repair().unwrap(), home.path()), found);
-    assert_eq!(
-        audited(&Scripts { home: home.path() }.audit().unwrap(), home.path()),
-        "shell current 4 outdated [] leftovers []"
-    );
-    assert_eq!(files(home.path()).len(), 5);
-}
-
-#[test]
-fn a_script_reads_lossily_and_a_missing_folder_lists_nothing() {
+fn a_script_reads_lossily_and_a_missing_one_reads_as_nothing() {
     let home = tempfile::tempdir().unwrap();
     let odd = home.path().join("odd");
     std::fs::write(&odd, b"a\xffb").unwrap();
     assert_eq!(read(&odd).unwrap().as_deref(), Some("a\u{fffd}b"));
     assert_eq!(read(&home.path().join("missing")).unwrap(), None);
     assert_eq!(read(home.path()).unwrap_err().to_string(), format!("read {}", home.path().display()));
-    assert!(entries(&home.path().join("missing")).unwrap().is_empty());
-    assert_eq!(entries(&odd).unwrap_err().to_string(), format!("list {}", odd.display()));
 }

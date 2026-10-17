@@ -1,18 +1,54 @@
+use std::time::Duration;
+
+use super::Session;
 use crate::native::terminal::Labelled;
-use crate::protocol::{ErrorBody, TabId};
+use crate::output;
+use crate::protocol::{ErrorBody, Name};
 
 pub(super) fn stopping() -> ErrorBody {
-    ErrorBody::failure("the daemon is stopping because it was idle; run the command again to start a new one")
+    ErrorBody::failure("the daemon is stopping; run the command again to start a new one")
+}
+
+pub(super) fn known_session<T>(session: &str, found: Option<T>) -> Result<T, ErrorBody> {
+    found.ok_or_else(|| {
+        ErrorBody::failure(format!("no session {session}; create it with `agent-terminal session new {session}`"))
+    })
+}
+
+pub(super) fn taken(session: &Name, held: &Session) -> ErrorBody {
+    let names: Vec<&str> = held.tabs.values().map(|tab| &*tab.name).collect();
+    let tabs = match names.len() {
+        0 => "no tabs".to_string(),
+        k => format!("{}: {}", output::count(k, "tab"), names.join(", ")),
+    };
+    ErrorBody::failure(format!(
+        "session {session} is taken: open for {}, {tabs}; pick another name for this conversation",
+        age(held.created.elapsed())
+    ))
+}
+
+pub(super) fn age(open_for: Duration) -> String {
+    let seconds = open_for.as_secs();
+    match seconds {
+        0..60 => format!("{seconds}s"),
+        60..3600 => format!("{}m", seconds / 60),
+        _ => format!("{}h {}m", seconds / 3600, seconds % 3600 / 60),
+    }
 }
 
 pub(super) fn no_terminal(session: &str) -> ErrorBody {
     ErrorBody::failure(format!(
-        "no terminal is open in session {session}; start one with `agent-terminal open <program>`"
+        "no terminal is open in session {session}; start one with `agent-terminal open --name <name> <program>`"
     ))
 }
 
-pub(super) fn no_tab(session: &str, id: TabId) -> ErrorBody {
-    ErrorBody::failure(format!("no tab {id} in session {session}; list tabs with `agent-terminal tab`"))
+pub(super) fn no_tab(session: &str, tab: &str) -> ErrorBody {
+    ErrorBody::failure(format!("no tab {tab} in session {session}; list tabs with `agent-terminal tab`"))
+}
+
+pub(super) fn tab_taken(holder: &Labelled<'_>) -> ErrorBody {
+    let Labelled { session, tab, terminal } = holder;
+    ErrorBody::failure(format!("tab {tab} already runs {} in session {session}; pick another name", terminal.program()))
 }
 
 pub(super) fn no_integration(at: &Labelled<'_>) -> ErrorBody {

@@ -34,20 +34,29 @@ found=$(command -v agent-terminal)
 run agent-terminal --version
 [ "$(cat "$out")" = "agent-terminal $version" ] || fail "agent-terminal --version printed '$(cat "$out")', expected 'agent-terminal $version'"
 
+run agent-terminal version
+case $(cat "$out") in
+  "agent-terminal $version ("*")") ;;
+  *) fail "agent-terminal version printed '$(cat "$out")', expected 'agent-terminal $version (<commit>)'" ;;
+esac
+
 run agent-terminal --json version
-[ "$(cat "$out")" = "{\"version\":\"$version\"}" ] || fail "agent-terminal --json version printed '$(cat "$out")', expected {\"version\":\"$version\"}"
+case $(cat "$out") in
+  "{\"build\":\"$version+"*"\",\"version\":\"$version\"}") ;;
+  *) fail "agent-terminal --json version printed '$(cat "$out")', expected {\"build\":\"$version+<commit>\",\"version\":\"$version\"}" ;;
+esac
 
-run env HOME="$work/home" agent-terminal install --skills
-stub=$work/home/.claude/skills/agent-terminal/SKILL.md
-grep -qx "  version: \"$version\"" "$stub" || fail "the skill stub install --skills wrote does not carry version $version: $(grep -n 'version:' "$stub" || true)"
+account_home=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)
+[ -n "$account_home" ] || account_home=$(eval echo "~$(id -un)")
+socket=$account_home/.agent-terminal/daemon.sock
+[ ! -e "$socket" ] || fail "this check needs a machine with no agent-terminal daemon; $socket exists"
 
-AGENT_TERMINAL_HOME=$work/at
-export AGENT_TERMINAL_HOME
-run agent-terminal open --size 40x10 --wait "line 3" "$fixture" --lines 3 --hold
-run agent-terminal snapshot
-grep -q '^default t1 · line-printer · 40x10 ·' "$out" || fail "the snapshot header does not name the fixture"
+run agent-terminal session new install-check
+run agent-terminal --session install-check open --name printer --size 40x10 --wait "line 3" "$fixture" --lines 3 --hold
+run agent-terminal --session install-check snapshot
+grep -q '^install-check printer · line-printer · 40x10 ·' "$out" || fail "the snapshot header does not name the fixture"
 grep -q '^ 3│line 3$' "$out" || fail "the snapshot does not show the fixture's third line"
-run agent-terminal close
+run agent-terminal close --all --session install-check
 run agent-terminal daemon stop
 
 echo "agent-terminal $version from $bin passed every check"

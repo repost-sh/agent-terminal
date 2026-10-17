@@ -1,20 +1,22 @@
 use std::path::PathBuf;
-use std::time::Duration;
 
 use clap::{ArgAction, Args};
 
-use crate::protocol::TabId;
+use crate::protocol::Name;
+
+const NAME_THE_SESSION: &str = "name this conversation's session after its task and create it first: `agent-terminal session new repost-forward`, then pass `--session repost-forward` on every call (or export AGENT_TERMINAL_SESSION)";
 
 #[derive(Args)]
 pub(crate) struct GlobalOptions {
     #[arg(
         long,
         global = true,
-        help = "Use a named session (or AGENT_TERMINAL_SESSION)",
+        help = "This conversation's session, made by `session new <name>` (or AGENT_TERMINAL_SESSION)",
         env = "AGENT_TERMINAL_SESSION",
-        default_value = "default"
+        value_name = "NAME",
+        value_parser = clap::value_parser!(Name)
     )]
-    pub session: String,
+    pub session: Option<Name>,
 
     #[arg(long, global = true, help = "JSON output")]
     pub json: bool,
@@ -22,18 +24,14 @@ pub(crate) struct GlobalOptions {
     #[arg(long, global = true, help = "Give up waiting after this long", value_name = "MS", default_value_t = 25_000)]
     pub timeout: u64,
 
-    #[arg(long, global = true, help = "Act on this tab instead of the current one", value_name = "ID", value_parser = clap::value_parser!(TabId))]
-    pub tab: Option<TabId>,
-
     #[arg(
         long,
         global = true,
-        help = "Stop an unused daemon after this long: 30s, 10m, 1h or raw ms, 0 = never (set when a call starts the daemon)",
-        value_name = "TIME",
-        default_value = "1h",
-        value_parser = parse_duration
+        help = "Act on the tab with this name instead of the current one",
+        value_name = "NAME",
+        value_parser = clap::value_parser!(Name)
     )]
-    pub idle_timeout: Duration,
+    pub tab: Option<Name>,
 
     #[arg(
         long,
@@ -43,6 +41,12 @@ pub(crate) struct GlobalOptions {
         value_name = "PATH"
     )]
     pub screenshot_dir: Option<PathBuf>,
+}
+
+impl GlobalOptions {
+    pub(crate) fn session(&self) -> Result<&Name, &'static str> {
+        self.session.as_ref().ok_or(NAME_THE_SESSION)
+    }
 }
 
 pub(crate) fn without_global_options(typed: &[String]) -> Vec<String> {
@@ -70,21 +74,6 @@ pub(crate) fn without_global_options(typed: &[String]) -> Vec<String> {
         }
     }
     words
-}
-
-fn parse_duration(value: &str) -> Result<Duration, String> {
-    let refused = || format!("invalid time: {value} (expected a duration like 30s, 10m, 1h or raw ms (0 = never))");
-    let unit_at = value.find(|c: char| !c.is_ascii_digit()).unwrap_or(value.len());
-    let (number, unit) = value.split_at(unit_at);
-    let number: u64 = number.parse().map_err(|e| format!("{}: {e}", refused()))?;
-    let millis_per_unit = match unit {
-        "" | "ms" => 1,
-        "s" => 1_000,
-        "m" => 60_000,
-        "h" => 3_600_000,
-        _ => return Err(refused()),
-    };
-    number.checked_mul(millis_per_unit).map(Duration::from_millis).ok_or_else(refused)
 }
 
 #[cfg(test)]

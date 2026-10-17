@@ -28,10 +28,10 @@ test("sockets use wss on an https page and ws otherwise, on the page's own host"
 });
 
 test("a post sends JSON with its content type, or no body at all", async () => {
-  const sent = answering(200, JSON.stringify({ data: { session: "work", tab: "t1" } }));
-  const opening = { session: "work", new_session: true, command: "htop", cwd: "~", cols: 80, rows: 24, shell_integration: false };
+  const sent = answering(200, JSON.stringify({ data: { session: "work", tab: "app" } }));
+  const opening = { session: "work", new_session: true, tab: "top", command: "htop", cwd: "~", cols: 80, rows: 24, shell_integration: false };
 
-  expect(await openTab(opening)).toEqual({ session: "work", tab: "t1" });
+  expect(await openTab(opening)).toEqual({ session: "work", tab: "app" });
   await closeAll();
   expect(sent.map(({ path, init }) => [path, init?.method, init?.headers, init?.body])).toEqual([
     ["/api/sessions", "POST", { "content-type": "application/json" }, JSON.stringify(opening)],
@@ -43,7 +43,7 @@ test("a refused call fails with the daemon's message, its text, or its status", 
   answering(400, JSON.stringify({ error: { message: "no such tab" } }));
   await expect(closeAll()).rejects.toThrow("no such tab");
   answering(500, "plain words");
-  await expect(commandOutput({ session: "s", tab: "t1" }, 3)).rejects.toThrow("plain words");
+  await expect(commandOutput({ session: "s", tab: "app" }, 3)).rejects.toThrow("plain words");
   answering(503, "");
   await expect(compareScreenshots("s", { older: "a.png", newer: "b.png" })).rejects.toThrow("503 Service Unavailable");
 });

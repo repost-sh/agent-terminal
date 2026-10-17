@@ -1,16 +1,17 @@
-use std::sync::{Arc, PoisonError};
+use std::sync::PoisonError;
 use std::time::{Instant, SystemTime};
 
 use super::Daemon;
-use crate::native::store::{ActivityEntry, Pending, SessionFolder, Typed};
+use crate::native::store::{ActivityEntry, Pending, TabId, Typed};
 use crate::output;
-use crate::protocol::{Addressed, ErrorBody, Input, Reply, Request, TabId, Target, request};
+use crate::protocol::{Addressed, ErrorBody, Input, Name, Reply, Request, Squeeze, request};
 
 pub(super) struct Logged {
-    session: String,
-    tab: Option<TabId>,
+    session: Name,
+    tab: Option<(TabId, Name)>,
+    opens: Option<Name>,
     raw: bool,
-    folder: Option<Arc<SessionFolder>>,
+    squeeze: Squeeze,
     pending: Option<Pending>,
     pub(super) typed: Vec<String>,
     time: SystemTime,
@@ -20,21 +21,23 @@ pub(super) struct Logged {
 impl Daemon {
     pub(super) fn about_to_handle(&self, typed: Vec<String>, request: &Request) -> Option<Logged> {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        let (session, tab) = match request.addressed() {
+        let (session, tab, opens) = match request.addressed() {
             Addressed::Nothing => return None,
-            Addressed::Session(session) => (session, None),
-            Addressed::Tab(session, Some(id)) => (session, Some(id)),
-            Addressed::Tab(session, None) => (session, sessions.get(session).and_then(|s| s.current)),
+            Addressed::Session(session) => (session, None, None),
+            Addressed::Opens(session, tab) => (session, None, Some(tab.clone())),
+            Addressed::Tab(session, tab) => {
+                let found = sessions.get(session).and_then(|s| s.find(session, tab.map(|name| &**name)).ok());
+                (session, found.map(|(id, tab)| (id, tab.name.clone())), None)
+            }
         };
         let time = SystemTime::now();
-        let folder = sessions.get(session).map(|s| Arc::clone(&s.folder));
-        let pending =
-            folder.as_ref().map(|folder| folder.begin(&Typed { time, words: &typed }, tab.map(|id| id.to_string())));
+        let pending = sessions.get(session).map(|s| s.folder.begin(&Typed { time, words: &typed }, tab.clone()));
         Some(Logged {
-            session: session.to_string(),
+            session: session.clone(),
             tab,
+            opens,
             raw: matches!(request, Request::Input(request::Deliver { input: Input::Send { .. }, .. })),
-            folder,
+            squeeze: request.squeeze(),
             pending,
             typed,
             time,
@@ -42,21 +45,9 @@ impl Daemon {
         })
     }
 
-    pub(super) fn log(&self, logged: Logged, handled: &Result<Reply, ErrorBody>) {
-        let folder = logged.folder.clone().or_else(|| {
-            self.sessions
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .get(&logged.session)
-                .map(|s| Arc::clone(&s.folder))
-        });
-        let Some(folder) = folder else {
-            return;
-        };
-        let entry = self.entry(&logged, handled);
-        match logged.pending {
-            Some(pending) => pending.log(&entry),
-            None => folder.log(&entry),
+    pub(super) fn log(&self, mut logged: Logged, handled: &Result<Reply, ErrorBody>) {
+        if let Some(pending) = logged.pending.take() {
+            pending.log(&self.entry(&logged, handled));
         }
     }
 
@@ -68,24 +59,36 @@ impl Daemon {
             Err(failure) => failure.snapshot.as_deref(),
             Ok(_) => None,
         };
-        entry.tab = shown.map(|snapshot| snapshot.tab.clone()).or_else(|| logged.tab.map(|id| id.to_string()));
-        entry.frame = shown.map(|snapshot| snapshot.frame).or_else(|| self.frame_of(logged));
-        record_outcome(&mut entry, handled);
+        let now = self.logged_tab_now(logged, shown.is_some());
+        entry.tab_id = now.as_ref().map(|(id, ..)| *id).or(logged.tab.as_ref().map(|(id, _)| *id));
+        entry.tab = now
+            .as_ref()
+            .map(|(_, name, _)| name.clone())
+            .or_else(|| shown.map(|snapshot| snapshot.tab.clone()))
+            .or_else(|| logged.tab.as_ref().map(|(_, name)| name.clone()));
+        entry.frame = shown.map(|snapshot| snapshot.frame).or(now.map(|(.., frame)| frame));
+        record_outcome(&mut entry, handled, &logged.squeeze);
         entry.screenshots = screenshots(handled);
         entry
     }
 
-    fn frame_of(&self, logged: &Logged) -> Option<u64> {
-        let (_, terminal) = self.target(&Target::tab(&logged.session, logged.tab?)).ok()?;
-        Some(terminal.frame())
+    fn logged_tab_now(&self, logged: &Logged, opened: bool) -> Option<(TabId, Name, u64)> {
+        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        let session = sessions.get(&logged.session)?;
+        let (id, tab) = match (&logged.tab, &logged.opens) {
+            (Some((id, _)), _) => session.tabs.get_key_value(id)?,
+            (None, Some(name)) if opened => session.named(name)?,
+            (None, _) => return None,
+        };
+        Some((*id, tab.name.clone(), tab.terminal.frame()))
     }
 }
 
-fn record_outcome(entry: &mut ActivityEntry, handled: &Result<Reply, ErrorBody>) {
+fn record_outcome(entry: &mut ActivityEntry, handled: &Result<Reply, ErrorBody>, squeeze: &Squeeze) {
     match handled {
         Ok(reply) => {
             entry.exit = reply.exit_code();
-            entry.printed(output::reply_text(reply));
+            entry.printed(output::reply_text(reply, squeeze));
         }
         Err(failure) => {
             entry.exit = failure.code;

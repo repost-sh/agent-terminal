@@ -7,8 +7,7 @@ use crate::protocol::{
 
 impl Daemon {
     pub(super) fn expect(&self, expect: &request::Expect) -> Result<Reply, ErrorBody> {
-        let (id, terminal) = self.target(&expect.target)?;
-        let tab = id.to_string();
+        let (tab, terminal) = self.target(&expect.target)?;
         let checking = Checking { at: Labelled { session: &expect.target.session, tab: &tab, terminal: &terminal } };
         let fact = match &expect.expect {
             Expect::Text(text) => checking.on_screen(text)?,

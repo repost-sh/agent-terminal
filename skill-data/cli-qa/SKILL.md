@@ -15,11 +15,12 @@ Read `agent-terminal skills get core` first if you have not.
 ```bash
 mkdir -p ./cli-qa-output/screenshots
 cp "$(agent-terminal skills path cli-qa)/templates/report.md" ./cli-qa-output/report.md
+agent-terminal session new qa-<tool>
 export AGENT_TERMINAL_SESSION=qa-<tool>
-agent-terminal shell --cwd <project>
+agent-terminal shell --name sh --cwd <project>
 ```
 
-Use `exec` for every command so each one lands in `history` with its exit code.
+Use `exec` for every command so each one lands in `history` with its exit code. A server the tool talks to runs in a second named tab of the same session (`tab new --name api …`), and `--tab api` reads it without leaving the shell.
 
 ## What to test
 
@@ -38,4 +39,4 @@ For each finding: the exact command, its exit code (`history show <id>`), and a 
 
 ## Wrap up
 
-Fill in `./cli-qa-output/report.md`: one entry per finding (command, exit code, expected, actual, screenshot) and the summary counts. Then `agent-terminal close --all`.
+Fill in `./cli-qa-output/report.md`: one entry per finding (command, exit code, expected, actual, screenshot) and the summary counts. Then `agent-terminal close --all --session qa-<tool>`.

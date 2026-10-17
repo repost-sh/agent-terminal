@@ -2,6 +2,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use super::{Name, Switch};
+
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Baseline {
     pub name: String,
@@ -15,6 +17,15 @@ pub(crate) struct SnapshotOptions {
     pub ansi: bool,
     #[serde(default)]
     pub refs: bool,
+    #[serde(default)]
+    pub squeeze_blank: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Squeeze {
+    Off,
+    On,
+    PerStep(Vec<Squeeze>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,12 +78,12 @@ pub(crate) struct Match {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Snapshot {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     pub program: String,
     pub cols: u16,
     pub rows: u16,
-    pub alt_screen: bool,
+    pub alt_screen: Switch,
     pub mouse: Option<String>,
     pub cursor: [u16; 2],
     pub cursor_visible: bool,
@@ -85,6 +96,8 @@ pub(crate) struct Snapshot {
     pub lines: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refs: Option<Vec<Ref>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nothing_printed: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

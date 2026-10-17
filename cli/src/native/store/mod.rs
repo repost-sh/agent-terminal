@@ -1,3 +1,5 @@
+mod tab_id;
+
 use std::fmt::{self, Write as _};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Cursor, ErrorKind, Write};
@@ -7,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use zip::ZipWriter;
@@ -17,7 +19,9 @@ use crate::native::changes::Changes;
 use crate::native::log;
 use crate::native::render::Cells;
 use crate::output::call_line;
-use crate::protocol::{CommandRecord, HumanInput, TabId, request};
+use crate::protocol::{CommandRecord, HumanInput, Name, request};
+
+pub(crate) use tab_id::TabId;
 
 pub(crate) struct SessionFolder {
     path: PathBuf,
@@ -37,8 +41,10 @@ struct Calls {
 #[derive(Serialize, Clone, PartialEq, Eq)]
 pub(crate) struct PendingCall {
     pub time: String,
+    #[serde(skip)]
+    pub tab_id: Option<TabId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tab: Option<String>,
+    pub tab: Option<Name>,
     pub command: String,
 }
 
@@ -70,7 +76,9 @@ impl Drop for Pending {
 pub(crate) struct ActivityEntry {
     pub time: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tab: Option<String>,
+    pub tab_id: Option<TabId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab: Option<Name>,
     pub command: String,
     pub duration_ms: u64,
     pub exit: i32,
@@ -85,6 +93,12 @@ pub(crate) struct ActivityEntry {
     pub output: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub human: Option<HumanInput>,
+}
+
+impl ActivityEntry {
+    pub(crate) fn logged_for(entry: &serde_json::Value, tab: TabId) -> bool {
+        entry.get("tab_id").and_then(|id| TabId::deserialize(id).ok()) == Some(tab)
+    }
 }
 
 const KEPT_OUTPUT_BYTES: usize = 64 * 1024;
@@ -111,6 +125,7 @@ impl ActivityEntry {
     pub(crate) fn at(typed: &Typed<'_>, duration: Duration) -> Self {
         Self {
             time: humantime::format_rfc3339_millis(typed.time).to_string(),
+            tab_id: None,
             tab: None,
             command: call_line(typed.words),
             duration_ms: u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
@@ -161,12 +176,13 @@ impl SessionFolder {
         next
     }
 
-    pub(crate) fn begin(self: &Arc<Self>, typed: &Typed<'_>, tab: Option<String>) -> Pending {
+    pub(crate) fn begin(self: &Arc<Self>, typed: &Typed<'_>, tab: Option<(TabId, Name)>) -> Pending {
         let mut calls = self.activity.lock().unwrap_or_else(PoisonError::into_inner);
         let id = calls.next;
         calls.next += 1;
         let time = humantime::format_rfc3339_millis(typed.time).to_string();
-        calls.pending.push((id, PendingCall { time, tab, command: call_line(typed.words) }));
+        let (tab_id, tab) = tab.unzip();
+        calls.pending.push((id, PendingCall { time, tab_id, tab, command: call_line(typed.words) }));
         drop(calls);
         self.logged.notify();
         Pending { folder: Arc::clone(self), id }
@@ -230,8 +246,8 @@ impl SessionFolder {
         screenshots_in(&self.path)
     }
 
-    pub(crate) fn command_log(&self, tab: &str) -> CommandLog {
-        CommandLog { path: self.path.join(format!("{tab}.commands.jsonl")) }
+    pub(crate) fn command_log(&self, tab: TabId) -> CommandLog {
+        CommandLog { path: self.path.join(format!("t{}.commands.jsonl", tab.0)) }
     }
 }
 
@@ -331,17 +347,11 @@ pub(crate) struct Exported {
     pub missing: Vec<PathBuf>,
 }
 
-pub(crate) fn export(home: &Path, export: &request::TraceExport) -> Result<Exported> {
-    let (session, to) = (export.session.as_str(), export.path.as_path());
-    let folder = folder(home, session);
-    if !folder.is_dir() {
-        bail!(
-            "session {session} has nothing to export; open a terminal in it first with `agent-terminal open <program>`"
-        );
-    }
-    let mut zip = SessionZip::new(file_name(session));
-    let files = zip.add_folder(&folder)?;
-    let (added, missing) = zip.add_screenshots(&folder)?;
+pub(crate) fn export(folder: &SessionFolder, export: &request::TraceExport) -> Result<Exported> {
+    let to = export.path.as_path();
+    let mut zip = SessionZip::new(file_name(&export.session));
+    let files = zip.add_folder(&folder.path)?;
+    let (added, missing) = zip.add_screenshots(&folder.path)?;
     let zipped = zip.writer.finish()?.into_inner();
     if let Some(parent) = to.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;

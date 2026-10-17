@@ -1,8 +1,11 @@
 use std::path::Path;
 
-use super::install::installed_stub;
 use super::shipped::shipped;
 use crate::support::{AgentTerminal, VERSION};
+
+fn versioned_stub(at: &AgentTerminal) -> String {
+    at.run(&["skills", "get", "agent-terminal"]).success().stdout()
+}
 
 fn frontmatter_keys(skill: &str) -> Vec<&str> {
     let (front, _) = skill.strip_prefix("---\n").and_then(|rest| rest.split_once("\n---\n")).expect("frontmatter");
@@ -10,9 +13,21 @@ fn frontmatter_keys(skill: &str) -> Vec<&str> {
 }
 
 #[test]
+fn install_is_an_unknown_command_so_the_binary_writes_no_skill_stub() {
+    let at = AgentTerminal::without_session();
+    let user = at.home().join("user");
+    for args in [&["install", "--skills"][..], &["install"]] {
+        let run = at.run_with_env(args, &[("HOME", &user)]);
+        assert_eq!((run.code(), run.stdout().as_str()), (1, ""), "agent-terminal {}", args.join(" "));
+        assert!(run.stderr().contains("unrecognized subcommand 'install'"), "{}", run.stderr());
+    }
+    assert!(!user.exists(), "agent-terminal wrote into HOME {}", user.display());
+}
+
+#[test]
 fn the_stub_is_not_hidden_so_opencode_and_every_other_assistant_loads_it() {
     let at = AgentTerminal::new();
-    assert_eq!(frontmatter_keys(&installed_stub(&at)), ["name", "description", "allowed-tools", "metadata"]);
+    assert_eq!(frontmatter_keys(&versioned_stub(&at)), ["name", "description", "allowed-tools", "metadata"]);
 }
 
 fn yaml_problem(value: &str) -> Option<&'static str> {
@@ -48,7 +63,7 @@ fn every_skills_frontmatter_is_yaml_that_npx_skills_add_and_other_strict_readers
 }
 
 #[test]
-fn npx_skills_add_finds_one_skill_the_versioned_stub_that_install_writes() {
+fn npx_skills_add_finds_one_skill_the_stub_of_this_version() {
     let at = AgentTerminal::new();
     let skills = Path::new(env!("CARGO_MANIFEST_DIR")).join("../skills");
     let found: Vec<String> =
@@ -56,13 +71,13 @@ fn npx_skills_add_finds_one_skill_the_versioned_stub_that_install_writes() {
     assert_eq!(found, ["agent-terminal"]);
     assert_eq!(
         shipped("skills/agent-terminal/SKILL.md"),
-        installed_stub(&at),
+        versioned_stub(&at),
         "skills/agent-terminal/SKILL.md must carry metadata.version {VERSION}, the version in cli/Cargo.toml"
     );
 }
 
 #[test]
-fn the_plugin_marketplace_offers_one_plugin_holding_the_stub_that_install_writes() {
+fn the_plugin_marketplace_offers_one_plugin_holding_the_stub_of_this_version() {
     let at = AgentTerminal::new();
     let marketplace: serde_json::Value = serde_json::from_str(&shipped(".claude-plugin/marketplace.json")).unwrap();
     let plugins = marketplace["plugins"].as_array().expect("plugins");
@@ -75,5 +90,5 @@ fn the_plugin_marketplace_offers_one_plugin_holding_the_stub_that_install_writes
         .iter()
         .map(|skill| shipped(source.join(skill.as_str().unwrap()).join("SKILL.md").to_str().unwrap()))
         .collect();
-    assert_eq!(skills, [installed_stub(&at)]);
+    assert_eq!(skills, [versioned_stub(&at)]);
 }

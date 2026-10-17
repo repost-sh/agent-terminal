@@ -10,7 +10,7 @@ test("the page needs its root element", async () => {
 });
 
 test("the page renders the dashboard into its root", async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
   const root = document.createElement("div");
 
   root.id = "root";

@@ -23,7 +23,7 @@ fn open_printer(ctx: &mut Ctx<Terminal>, options: &[&str]) {
     match programs::fixture("line-printer") {
         Ok(printer) => {
             let printer = printer.to_string_lossy().into_owned();
-            let mut args = vec!["open", "--size", "30x6", printer.as_str(), "--hold"];
+            let mut args = vec!["open", "--name", "printer", "--size", "30x6", printer.as_str(), "--hold"];
             args.extend_from_slice(options);
             ctx.world.setup(&args);
         }

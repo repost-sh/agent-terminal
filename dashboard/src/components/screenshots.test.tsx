@@ -10,7 +10,7 @@ import { comparisonOf } from "../lib/screenshots";
 const SHOTS = "/api/session/work/screenshots/stream";
 
 const shownApp = async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();
@@ -42,9 +42,9 @@ test("the panel lists each screenshot with its tab, frame, time and maker", asyn
   const items = within(screen.getByRole("list", { name: "Screenshots of work" })).getAllByRole("listitem");
 
   expect(items.map((item) => item.textContent)).toEqual([
-    "a.pngt1 · frame 3 · 03:04:05snapshot --png",
-    "b.pngt1 · frame 4 · 03:04:05dashboard",
-    "c.pngt1 · frame 5 · 03:04:05dashboard",
+    "a.pngapp · frame 3 · 03:04:05snapshot --png",
+    "b.pngapp · frame 4 · 03:04:05dashboard",
+    "c.pngapp · frame 5 · 03:04:05dashboard",
   ]);
   expect(within(items[0] ?? document.body).getByRole("presentation").matches('[style="aspect-ratio: 960 / 640;"] > img')).toBe(true);
 });
@@ -130,21 +130,21 @@ test("the toolbar takes a screenshot once the tab is drawn, and an activity call
   const daemon = await shownApp();
   const failed = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-  daemon.answer("POST /api/session/work/t1/screenshot", () => ({ status: 200, body: { data: { path: "/tmp/shots/new.png" } } }));
+  daemon.answer("POST /api/session/work/app/screenshot", () => ({ status: 200, body: { data: { path: "/tmp/shots/new.png" } } }));
   expect([screen.getByRole<HTMLButtonElement>("button", { name: "Take a screenshot" }).disabled, screen.getByRole("button", { name: "Take a screenshot" }).dataset["tooltip"]]).toEqual([true, "Screenshot"]);
-  await daemon.connected("/api/session/work/t1/stream");
-  await daemon.push("/api/session/work/t1/stream", frameOf(1));
+  await daemon.connected("/api/session/work/app/stream");
+  await daemon.push("/api/session/work/app/stream", frameOf(1));
   expect(await screen.findByText("Live")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Take a screenshot" }));
   expect(await screen.findByText("Saved new.png")).toBeTruthy();
-  daemon.answer("POST /api/session/work/t1/screenshot", () => ({ status: 500, body: "disk full" }));
+  daemon.answer("POST /api/session/work/app/screenshot", () => ({ status: 500, body: "disk full" }));
   fireEvent.click(screen.getByRole("button", { name: "Take a screenshot" }));
   await vi.waitFor(() => {
-    expect(failed).toHaveBeenCalledWith("Could not take a screenshot of work t1: disk full");
+    expect(failed).toHaveBeenCalledWith("Could not take a screenshot of work app: disk full");
   });
   fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
-  await daemon.connected("/api/session/work/t1/activity");
-  await daemon.push("/api/session/work/t1/activity", { type: "entries", entries: [entryOf("screenshot", { screenshots: [a.path, "/x/other.png", "/x/notes.txt"] })], pending: [] });
+  await daemon.connected("/api/session/work/app/activity");
+  await daemon.push("/api/session/work/app/activity", { type: "entries", entries: [entryOf("screenshot", { screenshots: [a.path, "/x/other.png", "/x/notes.txt"] })], pending: [] });
   await daemon.connected(SHOTS);
   await daemon.push(SHOTS, { type: "screenshots", screenshots: [a] });
   expect(screen.getByRole("link", { name: "Open screenshot other.png" }).getAttribute("href")).toBe("/api/session/work/screenshots/%2Fx%2Fother.png");

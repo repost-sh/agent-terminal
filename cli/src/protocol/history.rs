@@ -1,17 +1,19 @@
 use serde::{Deserialize, Serialize};
 
+use super::Name;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct History {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     pub total: usize,
     pub commands: Vec<CommandRecord>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct CommandOutput {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     #[serde(flatten)]
     pub record: CommandRecord,
     pub output: String,

@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use super::{ActivityEntry, ScreenshotEntry, SessionFolder, Typed, export, file_name, folder, write_whole};
+use super::{ActivityEntry, ScreenshotEntry, SessionFolder, TabId, Typed, export, file_name, folder, write_whole};
 use crate::native::render::Cells;
-use crate::protocol::{CommandRecord, RowRange, TabId, request};
+use crate::protocol::{CommandRecord, RowRange, request};
 
 fn home() -> tempfile::TempDir {
     tempfile::tempdir().unwrap()
@@ -26,7 +26,7 @@ fn entry(command: &[&str]) -> ActivityEntry {
 fn shot(path: &str, frame: u64) -> ScreenshotEntry {
     ScreenshotEntry {
         time: "t".to_string(),
-        tab: "t1".to_string(),
+        tab: "app".to_string(),
         frame,
         path: PathBuf::from(path),
         by: None,
@@ -84,7 +84,8 @@ fn a_call_is_pending_from_its_start_and_listed_with_its_tab() {
     let started = Arc::new(SessionFolder::start(home.path(), "work").unwrap());
     let logged = started.logged();
     let words = typed(&["wait", "--idle"]);
-    let _pending = started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, Some("t1".to_string()));
+    let _pending = started
+        .begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, Some((TabId::FIRST, "app".parse().unwrap())));
     let _other = started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, None);
     let (entries, end, waiting) = started.activity_and_pending_since(0).unwrap();
     let listed: Vec<_> =
@@ -92,7 +93,7 @@ fn a_call_is_pending_from_its_start_and_listed_with_its_tab() {
     assert_eq!((entries.len(), end, logged.has_changed().unwrap()), (0, 0, true));
     assert_eq!(
         listed,
-        [(Some("t1"), "wait --idle", "1970-01-01T00:00:00.000Z"), (None, "wait --idle", "1970-01-01T00:00:00.000Z")]
+        [(Some("app"), "wait --idle", "1970-01-01T00:00:00.000Z"), (None, "wait --idle", "1970-01-01T00:00:00.000Z")]
     );
 }
 
@@ -178,8 +179,8 @@ fn a_tabs_command_log_gets_a_line_per_command_with_its_output() {
         first_frame: 1,
         last_frame: Some(2),
     };
-    started.command_log("t2").append(&record, "out");
-    started.command_log("t2").append(&record, "again");
+    started.command_log(TabId::FIRST.next()).append(&record, "out");
+    started.command_log(TabId::FIRST.next()).append(&record, "again");
     let written = std::fs::read_to_string(folder(home.path(), "work").join("t2.commands.jsonl")).unwrap();
     let lines: Vec<serde_json::Value> = written.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
     assert_eq!(
@@ -203,8 +204,8 @@ fn a_whole_write_lands_in_one_step_and_leaves_no_partial_file() {
     assert!(write_whole(Path::new("/"), b"x").is_err());
 }
 
-fn exported_session(home: &Path) -> (PathBuf, PathBuf) {
-    let started = SessionFolder::start(home, "my work").unwrap();
+fn exported_session(home: &Path) -> (SessionFolder, PathBuf, PathBuf) {
+    let started = SessionFolder::start(home, "my-work").unwrap();
     let shots = home.join("shots");
     std::fs::create_dir_all(shots.join("other")).unwrap();
     std::fs::write(shots.join("a.png"), "A").unwrap();
@@ -214,19 +215,19 @@ fn exported_session(home: &Path) -> (PathBuf, PathBuf) {
     started.log(&call);
     started.keep_screenshot(&shot(&shots.join("other/a.png").to_string_lossy(), 1));
     started.keep_screenshot(&shot(&shots.join("a.png").to_string_lossy(), 2));
-    let session = folder(home, "my work");
+    let session = folder(home, "my-work");
     std::fs::create_dir_all(session.join("sub")).unwrap();
     std::fs::write(session.join("sub/notes.txt"), "kept\npartial").unwrap();
     std::fs::write(session.join("t1.commands.jsonl"), "{}\nhalf").unwrap();
-    (shots, home.join("out/trace.zip"))
+    (started, shots, home.join("out/trace.zip"))
 }
 
 #[test]
 fn an_export_zips_the_folder_with_whole_lines_and_each_screenshot_once() {
     let home = home();
-    let (shots, to) = exported_session(home.path());
+    let (started, shots, to) = exported_session(home.path());
     let exported =
-        export(home.path(), &request::TraceExport { session: "my work".to_string(), path: to.clone() }).unwrap();
+        export(&started, &request::TraceExport { session: "my-work".parse().unwrap(), path: to.clone() }).unwrap();
     let mut zip = zip::ZipArchive::new(std::fs::File::open(&to).unwrap()).unwrap();
     let mut read = |name: &str| {
         let mut text = String::new();
@@ -234,28 +235,14 @@ fn an_export_zips_the_folder_with_whole_lines_and_each_screenshot_once() {
         text
     };
     let files = [
-        read("my%20work/sub/notes.txt"),
-        read("my%20work/t1.commands.jsonl"),
-        read("my%20work/screenshots/a.png"),
-        read("my%20work/screenshots/2-a.png"),
+        read("my-work/sub/notes.txt"),
+        read("my-work/t1.commands.jsonl"),
+        read("my-work/screenshots/a.png"),
+        read("my-work/screenshots/2-a.png"),
     ];
     assert_eq!(files, ["kept\npartial", "{}\n", "A", "B"]);
     assert_eq!(
         (exported.files, exported.missing, exported.bytes),
         (6, vec![shots.join("gone.png")], std::fs::metadata(&to).unwrap().len())
-    );
-}
-
-#[test]
-fn a_session_with_no_folder_has_nothing_to_export() {
-    let home = home();
-    let missing =
-        export(home.path(), &request::TraceExport { session: "never".to_string(), path: home.path().join("t.zip") });
-    assert_eq!(
-        missing.err().map(|e| e.to_string()),
-        Some(
-            "session never has nothing to export; open a terminal in it first with `agent-terminal open <program>`"
-                .to_string()
-        )
     );
 }

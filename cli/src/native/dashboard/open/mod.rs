@@ -10,12 +10,13 @@ use super::Backend;
 use super::api::{call, refused};
 use crate::native::pty;
 use crate::protocol::request;
-use crate::protocol::{Request, Sessions, Shell, Size};
+use crate::protocol::{Name, Request, Shell, Size};
 
 #[derive(Deserialize)]
 pub(super) struct Opening {
     session: String,
     new_session: bool,
+    tab: String,
     command: String,
     cwd: String,
     cols: u16,
@@ -24,25 +25,27 @@ pub(super) struct Opening {
 }
 
 pub(super) async fn open(State(backend): State<Arc<dyn Backend>>, Json(opening): Json<Opening>) -> Response {
-    match opening.request(&backend.sessions()) {
+    match opening.request() {
         Ok(request) => call(backend, request).await,
         Err(message) => refused(message),
     }
 }
 
 impl Opening {
-    fn request(self, open: &Sessions) -> Result<Request, String> {
+    fn request(self) -> Result<Request, String> {
         let mut words = shlex::split(&self.command).ok_or("a quote in the command is not closed")?.into_iter();
         let program = words.next().ok_or("enter a command")?;
-        if self.new_session && open.sessions.iter().any(|entry| entry.session == self.session) {
-            return Err(format!("A session named {} already exists.", self.session));
-        }
+        let session: Name = self.session.parse()?;
+        let tab: Name = self.tab.parse()?;
         let size = Size::new(self.cols, self.rows)?;
         let cwd = working_directory(&self.cwd)?;
         let env = pty::inherited(std::env::vars());
+        let new_session = self.new_session;
         if !self.shell_integration {
             return Ok(Request::Open(request::Open {
-                session: self.session,
+                session,
+                new_session,
+                tab,
                 program,
                 args: words.collect(),
                 size,
@@ -55,7 +58,9 @@ impl Opening {
         let shell = Shell::of_program(&program)
             .ok_or_else(|| format!("{program} has no shell integration; it comes with zsh, bash and fish"))?;
         Ok(Request::Shell(request::OpenShell {
-            session: self.session,
+            session,
+            new_session,
+            tab,
             shell,
             program,
             size,

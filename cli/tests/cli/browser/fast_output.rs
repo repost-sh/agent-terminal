@@ -38,16 +38,16 @@ const PAINTS_ON_A_BLANK_PAGE: &str = r"new Promise((done) => {
 #[test]
 fn a_tab_that_redraws_sixty_times_a_second_leaves_the_dashboard_responsive_and_on_the_latest_frame() {
     let at = AgentTerminal::new();
-    open_redraw(&at, &Redraw { session: "default", hz: "60", repaint: "--partial" });
+    open_redraw(&at, &Redraw { session: "work", hz: "60", repaint: "--partial" });
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/app"));
     browser.wait_for_screen("forwarding");
 
-    let streamed = at.frame("default") + 60 * STREAMING.as_secs();
+    let streamed = at.frame("work") + 60 * STREAMING.as_secs();
     let limit = (STREAMING * 2).as_millis().to_string();
     at.run(&["--timeout", &limit, "wait", "--frame", &streamed.to_string()]).success();
     let measured: serde_json::Value = browser.eval_json(MEASURE_FIVE_SECONDS);
-    let latest = at.frame("default");
+    let latest = at.frame("work");
     browser.run(&["open", "about:blank"]);
     let blank: f64 = browser.eval_json(PAINTS_ON_A_BLANK_PAGE);
 

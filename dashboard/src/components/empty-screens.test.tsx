@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { Window as HappyWindow } from "happy-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { Disconnected, NoSessions } from "./empty-screens";
+import { Disconnected, NothingOpen } from "./empty-screens";
 
 const servedAt = (url: string) => {
   (window as unknown as HappyWindow).happyDOM.setURL(url);
@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 test("no sessions offers the commands that start one and a button for a new session", () => {
-  const { container } = render(<NoSessions />);
+  const { container } = render(<NothingOpen sessions={[]} />);
 
   expect(container.innerHTML).toMatchSnapshot();
 });

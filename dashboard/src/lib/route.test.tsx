@@ -27,7 +27,7 @@ test("any tab reads back from its route", () => {
 test("routes the dashboard does not serve are missing", () => {
   expect(parseRoute("/")).toEqual({ kind: "home" });
   expect(
-    ["/s/a", "/s/a/b/c", "/split/a:b", "/split/a:b,_,_", "/split/a:b,c", "/split/a:b:c,_", "/split/:b,_", "/x", "/x/split/a:b,_", "/split/a:b,_/x", "/x/s/a/t1", "/s/a/t1/x"].map(
+    ["/s/a", "/s/a/b/c", "/split/a:b", "/split/a:b,_,_", "/split/a:b,c", "/split/a:b:c,_", "/split/:b,_", "/x", "/x/split/a:b,_", "/split/a:b,_/x", "/x/s/a/app", "/s/a/app/x"].map(
       parseRoute,
     ),
   ).toEqual(
@@ -38,14 +38,14 @@ test("routes the dashboard does not serve are missing", () => {
 test("navigating pushes the path, replacing it when asked, and the root leads home", () => {
   const before = history.length;
 
-  navigate("/s/a/t1");
-  navigate("/s/a/t1");
-  expect([location.pathname, history.length]).toEqual(["/s/a/t1", before + 1]);
-  navigate("/s/a/t2", { replace: true });
-  expect([location.pathname, history.length]).toEqual(["/s/a/t2", before + 1]);
-  leadHomeTo("/s/b/t1");
+  navigate("/s/a/app");
+  navigate("/s/a/app");
+  expect([location.pathname, history.length]).toEqual(["/s/a/app", before + 1]);
+  navigate("/s/a/api", { replace: true });
+  expect([location.pathname, history.length]).toEqual(["/s/a/api", before + 1]);
+  leadHomeTo("/s/b/app");
   navigate("/");
-  expect(location.pathname).toBe("/s/b/t1");
+  expect(location.pathname).toBe("/s/b/app");
   leadHomeTo(null);
   navigate("/");
   expect(location.pathname).toBe("/");
@@ -53,9 +53,9 @@ test("navigating pushes the path, replacing it when asked, and the root leads ho
 
 const Link = () => (
   <a
-    href="/s/x/t1"
+    href="/s/x/app"
     onClick={(event) => {
-      followLink(event, "/s/x/t1");
+      followLink(event, "/s/x/app");
     }}
   >
     x
@@ -73,17 +73,17 @@ test("a plain left click follows a link in place and any other click is left to 
 
   navigate("/");
   expect(fireEvent.click(link)).toBe(false);
-  expect(location.pathname).toBe("/s/x/t1");
+  expect(location.pathname).toBe("/s/x/app");
 });
 
 test("going back or forward in the browser moves the path", () => {
   const hook = renderHook(() => usePath());
 
-  history.pushState(null, "", "/s/a/t2");
+  history.pushState(null, "", "/s/a/api");
   expect(hook.result.current).toBe("/");
   act(() => {
     window.dispatchEvent(new PopStateEvent("popstate"));
   });
-  expect(hook.result.current).toBe("/s/a/t2");
+  expect(hook.result.current).toBe("/s/a/api");
   hook.unmount();
 });

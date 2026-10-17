@@ -44,30 +44,28 @@ cargo install --locked --git https://github.com/repost-sh/agent-terminal agent-t
 ## Use
 
 ```sh
-agent-terminal open htop --wait "Load average"
+agent-terminal session new try-htop
+export AGENT_TERMINAL_SESSION=try-htop
+agent-terminal open --name htop htop --wait "Load average"
 agent-terminal snapshot
 agent-terminal close
 ```
+
+A session is one conversation, and every program in it runs in a tab with a name you give it (`--name`); later calls reach a tab by that name (`--tab htop`).
 
 Agents start with `agent-terminal skills get core`. `agent-terminal --help` lists every command.
 
 ## Skills
 
-The usage guides ship inside the binary, so `agent-terminal skills get` always matches the installed version. What your agent needs is the small skill stub that tells it agent-terminal exists and where those guides are. Install it one of three ways.
-
-For Claude Code, into `~/.claude/skills/agent-terminal`:
-
-```sh
-agent-terminal install --skills
-```
-
-For Claude Code, Codex, Cursor and the other assistants the [`skills`](https://github.com/vercel-labs/skills) tool supports:
+The usage guides ship inside the binary, so `agent-terminal skills get` always matches the installed version. What your agent needs is the small skill stub that tells it agent-terminal exists and where those guides are. Install it with the [`skills`](https://github.com/vercel-labs/skills) tool, which works for Claude Code, Codex, Cursor, Gemini CLI, Copilot, OpenCode and other agents:
 
 ```sh
 npx skills add repost-sh/agent-terminal
 ```
 
-From the Claude Code plugin marketplace, inside Claude Code:
+It writes the stub into `.agents/skills` and links it into the folder of each agent you pick. Run it inside a project to install the stub there, or add `-g` to install it in your home folder for every project; an agent loads the nearest one, so a project's stub wins over yours.
+
+Claude Code users can take it from the plugin marketplace instead, inside Claude Code:
 
 ```text
 /plugin marketplace add repost-sh/agent-terminal
@@ -80,15 +78,11 @@ From the Claude Code plugin marketplace, inside Claude Code:
 agent-terminal upgrade
 ```
 
-`upgrade` finds what installed agent-terminal (npm, pnpm, yarn, bun or Homebrew), asks it for the latest version, and says so when you already have it. Otherwise it reinstalls with that same tool and refreshes the skill stub if one is installed. `upgrade --json` reports the installer, the old and new versions, and whether the stub was refreshed. When it can't tell what installed agent-terminal, it prints the upgrade command of each tool instead. A source build is upgraded by running its `cargo install` command again.
+`upgrade` finds what installed agent-terminal (npm, pnpm, yarn, bun or Homebrew), asks it for the latest version, and says so when you already have it. Otherwise it reinstalls with that same tool. `upgrade --json` reports the installer and the old and new versions. It leaves the skill stub alone: the stub only points at the guides, and the new version carries its own. When it can't tell what installed agent-terminal, it prints the upgrade command of each tool instead. A source build is upgraded by running its `cargo install` command again.
 
-The daemon that holds your terminals keeps running the old version after an upgrade. The next command notices: if the old daemon has no open terminals, the command stops it, starts a daemon of the new version and carries on; if it still has open terminals, the command leaves them running and exits with code 6 and an error naming both versions and the number of terminals. `agent-terminal daemon stop` ends that daemon and its terminals, and the next command starts the new one.
+Each user account has one daemon. It holds every agent's terminals, serves the one dashboard, and keeps its socket and files in `.agent-terminal` in the home folder the user database gives your account, whatever `HOME` or any other variable says; an installed agent-terminal has no setting that points it at another daemon. A second daemon for the same user refuses to start and names the one that runs: its pid, its build and its socket.
 
-```sh
-agent-terminal doctor
-```
-
-`doctor` checks PTY support, the built-in fonts, shell integration, the daemon and its version, and the installed skill stub's version, and prints the fix for each problem; it exits 1 when it finds one. `agent-terminal doctor --fix` applies the fixes it can: it removes a stale socket, updates old shell integration scripts and rewrites an older skill stub.
+A daemon is known by its build: its version and the commit it was built from, which `agent-terminal version` prints. After an upgrade, or whenever a command meets a daemon of another build, the command notices: if that daemon has no open terminals, the command stops it, starts a daemon of its own build and carries on; if it has open terminals, the command leaves them running and exits with code 6 and an error naming both builds and the number of terminals. Those terminals may be other agents', so a human restarts the daemon when it suits them: `agent-terminal daemon stop` ends it and every terminal it holds, and the next command starts the new one.
 
 ## Links
 

@@ -83,13 +83,14 @@ struct ExitUntil {
 }
 
 impl UntilArgs {
-    pub(super) fn request(self, context: Context) -> Request {
-        let Context { target, timeout, .. } = context;
+    pub(super) fn request(self, context: &Context) -> Result<Request, String> {
+        let target = context.target()?;
+        let timeout = context.global.timeout;
         let assert = self.assert;
         if self.control {
-            return Request::WaitControl(request::WaitControl { target, timeout_ms: timeout, assert });
+            return Ok(Request::WaitControl(request::WaitControl { target, timeout_ms: timeout, assert }));
         }
-        Request::Wait(request::WaitFor { target, wait: self.until(), timeout_ms: timeout, assert })
+        Ok(Request::Wait(request::WaitFor { target, wait: self.until(), timeout_ms: timeout, assert }))
     }
 
     fn until(self) -> Wait {

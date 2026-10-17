@@ -2,6 +2,7 @@ use super::{Browser, Dashboard};
 use crate::support::{AgentTerminal, fixture};
 
 fn hold(at: &AgentTerminal, session: &str, verb: &[&str]) {
+    at.run(&["session", "new", session]).success();
     let mut args = vec!["--session", session];
     args.extend_from_slice(verb);
     let printer = fixture("line-printer");
@@ -28,11 +29,11 @@ const ALERT_CLOSED: &str = "document.querySelector('[role=alertdialog]') === nul
 
 #[test]
 fn close_all_asks_first_naming_the_sessions_and_running_processes_then_closes_everything() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     open_two_sessions_with_a_running_and_an_exited_tab(&at);
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/"));
-    browser.wait_until("location.pathname === '/s/build/t1'");
+    browser.wait_until("location.pathname === '/s/build/app'");
     browser.wait_for_text("exited 3");
 
     the_question_names_the_sessions_and_escape_dismisses_it(&browser);
@@ -42,12 +43,14 @@ fn close_all_asks_first_naming_the_sessions_and_running_processes_then_closes_ev
 }
 
 fn open_two_sessions_with_a_running_and_an_exited_tab(at: &AgentTerminal) {
-    hold(at, "qa", &["open"]);
+    hold(at, "qa", &["open", "--name", "app"]);
     at.run(&[
         "--session",
         "qa",
         "tab",
         "new",
+        "--name",
+        "api",
         "--size",
         "30x4",
         &fixture("line-printer"),
@@ -57,8 +60,8 @@ fn open_two_sessions_with_a_running_and_an_exited_tab(at: &AgentTerminal) {
         "3",
     ])
     .success();
-    at.run(&["--session", "qa", "--tab", "t2", "wait", "--exit"]).success();
-    hold(at, "build", &["open"]);
+    at.run(&["--session", "qa", "--tab", "api", "wait", "--exit"]).success();
+    hold(at, "build", &["open", "--name", "app"]);
 }
 
 fn the_question_names_the_sessions_and_escape_dismisses_it(browser: &Browser) {
@@ -98,8 +101,8 @@ fn close_all_closes_every_session(at: &AgentTerminal, browser: &Browser) {
 }
 
 fn the_question_counts_one_session_in_the_singular(at: &AgentTerminal, browser: &Browser) {
-    hold(at, "solo", &["open"]);
-    browser.wait_until("location.pathname === '/s/solo/t1'");
+    hold(at, "solo", &["open", "--name", "app"]);
+    browser.wait_until("location.pathname === '/s/solo/app'");
     browser.click_button("Close all sessions");
     browser.wait_until(ALERT_OPEN);
     assert_eq!(

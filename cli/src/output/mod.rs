@@ -17,8 +17,8 @@ pub(crate) use replies::reply_text;
 pub(crate) use saved_screen::saved_rows;
 pub(crate) use screen::screen;
 
-use crate::protocol::{ErrorBody, Reply};
-use crate::session_id::SessionId;
+use crate::protocol::{ErrorBody, Reply, Squeeze};
+use crate::version::{BUILD, COMMIT, VERSION};
 
 pub(crate) fn print(text: &str) -> io::Result<()> {
     unless_the_reader_left(write_all(&mut io::stdout().lock(), text))
@@ -45,9 +45,14 @@ fn unless_the_reader_left(written: io::Result<()>) -> io::Result<()> {
     }
 }
 
-pub(crate) fn reply(reply: &Reply, json: bool) -> io::Result<()> {
-    if !json {
-        return print(&reply_text(reply));
+pub(crate) enum Format {
+    Json,
+    Text(Squeeze),
+}
+
+pub(crate) fn reply(reply: &Reply, format: &Format) -> io::Result<()> {
+    if let Format::Text(squeeze) = format {
+        return print(&reply_text(reply, squeeze));
     }
     match reply {
         Reply::Stopped | Reply::KeptRunning(_) => Ok(()),
@@ -63,10 +68,6 @@ pub(super) fn reply_data(reply: &Reply) -> serde_json::Result<Value> {
 
 pub(crate) fn session(name: &str, json: bool) -> io::Result<()> {
     if json { print_json(&serde_json::json!({ "session": name })) } else { print(&format!("{name}\n")) }
-}
-
-pub(crate) fn session_id(id: &SessionId, json: bool) -> io::Result<()> {
-    if json { print_json(id) } else { print(&format!("{}\n", id.session)) }
 }
 
 pub(crate) fn count(n: usize, noun: &str) -> String {
@@ -88,7 +89,7 @@ pub(crate) fn error(error: &ErrorBody, json: bool) -> io::Result<i32> {
 }
 
 pub(crate) fn error_text(error: &ErrorBody) -> String {
-    let shown = error.snapshot.as_deref().map(screen).unwrap_or_default();
+    let shown = error.snapshot.as_deref().map(|snapshot| screen(snapshot, &Squeeze::Off)).unwrap_or_default();
     format!("error: {}\n{shown}", error.message)
 }
 
@@ -106,9 +107,9 @@ pub(crate) fn refuse(message: &str, json: bool) -> io::Result<i32> {
 
 pub(crate) fn version(json: bool) -> io::Result<i32> {
     if json {
-        print_json(&serde_json::json!({ "version": crate::version::VERSION }))?;
+        print_json(&serde_json::json!({ "version": VERSION, "build": BUILD }))?;
     } else {
-        print(&format!("agent-terminal {}\n", crate::version::VERSION))?;
+        print(&format!("agent-terminal {VERSION} ({COMMIT})\n"))?;
     }
     Ok(0)
 }

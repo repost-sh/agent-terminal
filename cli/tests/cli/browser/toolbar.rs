@@ -3,7 +3,7 @@ use crate::support::{AgentTerminal, fixture};
 
 fn command_line(browser: &Browser) -> Vec<(String, String)> {
     let parts = browser.eval(
-        "JSON.stringify([...document.querySelector('[role=group][aria-label=\"Command line\"]').children].map((part) => [part.textContent, getComputedStyle(part).color]))",
+        "JSON.stringify([...document.querySelectorAll('[role=group][aria-label=\"Command line\"] > span')].map((part) => [part.textContent, getComputedStyle(part).color]))",
     );
     let parts: String = serde_json::from_str(&parts).expect("a JSON string");
     serde_json::from_str(&parts).expect("the command line parts")
@@ -13,10 +13,13 @@ fn command_line(browser: &Browser) -> Vec<(String, String)> {
 fn the_toolbar_shows_the_command_line_with_its_working_directory_dimmed() {
     let at = AgentTerminal::new();
     let cwd = at.home().to_string_lossy().into_owned();
+    at.run(&["session", "new", "qa"]).success();
     at.run(&[
         "--session",
         "qa",
         "open",
+        "--name",
+        "app",
         "--size",
         "30x4",
         "--cwd",
@@ -29,7 +32,7 @@ fn the_toolbar_shows_the_command_line_with_its_working_directory_dimmed() {
     ])
     .success();
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/qa/t1"));
+    let browser = Browser::open(&dashboard.url("/s/qa/app"));
     browser.wait_for_status("Live");
 
     let parts = command_line(&browser);
@@ -47,10 +50,13 @@ fn toolbar_buttons(browser: &Browser) -> Vec<String> {
 #[test]
 fn the_toolbar_offers_restart_screenshot_layouts_and_control() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "qa"]).success();
     at.run(&[
         "--session",
         "qa",
         "open",
+        "--name",
+        "app",
         "--size",
         "30x4",
         "--wait",
@@ -62,7 +68,7 @@ fn the_toolbar_offers_restart_screenshot_layouts_and_control() {
     ])
     .success();
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/qa/t1"));
+    let browser = Browser::open(&dashboard.url("/s/qa/app"));
     browser.wait_for_status("Live");
 
     assert_eq!(
@@ -92,10 +98,13 @@ fn wait_for_toast(browser: &Browser, title: &str) {
 #[test]
 fn screenshot_saves_a_png_of_the_screen_and_says_where() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "qa"]).success();
     at.run(&[
         "--session",
         "qa",
         "open",
+        "--name",
+        "app",
         "--size",
         "30x4",
         "--wait",
@@ -107,10 +116,10 @@ fn screenshot_saves_a_png_of_the_screen_and_says_where() {
     ])
     .success();
     let frame = at.run(&["--session", "qa", "get", "frame"]).success().stdout();
-    let file = format!("qa-t1-{}.png", frame.trim());
+    let file = format!("qa-app-{}.png", frame.trim());
     let saved = at.home().join("screenshots").join(&file).to_string_lossy().into_owned();
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/qa/t1"));
+    let browser = Browser::open(&dashboard.url("/s/qa/app"));
     browser.wait_for_status("Live");
 
     browser.click_button("Take a screenshot");
@@ -137,10 +146,13 @@ fn qa_pid(at: &AgentTerminal) -> String {
 #[test]
 fn restart_asks_first_while_the_program_runs_and_restarts_at_once_once_it_exited() {
     let at = AgentTerminal::new();
+    at.run(&["session", "new", "qa"]).success();
     at.run(&[
         "--session",
         "qa",
         "open",
+        "--name",
+        "app",
         "--size",
         "40x6",
         "--wait",
@@ -155,7 +167,7 @@ fn restart_asks_first_while_the_program_runs_and_restarts_at_once_once_it_exited
     .success();
     let first = qa_pid(&at);
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/qa/t1"));
+    let browser = Browser::open(&dashboard.url("/s/qa/app"));
     browser.wait_for_status("Live");
 
     cancelling_the_question_keeps_the_program(&at, &browser, &first);
@@ -170,7 +182,7 @@ fn cancelling_the_question_keeps_the_program(at: &AgentTerminal, browser: &Brows
         dialog(browser),
         [
             "Restart line-printer?",
-            "qa t1 is killed and started again with the same command, size and working directory.",
+            "qa app is killed and started again with the same command, size and working directory.",
             "Cancel",
             "Restart",
         ]

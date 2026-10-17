@@ -159,18 +159,22 @@ async fn an_mcp_client_opens_the_fixture_tui_presses_a_key_with_a_wait_and_reads
     let at = AgentTerminal::new();
     let client = connect(&at, &[]).await;
 
-    let opened =
-        call(&client, "open", json!({ "command": [fixture("fixture-tui")], "size": "50x8", "wait": "Quit: q" })).await;
+    let opened = call(
+        &client,
+        "open",
+        json!({ "name": "app", "command": [fixture("fixture-tui")], "size": "50x8", "wait": "Quit: q" }),
+    )
+    .await;
     assert_eq!(opened.is_error, Some(false), "{}", text(&opened));
     let opened = json_of(&opened);
     assert_eq!(
         (&opened["session"], &opened["tab"], &opened["program"]),
-        (&json!("default"), &json!("t1"), &json!("fixture-tui"))
+        (&json!("work"), &json!("app"), &json!("fixture-tui"))
     );
 
     let pressed = call(&client, "press", json!({ "keys": ["j"], "wait": "Selected: beta.txt" })).await;
     assert_eq!(pressed.is_error, Some(false), "{}", text(&pressed));
-    assert_eq!(json_of(&pressed), json!({ "session": "default", "tab": "t1", "input": "keys", "keys": 1, "bytes": 1 }));
+    assert_eq!(json_of(&pressed), json!({ "session": "work", "tab": "app", "input": "keys", "keys": 1, "bytes": 1 }));
 
     let snapshot = json_of(&call(&client, "snapshot", json!({})).await);
     assert_eq!(
@@ -196,48 +200,82 @@ async fn tools_take_a_session_and_default_to_agent_terminal_session() {
 
     let current = call(&client, "session", json!({})).await;
     assert_eq!(json_of(&current), json!({ "session": "from-env" }));
+    for name in ["from-env", "named"] {
+        let created = call(&client, "session_new", json!({ "name": name })).await;
+        assert_eq!(json_of(&created), json!({ "session": name }), "{}", text(&created));
+    }
 
-    let named =
-        call(&client, "open", json!({ "session": "named", "command": [fixture("line-printer"), "--hold"] })).await;
+    let named = call(
+        &client,
+        "open",
+        json!({ "name": "app", "session": "named", "command": [fixture("line-printer"), "--hold"] }),
+    )
+    .await;
     assert_eq!(json_of(&named)["session"], "named", "{}", text(&named));
-    let unnamed = call(&client, "open", json!({ "command": [fixture("line-printer"), "--hold"] })).await;
+    let unnamed = call(&client, "open", json!({ "name": "app", "command": [fixture("line-printer"), "--hold"] })).await;
     assert_eq!(json_of(&unnamed)["session"], "from-env", "{}", text(&unnamed));
 
     let sessions = at.run(&["session", "list", "--json"]).success().json();
     let listed: Vec<&Value> =
         sessions["sessions"].as_array().unwrap().iter().map(|session| &session["session"]).collect();
-    assert_eq!(listed, [&json!("from-env"), &json!("named")]);
+    assert_eq!(listed, [&json!("from-env"), &json!("named"), &json!("work")]);
 }
 
 #[tokio::test]
-async fn the_tab_property_takes_a_tab_id_like_t2() {
+async fn the_tab_property_takes_the_name_of_a_tab() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x2", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
-        .success();
-    at.run(&["tab", "new", "--size", "30x3", "--wait", "line 2", &fixture("line-printer"), "--lines", "2", "--hold"])
-        .success();
-    at.run(&["tab", "t1"]).success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "20x2",
+        "--wait",
+        "line 1",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--hold",
+    ])
+    .success();
+    at.run(&[
+        "tab",
+        "new",
+        "--name",
+        "api",
+        "--size",
+        "30x3",
+        "--wait",
+        "line 2",
+        &fixture("line-printer"),
+        "--lines",
+        "2",
+        "--hold",
+    ])
+    .success();
+    at.run(&["tab", "app"]).success();
     let client = connect(&at, &[]).await;
 
     let tools = client.list_all_tools().await.expect("list the tools");
     let snapshot = tools.iter().find(|tool| tool.name == "snapshot").expect("a snapshot tool");
     assert_eq!(snapshot.input_schema["properties"]["tab"]["type"], "string");
 
-    let second = call(&client, "snapshot", json!({ "tab": "t2" })).await;
-    assert_eq!((json_of(&second)["tab"].clone(), json_of(&second)["cols"].clone()), (json!("t2"), json!(30)));
+    let second = call(&client, "snapshot", json!({ "tab": "api" })).await;
+    assert_eq!((json_of(&second)["tab"].clone(), json_of(&second)["cols"].clone()), (json!("api"), json!(30)));
 }
 
 #[tokio::test]
 async fn a_failing_command_is_a_tool_error_carrying_the_clis_json_error() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--wait", "line 2", &fixture("line-printer"), "--lines", "2", "--hold"]).success();
+    at.run(&["open", "--name", "app", "--wait", "line 2", &fixture("line-printer"), "--lines", "2", "--hold"])
+        .success();
     let client = connect(&at, &[]).await;
 
     let checked = call(&client, "expect", json!({ "text": "line 9" })).await;
     assert_eq!(checked.is_error, Some(true));
     let error = json_of(&checked);
     assert_eq!(error["error"]["code"], 2);
-    assert_eq!(error["error"]["message"], "\"line 9\" is not on screen in default t1");
+    assert_eq!(error["error"]["message"], "\"line 9\" is not on screen in work app");
 
     let cli = at.run(&["expect", "line 9", "--json"]);
     assert_eq!(cli.code(), 2);
@@ -247,8 +285,20 @@ async fn a_failing_command_is_a_tool_error_carrying_the_clis_json_error() {
 #[tokio::test]
 async fn options_without_a_value_and_switches_take_true() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "40x4", "--wait", "line 6", &fixture("line-printer"), "--lines", "6", "--hold"])
-        .success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "40x4",
+        "--wait",
+        "line 6",
+        &fixture("line-printer"),
+        "--lines",
+        "6",
+        "--hold",
+    ])
+    .success();
     let client = connect(&at, &[]).await;
 
     let snapshot = json_of(&call(&client, "snapshot", json!({ "scrollback": true })).await);
@@ -268,15 +318,20 @@ async fn arguments_the_command_does_not_take_are_refused() {
     assert_eq!(unknown.is_error, Some(true));
     assert!(text(&unknown).starts_with("snapshot takes no argument `colour`; it takes "), "{}", text(&unknown));
 
-    let missing = call(&client, "open", json!({ "size": "80x24" })).await;
+    let missing = call(&client, "open", json!({ "name": "app", "size": "80x24" })).await;
     assert_eq!(missing.is_error, Some(true));
     assert!(text(&missing).contains("the following required arguments were not provided"), "{}", text(&missing));
+
+    let unnamed = call(&client, "open", json!({ "command": ["htop"] })).await;
+    assert_eq!(unnamed.is_error, Some(true));
+    assert!(text(&unnamed).contains("name the tab after the program or app it runs"), "{}", text(&unnamed));
 }
 
 #[tokio::test]
 async fn the_attach_tool_says_it_needs_a_terminal_and_what_to_use_instead() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"]).success();
+    at.run(&["open", "--name", "app", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
+        .success();
     let client = connect(&at, &[]).await;
 
     let attached = call(&client, "attach", json!({ "read_only": true })).await;
@@ -288,4 +343,17 @@ async fn the_attach_tool_says_it_needs_a_terminal_and_what_to_use_instead() {
             "message": "attach shows the tab in your terminal, but stdin or stdout is not a terminal; read the screen with `agent-terminal snapshot` instead"
         } })
     );
+}
+
+#[tokio::test]
+async fn no_tool_names_or_describes_the_daemon() {
+    let at = AgentTerminal::new();
+    let client = connect(&at, &[]).await;
+    let tools = client.list_all_tools().await.expect("list tools");
+    let said: Vec<String> = tools
+        .iter()
+        .map(|tool| json!(tool).to_string())
+        .filter(|tool| tool.to_lowercase().contains("daemon"))
+        .collect();
+    assert!(said.is_empty(), "tools that speak of the daemon:\n{}", said.join("\n"));
 }

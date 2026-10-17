@@ -2,15 +2,15 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use crate::home::{DAEMON_VERSION, SOCKET};
+use crate::home::{DAEMON_LOCK, DAEMON_VERSION, SOCKET};
 use crate::native::daemon::tests::{ECHO, Running};
 
-const STOPPING: &str = "the daemon is stopping because it was idle; run the command again to start a new one";
+const STOPPING: &str = "the daemon is stopping; run the command again to start a new one";
 
 #[test]
 fn a_stop_closes_every_tab_removes_the_socket_and_version_files_and_ends_the_daemon() {
     let running = Running::new();
-    running.open(ECHO);
+    running.open("echo", ECHO);
     for file in [SOCKET, DAEMON_VERSION] {
         std::fs::write(running.home.path().join(file), "").unwrap();
     }
@@ -21,24 +21,23 @@ fn a_stop_closes_every_tab_removes_the_socket_and_version_files_and_ends_the_dae
 }
 
 #[test]
+fn a_stopped_daemon_has_let_go_of_its_lock_by_the_time_it_answers() {
+    let running = Running::new();
+    let lock = std::fs::File::open(running.home.path().join(DAEMON_LOCK)).unwrap();
+    assert!(lock.try_lock().is_err(), "the running daemon holds its lock");
+    assert_eq!(running.respond(None, &json!({ "command": "stop" })), json!({ "Ok": { "reply": "Stopped" } }));
+    assert!(lock.try_lock().is_ok(), "the next daemon can take the lock");
+}
+
+#[test]
 fn a_daemon_with_terminals_keeps_running_when_asked_to_stop_only_without_them() {
     let running = Running::new();
-    running.open(ECHO);
+    running.open("echo", ECHO);
     let stop_if_empty = json!({ "command": "stop-if-no-terminals" });
     assert_eq!(running.ok(&stop_if_empty), json!({ "terminals": 1 }));
     running.daemon.close_all();
     assert_eq!(running.respond(None, &stop_if_empty), json!({ "Ok": { "reply": "Stopped" } }));
     assert_eq!(running.refused(&json!({ "command": "sessions" })), (1, STOPPING.to_string()));
-}
-
-#[test]
-fn an_idle_daemon_stops_and_refuses_every_call_after() {
-    let running = Running::new();
-    running.open(ECHO);
-    running.daemon.stop_when_idle(Duration::ZERO);
-    assert_eq!(running.ended.try_recv(), Ok(()));
-    assert_eq!(running.refused(&json!({ "command": "sessions" })), (1, STOPPING.to_string()));
-    assert!(running.daemon.busy().is_none());
 }
 
 fn stopped(reply: &crate::protocol::Reply) -> serde_json::Value {
@@ -73,7 +72,7 @@ fn a_stop_without_terminals_keeps_running_once_a_call_in_flight_opens_one() {
     let (in_flight, asking) = (running.daemon.busy().unwrap(), running.daemon.busy().unwrap());
     let reply = std::thread::scope(|scope| {
         let stopping = scope.spawn(|| running.daemon.stop_if_no_terminals(Duration::from_secs(60)));
-        running.open(ECHO);
+        running.open("echo", ECHO);
         stopping.join().unwrap()
     });
     drop((in_flight, asking));

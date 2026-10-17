@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Screenshot, Snapshot};
+use super::{Name, Screenshot, Snapshot};
 use crate::key::Key;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -191,8 +191,8 @@ impl fmt::Display for Signal {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct Delivered {
-    pub session: String,
-    pub tab: String,
+    pub session: Name,
+    pub tab: Name,
     #[serde(flatten)]
     pub delivery: Delivery,
     #[serde(default, skip_serializing_if = "Option::is_none")]

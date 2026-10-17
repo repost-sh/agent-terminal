@@ -7,18 +7,39 @@ import { sessionInfo, tabInfo } from "./fake-daemon/messages";
 import { navigate } from "./lib/route";
 
 test("the dashboard opens the first tab of the first session", async () => {
-  const daemon = startDaemon([sessionInfo("empty", []), sessionInfo("work", [tabInfo("t1", { program: "htop" })])]);
+  const daemon = startDaemon([sessionInfo("empty", []), sessionInfo("work", [tabInfo("app", { program: "htop" })])]);
 
   render(<App />);
   expect(document.title).toBe("agent-terminal");
   await daemon.serve();
-  expect(location.pathname).toBe("/s/work/t1");
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("work t1 · htop");
-  expect(document.title).toBe("work t1 · htop · agent-terminal");
+  expect(location.pathname).toBe("/s/work/app");
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("work app · htop");
+  expect(document.title).toBe("work app · htop · agent-terminal");
+});
+
+test("sessions without a tab name themselves and offer the commands and a New tab button for each", async () => {
+  const daemon = startDaemon([sessionInfo("idle", []), sessionInfo("spare", [])]);
+
+  render(<App />);
+  await daemon.serve();
+  const main = within(screen.getByRole("main"));
+
+  expect([location.pathname, document.title, screen.getByRole("heading", { level: 1 }).textContent]).toEqual(["/", "No open tabs · agent-terminal", "No open tabs"]);
+  expect(main.getByText("Open a tab in idle and spare from the CLI, or here")).toBeTruthy();
+  expect(main.getAllByRole("code").map((line) => line.textContent)).toEqual([
+    "agent-terminal --session <name> open --name <tab> <program>",
+    "agent-terminal --session <name> shell --name <tab>",
+    "agent-terminal skills get core",
+  ]);
+  expect(main.getAllByRole("button", { name: /^New/ }).map((button) => button.textContent)).toEqual(["New tab in idle", "New tab in spare"]);
+  fireEvent.click(main.getByRole("button", { name: "New tab in spare" }));
+  expect(within(screen.getByRole("dialog")).getByRole("heading").textContent).toBe("New tab");
+  expect(within(screen.getByRole("dialog")).getByLabelText<HTMLSelectElement>("Session").value).toBe("spare");
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
 });
 
 test("a route the dashboard does not serve is a 404, and a closed tab says it is not open", async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   navigate("/nowhere");
   render(<App />);
@@ -31,12 +52,12 @@ test("a route the dashboard does not serve is a 404, and a closed tab says it is
   });
   expect(screen.getByText("work t7 is not open")).toBeTruthy();
   fireEvent.click(screen.getByRole("link", { name: "Show open sessions" }));
-  expect(location.pathname).toBe("/s/work/t1");
+  expect(location.pathname).toBe("/s/work/app");
 });
 
 test("a lost daemon is retried three times, then shown as down until Retry reconnects", async () => {
   vi.useFakeTimers();
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();
@@ -57,7 +78,7 @@ test("a lost daemon is retried three times, then shown as down until Retry recon
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await daemon.serve();
   expect(screen.getByRole("status", { name: "Announcements" }).textContent).toBe("Connected");
-  expect(location.pathname).toBe("/s/work/t1");
+  expect(location.pathname).toBe("/s/work/app");
 });
 
 test("the sidebar waits for the daemon before listing anything", async () => {
@@ -78,7 +99,7 @@ test("a skip link leads to the main content, which takes focus only by script", 
 });
 
 test("the page behind an open dialog is inert", async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();
@@ -93,7 +114,7 @@ test("the page behind an open dialog is inert", async () => {
 
 test("Retry goes home first, so a reconnected dashboard opens the first tab", async () => {
   vi.useFakeTimers();
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   navigate("/nowhere");
   render(<App />);
@@ -109,5 +130,5 @@ test("Retry goes home first, so a reconnected dashboard opens the first tab", as
   vi.useRealTimers();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await daemon.serve();
-  expect(location.pathname).toBe("/s/work/t1");
+  expect(location.pathname).toBe("/s/work/app");
 });

@@ -23,11 +23,15 @@ impl Takes {
 }
 
 pub(super) fn parse(parser: &mut clap::Command, argv: &[OsString]) -> Result<ArgMatches, clap::Error> {
-    let matches = parser.try_get_matches_from_mut(argv)?;
-    match open_options_first(parser, &matches, argv) {
-        Some(reordered) => parser.try_get_matches_from_mut(reordered),
-        None => Ok(matches),
-    }
+    let mut unnamed = tab_name_optional(parser);
+    let reordered =
+        unnamed.try_get_matches_from_mut(argv).ok().and_then(|matches| open_options_first(&unnamed, &matches, argv));
+    parser.try_get_matches_from_mut(reordered.as_deref().unwrap_or(argv))
+}
+
+fn tab_name_optional(parser: &clap::Command) -> clap::Command {
+    let optional = |opening: clap::Command| opening.mut_arg("name", |name| name.required(false));
+    parser.clone().mut_subcommand("open", optional).mut_subcommand("tab", |tab| tab.mut_subcommand("new", optional))
 }
 
 fn open_options_first(parser: &clap::Command, matches: &ArgMatches, argv: &[OsString]) -> Option<Vec<OsString>> {

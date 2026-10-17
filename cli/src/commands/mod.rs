@@ -10,21 +10,19 @@ mod values;
 
 use std::ffi::OsString;
 use std::io;
-use std::path::PathBuf;
-use std::time::Duration;
 
-use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::error::{ContextKind, ContextValue, ErrorKind};
+use clap::parser::ValueSource;
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::attach;
-use crate::connection::{self, IfNotRunning, Launch};
-use crate::doctor;
+use crate::connection::{self, IfNotRunning};
 use crate::global_options::GlobalOptions;
 use crate::mcp;
 use crate::native::daemon;
 use crate::output;
 use crate::protocol::request;
-use crate::protocol::{Call, DashboardStopped, Reply, Request, Response, SessionInfo, Sessions, Target};
-use crate::session_id;
+use crate::protocol::{Call, DashboardStopped, Name, Reply, Request, Response, Sessions, Target};
 use crate::skills;
 use crate::upgrade;
 
@@ -61,23 +59,45 @@ enum Command {
 }
 
 struct Context {
-    target: Target,
-    dir: Option<PathBuf>,
-    timeout: u64,
+    global: GlobalOptions,
+    session_typed: bool,
+}
+
+impl Context {
+    fn session(&self) -> Result<Name, String> {
+        self.global.session().cloned().map_err(String::from)
+    }
+
+    fn target(&self) -> Result<Target, String> {
+        Ok(Target { session: self.session()?, tab: self.global.tab.clone() })
+    }
 }
 
 pub(crate) fn run() -> io::Result<i32> {
     let mut parser = Cli::command();
     let argv: Vec<OsString> = std::env::args_os().collect();
-    let parsed = argv::parse(&mut parser, &argv)
-        .and_then(|mut matches| Cli::from_arg_matches_mut(&mut matches).map_err(|e| e.format(&mut parser)));
+    let parsed = argv::parse(&mut parser, &argv).and_then(|matches| parsed(matches).map_err(|e| e.format(&mut parser)));
     match parsed {
-        Ok(cli) => dispatch(cli),
+        Ok((command, context)) => dispatch(command, context),
         Err(e) => usage(&e),
     }
 }
 
+fn parsed(mut matches: ArgMatches) -> Result<(Command, Context), clap::Error> {
+    let session_typed = matches.value_source("session") == Some(ValueSource::CommandLine);
+    let Cli { global, command } = Cli::from_arg_matches_mut(&mut matches)?;
+    Ok((command, Context { global, session_typed }))
+}
+
+fn unnamed_tab(e: &clap::Error) -> bool {
+    e.kind() == ErrorKind::MissingRequiredArgument
+        && matches!(e.get(ContextKind::InvalidArg), Some(ContextValue::Strings(missing)) if *missing == ["--name <NAME>"])
+}
+
 fn usage(e: &clap::Error) -> io::Result<i32> {
+    if unnamed_tab(e) {
+        return output::refuse(programs::NAME_THE_TAB, json_asked());
+    }
     if e.use_stderr() && json_asked() {
         let rendered = e.render().to_string();
         let message = rendered.strip_prefix("error: ").unwrap_or(&rendered).trim_end();
@@ -90,60 +110,49 @@ fn usage(e: &clap::Error) -> io::Result<i32> {
     }
 }
 
-fn dispatch(cli: Cli) -> io::Result<i32> {
-    let json = cli.global.json;
-    let idle_timeout = cli.global.idle_timeout;
-    let request = match cli.command {
+fn dispatch(command: Command, context: Context) -> io::Result<i32> {
+    let json = context.global.json;
+    let request = match command {
         Command::Tools(tools::ToolCommand::Daemon { action: tools::DaemonAction::Run }) => {
-            return daemon_run(idle_timeout);
+            return daemon_run();
         }
         Command::Tools(tools::ToolCommand::Skills { action }) => {
             return action.unwrap_or(skills::Action::List).run(json, Cli::command());
         }
-        Command::Tools(tools::ToolCommand::Install { .. }) => return skills::install(json),
         Command::Tools(tools::ToolCommand::Mcp) => return mcp::run(Cli::command()),
         Command::Tools(tools::ToolCommand::Attach { read_only }) => {
-            return attach::run(read_only, cli.global);
+            return attach::run(read_only, context.global);
         }
         Command::Tools(tools::ToolCommand::Version) => return output::version(json),
-        Command::Tools(tools::ToolCommand::Doctor { fix }) => return doctor::run(fix, json),
         Command::Tools(tools::ToolCommand::Upgrade) => return upgrade::run(json),
         Command::Tools(tools::ToolCommand::Batch(args)) => {
+            let global = &context.global;
             let defaults = batch::Defaults {
-                session: &cli.global.session,
-                tab: cli.global.tab,
-                timeout: cli.global.timeout,
-                screenshot_dir: cli.global.screenshot_dir.as_deref(),
+                session: global.session.as_ref(),
+                tab: global.tab.as_ref(),
+                timeout: global.timeout,
+                screenshot_dir: global.screenshot_dir.as_deref(),
             };
             batch::request(&args, &defaults)
         }
         Command::Tabs(tabs::TabCommand::Session { action: None }) => {
-            return output::session(&cli.global.session, json).map(|()| 0);
+            return match context.global.session() {
+                Ok(session) => output::session(session, json).map(|()| 0),
+                Err(unnamed) => output::refuse(unnamed, json),
+            };
         }
-        Command::Tabs(tabs::TabCommand::Session {
-            action: Some(tabs::SessionAction::Id { scope: tabs::Scope::Worktree, prefix }),
-        }) => return session_id(prefix.as_deref(), json),
-        command => request(Cli { command, ..cli }),
+        command => request(command, context),
     };
     match request {
-        Ok(request) => send(request, json, idle_timeout),
+        Ok(request) => send(request, json),
         Err(message) => output::refuse(&message, json),
     }
 }
 
-fn daemon_run(idle_timeout: Duration) -> io::Result<i32> {
-    match daemon::run(idle_timeout) {
+fn daemon_run() -> io::Result<i32> {
+    match daemon::run() {
         Ok(()) => Ok(0),
         Err(e) => output::fail(&format!("{e:#}"), crate::exit::ERROR),
-    }
-}
-
-fn session_id(prefix: Option<&str>, json: bool) -> io::Result<i32> {
-    let id =
-        std::env::current_dir().map_err(anyhow::Error::from).and_then(|cwd| session_id::for_worktree(&cwd, prefix));
-    match id {
-        Ok(id) => output::session_id(&id, json).map(|()| 0),
-        Err(e) => output::refuse(&format!("{e:#}"), json),
     }
 }
 
@@ -151,34 +160,33 @@ fn json_asked() -> bool {
     std::env::args_os().skip(1).take_while(|arg| arg != "--").any(|arg| arg == "--json")
 }
 
-fn request(cli: Cli) -> Result<Request, String> {
-    let context = Context {
-        target: Target { session: cli.global.session, tab: cli.global.tab },
-        dir: cli.global.screenshot_dir,
-        timeout: cli.global.timeout,
-    };
-    match cli.command {
-        Command::Programs(command) => command.request(context),
+fn request(command: Command, context: Context) -> Result<Request, String> {
+    match command {
+        Command::Programs(command) => command.request(&context),
         Command::Snapshot(args) => {
-            Ok(Request::Snapshot(request::Snapshot { target: context.target, options: args.options() }))
+            Ok(Request::Snapshot(request::Snapshot { target: context.target()?, options: args.options() }))
         }
-        Command::Tabs(command) => command.request(context),
+        Command::Tabs(command) => command.request(&context),
         Command::Reading(command) => command.request(context),
         Command::Input(command) => command.request(context),
-        Command::Wait(args) => Ok(args.request(context)),
-        Command::Expect(args) => Ok(Request::Expect(request::Expect { target: context.target, expect: args.check()? })),
+        Command::Wait(args) => args.request(&context),
+        Command::Expect(args) => {
+            Ok(Request::Expect(request::Expect { target: context.target()?, expect: args.check()? }))
+        }
         Command::Tools(command) => command.request(),
     }
 }
 
-fn send(request: Request, json: bool, idle_timeout: Duration) -> io::Result<i32> {
+fn send(request: Request, json: bool) -> io::Result<i32> {
     let if_not_running = match &request {
-        Request::Stop => IfNotRunning::Answer(Reply::Stopped),
-        Request::DashboardStop => IfNotRunning::Answer(Reply::DashboardStopped(DashboardStopped { stopped: false })),
-        Request::Sessions => IfNotRunning::Answer(Reply::Sessions(Sessions::default())),
-        Request::Tabs(request::Tabs { session }) => IfNotRunning::Answer(Reply::Tabs(SessionInfo::empty(session))),
-        _ => IfNotRunning::Start(Launch { idle_timeout }),
+        Request::Stop => IfNotRunning::Answer(Box::new(Reply::Stopped)),
+        Request::DashboardStop => {
+            IfNotRunning::Answer(Box::new(Reply::DashboardStopped(DashboardStopped { stopped: false })))
+        }
+        Request::Sessions => IfNotRunning::Answer(Box::new(Reply::Sessions(Sessions::default()))),
+        _ => IfNotRunning::Start,
     };
+    let format = if json { output::Format::Json } else { output::Format::Text(request.squeeze()) };
     let typed = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     let response = match connection::send(&Call { typed: Some(typed), request }, if_not_running) {
         Ok(response) => response,
@@ -187,7 +195,7 @@ fn send(request: Request, json: bool, idle_timeout: Duration) -> io::Result<i32>
     match response {
         Response::Err(error) => output::error(&error, json),
         Response::Ok(reply) => {
-            output::reply(&reply, json)?;
+            output::reply(&reply, &format)?;
             Ok(reply.exit_code())
         }
     }

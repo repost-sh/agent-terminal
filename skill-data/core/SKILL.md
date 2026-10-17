@@ -8,28 +8,29 @@ allowed-tools: Bash(agent-terminal:*), Bash(npx @repost/agent-terminal:*)
 
 agent-terminal runs programs in real terminals and lets you drive them the way a person would. You read the screen as text, press keys, wait for the screen to change, and keep screenshots as proof, taken with `screenshot` or by the input command whose `--wait` reached that screen (`--screenshot`). A human may be watching in the dashboard.
 
+## Start with your session
+
+A session is one conversation: everything this task runs (dev servers, the app under test, shells) is a tab in it, and every tab has a name you give it. Other agents on this machine use agent-terminal at the same time, each in its own session; yours keeps your tabs apart from theirs. Before anything else, create yours, named after the task (1 to 24 characters of `a-z`, `0-9` and `-`):
+
+```bash
+agent-terminal session new repost-forward
+export AGENT_TERMINAL_SESSION=repost-forward
+```
+
+Every command that acts on a session needs one, and fails without it, saying how to create one. When your shell does not keep exported variables between commands, pass `--session repost-forward` on every call instead. `session new` fails when the name is taken and says who holds it: pick another name rather than sharing a session. A typo in `--session` fails rather than starting a new session.
+
 ## The core loop
 
 ```bash
-agent-terminal open --cwd ~/code/app lazygit   # 1. start the program; prints its first stable screen
-agent-terminal snapshot -i                     # 2. read the screen, with @t refs
-agent-terminal press 2 --wait-stable --snapshot # 3. act, wait, and see the result in one call
-agent-terminal expect "Unstaged changes"       # 4. check what must be true
-agent-terminal screenshot ./evidence/files.png # 5. keep proof
-agent-terminal close                           # 6. close what you opened
+agent-terminal open --name git --cwd ~/code/app lazygit  # 1. start it in a tab named git; prints its first stable screen
+agent-terminal snapshot -i                                # 2. read the screen, with @t refs
+agent-terminal press 2 --wait-stable --snapshot           # 3. act, wait, and see the result in one call
+agent-terminal expect "Unstaged changes"                  # 4. check what must be true
+agent-terminal screenshot ./evidence/files.png            # 5. keep proof
+agent-terminal close                                      # 6. close what you opened
 ```
 
-Acting and waiting in the same call (`--wait…`, `--snapshot`) is the fastest way to work. One call per step, not three.
-
-## Always use your own session
-
-Before your first command, name a session for the whole task:
-
-```bash
-export AGENT_TERMINAL_SESSION="$(agent-terminal session id --scope worktree --prefix task)"
-```
-
-The default session is shared with every other agent on the machine. Working in it can type into someone else's program.
+Acting and waiting in the same call (`--wait…`, `--snapshot`) is the fastest way to work. One call per step, not three. `--snapshot` takes the same view options as `snapshot` (`--rows`, `-i`, `-s`, `--scrollback`, `--ansi`), so one call can show just the part you need: `agent-terminal press Space --wait-stable --snapshot --rows 5:14 -i`.
 
 ## Reading the screen
 
@@ -37,6 +38,7 @@ The default session is shared with every other agent on the machine. Working in 
 agent-terminal snapshot            # the screen as text
 agent-terminal snapshot -i         # plus refs
 agent-terminal snapshot --rows 30:40
+agent-terminal snapshot -s         # each run of 3 or more blank rows folded into one line
 agent-terminal get text            # just the text, no header
 agent-terminal find "Error"        # where it is: row,col
 agent-terminal get cell 4 3        # one cell and its style
@@ -46,7 +48,7 @@ agent-terminal output --since before-commit   # everything printed since a mark
 A snapshot looks like this:
 
 ```
-qa t1 · lazygit · 120x36 · alt-screen · mouse:sgr · cursor 2,33 · frame 212
+qa git · lazygit · 120x36 · alt-screen · mouse:sgr · cursor 2,33 · frame 212
  1│┌─ Status ──────────────────┐┌─ Unstaged changes ──────────────────┐
  2││ app → main                ││ M  docs/design.md                   │
  3│└───────────────────────────┘│ ?? .gitignore                       │
@@ -60,6 +62,8 @@ refs:
 ```
 
 The header tells you the size, whether the app took over the whole screen (`alt-screen`), whether it accepts the mouse, where the cursor is, and the `frame` number. The frame goes up every time the screen changes.
+
+The blank rows below the last line of text fold into one `…│ (rows 12-36 blank)` line. `-s` (`--squeeze-blank`) folds every run of 3 or more blank rows that way, wherever it falls, and keeps the row numbers exact: it reads a mostly empty screen compactly. Leave it off when the layout itself is what you are checking. `--json` is the same with or without it.
 
 Refs are guesses made from what is on screen: box titles (`panel`), highlighted rows (`selected`), `[ OK ]` and `< Yes >` buttons, OSC 8 links, key hints, the input under the cursor. Each one says where it is: `row r col c` is where a click lands. A ref stays valid while the cells it was found on are unchanged; once they change, using it fails and tells you to take a new `snapshot -i`.
 
@@ -101,12 +105,14 @@ agent-terminal wait --command                    # a shell command should finish
 
 Prefer waiting for specific text. Use `--wait-stable` when you cannot know the text. Never use `wait <ms>` except when debugging: it is slow and flaky. Waits time out after 25 s by default (`--timeout`); a timeout exits 3 and prints the screen it saw.
 
+`open`, `tab new` and `restart` wait for the program's first output, then for the screen to stay unchanged, so they print the first screen it draws. A header ending `nothing printed yet` means the program has drawn nothing: they stop waiting for it after 2 s (or `--wait-stable`, if longer). When an app loads over the network after a key, wait for the text you expect, or give `--wait-stable` a longer window: `press Enter --wait-stable 1000`.
+
 ## Shells and command history
 
 For plain commands, use a shell tab and `exec`. It runs the command, waits for it, and gives you the output and the exit code:
 
 ```bash
-agent-terminal shell --cwd ~/code/app
+agent-terminal shell --name sh --cwd ~/code/app
 agent-terminal exec "cargo test" --check   # exits with the command's exit code
 agent-terminal history --failed            # which commands failed
 agent-terminal history show 3              # the output of command 3
@@ -146,21 +152,22 @@ Screenshots are the evidence: take one at every step you may need to show. Name 
 Terminal apps break at sizes their authors never tried. The default is 120x40. Try the small and the large:
 
 ```bash
-agent-terminal open --size 80x24 myapp
+agent-terminal open --name app --size 80x24 myapp
 agent-terminal resize 200x60 --wait-stable   # prints the screen at the new size
 ```
 
 ## Several programs at once
 
 ```bash
-agent-terminal open pnpm dev                 # tab t1
-agent-terminal tab new myapp-tui             # tab t2, now the current tab
-agent-terminal wait "ready on" --tab t1      # act on t1 without switching to it
-agent-terminal tab t1                        # switch
-agent-terminal restart --tab t1              # run the server again after a fix
+agent-terminal open --name api pnpm dev           # a tab named api
+agent-terminal tab new --name app myapp-tui       # a tab named app, now the current tab
+agent-terminal wait "ready on" --tab api          # act on api without switching to it
+agent-terminal tab api                            # switch
+agent-terminal restart --tab api                  # run the server again after a fix; it keeps its name
+agent-terminal tab rename web                     # rename the current tab (or the --tab one)
 ```
 
-Tabs are numbered `t1`, `t2`, … in the order they open. `agent-terminal tab` lists them; `session list` lists every session.
+Every `open`, `tab new` and `shell` needs `--name`: name the tab after the program or app it runs (1 to 24 characters of `a-z`, `0-9` and `-`, unique in the session). The name is the tab's only handle, in `--tab`, `tab <name>`, `tab close <name>`, the snapshot header and the dashboard. The dev servers and apps of one conversation are named tabs in its one session: never a session per server, and never a renamed or linked binary to make a name show. `agent-terminal tab` lists the tabs; `session list` lists every session, an empty one as `no tabs`.
 
 ## When a human takes control
 
@@ -172,14 +179,14 @@ agent-terminal wait --control --timeout 600000   # resumes when they hand it bac
 
 ## Finishing
 
-Close what you opened: `agent-terminal close`, or `agent-terminal close --all` at the end of the task.
+Close what you opened: `agent-terminal close` closes one tab, and the session stays, empty, holding its name. At the end of the task, `agent-terminal close --all --session <name>` closes every tab of that session and ends it, so its name is free again. `close --all` acts only on the session named on its own command line; the exported `AGENT_TERMINAL_SESSION` alone is refused.
 
 ## Troubleshooting
 
-- **Nothing appears after `open`.** Check `agent-terminal get exit-code` and `output`: the program may have exited at once (exit 5 on the next command).
+- **Nothing appears after `open`.** A header ending `nothing printed yet` means the program has drawn nothing so far; wait for its text with `agent-terminal wait "..."`. Otherwise check `agent-terminal get exit-code` and `output`: the program may have exited at once (exit 5 on the next command).
 - **Keys do nothing.** The app may want different keys in its current mode; check `get modes`, and read its own key hints. Try `--wait-stable` instead of a fixed text.
 - **Text wraps strangely.** The terminal is too narrow: `resize 160x40`.
-- **The screen is a mess of symbols.** Fonts in screenshots are bundled, but a missing glyph shows as `□`; run `agent-terminal doctor`.
+- **The screen is a mess of symbols.** Screenshots draw with fonts bundled in agent-terminal; a `□` is a glyph none of them has.
 - **A wait times out.** Read the screen it printed. The text may differ in case or spacing; use `--regex`.
 
 ## Full reference

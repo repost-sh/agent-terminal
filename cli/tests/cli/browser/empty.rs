@@ -2,8 +2,8 @@ use super::{Browser, Dashboard};
 use crate::support::{AgentTerminal, fixture};
 
 #[test]
-fn with_no_sessions_the_dashboard_offers_the_three_commands_to_get_started() {
-    let at = AgentTerminal::new();
+fn with_no_sessions_the_dashboard_offers_the_commands_to_get_started() {
+    let at = AgentTerminal::without_session();
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/"));
 
@@ -15,10 +15,12 @@ fn with_no_sessions_the_dashboard_offers_the_three_commands_to_get_started() {
             "No active sessions",
             "No active sessions",
             "Start a terminal from the CLI, or create a session here",
-            "agent-terminal open <program>",
-            "Copy agent-terminal open <program>",
-            "agent-terminal shell",
-            "Copy agent-terminal shell",
+            "agent-terminal session new <name>",
+            "Copy agent-terminal session new <name>",
+            "agent-terminal --session <name> open --name <tab> <program>",
+            "Copy agent-terminal --session <name> open --name <tab> <program>",
+            "agent-terminal --session <name> shell --name <tab>",
+            "Copy agent-terminal --session <name> shell --name <tab>",
             "agent-terminal skills get core",
             "Copy agent-terminal skills get core",
             "New session",
@@ -28,12 +30,55 @@ fn with_no_sessions_the_dashboard_offers_the_three_commands_to_get_started() {
 }
 
 #[test]
+fn with_sessions_but_no_tabs_the_dashboard_offers_to_open_a_tab_in_each() {
+    let at = AgentTerminal::new();
+    at.run(&["session", "new", "spare"]).success();
+    let dashboard = Dashboard::start(&at);
+    let browser = Browser::open(&dashboard.url("/"));
+
+    browser.wait_for_text("No open tabs");
+    assert_eq!(browser.run(&["get", "title"]).trim(), "No open tabs · agent-terminal");
+    assert_eq!(
+        browser.text("main").lines().filter(|line| !line.trim().is_empty()).collect::<Vec<_>>(),
+        [
+            "No open tabs",
+            "No open tabs",
+            "Open a tab in spare and work from the CLI, or here",
+            "agent-terminal --session <name> open --name <tab> <program>",
+            "Copy agent-terminal --session <name> open --name <tab> <program>",
+            "agent-terminal --session <name> shell --name <tab>",
+            "Copy agent-terminal --session <name> shell --name <tab>",
+            "agent-terminal skills get core",
+            "Copy agent-terminal skills get core",
+            "New tab in spare",
+            "New tab in work",
+        ]
+    );
+
+    browser.click_button_in("main", "New tab in spare");
+    browser.wait_until("document.querySelector('[role=dialog] h2')?.textContent === 'New tab'");
+    assert_eq!(browser.run(&["get", "value", "[role=dialog] select"]).trim(), "spare");
+}
+
+#[test]
 fn losing_the_daemon_shows_reconnecting_then_disconnected_and_retry_reconnects() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "30x4", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
-        .success();
+    at.run(&[
+        "open",
+        "--name",
+        "app",
+        "--size",
+        "30x4",
+        "--wait",
+        "line 1",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--hold",
+    ])
+    .success();
     let dashboard = Dashboard::start(&at);
-    let browser = Browser::open(&dashboard.url("/s/default/t1"));
+    let browser = Browser::open(&dashboard.url("/s/work/app"));
     browser.wait_for_status("Live");
 
     at.run(&["daemon", "stop"]).success();
@@ -64,7 +109,7 @@ fn losing_the_daemon_shows_reconnecting_then_disconnected_and_retry_reconnects()
 
 #[test]
 fn the_dashboard_starts_dark_and_switches_to_light_and_back() {
-    let at = AgentTerminal::new();
+    let at = AgentTerminal::without_session();
     let dashboard = Dashboard::start(&at);
     let browser = Browser::open(&dashboard.url("/"));
     browser.wait_for_text("No active sessions");

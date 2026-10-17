@@ -2,7 +2,6 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::skills::stub_in;
 use crate::support::{AgentTerminal, Call, Run};
 
 pub(super) struct Install {
@@ -71,10 +70,6 @@ impl Install {
 
     pub(super) fn calls(&self) -> String {
         std::fs::read_to_string(&self.log).unwrap_or_default()
-    }
-
-    pub(super) fn stub(&self) -> PathBuf {
-        stub_in(&self.user)
     }
 }
 

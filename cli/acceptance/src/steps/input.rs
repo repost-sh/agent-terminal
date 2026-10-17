@@ -18,7 +18,9 @@ pub(crate) fn define(steps: &mut Steps<'_>) {
 
 fn echoing(ctx: &mut Ctx<Terminal>, _: &[String], _: Option<&DataTable>) {
     match programs::fixture("input-echo") {
-        Ok(echo) => ctx.world.setup(&["open", "--size", "100x4", "--wait", "ready", &echo.to_string_lossy()]),
+        Ok(echo) => {
+            ctx.world.setup(&["open", "--name", "echo", "--size", "100x4", "--wait", "ready", &echo.to_string_lossy()]);
+        }
         Err(failure) => ctx.world.failure = Some(failure),
     }
 }

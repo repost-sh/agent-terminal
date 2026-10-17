@@ -1,13 +1,11 @@
-use std::cmp::Ordering;
 use std::fmt::Write as _;
-use std::fs::{File, OpenOptions};
-use std::io::{self, ErrorKind, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::io::{self, ErrorKind};
+use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 use clap::Subcommand;
 use semver::Version;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::home::home;
 use crate::output;
@@ -104,139 +102,11 @@ impl Action {
     }
 }
 
-pub(crate) fn install(json: bool) -> io::Result<i32> {
-    let printed = install_stub().and_then(|outcome| {
-        if json {
-            return Ok(format!("{}\n", serde_json::to_value(&outcome)?));
-        }
-        let at = outcome.path.display();
-        Ok(if outcome.installed {
-            format!("installed the agent-terminal skill {} at {at}\n", outcome.version)
-        } else {
-            format!("kept the newer agent-terminal skill {} at {at} (this is {VERSION})\n", outcome.version)
-        })
-    });
-    finish(printed, json)
-}
-
 fn finish(printed: Result<String>, json: bool) -> io::Result<i32> {
     match printed {
         Ok(text) => output::print(&text).map(|()| 0),
         Err(e) => output::error(&ErrorBody::failure(format!("{e:#}")), json),
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub(crate) struct StubInstall {
-    pub installed: bool,
-    pub path: PathBuf,
-    pub version: String,
-}
-
-pub(crate) enum Stub {
-    Missing,
-    Current,
-    Older(Version),
-    Unversioned,
-    Newer(Version),
-}
-
-impl Stub {
-    fn of(contents: &[u8]) -> Result<Self> {
-        let ours = crate::version::this_version()?;
-        Ok(match stamped_version(&String::from_utf8_lossy(contents)) {
-            None => Stub::Unversioned,
-            Some(theirs) => match theirs.cmp(&ours) {
-                Ordering::Equal => Stub::Current,
-                Ordering::Greater => Stub::Newer(theirs),
-                Ordering::Less => Stub::Older(theirs),
-            },
-        })
-    }
-}
-
-pub(crate) struct InstalledStub {
-    pub path: PathBuf,
-    pub stub: Stub,
-    pub rewritten: bool,
-}
-
-pub(crate) fn installed_stub() -> Result<InstalledStub> {
-    installed_stub_at(stub_path()?)
-}
-
-fn installed_stub_at(path: PathBuf) -> Result<InstalledStub> {
-    let stub =
-        open_stub(&path, OpenOptions::new().read(true), File::lock_shared)?.map_or(Stub::Missing, |(_, stub)| stub);
-    Ok(InstalledStub { path, stub, rewritten: false })
-}
-
-pub(crate) fn repair_stub() -> Result<InstalledStub> {
-    repair_stub_at(stub_path()?)
-}
-
-fn repair_stub_at(path: PathBuf) -> Result<InstalledStub> {
-    let Some((mut file, stub)) = open_stub(&path, OpenOptions::new().read(true).write(true), File::lock)? else {
-        return Ok(InstalledStub { path, stub: Stub::Missing, rewritten: false });
-    };
-    let rewritten = matches!(stub, Stub::Older(_) | Stub::Unversioned);
-    if rewritten {
-        write_stub(&mut file, &path)?;
-    }
-    Ok(InstalledStub { path, stub, rewritten })
-}
-
-fn stub_path() -> Result<PathBuf> {
-    let user =
-        std::env::var_os("HOME").context("HOME is not set; it locates the agent skills folder ~/.claude/skills")?;
-    Ok(PathBuf::from(user).join(".claude/skills/agent-terminal/SKILL.md"))
-}
-
-fn install_stub() -> Result<StubInstall> {
-    install_stub_at(stub_path()?)
-}
-
-fn install_stub_at(path: PathBuf) -> Result<StubInstall> {
-    let folder = path.parent().context("the stub has a folder")?;
-    std::fs::create_dir_all(folder).with_context(|| format!("create {}", folder.display()))?;
-    let mut creating = OpenOptions::new();
-    creating.read(true).write(true).create(true).truncate(false);
-    let (mut file, stub) =
-        open_stub(&path, &creating, File::lock)?.with_context(|| format!("create {}", path.display()))?;
-    if let Stub::Newer(theirs) = stub {
-        return Ok(StubInstall { installed: false, path, version: theirs.to_string() });
-    }
-    write_stub(&mut file, &path)?;
-    Ok(StubInstall { installed: true, path, version: VERSION.to_string() })
-}
-
-fn open_stub(path: &Path, options: &OpenOptions, lock: fn(&File) -> io::Result<()>) -> Result<Option<(File, Stub)>> {
-    let file = match options.open(path) {
-        Ok(file) => file,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e).with_context(|| format!("open {}", path.display())),
-    };
-    lock(&file).with_context(|| format!("lock {}", path.display()))?;
-    let contents = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
-    Ok(Some((file, Stub::of(&contents)?)))
-}
-
-fn write_stub(file: &mut File, path: &Path) -> Result<()> {
-    let stub = find("agent-terminal")?.versioned_guide()?;
-    file.set_len(0).with_context(|| format!("truncate {}", path.display()))?;
-    file.seek(SeekFrom::Start(0)).with_context(|| format!("rewind {}", path.display()))?;
-    file.write_all(stub.as_bytes()).with_context(|| format!("write {}", path.display()))
-}
-
-fn stamped_version(stub: &str) -> Option<Version> {
-    let (front, _) = stub.strip_prefix("---\n")?.split_once("\n---\n")?;
-    let version = front
-        .lines()
-        .skip_while(|line| *line != "metadata:")
-        .skip(1)
-        .take_while(|line| line.starts_with(' '))
-        .find_map(|line| line.trim_start().strip_prefix("version:"))?;
-    Version::parse(version.trim().trim_matches('"')).ok()
 }
 
 fn find(name: &str) -> Result<&'static Skill> {

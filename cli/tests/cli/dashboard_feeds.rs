@@ -3,7 +3,7 @@ use serde_json::Value;
 use crate::support::{AgentTerminal, DashboardSocket, dashboard, fixture};
 
 fn feed(port: u16, name: &str) -> DashboardSocket {
-    DashboardSocket::open(port, &format!("/api/session/default/t1/{name}"))
+    DashboardSocket::open(port, &format!("/api/session/work/app/{name}"))
 }
 
 fn until_closed(socket: &mut DashboardSocket) -> Vec<Value> {
@@ -17,7 +17,8 @@ fn until_closed(socket: &mut DashboardSocket) -> Vec<Value> {
 #[test]
 fn each_tab_feed_says_closed_when_its_tab_closes() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x3", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
+    at.run(&["open", "--name", "app", "--size", "20x3", "--wait", "line 3", &fixture("line-printer"), "--hold"])
+        .success();
     let port = dashboard(&at);
     let mut feeds: Vec<DashboardSocket> =
         ["activity", "output", "info"].into_iter().map(|name| feed(port, name)).collect();
@@ -37,7 +38,7 @@ fn texts(update: &Value, stream: &str) -> String {
 fn the_output_feed_decodes_text_split_across_reads_and_marks_bytes_that_are_not_utf8() {
     let at = AgentTerminal::new();
     let script = r"stty -echo; printf 'a\303'; read _; printf '\251\377b'; read _";
-    at.run(&["open", "--size", "20x3", "--wait", "a", "sh", "-c", script]).success();
+    at.run(&["open", "--name", "app", "--size", "20x3", "--wait", "a", "sh", "-c", script]).success();
     let mut output = feed(dashboard(&at), "output");
     let mut updates = vec![output.next()];
     at.run(&["press", "Enter"]).success();
@@ -51,12 +52,13 @@ fn the_output_feed_decodes_text_split_across_reads_and_marks_bytes_that_are_not_
 #[test]
 fn an_unreadable_activity_log_ends_the_activity_feed_and_says_why_in_the_daemon_log() {
     let at = AgentTerminal::new();
-    at.run(&["open", "--size", "20x3", "--wait", "line 3", &fixture("line-printer"), "--hold"]).success();
-    std::fs::write(at.home().join("sessions/default/activity.jsonl"), "not json\n").expect("break the activity log");
+    at.run(&["open", "--name", "app", "--size", "20x3", "--wait", "line 3", &fixture("line-printer"), "--hold"])
+        .success();
+    std::fs::write(at.home().join("sessions/work/activity.jsonl"), "not json\n").expect("break the activity log");
     let mut activity = feed(dashboard(&at), "activity");
     assert!(activity.closed());
     assert!(
-        at.daemon_log().contains("dashboard: reading the activity of default t1 failed: read "),
+        at.daemon_log().contains("dashboard: reading the activity of work app failed: read "),
         "{}",
         at.daemon_log()
     );

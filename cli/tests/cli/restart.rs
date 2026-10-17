@@ -11,11 +11,25 @@ fn workdir(at: &AgentTerminal) -> String {
 }
 
 #[test]
+fn restart_keeps_the_tabs_name_even_one_given_by_tab_rename() {
+    let at = AgentTerminal::new();
+    let printer = fixture("line-printer");
+    at.run(&["open", "--name", "app", "--size", "20x2", "--wait", "line 1", &printer, "--lines", "1", "--hold"])
+        .success();
+    at.run(&["tab", "rename", "server"]).success();
+    let restarted = at.run(&["restart", "--wait", "line 1"]).success();
+    assert!(restarted.stdout().starts_with("work server · line-printer · 20x2 · "), "{}", restarted.stdout());
+    assert_eq!(at.run(&["tab"]).success().stdout(), "work server · line-printer · 20x2 · running · current\n");
+}
+
+#[test]
 fn restart_runs_the_same_program_again_in_the_same_cwd_env_and_size() {
     let at = AgentTerminal::new();
     let work = workdir(&at);
     at.run(&[
         "open",
+        "--name",
+        "app",
         "--size",
         "40x4",
         "--cwd",
@@ -35,11 +49,11 @@ fn restart_runs_the_same_program_again_in_the_same_cwd_env_and_size() {
     at.run(&["wait", "--cursor", "2,1"]).success();
     let restarted = at.run(&["snapshot"]).success();
     insta::assert_snapshot!(restarted.screen(), @r"
-    default t1 · sh · 36x3 · cursor 2,1 · frame N
+    work app · sh · 36x3 · cursor 2,1 · frame N
     1│run 2 hello in work size 3 36
     …│ (rows 2-3 blank)
     ");
-    assert_eq!(at.run(&["tab"]).success().stdout(), "default t1 · sh · 36x3 · running · current\n");
+    assert_eq!(at.run(&["tab"]).success().stdout(), "work app · sh · 36x3 · running · current\n");
 }
 
 #[test]
@@ -48,6 +62,8 @@ fn frame_numbers_go_on_after_a_restart() {
     let work = workdir(&at);
     at.run(&[
         "open",
+        "--name",
+        "app",
         "--size",
         "40x3",
         "--cwd",
@@ -61,11 +77,11 @@ fn frame_numbers_go_on_after_a_restart() {
         COUNT_RUNS,
     ])
     .success();
-    let before = at.frame("default");
+    let before = at.frame("work");
 
     at.run(&["restart", "--wait", "run 2"]).success();
 
-    let after = at.frame("default");
+    let after = at.frame("work");
     assert!(after > before, "frame numbers go on after a restart: {after} after {before}");
 }
 
@@ -75,6 +91,8 @@ fn restart_brings_back_a_program_that_exited() {
     let work = workdir(&at);
     at.run(&[
         "open",
+        "--name",
+        "app",
         "--size",
         "40x3",
         "--cwd",
@@ -91,14 +109,14 @@ fn restart_brings_back_a_program_that_exited() {
     .success();
     at.run(&["wait", "--exit"]).success();
     let opened = at.run(&["snapshot"]).success();
-    assert!(opened.stdout().starts_with("default t1 · sh · 40x3 · cursor 2,1 · frame "), "{}", opened.stdout());
+    assert!(opened.stdout().starts_with("work app · sh · 40x3 · cursor 2,1 · frame "), "{}", opened.stdout());
     assert!(opened.stdout().lines().next().unwrap().ends_with(" · exited 3"), "{}", opened.stdout());
 
     at.run(&["restart", "--wait", "run 2"]).success();
     at.run(&["wait", "--cursor", "2,1"]).success();
     let restarted = at.run(&["snapshot"]).success();
     insta::assert_snapshot!(restarted.screen(), @r"
-    default t1 · sh · 40x3 · cursor 2,1 · frame N
+    work app · sh · 40x3 · cursor 2,1 · frame N
     1│run 2 hi in work size 3 40
     …│ (rows 2-3 blank)
     ");
@@ -110,6 +128,8 @@ fn restart_reaches_a_tab_other_than_the_current_one() {
     let work = workdir(&at);
     at.run(&[
         "open",
+        "--name",
+        "app",
         "--size",
         "40x3",
         "--cwd",
@@ -123,12 +143,25 @@ fn restart_reaches_a_tab_other_than_the_current_one() {
         COUNT_RUNS,
     ])
     .success();
-    at.run(&["tab", "new", "--size", "20x2", "--wait", "line 1", &fixture("line-printer"), "--lines", "1", "--hold"])
-        .success();
+    at.run(&[
+        "tab",
+        "new",
+        "--name",
+        "api",
+        "--size",
+        "20x2",
+        "--wait",
+        "line 1",
+        &fixture("line-printer"),
+        "--lines",
+        "1",
+        "--hold",
+    ])
+    .success();
 
-    let restarted = at.run(&["--tab", "t1", "restart", "--wait", "run 2"]).success();
-    assert!(restarted.stdout().starts_with("default t1 · sh · 40x3 · "), "{}", restarted.stdout());
-    assert_eq!(at.run(&["--json", "tab"]).success().json()["current"], "t2");
+    let restarted = at.run(&["--tab", "app", "restart", "--wait", "run 2"]).success();
+    assert!(restarted.stdout().starts_with("work app · sh · 40x3 · "), "{}", restarted.stdout());
+    assert_eq!(at.run(&["--json", "tab"]).success().json()["current"], "api");
 }
 
 #[test]
@@ -137,6 +170,8 @@ fn restarts_of_one_tab_at_the_same_time_leave_exactly_one_program_running() {
     let work = workdir(&at);
     at.run(&[
         "open",
+        "--name",
+        "app",
         "--size",
         "40x3",
         "--cwd",
@@ -157,7 +192,7 @@ fn restarts_of_one_tab_at_the_same_time_leave_exactly_one_program_running() {
         assert_eq!(codes, vec![0; 3]);
     });
 
-    assert_eq!(at.run(&["tab"]).success().stdout(), "default t1 · sh · 40x3 · running · current\n");
+    assert_eq!(at.run(&["tab"]).success().stdout(), "work app · sh · 40x3 · running · current\n");
     let pids = std::fs::read_to_string(at.home().join("work/pids")).unwrap();
     let alive: Vec<&str> = pids
         .lines()

@@ -18,7 +18,11 @@ const show = (tip: Tip, target: HTMLElement) => {
   tip.target = target;
 };
 
-const tooltipOf = (event: Event) => (event.target instanceof Element ? event.target.closest<HTMLElement>("[data-tooltip]") : null);
+const tooltipOf = (event: Event) => {
+  const element = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-tooltip]") : null;
+
+  return element?.hasAttribute("data-tooltip-overflow") && element.scrollWidth <= element.clientWidth ? null : element;
+};
 
 const tipHandlers = (tip: Tip) => ({
   over: (event: MouseEvent) => {

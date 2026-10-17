@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
 use axum::Json;
+use axum::extract::State;
 use axum::extract::ws::{WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use serde_json::Value;
 use tokio::sync::watch;
 
+use super::Backend;
+use super::route::TabRoute;
 use super::stream::{LastSent, hung_up};
-use super::{Backend, tab_id};
 use crate::native::log;
 use crate::protocol::request;
 use crate::protocol::{ErrorBody, Request, Sessions, Shot, Target, Wait};
@@ -56,39 +57,24 @@ fn encoded_sessions(backend: &dyn Backend) -> Option<String> {
         .ok()
 }
 
-pub(super) async fn restart(
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
+pub(super) async fn restart(TabRoute { backend, session, name, .. }: TabRoute) -> Response {
+    let target = Target { session, tab: Some(name) };
     let wait = Wait::Stable { quiet_ms: RESTART_SETTLES_AFTER_MS };
-    call(
-        backend,
-        Request::Restart(request::Restart { target: Target::tab(&session, id), wait, timeout_ms: RESTART_TIMEOUT_MS }),
-    )
-    .await
+    call(backend, Request::Restart(request::Restart { target, wait, timeout_ms: RESTART_TIMEOUT_MS })).await
 }
 
-pub(super) async fn close(
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Close(request::Close { target: Target::tab(&session, id), all: false })).await
+pub(super) async fn close(TabRoute { backend, session, name, .. }: TabRoute) -> Response {
+    let target = Target { session, tab: Some(name) };
+    call(backend, Request::Close(request::Close::Tab(target))).await
 }
 
 pub(super) async fn close_all(State(backend): State<Arc<dyn Backend>>) -> Response {
-    call(backend, Request::Close(request::Close { target: Target { session: String::new(), tab: None }, all: true }))
-        .await
+    call(backend, Request::Close(request::Close::EverySession)).await
 }
 
-pub(super) async fn screenshot(
-    State(backend): State<Arc<dyn Backend>>,
-    Path((session, tab)): Path<(String, String)>,
-) -> Response {
-    let Some(id) = tab_id(&tab) else { return no_tab(&session, &tab) };
-    call(backend, Request::Screenshot(request::Screenshot { target: Target::tab(&session, id), shot: Shot::default() }))
-        .await
+pub(super) async fn screenshot(TabRoute { backend, session, name, .. }: TabRoute) -> Response {
+    let target = Target { session, tab: Some(name) };
+    call(backend, Request::Screenshot(request::Screenshot { target, shot: Shot::default() })).await
 }
 
 pub(super) async fn call(backend: Arc<dyn Backend>, request: Request) -> Response {
@@ -110,8 +96,4 @@ pub(super) fn refused(message: String) -> Response {
 
 fn refusal(error: &ErrorBody) -> Response {
     (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({ "error": error }))).into_response()
-}
-
-fn no_tab(session: &str, tab: &str) -> Response {
-    (StatusCode::NOT_FOUND, format!("{tab} is not a tab id in session {session}; tabs are t1, t2, ...")).into_response()
 }

@@ -7,10 +7,10 @@ import { frameOf, sessionInfo, shotOf, tabInfo } from "../fake-daemon/messages";
 import { waiting } from "../fake-daemon/sockets";
 
 const SHOTS = "/api/session/work/screenshots/stream";
-const STREAM = "/api/session/work/t1/stream";
+const STREAM = "/api/session/work/app/stream";
 
 const shownApp = async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();
@@ -53,7 +53,7 @@ test("a feed that drops reconnects after a growing wait and picks up where the d
   await daemon.serve();
   await daemon.push(SHOTS, { type: "closed" });
   await after(10_000);
-  expect([screen.getByRole("button", { name: /a\.png/ }).textContent, waiting()]).toEqual(["a.pngt1 · frame 3 · 03:04:05dashboard", []]);
+  expect([screen.getByRole("button", { name: /a\.png/ }).textContent, waiting()]).toEqual(["a.pngapp · frame 3 · 03:04:05dashboard", []]);
   vi.useRealTimers();
 });
 

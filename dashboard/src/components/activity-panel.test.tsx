@@ -6,15 +6,15 @@ import { startDaemon, type FakeDaemon } from "../fake-daemon/daemon";
 import { entryOf, sessionInfo, shotOf, tabInfo } from "../fake-daemon/messages";
 import type { ActivityEntry, PendingCall } from "../lib/protocol";
 
-const ACTIVITY = "/api/session/work/t1/activity";
+const ACTIVITY = "/api/session/work/app/activity";
 
-const shownActivity = async (tab = "t1") => {
+const shownActivity = async (tab = "app") => {
   const daemon = startDaemon([sessionInfo("work", [tabInfo(tab)])]);
 
   render(<App />);
   await daemon.serve();
   fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
-  await daemon.connected(ACTIVITY.replace("t1", tab));
+  await daemon.connected(ACTIVITY.replace("app", tab));
 
   return daemon;
 };
@@ -25,7 +25,7 @@ const pushed = async (daemon: FakeDaemon, update: Update) => {
   await daemon.push(ACTIVITY, { type: "entries", entries: update.entries, pending: update.pending ?? [] });
 };
 
-const calls = () => within(screen.getByRole("list", { name: "Calls to work t1" })).getAllByRole("listitem").map((row) => row.textContent);
+const calls = () => within(screen.getByRole("list", { name: "Calls to work app" })).getAllByRole("listitem").map((row) => row.textContent);
 
 test("calls list their time, command, duration and result, with pending calls last", async () => {
   const daemon = await shownActivity();
@@ -36,7 +36,7 @@ test("calls list their time, command, duration and result, with pending calls la
     pending: [{ time: new Date(2026, 0, 2, 3, 4, 6, 0).toISOString(), command: "wait --idle" }],
   });
   expect(calls()).toEqual(["03:04:05.006snapshot 1.5 s", "03:04:05.006wait --text ready 12 mstimeout", "03:04:06.000wait --idlewaiting"]);
-  expect(within(screen.getByRole("region", { name: "Details of work t1" })).getByText("3")).toBeTruthy();
+  expect(within(screen.getByRole("region", { name: "Details of work app" })).getByText("3")).toBeTruthy();
   await pushed(daemon, { entries: [entryOf("type", { human: { typed: "hi" } })] });
   expect(calls()).toEqual(["03:04:05.006snapshot 1.5 s", "03:04:05.006wait --text ready 12 mstimeout", '03:04:05.006human: typed "hi"']);
 });
@@ -62,7 +62,7 @@ test("scrolling away from the newest call stops following and scrolling back res
   const daemon = await shownActivity();
 
   await pushed(daemon, { entries: [entryOf("snapshot")] });
-  const list = screen.getByRole("list", { name: "Calls to work t1" });
+  const list = screen.getByRole("list", { name: "Calls to work app" });
   const follow = screen.getByRole("button", { name: "Follow" });
 
   Object.defineProperties(list, { scrollHeight: { value: 1000 }, clientHeight: { value: 200 } });
@@ -92,7 +92,7 @@ const SHOTS = "/api/session/work/screenshots/stream";
 
 const at = (minute: number) => new Date(2026, 0, 2, 3, minute).toISOString();
 
-const list = () => screen.getByRole("list", { name: "Calls to work t1" });
+const list = () => screen.getByRole("list", { name: "Calls to work app" });
 
 test("each kind of call has its own look, and a screenshot it took opens in the lightbox when it is listed", async () => {
   const daemon = await shownActivity();
@@ -204,7 +204,7 @@ test("a list that appears with calls starts at the newest", async () => {
 
 test("a list that restarts after clearing shows its first call collapsed", async () => {
   const daemon = await shownActivity("t8");
-  const feed = ACTIVITY.replace("t1", "t8");
+  const feed = ACTIVITY.replace("app", "t8");
 
   await daemon.push(feed, { type: "entries", entries: [entryOf("get text", { output: "old", time: at(1) })], pending: [] });
   fireEvent.click(screen.getByRole("button", { name: /get text/ }));

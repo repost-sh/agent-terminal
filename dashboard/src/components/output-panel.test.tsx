@@ -5,14 +5,14 @@ import { App } from "../app";
 import { startDaemon, type FakeDaemon } from "../fake-daemon/daemon";
 import { sessionInfo, tabInfo } from "../fake-daemon/messages";
 
-const OUTPUT = "/api/session/work/t1/output";
+const OUTPUT = "/api/session/work/app/output";
 
 type Segment = { text: string } | { mark: string };
 
 interface Update { segments: Segment[]; raw?: Segment[]; reset?: boolean }
 
 const shownOutput = async () => {
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
 
   render(<App />);
   await daemon.serve();
@@ -26,7 +26,7 @@ const pushed = async (daemon: FakeDaemon, update: Update) => {
   await daemon.push(OUTPUT, { type: "output", reset: update.reset ?? false, styled: update.segments, raw: update.raw ?? update.segments });
 };
 
-const output = () => within(screen.getByRole("list", { name: "Output of work t1" }));
+const output = () => within(screen.getByRole("list", { name: "Output of work app" }));
 
 const lines = () => output().getAllByRole("listitem").map((line) => within(line).queryByRole("separator")?.getAttribute("aria-label") ?? line.textContent);
 

@@ -162,7 +162,7 @@ fn mirror(lines: &[&str]) -> Mirror {
 }
 
 fn painter(read_only: bool) -> Painter {
-    Painter { place: "work t1".to_string(), read_only, shown: Vec::new(), hint: String::new(), fitted: None }
+    Painter { place: "work app".to_string(), read_only, shown: Vec::new(), hint: String::new(), fitted: None }
 }
 
 #[test]
@@ -177,8 +177,8 @@ fn the_hint_names_the_tab_where_keys_go_or_how_the_program_ended() {
             painter(true).hint_for(&ended(None))
         ],
         [
-            "work t1 · keys go to vim · ctrl-p ctrl-q detaches",
-            "work t1 · read-only · ctrl-p ctrl-q detaches",
+            "work app · keys go to vim · ctrl-p ctrl-q detaches",
+            "work app · read-only · ctrl-p ctrl-q detaches",
             "vim exited with code 2 · ctrl-p ctrl-q detaches",
             "vim exited · ctrl-p ctrl-q detaches"
         ]
@@ -200,7 +200,7 @@ fn a_repaint_redraws_only_the_rows_that_changed_and_a_new_fit_clears_the_screen(
     let mut hinted = String::new();
     painting.paint_hint(&mut hinted, &mirror(&["one", "2"]), 12);
     painting.paint_hint(&mut hinted, &mirror(&["one", "2"]), 12);
-    assert_eq!(hinted, "\x1b[3;1H\x1b[0m\x1b[2K\x1b[2mwork t1 · ke\x1b[0m");
+    assert_eq!(hinted, "\x1b[3;1H\x1b[0m\x1b[2K\x1b[2mwork app · k\x1b[0m");
     assert_eq!(painting.refit((80, 25, 10, 2)), "\x1b[0m\x1b[2J");
     assert!(painting.shown.is_empty() && painting.hint.is_empty());
 }

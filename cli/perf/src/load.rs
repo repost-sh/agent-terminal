@@ -11,7 +11,7 @@ use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use tungstenite::{Message, WebSocket};
 
-use crate::daemon::{Agent, Daemon};
+use crate::daemon::{Agent, Binary, Daemon};
 use crate::measure::{SIZE, utf8};
 
 const SETTLE_SECONDS: u64 = 2;
@@ -126,14 +126,11 @@ impl Plan {
 pub(crate) fn run(plan: &Plan, progress: &mut impl Write) -> Result<Vec<Row>> {
     std::fs::create_dir_all(&plan.work).with_context(|| format!("create {}", plan.work.display()))?;
     let work = std::fs::canonicalize(&plan.work).with_context(|| format!("find {}", plan.work.display()))?;
+    let binary = Binary::detect(plan.agent.clone());
     let mut rows = Vec::new();
     for (run, case) in (1u32..).zip(plan.cases()) {
-        let agent = Agent {
-            side: "measured binary",
-            binary: plan.agent.clone(),
-            work: work.clone(),
-            home: format!("run-{run}"),
-        };
+        let agent =
+            Agent { side: "measured binary", binary: binary.clone(), work: work.clone(), home: format!("run-{run}") };
         let home = agent.home();
         let row = measure(plan, agent, case).with_context(|| case.to_string())?;
         writeln!(progress, "{}", line(&row)).context("report the progress")?;
@@ -166,12 +163,12 @@ pub(crate) const HEADER: &str = "| rate | repaint | tabs | viewer | program KiB/
 fn measure(plan: &Plan, agent: Agent, case: Case) -> Result<Row> {
     let home = agent.home();
     let mut daemon = Daemon::start(agent)?;
-    open_tabs(plan, &daemon, &home, case)?;
+    let tab = open_tabs(plan, &daemon, &home, case)?;
     let readers = match case.viewer {
         Viewer::None => Vec::new(),
         Viewer::Dashboard => {
             let port = daemon.dashboard()?;
-            (0..case.tabs).map(|tab| Reader::follow(port, &format!("s{tab}"))).collect::<Result<_>>()?
+            (0..case.tabs).map(|session| Reader::follow(port, &format!("s{session}/{tab}"))).collect::<Result<_>>()?
         }
     };
     run_for(&daemon, case.hz, SETTLE_SECONDS)?;
@@ -183,29 +180,34 @@ fn measure(plan: &Plan, agent: Agent, case: Case) -> Result<Row> {
     window.row(case, rss, fds)
 }
 
-fn open_tabs(plan: &Plan, daemon: &Daemon, home: &Path, case: Case) -> Result<()> {
+fn open_tabs(plan: &Plan, daemon: &Daemon, home: &Path, case: Case) -> Result<String> {
     let redraw = plan.fixtures.join("redraw");
     let hz = case.hz.to_string();
     let flag = case.repaint.flag();
+    let mut opened = None;
     for tab in 0..case.tabs {
         let stats = home.join(format!("s{tab}.stats"));
-        daemon.agent().run(&[
-            "--session",
-            &format!("s{tab}"),
-            "open",
-            "--size",
-            SIZE,
-            "--wait",
-            "forward",
-            utf8(&redraw)?,
-            "--hz",
-            &hz,
-            &flag,
-            "--stats",
-            utf8(&stats)?,
-        ])?;
+        let session = format!("s{tab}");
+        daemon.agent().new_session(&session)?;
+        opened = Some(daemon.agent().open(
+            "redraw",
+            &[
+                "--session",
+                &session,
+                "--size",
+                SIZE,
+                "--wait",
+                "forward",
+                utf8(&redraw)?,
+                "--hz",
+                &hz,
+                &flag,
+                "--stats",
+                utf8(&stats)?,
+            ],
+        )?);
     }
-    Ok(())
+    opened.context("a load case opens at least one tab")
 }
 
 fn run_for(daemon: &Daemon, hz: u32, seconds: u64) -> Result<()> {
@@ -336,8 +338,8 @@ struct Reader {
 }
 
 impl Reader {
-    fn follow(port: u16, session: &str) -> Result<Self> {
-        let url = format!("ws://localhost:{port}/api/session/{session}/t1/stream");
+    fn follow(port: u16, tab: &str) -> Result<Self> {
+        let url = format!("ws://localhost:{port}/api/session/{tab}/stream");
         let stream = TcpStream::connect(("127.0.0.1", port)).context("connect to the dashboard")?;
         stream.set_read_timeout(Some(Duration::from_millis(200))).context("set a read timeout")?;
         let (websocket, _) = tungstenite::client(url.as_str(), stream).with_context(|| format!("open {url}"))?;

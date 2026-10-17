@@ -1,6 +1,7 @@
 mod activity;
 mod attach;
 mod batch;
+mod claim;
 mod dashboard_server;
 mod dispatch;
 mod expect;
@@ -9,36 +10,39 @@ mod lifecycle;
 mod reading;
 mod refusals;
 mod serve;
+mod sessions;
 mod tabs;
 mod waiting;
 
 use std::collections::{BTreeMap, HashMap};
-use std::io::{self, ErrorKind, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::{self, Write};
+use std::os::unix::net::UnixListener;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use tokio::sync::watch;
 
-use crate::home::{DAEMON_VERSION, SOCKET, home};
+use crate::home::home;
 use crate::native::changes::Changes;
 use crate::native::control::{Control, TabHold};
 use crate::native::dashboard::{self, Backend};
 use crate::native::log;
-use crate::native::store::{ActivityEntry, SessionFolder, Typed};
+use crate::native::store::{ActivityEntry, SessionFolder, TabId, Typed};
 use crate::native::terminal::Terminal;
-use crate::protocol::{ErrorBody, HumanInput, Reply, Request, SessionInfo, Sessions, TabId, Target};
+use crate::protocol::{ErrorBody, HumanInput, Name, Reply, Request, SessionInfo, Sessions, TabInfo, Target};
 use lifecycle::Activity;
-use refusals::{error_body, no_tab, no_terminal, stopping};
+use refusals::{error_body, known_session, no_tab, no_terminal, stopping};
 
 pub(crate) const READY: &str = "ready";
 
 struct Daemon {
     home: PathBuf,
-    sessions: Mutex<BTreeMap<String, Session>>,
+    claim: File,
+    sessions: Mutex<BTreeMap<Name, Session>>,
     restarting: Mutex<()>,
     activity: Mutex<Activity>,
     quiet: Condvar,
@@ -53,62 +57,38 @@ struct Session {
     tabs: BTreeMap<TabId, Tab>,
     current: Option<TabId>,
     folder: Arc<SessionFolder>,
+    created: Instant,
 }
 
 #[derive(Clone)]
 struct Tab {
+    name: Name,
+    renamed_from: Option<Name>,
     terminal: Arc<Terminal>,
     control: Arc<Control>,
 }
 
-pub(crate) fn run(idle_timeout: Duration) -> Result<()> {
+pub(crate) fn run() -> Result<()> {
     log::start()?;
     let home = home()?;
     std::fs::create_dir_all(&home).with_context(|| format!("create {}", home.display()))?;
-    let Some(listener) = listen(&home)? else {
-        return Ok(());
-    };
-    record_version(&home)?;
+    let (claim, listener) = claim::claim(&home)?;
 
     let mut stdout = io::stdout();
     writeln!(stdout, "{READY}").and_then(|()| stdout.flush()).context("tell the CLI the daemon is ready")?;
 
     let (ended, end) = mpsc::channel();
-    let daemon = Arc::new_cyclic(|me| Daemon::new(Weak::clone(me), ended, home));
-    if !idle_timeout.is_zero() {
-        let watching = Arc::clone(&daemon);
-        std::thread::spawn(move || watching.stop_when_idle(idle_timeout));
-    }
+    let daemon = Arc::new_cyclic(|me| Daemon::new(Weak::clone(me), ended, home, claim));
     let accepting = Arc::clone(&daemon);
     std::thread::spawn(move || accepting.accept(&listener));
     end.recv().context("every thread of the daemon ended without stopping it")
 }
 
-fn listen(home: &Path) -> Result<Option<UnixListener>> {
-    let path = home.join(SOCKET);
-    match UnixListener::bind(&path) {
-        Ok(listener) => Ok(Some(listener)),
-        Err(e) if e.kind() == ErrorKind::AddrInUse && UnixStream::connect(&path).is_ok() => Ok(None),
-        Err(e) if e.kind() == ErrorKind::AddrInUse => {
-            std::fs::remove_file(&path).with_context(|| format!("remove the stale socket {}", path.display()))?;
-            let listener = UnixListener::bind(&path).with_context(|| format!("listen on {}", path.display()))?;
-            Ok(Some(listener))
-        }
-        Err(e) => Err(e).with_context(|| format!("listen on {}", path.display())),
-    }
-}
-
-fn record_version(home: &Path) -> Result<()> {
-    let path = home.join(DAEMON_VERSION);
-    let written = home.join("daemon.version.new");
-    std::fs::write(&written, crate::version::VERSION).with_context(|| format!("write {}", written.display()))?;
-    std::fs::rename(&written, &path).with_context(|| format!("move {} to {}", written.display(), path.display()))
-}
-
 impl Daemon {
-    fn new(me: Weak<Daemon>, ended: Sender<()>, home: PathBuf) -> Self {
+    fn new(me: Weak<Daemon>, ended: Sender<()>, home: PathBuf, claim: File) -> Self {
         Self {
             home,
+            claim,
             sessions: Mutex::default(),
             restarting: Mutex::default(),
             activity: Mutex::default(),
@@ -163,20 +143,18 @@ impl Daemon {
         Arc::ptr_eq(&tab.control, control).then(|| Arc::clone(&tab.terminal))
     }
 
-    fn target(&self, target: &Target) -> Result<(TabId, Arc<Terminal>), ErrorBody> {
-        self.tab(target).map(|(id, tab)| (id, tab.terminal))
+    fn target(&self, target: &Target) -> Result<(Name, Arc<Terminal>), ErrorBody> {
+        self.tab(target).map(|(_, tab)| (tab.name, tab.terminal))
     }
 
     fn tab(&self, target: &Target) -> Result<(TabId, Tab), ErrorBody> {
-        let Target { session, tab } = target;
+        self.tab_in(&target.session, target.tab.as_deref())
+    }
+
+    fn tab_in(&self, session: &str, tab: Option<&str>) -> Result<(TabId, Tab), ErrorBody> {
         let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        let entry = sessions.get(session);
-        match *tab {
-            Some(id) => entry.and_then(|s| s.tabs.get(&id)).map(|t| (id, t.clone())).ok_or_else(|| no_tab(session, id)),
-            None => entry
-                .and_then(|s| s.current.and_then(|id| s.tabs.get(&id).map(|t| (id, t.clone()))))
-                .ok_or_else(|| no_terminal(session)),
-        }
+        let entry = known_session(session, sessions.get(session))?;
+        entry.find(session, tab).map(|(id, tab)| (id, tab.clone()))
     }
 }
 
@@ -196,6 +174,11 @@ impl Backend for Daemon {
         self.terminal_of(session, tab)
     }
 
+    fn tab_id(&self, session: &str, tab: &str) -> Option<TabId> {
+        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        sessions.get(session).and_then(|entry| entry.named(tab)).map(|(id, _)| *id)
+    }
+
     fn folder(&self, session: &str) -> Option<Arc<SessionFolder>> {
         self.sessions.lock().unwrap_or_else(PoisonError::into_inner).get(session).map(|entry| Arc::clone(&entry.folder))
     }
@@ -204,10 +187,10 @@ impl Backend for Daemon {
         self.changes.subscribe()
     }
 
-    fn take_control(&self, session: &str, tab: TabId) -> Result<TabHold, ErrorBody> {
-        self.tab(&Target::tab(session, tab)).map(|(_, entry)| TabHold {
-            session: session.to_string(),
-            tab,
+    fn take_control(&self, session: &Name, tab: &str) -> Result<TabHold, ErrorBody> {
+        self.tab_in(session, Some(tab)).map(|(id, entry)| TabHold {
+            session: session.clone(),
+            tab: id,
             hold: entry.control.take(),
         })
     }
@@ -221,24 +204,25 @@ impl Backend for Daemon {
     }
 
     fn type_as_human(&self, taken: &TabHold, input: &HumanInput) -> Result<(), ErrorBody> {
-        let (session, tab, hold) = (taken.session.as_str(), taken.tab, &taken.hold);
+        let (session, tab, hold) = (&taken.session, taken.tab, &taken.hold);
         let time = SystemTime::now();
         let started = Instant::now();
-        let (folder, terminal) = {
+        let (folder, name, terminal) = {
             let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
             let found = sessions.get(session).and_then(|s| {
                 let entry = s.tabs.get(&tab).filter(|entry| hold.holds(&entry.control))?;
-                Some((Arc::clone(&s.folder), Arc::clone(&entry.terminal)))
+                Some((Arc::clone(&s.folder), entry.name.clone(), Arc::clone(&entry.terminal)))
             });
-            found.ok_or_else(|| ErrorBody::failure(format!("{session} {tab} was closed")))?
+            found.ok_or_else(|| ErrorBody::failure(format!("the tab a human held in session {session} was closed")))?
         };
         let delivered = terminal.input(&input.input()).map(drop).map_err(|e| {
             let mut error = error_body(&e);
-            error.message = format!("{session} {tab}: {}", error.message);
+            error.message = format!("{session} {name}: {}", error.message);
             error
         });
         let mut entry = ActivityEntry::at(&Typed { time, words: &input.call() }, started.elapsed());
-        entry.tab = Some(tab.to_string());
+        entry.tab_id = Some(tab);
+        entry.tab = Some(name);
         entry.frame = Some(terminal.frame());
         entry.human = Some(input.clone());
         if let Err(error) = &delivered {
@@ -252,15 +236,36 @@ impl Backend for Daemon {
 
 impl Session {
     fn new(folder: Arc<SessionFolder>) -> Self {
-        Self { tabs: BTreeMap::new(), current: None, folder }
+        Self { tabs: BTreeMap::new(), current: None, folder, created: Instant::now() }
     }
 
-    fn info(&self, name: &str) -> SessionInfo {
+    fn info(&self, name: &Name) -> SessionInfo {
         SessionInfo {
-            session: name.to_string(),
-            current: self.current.map(|id| id.to_string()),
-            tabs: self.tabs.iter().map(|(id, tab)| tab.terminal.info(&id.to_string(), tab.control.owner())).collect(),
+            session: name.clone(),
+            current: self.current.and_then(|id| self.tabs.get(&id)).map(|tab| tab.name.clone()),
+            tabs: self
+                .tabs
+                .values()
+                .map(|tab| TabInfo {
+                    tab: tab.name.clone(),
+                    renamed_from: tab.renamed_from.clone(),
+                    terminal: tab.terminal.info(),
+                    control: tab.control.owner(),
+                })
+                .collect(),
         }
+    }
+
+    fn named(&self, name: &str) -> Option<(&TabId, &Tab)> {
+        self.tabs.iter().find(|(_, tab)| *tab.name == *name)
+    }
+
+    fn find(&self, session: &str, tab: Option<&str>) -> Result<(TabId, &Tab), ErrorBody> {
+        let found = match tab {
+            Some(name) => self.named(name).ok_or_else(|| no_tab(session, name)),
+            None => self.current.and_then(|id| self.tabs.get_key_value(&id)).ok_or_else(|| no_terminal(session)),
+        };
+        found.map(|(id, tab)| (*id, tab))
     }
 }
 

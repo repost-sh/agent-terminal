@@ -1,13 +1,15 @@
 use std::fmt;
 
 use super::count;
-use crate::protocol::{DiffBase, Ref, RefKind, Snapshot, SnapshotDiff};
+use crate::protocol::{DiffBase, Ref, RefKind, Snapshot, SnapshotDiff, Squeeze, Switch};
 
-pub(crate) fn screen(s: &Snapshot) -> String {
-    fmt::from_fn(|f| write_screen(f, s)).to_string()
+const SHORTEST_SQUEEZED_RUN: usize = 3;
+
+pub(crate) fn screen(s: &Snapshot, squeeze: &Squeeze) -> String {
+    fmt::from_fn(|f| write_screen(f, s, squeeze)).to_string()
 }
 
-fn write_screen(f: &mut fmt::Formatter<'_>, s: &Snapshot) -> fmt::Result {
+fn write_screen(f: &mut fmt::Formatter<'_>, s: &Snapshot, squeeze: &Squeeze) -> fmt::Result {
     writeln!(f, "{}", header(s).join(" · "))?;
     let scrollback = s.scrollback.as_deref().unwrap_or_default();
     let width = label_width(s, scrollback);
@@ -15,7 +17,7 @@ fn write_screen(f: &mut fmt::Formatter<'_>, s: &Snapshot) -> fmt::Result {
         let label = format!("-{}", scrollback.len() - i);
         writeln!(f, "{label:>width$}│{line}")?;
     }
-    write_rows(f, s, width)?;
+    write_rows(f, s, width, squeeze)?;
     match &s.refs {
         Some(refs) => write_refs(f, refs),
         None => Ok(()),
@@ -24,7 +26,7 @@ fn write_screen(f: &mut fmt::Formatter<'_>, s: &Snapshot) -> fmt::Result {
 
 fn header(s: &Snapshot) -> Vec<String> {
     let mut header = vec![format!("{} {}", s.session, s.tab), s.program.clone(), format!("{}x{}", s.cols, s.rows)];
-    if s.alt_screen {
+    if s.alt_screen == Switch::On {
         header.push("alt-screen".into());
     }
     if let Some(mouse) = &s.mouse {
@@ -38,6 +40,9 @@ fn header(s: &Snapshot) -> Vec<String> {
         (true, None) => header.push("exited".into()),
         (false, _) => {}
     }
+    if s.nothing_printed {
+        header.push("nothing printed yet".into());
+    }
     header
 }
 
@@ -46,21 +51,35 @@ fn label_width(s: &Snapshot, scrollback: &[String]) -> usize {
     s.rows.to_string().len().max(scrollback_width)
 }
 
-fn write_rows(f: &mut fmt::Formatter<'_>, s: &Snapshot, width: usize) -> fmt::Result {
-    let first = usize::from(s.first_row);
+fn write_rows(f: &mut fmt::Formatter<'_>, s: &Snapshot, width: usize, squeeze: &Squeeze) -> fmt::Result {
     let shown = s.lines.iter().rposition(|line| !line.is_empty()).map_or(0, |i| i + 1);
-    for (i, line) in s.lines.iter().take(shown).enumerate() {
-        writeln!(f, "{:>width$}│{line}", first + i)?;
+    let (printed, trailing) = s.lines.split_at(shown);
+    let mut row = usize::from(s.first_row);
+    for run in printed.chunk_by(|above, below| above.is_empty() == below.is_empty()) {
+        if *squeeze == Squeeze::On && is_squeezed(run) {
+            write_blank(f, width, row, run.len())?;
+        } else {
+            write_numbered(f, width, row, run)?;
+        }
+        row += run.len();
     }
-    if shown == s.lines.len() {
+    if trailing.is_empty() {
         return Ok(());
     }
-    let last = first + s.lines.len() - 1;
-    let blank = if first + shown == last {
-        format!("row {last} blank")
-    } else {
-        format!("rows {}-{last} blank", first + shown)
-    };
+    write_blank(f, width, row, trailing.len())
+}
+
+fn is_squeezed(run: &[String]) -> bool {
+    run.len() >= SHORTEST_SQUEEZED_RUN && run.first().is_some_and(String::is_empty)
+}
+
+fn write_numbered(f: &mut fmt::Formatter<'_>, width: usize, first: usize, lines: &[String]) -> fmt::Result {
+    lines.iter().enumerate().try_for_each(|(i, line)| writeln!(f, "{:>width$}│{line}", first + i))
+}
+
+fn write_blank(f: &mut fmt::Formatter<'_>, width: usize, first: usize, count: usize) -> fmt::Result {
+    let last = first + count - 1;
+    let blank = if count == 1 { format!("row {last} blank") } else { format!("rows {first}-{last} blank") };
     writeln!(f, "{:>width$}│ ({blank})", "…")
 }
 
@@ -106,3 +125,6 @@ pub(super) fn write_diff(f: &mut fmt::Formatter<'_>, diff: &SnapshotDiff) -> fmt
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

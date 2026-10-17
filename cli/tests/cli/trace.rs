@@ -34,8 +34,9 @@ fn trace_export_zips_the_session_folder() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
     let folder = at.home().join("sessions").join("qa");
-    open_printer(&at, "qa", &["open"]);
-    open_printer(&at, "qa", &["tab", "new"]);
+    at.run(&["session", "new", "qa"]).success();
+    open_printer(&at, "qa", &["open", "--name", "app"]);
+    open_printer(&at, "qa", &["tab", "new", "--name", "api"]);
     let activity = read(&folder.join("activity.jsonl"));
 
     let exported = at.run_in(&work, &["--session", "qa", "trace", "export", "evidence/qa.zip"]).success().stdout();
@@ -68,7 +69,7 @@ fn unzip_bytes(path: &Path) -> BTreeMap<String, Vec<u8>> {
 fn trace_export_adds_the_screenshots_the_session_saved() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
-    open_printer(&at, "default", &["open"]);
+    open_printer(&at, "work", &["open", "--name", "app"]);
     let frame = at.run(&["get", "frame"]).success().stdout().trim().to_string();
     at.run_in(&work, &["--screenshot-dir", "shots", "screenshot"]).success();
     at.run_in(&work, &["screenshot", "named.png"]).success();
@@ -78,17 +79,17 @@ fn trace_export_adds_the_screenshots_the_session_saved() {
 
     let exported = at.run_in(&work, &["trace", "export", "trace.zip"]).success().stdout();
     let files = unzip_bytes(&work.join("trace.zip"));
-    let default_shot = format!("default-t1-{frame}.png");
+    let default_shot = format!("work-app-{frame}.png");
     let saved = [
-        (format!("default/screenshots/{default_shot}"), work.join("shots").join(&default_shot)),
-        ("default/screenshots/named.png".to_string(), work.join("named.png")),
-        ("default/screenshots/changes.png".to_string(), work.join("changes.png")),
+        (format!("work/screenshots/{default_shot}"), work.join("shots").join(&default_shot)),
+        ("work/screenshots/named.png".to_string(), work.join("named.png")),
+        ("work/screenshots/changes.png".to_string(), work.join("changes.png")),
     ];
     for (name, path) in &saved {
         let kept = std::fs::read(path).expect("read a saved file");
         assert!(files.get(name) == Some(&kept), "{name} is not in the zip as {} was saved", path.display());
     }
-    let folder_files = ["default/activity.jsonl", "default/screenshots.jsonl"];
+    let folder_files = ["work/activity.jsonl", "work/screenshots.jsonl"];
     assert!(folder_files.iter().all(|name| files.contains_key(*name)), "{:?}", files.keys().collect::<Vec<_>>());
     assert_eq!(files.len(), folder_files.len() + saved.len(), "{:?}", files.keys().collect::<Vec<_>>());
     let gone = work.join("gone.png");
@@ -102,16 +103,17 @@ fn trace_export_adds_the_screenshots_the_session_saved() {
 fn trace_export_includes_the_command_log_of_a_shell_tab() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
-    let folder = at.home().join("sessions").join("default");
+    let folder = at.home().join("sessions").join("work");
     let cwd = work.to_string_lossy().into_owned();
-    at.run_with_env(&["shell", "--shell", "bash", "--cwd", &cwd], &[("HOME", work.as_path())]).success();
+    at.run_with_env(&["shell", "--name", "shell", "--shell", "bash", "--cwd", &cwd], &[("HOME", work.as_path())])
+        .success();
     at.run(&["exec", "echo traced"]).success();
 
     at.run_in(&work, &["trace", "export", "trace.zip"]).success();
     let files = unzip(&work.join("trace.zip"));
-    assert_eq!(files.keys().collect::<Vec<_>>(), ["default/activity.jsonl", "default/t1.commands.jsonl"]);
-    assert_eq!(files["default/t1.commands.jsonl"], read(&folder.join("t1.commands.jsonl")));
-    the_command_log_holds_the_command_its_exit_and_output(&files["default/t1.commands.jsonl"]);
+    assert_eq!(files.keys().collect::<Vec<_>>(), ["work/activity.jsonl", "work/t1.commands.jsonl"]);
+    assert_eq!(files["work/t1.commands.jsonl"], read(&folder.join("t1.commands.jsonl")));
+    the_command_log_holds_the_command_its_exit_and_output(&files["work/t1.commands.jsonl"]);
 }
 
 fn the_command_log_holds_the_command_its_exit_and_output(log: &str) {
@@ -126,13 +128,13 @@ fn the_command_log_holds_the_command_its_exit_and_output(log: &str) {
 fn trace_export_answers_in_json() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
-    open_printer(&at, "default", &["open"]);
+    open_printer(&at, "work", &["open", "--name", "app"]);
     let exported = at.run_in(&work, &["--json", "trace", "export", "trace.zip"]).success().json();
     let zip = work.join("trace.zip");
     assert_eq!(
         exported,
         serde_json::json!({
-            "session": "default",
+            "session": "work",
             "path": zip.to_string_lossy(),
             "files": 1,
             "bytes": std::fs::metadata(&zip).unwrap().len(),
@@ -144,24 +146,21 @@ fn trace_export_answers_in_json() {
 fn trace_export_still_works_after_the_session_closed() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
-    open_printer(&at, "default", &["open"]);
+    open_printer(&at, "work", &["open", "--name", "app"]);
     at.run(&["close"]).success();
     at.run_in(&work, &["trace", "export", "after-close.zip"]).success();
     let files = unzip(&work.join("after-close.zip"));
-    assert_eq!(files.keys().collect::<Vec<_>>(), ["default/activity.jsonl"]);
-    assert!(files["default/activity.jsonl"].lines().last().unwrap().contains(r#""command":"close""#));
+    assert_eq!(files.keys().collect::<Vec<_>>(), ["work/activity.jsonl"]);
+    assert!(files["work/activity.jsonl"].lines().last().unwrap().contains(r#""command":"close""#));
 }
 
 #[test]
-fn trace_export_of_a_session_that_never_ran_explains_what_to_do() {
+fn trace_export_of_a_session_that_was_not_created_says_to_create_it() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
     let exported = at.run_in(&work, &["--session", "ghost", "trace", "export", "ghost.zip"]);
     assert_eq!(exported.code(), 1);
-    assert_eq!(
-        exported.stderr(),
-        "error: session ghost has nothing to export; open a terminal in it first with `agent-terminal open <program>`\n"
-    );
+    assert_eq!(exported.stderr(), "error: no session ghost; create it with `agent-terminal session new ghost`\n");
     assert!(!work.join("ghost.zip").exists());
 }
 
@@ -169,14 +168,14 @@ fn trace_export_of_a_session_that_never_ran_explains_what_to_do() {
 fn trace_export_leaves_out_an_event_still_being_written() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
-    open_printer(&at, "default", &["open"]);
+    open_printer(&at, "work", &["open", "--name", "app"]);
     at.run_in(&work, &["screenshot", "listed.png"]).success();
-    let folder = at.home().join("sessions/default");
+    let folder = at.home().join("sessions/work");
     let written = |name: &str| read(&folder.join(name));
     let (activity, screenshots) = (written("activity.jsonl"), written("screenshots.jsonl"));
     let half_written = [
-        ("activity.jsonl", r#"{"time":"2026-10-14T14:01:22.051Z","tab":"t1","comm"#),
-        ("screenshots.jsonl", r#"{"time":"2026-10-14T14:01:22.060Z","tab":"t1","fra"#),
+        ("activity.jsonl", r#"{"time":"2026-10-14T14:01:22.051Z","tab":"app","comm"#),
+        ("screenshots.jsonl", r#"{"time":"2026-10-14T14:01:22.060Z","tab":"app","fra"#),
     ];
     for (name, half) in half_written {
         let mut file = std::fs::OpenOptions::new().append(true).open(folder.join(name)).expect("open a session file");
@@ -185,8 +184,8 @@ fn trace_export_leaves_out_an_event_still_being_written() {
 
     at.run_in(&work, &["trace", "export", "writing.zip"]).success();
     let files = unzip_bytes(&work.join("writing.zip"));
-    assert_eq!(files["default/activity.jsonl"], activity.as_bytes());
-    assert_eq!(files["default/screenshots.jsonl"], screenshots.as_bytes());
+    assert_eq!(files["work/activity.jsonl"], activity.as_bytes());
+    assert_eq!(files["work/screenshots.jsonl"], screenshots.as_bytes());
 }
 
 #[test]

@@ -125,10 +125,14 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base }}
         run: |
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
-          cargo build --release --manifest-path "$RUNNER_TEMP/base/cli/Cargo.toml" --target-dir target --bin agent-terminal
+          set --
+          if grep -q '^private-daemon = ' "$RUNNER_TEMP/base/cli/Cargo.toml"; then
+            set -- --features private-daemon
+          fi
+          cargo build --release --manifest-path "$RUNNER_TEMP/base/cli/Cargo.toml" --target-dir target --bin agent-terminal "$@"
           cp target/release/agent-terminal "$RUNNER_TEMP/agent-terminal-base"
       - name: Build this change's agent-terminal, the fixtures and at-perf
-        run: cargo build --release --workspace --bins
+        run: cargo build --release --workspace --bins --features agent-terminal/private-daemon
       - name: Measure the base and this change, interleaved on this runner
         run: >-
           target/release/at-perf measure

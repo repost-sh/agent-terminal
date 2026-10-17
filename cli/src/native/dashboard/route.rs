@@ -6,7 +6,8 @@ use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 
 use super::Backend;
-use crate::protocol::TabId;
+use crate::native::store::TabId;
+use crate::protocol::Name;
 
 pub(super) struct SessionRoute {
     pub backend: Arc<dyn Backend>,
@@ -15,8 +16,9 @@ pub(super) struct SessionRoute {
 
 pub(super) struct TabRoute {
     pub backend: Arc<dyn Backend>,
-    pub session: String,
-    pub id: TabId,
+    pub session: Name,
+    pub name: Name,
+    pub id: Option<TabId>,
 }
 
 impl FromRequestParts<Arc<dyn Backend>> for SessionRoute {
@@ -35,13 +37,10 @@ impl FromRequestParts<Arc<dyn Backend>> for TabRoute {
     async fn from_request_parts(parts: &mut Parts, state: &Arc<dyn Backend>) -> Result<Self, Response> {
         let Path((session, tab)) =
             Path::<(String, String)>::from_request_parts(parts, state).await.map_err(IntoResponse::into_response)?;
-        match tab.parse() {
-            Ok(id) => Ok(Self { backend: Arc::clone(state), session, id }),
-            Err(_) => Err(not_a_tab(&tab)),
-        }
+        let not_found = |refused: String| (StatusCode::NOT_FOUND, refused).into_response();
+        let session: Name = session.parse().map_err(not_found)?;
+        let name: Name = tab.parse().map_err(not_found)?;
+        let id = state.tab_id(&session, &name);
+        Ok(Self { backend: Arc::clone(state), session, name, id })
     }
-}
-
-pub(super) fn not_a_tab(tab: &str) -> Response {
-    (StatusCode::NOT_FOUND, format!("{tab} is not a tab id; tabs are t1, t2, ...")).into_response()
 }

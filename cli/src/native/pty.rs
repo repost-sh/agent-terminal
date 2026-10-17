@@ -8,7 +8,6 @@ use nix::unistd::Pid;
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::failure::Failure;
-use crate::native::log;
 use crate::protocol::{Signal, Size};
 
 #[derive(Clone)]
@@ -35,17 +34,6 @@ pub(crate) struct Spawned {
     pub pid: Option<u32>,
     pub signaller: Box<dyn Signaller>,
     pub wait: Box<dyn FnOnce() -> Result<i32> + Send>,
-}
-
-impl Spawned {
-    pub(crate) fn abandon(self) {
-        if let Err(e) = self.stopper.signal(NativeSignal::SIGKILL) {
-            log::note(format_args!("stopping a program that could not be set up failed: {e:#}"));
-        }
-        if let Err(e) = (self.wait)() {
-            log::note(format_args!("waiting for a program that could not be set up failed: {e:#}"));
-        }
-    }
 }
 
 type SharedMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
@@ -175,13 +163,6 @@ pub(crate) fn environment(command: &Command) -> Vec<(String, String)> {
         }
     }
     env
-}
-
-pub(crate) fn check() -> Result<()> {
-    native_pty_system()
-        .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
-        .map(drop)
-        .context("open a pseudo-terminal")
 }
 
 fn resolve(program: &str, cwd: &Path, path_var: &str) -> Result<PathBuf> {

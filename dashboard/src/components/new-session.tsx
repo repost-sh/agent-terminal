@@ -1,8 +1,7 @@
-import { Copy } from "lucide-react";
 import { useId, useState } from "react";
 
 import { openTab, reason } from "../lib/api";
-import { cliLine, initialForm, refusals, SIZE_PRESETS, sessionOf, shellOf, sizeLabel, sizeOf, type Errors, type Form, type Mode } from "../lib/new-session-form";
+import { cliLine, initialForm, refusals, SIZE_PRESETS, sessionOf, shellOf, sizeLabel, sizeOf, tabField, type Errors, type Form, type Mode } from "../lib/new-session-form";
 import type { SessionInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
 import { settle } from "../lib/settle";
@@ -11,7 +10,7 @@ import { announceWhenLive } from "../lib/stream";
 import { closeDialog, Dialog } from "./dialog";
 import { INPUT, LABEL, Segmented, TextField } from "./form-fields";
 import { toast } from "../lib/toasts";
-import { Button, cn, copy, IconButton } from "./ui";
+import { Button, cn, CopyButton } from "./ui";
 
 interface NewSessionDialogProps { sessions: SessionInfo[]; existing: string | null }
 
@@ -21,6 +20,7 @@ const useNewSession = (props: NewSessionDialogProps) => {
   const [errors, setErrors] = useState<Errors>({});
   const [opening, setOpening] = useState(false);
   const shell = shellOf(form.command);
+  const typedTab = tabField(form, props.sessions);
 
   return {
     form,
@@ -33,6 +33,8 @@ const useNewSession = (props: NewSessionDialogProps) => {
     setOpening,
     shell,
     integration: shell !== null && (form.integration ?? true),
+    tabField: typedTab,
+    tab: typedTab.trim(),
     fieldId: (field: string) => `${id}-${field}`,
   };
 };
@@ -44,15 +46,9 @@ interface DialogPartProps { dialog: NewSession }
 const focusField = (dialog: NewSession, field: string) => document.getElementById(dialog.fieldId(field))?.focus({ preventScroll: true });
 
 const firstRefused = (found: Errors, form: Form) => {
-  if (found.name) {
-    return "name";
-  }
+  const field = (["name", "command", "tab"] as const).find((key) => found[key]);
 
-  if (found.command) {
-    return "command";
-  }
-
-  return found.size ? `size-${form.size}` : null;
+  return field ?? (found.size ? `size-${form.size}` : null);
 };
 
 const openFrom = async (dialog: NewSession) => {
@@ -60,6 +56,7 @@ const openFrom = async (dialog: NewSession) => {
   const tab = await openTab({
     session: sessionOf(dialog.form),
     new_session: dialog.form.mode === "new",
+    tab: dialog.tab,
     command: dialog.form.command,
     cwd: dialog.form.cwd,
     cols: Number(size.cols),
@@ -196,7 +193,7 @@ const IntegrationSwitch = ({ dialog }: DialogPartProps) => (
 );
 
 const CliPreview = ({ dialog }: DialogPartProps) => {
-  const line = cliLine(dialog.form, dialog.integration ? dialog.shell : null);
+  const line = cliLine(dialog.form, { shell: dialog.integration ? dialog.shell : null, tab: dialog.tab });
 
   return (
     <div className="grid gap-1.5">
@@ -207,9 +204,7 @@ const CliPreview = ({ dialog }: DialogPartProps) => {
         <code aria-labelledby={dialog.fieldId("cli")} className="min-w-0 flex-1 font-mono text-xs leading-6 break-all">
           {line}
         </code>
-        <IconButton look={{ label: "Copy the command line", tooltip: "Copy", icon: Copy }} className="size-6 p-0 [&_svg]:size-[13px]" onClick={() => {
-          void copy(line);
-        }} />
+        <CopyButton value={line} label="Copy the command line" />
       </div>
     </div>
   );
@@ -246,6 +241,9 @@ export const NewSessionDialog = (props: NewSessionDialogProps) => {
         error={dialog.errors.command}
         autoFocus={form.mode === "existing"}
       />
+      <TextField id={dialog.fieldId("tab")} label="Tab name" value={dialog.tabField} placeholder="api" onChange={(tab) => {
+        dialog.set({ tab });
+      }} error={dialog.errors.tab} />
       <TextField id={dialog.fieldId("cwd")} label="Working directory" value={form.cwd} placeholder="~" onChange={(cwd) => {
         dialog.set({ cwd });
       }} />

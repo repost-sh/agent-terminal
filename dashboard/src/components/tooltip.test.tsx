@@ -13,6 +13,9 @@ const page = () => {
         shot
       </button>
       <p>plain</p>
+      <span data-tooltip="routefusion-apps" data-tooltip-overflow>
+        routefusion-app
+      </span>
       <TooltipLayer />
     </>,
   );
@@ -83,6 +86,23 @@ test("a tooltip near the edge of the window stays inside it", () => {
     ["105px", "74px"],
     [`${String(window.innerWidth - 34)}px`, `${String(window.innerHeight - 20)}px`],
     ["4px", "8px"],
+  ]);
+});
+
+test("text that may be cut off shows its tooltip only while it is cut off", () => {
+  const tip = page();
+  const hovered = (scroll: number, client: number) => {
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(scroll);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(client);
+    fireEvent.mouseOver(screen.getByText("routefusion-app"));
+
+    return [tip.hidden, tip.textContent];
+  };
+
+  expect([hovered(80, 80), hovered(81, 80), hovered(80, 80)]).toEqual([
+    [true, ""],
+    [false, "routefusion-apps"],
+    [true, "routefusion-apps"],
   ]);
 });
 

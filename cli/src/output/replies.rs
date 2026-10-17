@@ -1,6 +1,6 @@
 use std::fmt;
 
-use super::batch::write_batch;
+use super::batch::batch_text;
 use super::count;
 use super::delivery::delivery;
 use super::facts::fact_text;
@@ -8,20 +8,21 @@ use super::records::{command_text, history_text};
 use super::screen::{screen, write_diff, write_refs};
 use crate::protocol::{
     Checked, Closed, DashboardStopped, Delivered, Export, Matches, Owner, Reply, Screenshot, SessionInfo, Sessions,
-    TabInfo, WaitOutcome,
+    Squeeze, TabInfo, WaitOutcome,
 };
 
-pub(crate) fn reply_text(reply: &Reply) -> String {
+pub(crate) fn reply_text(reply: &Reply, squeeze: &Squeeze) -> String {
     match reply {
-        Reply::Snapshot(snapshot) => screen(snapshot),
+        Reply::Created(created) => format!("created session {}\n", created.session),
+        Reply::Snapshot(snapshot) => screen(snapshot, squeeze),
         Reply::Closed(closed) => closed_text(closed),
         Reply::Sessions(sessions) => sessions_text(sessions),
         Reply::Tabs(session) => tabs_text(session),
-        Reply::Delivered(delivered) => delivered_text(delivered),
+        Reply::Delivered(delivered) => delivered_text(delivered, squeeze),
         Reply::Waited(waited) => waited_text(waited),
         Reply::Checked(Checked { session, tab, fact }) => format!("{fact} in {session} {tab}\n"),
         Reply::Stopped | Reply::KeptRunning(_) => String::new(),
-        Reply::Batch(outcomes) => fmt::from_fn(|f| write_batch(f, outcomes)).to_string(),
+        Reply::Batch(outcomes) => batch_text(outcomes, squeeze),
         Reply::Fact(fact) => fact_text(fact),
         Reply::Matches(matches) => matches_text(matches),
         Reply::Marked(marked) => format!("marked {} at frame {}\n", marked.mark, marked.frame),
@@ -39,15 +40,27 @@ pub(crate) fn reply_text(reply: &Reply) -> String {
 }
 
 fn closed_text(closed: &Closed) -> String {
-    fmt::from_fn(|f| closed.closed.iter().try_for_each(|tab| writeln!(f, "closed {} {}", tab.session, tab.tab)))
-        .to_string()
+    fmt::from_fn(|f| {
+        closed.closed.iter().try_for_each(|tab| writeln!(f, "closed {} {}", tab.session, tab.tab))?;
+        closed.ended.iter().try_for_each(|session| writeln!(f, "ended session {session}"))
+    })
+    .to_string()
 }
 
 fn sessions_text(sessions: &Sessions) -> String {
     if sessions.sessions.is_empty() {
         return "no sessions are open\n".into();
     }
-    fmt::from_fn(|f| sessions.sessions.iter().try_for_each(|session| write_tab_lines(f, session))).to_string()
+    fmt::from_fn(|f| {
+        sessions.sessions.iter().try_for_each(|session| {
+            if session.tabs.is_empty() {
+                writeln!(f, "{} · no tabs", session.session)
+            } else {
+                write_tab_lines(f, session)
+            }
+        })
+    })
+    .to_string()
 }
 
 fn tabs_text(session: &SessionInfo) -> String {
@@ -57,9 +70,9 @@ fn tabs_text(session: &SessionInfo) -> String {
     fmt::from_fn(|f| write_tab_lines(f, session)).to_string()
 }
 
-fn delivered_text(delivered: &Delivered) -> String {
+fn delivered_text(delivered: &Delivered, squeeze: &Squeeze) -> String {
     let shot = delivered.screenshot.as_deref().map(screenshot_text).unwrap_or_default();
-    let shown = delivered.snapshot.as_deref().map(screen).unwrap_or_default();
+    let shown = delivered.snapshot.as_deref().map(|snapshot| screen(snapshot, squeeze)).unwrap_or_default();
     format!("{}\n{shot}{shown}", delivery(delivered))
 }
 
@@ -126,9 +139,13 @@ fn write_tab_lines(f: &mut fmt::Formatter<'_>, session: &SessionInfo) -> fmt::Re
 }
 
 fn tab_line(session: &SessionInfo, tab: &TabInfo) -> Vec<String> {
-    let mut line =
-        vec![format!("{} {}", session.session, tab.tab), tab.program.clone(), format!("{}x{}", tab.cols, tab.rows)];
-    line.push(match (tab.exited, tab.exit_code) {
+    let running = &tab.terminal;
+    let mut line = vec![
+        format!("{} {}", session.session, tab.tab),
+        running.program.clone(),
+        format!("{}x{}", running.cols, running.rows),
+    ];
+    line.push(match (running.exited, running.exit_code) {
         (true, Some(code)) => format!("exited {code}"),
         (true, None) => "exited".into(),
         (false, _) => "running".into(),

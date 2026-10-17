@@ -3,8 +3,8 @@ use tiny_skia::Pixmap;
 use super::fonts::CellSize;
 use super::theme::{Rgb, palette};
 use super::{
-    Canvas, Cells, Drawing, Entry, Image, Layout, Placed, RowRange, Span, blended, cell_colors, cells, check_fonts,
-    image, legend_lines, offset, pixel, shifted, span_of,
+    Canvas, Cells, Drawing, Entry, Image, Layout, Placed, RowRange, Span, blended, cell_colors, cells, image,
+    legend_lines, offset, pixel, shifted, span_of,
 };
 use crate::native::refs::{Decoration, Emphasis, Glyph, Grid};
 use crate::native::screen::Colour;
@@ -336,11 +336,6 @@ fn a_ref_box_spans_its_cells_with_its_tag_above_its_right_end_when_there_is_room
     assert_eq!(placed.corners(), Some([11.0 + cw, 11.0 + ch, 9.0 + 3.0 * cw, 9.0 + 3.0 * ch]));
     let top = Placed::new(&layout, &reference("1", [1, 1], [1, 1])).unwrap();
     assert_eq!(top.tag.y, 10);
-}
-
-#[test]
-fn the_bundled_fonts_cover_every_face() {
-    assert_eq!(check_fonts(), Ok(vec!["JetBrains Mono", "Symbols Nerd Font Mono", "Noto Emoji"]));
 }
 
 #[test]

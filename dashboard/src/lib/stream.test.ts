@@ -7,13 +7,13 @@ import { frameOf, sessionInfo, tabInfo } from "../fake-daemon/messages";
 import { openAt } from "../fake-daemon/sockets";
 import type { FrameUpdate } from "./protocol";
 
-const STREAM = "/api/session/work/t1/stream";
+const STREAM = "/api/session/work/app/stream";
 
 const painted = async () => {
   const { useTabStream, announceWhenLive } = await import("./stream");
   const { announcements } = await import("./announcements");
-  const daemon = startDaemon([sessionInfo("work", [tabInfo("t1")])]);
-  const hook = renderHook(() => useTabStream("work", "t1"));
+  const daemon = startDaemon([sessionInfo("work", [tabInfo("app")])]);
+  const hook = renderHook(() => useTabStream("work", "app"));
   const terminal = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
   const stop = hook.result.current.paint(terminal);
 
@@ -64,21 +64,21 @@ test("the first frame after a reconnection starts from a blank terminal", async 
 test("a tab waited for is announced live at its first drawn frame, once", async () => {
   const shown = await painted();
 
-  shown.announceWhenLive("work", "t1");
+  shown.announceWhenLive("work", "app");
   await drawn(shown, frameOf(0));
   expect(shown.announcements.get().times).toBe(0);
   await drawn(shown, frameOf(1));
   await drawn(shown, frameOf(2));
-  expect(shown.announcements.get()).toEqual({ text: "work t1 is live", times: 1 });
+  expect(shown.announcements.get()).toEqual({ text: "work app is live", times: 1 });
   shown.stop();
 });
 
 test("a tab that exits before drawing is announced live too", async () => {
   const exited = await painted();
 
-  exited.announceWhenLive("work", "t1");
+  exited.announceWhenLive("work", "app");
   await drawn(exited, frameOf(0, { exited: true }));
-  expect(exited.announcements.get()).toEqual({ text: "work t1 is live", times: 1 });
+  expect(exited.announcements.get()).toEqual({ text: "work app is live", times: 1 });
   exited.stop();
 });
 

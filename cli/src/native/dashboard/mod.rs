@@ -23,24 +23,24 @@ use tokio::sync::{oneshot, watch};
 
 use crate::native::control::TabHold;
 use crate::native::log;
-use crate::native::store::SessionFolder;
+use crate::native::store::{SessionFolder, TabId};
 use crate::native::terminal::Terminal;
-use crate::protocol::{Dashboard, ErrorBody, HumanInput, Reply, Request, Sessions, TabId, request};
+use crate::protocol::{Dashboard, ErrorBody, HumanInput, Name, Reply, Request, Sessions, request};
 
 pub(crate) trait Backend: Send + Sync + 'static {
     fn call(&self, request: Request) -> Result<Reply, ErrorBody>;
     fn sessions(&self) -> Sessions;
     fn terminal(&self, session: &str, tab: TabId) -> Option<Arc<Terminal>>;
+    fn tab_id(&self, session: &str, tab: &str) -> Option<TabId>;
     fn folder(&self, session: &str) -> Option<Arc<SessionFolder>>;
     fn changes(&self) -> watch::Receiver<u64>;
-    fn take_control(&self, session: &str, tab: TabId) -> Result<TabHold, ErrorBody>;
+    fn take_control(&self, session: &Name, tab: &str) -> Result<TabHold, ErrorBody>;
     fn holds(&self, taken: &TabHold) -> bool;
     fn type_as_human(&self, taken: &TabHold, input: &HumanInput) -> Result<(), ErrorBody>;
 }
 
 pub(crate) struct Server {
     port: u16,
-    origins: Vec<String>,
     stop: Option<oneshot::Sender<()>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -63,7 +63,7 @@ impl Server {
             .enable_time()
             .build()
             .context("start the dashboard's runtime")?;
-        let app = router(guard::Pages { port, origins: origins.clone() }, backend);
+        let app = router(guard::Pages { port, origins }, backend);
         let (stop, stopped) = oneshot::channel();
         let thread = std::thread::Builder::new()
             .name("dashboard".into())
@@ -72,15 +72,7 @@ impl Server {
                 runtime.shutdown_background();
             })
             .context("start the dashboard's thread")?;
-        Ok(Self { port, origins, stop: Some(stop), thread: Some(thread) })
-    }
-
-    pub(crate) fn port(&self) -> u16 {
-        self.port
-    }
-
-    pub(crate) fn allows(&self, origin: &str) -> bool {
-        self.origins.iter().any(|allowed| allowed == origin)
+        Ok(Self { port, stop: Some(stop), thread: Some(thread) })
     }
 
     pub(crate) fn info(&self) -> Dashboard {
@@ -162,8 +154,4 @@ fn router(pages: guard::Pages, backend: Arc<dyn Backend>) -> Router {
         .fallback(assets::serve)
         .with_state(backend);
     guard::guarded(routes, pages)
-}
-
-fn tab_id(tab: &str) -> Option<TabId> {
-    tab.parse().ok()
 }

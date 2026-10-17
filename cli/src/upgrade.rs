@@ -7,15 +7,13 @@ use std::io;
 use std::path::Component;
 
 use semver::Version;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::output;
-use crate::protocol::ErrorBody;
-use crate::skills::{self, Stub, StubInstall};
 use crate::version::VERSION;
 
-pub(crate) const PACKAGE: &str = "@repost/agent-terminal";
-pub(crate) const FORMULA: &str = "repost-sh/tap/agent-terminal";
+const PACKAGE: &str = "@repost/agent-terminal";
+const FORMULA: &str = "repost-sh/tap/agent-terminal";
 const LATEST: &str = "@repost/agent-terminal@latest";
 const NPM_NESTING: [&str; 4] = ["node_modules", "@repost", "agent-terminal", "node_modules"];
 
@@ -273,11 +271,8 @@ struct Upgraded {
     from: &'static str,
     latest: String,
     to: Option<String>,
-    stub_refreshed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     version_unknown: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stub_error: Option<String>,
 }
 
 fn upgrade(json: bool) -> Result<String, String> {
@@ -290,9 +285,7 @@ fn upgrade(json: bool) -> Result<String, String> {
         from: VERSION,
         latest: latest.to_string(),
         to: Some(VERSION.to_string()),
-        stub_refreshed: false,
         version_unknown: None,
-        stub_error: None,
     };
     let ours = crate::version::this_version().map_err(|e| format!("this agent-terminal's version {VERSION}: {e}"))?;
     if latest == ours {
@@ -300,10 +293,8 @@ fn upgrade(json: bool) -> Result<String, String> {
     }
     installer.reinstall()?;
     let entry = installer.entry_point();
-    let new_binary = entry.as_deref().map_err(String::clone);
-    let upgraded = report.upgraded(installer, new_binary.clone());
-    let stub = report.stub(new_binary);
-    printed(json, &report, &format!("{upgraded}{stub}"))
+    let upgraded = report.upgraded(installer, entry.as_deref().map_err(String::clone));
+    printed(json, &report, &upgraded)
 }
 
 impl Upgraded {
@@ -322,30 +313,6 @@ impl Upgraded {
                 self.to = None;
                 self.version_unknown = Some(reason);
                 text
-            }
-        }
-    }
-
-    fn stub(&mut self, new_binary: Result<&Path, String>) -> String {
-        let refreshed = match stub_installed() {
-            Ok(false) => return String::new(),
-            Ok(true) => new_binary.and_then(refresh_stub),
-            Err(reason) => Err(reason),
-        };
-        match refreshed {
-            Ok(refreshed) => {
-                self.stub_refreshed = refreshed.installed;
-                if !refreshed.installed {
-                    return String::new();
-                }
-                format!("\nrefreshed the agent-terminal skill {} at {}", refreshed.version, refreshed.path.display())
-            }
-            Err(reason) => {
-                let note = format!(
-                    "\ncannot refresh the agent-terminal skill ({reason}); run `agent-terminal install --skills`"
-                );
-                self.stub_error = Some(reason);
-                note
             }
         }
     }
@@ -368,31 +335,4 @@ fn installed_version(binary: &Path) -> Result<String, String> {
         .strip_prefix("agent-terminal ")
         .map(str::to_string)
         .ok_or_else(|| format!("{} --version printed {:?}", binary.display(), printed.trim()))
-}
-
-#[derive(Deserialize)]
-struct Refused {
-    error: ErrorBody,
-}
-
-fn stub_installed() -> Result<bool, String> {
-    let installed = skills::installed_stub().map_err(|e| format!("{e:#}"))?;
-    Ok(!matches!(installed.stub, Stub::Missing))
-}
-
-fn refresh_stub(binary: &Path) -> Result<StubInstall, String> {
-    let args = ["--json", "install", "--skills"];
-    let line = format!("{} {}", binary.display(), args.join(" "));
-    let output = Command::new(binary)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::inherit())
-        .output()
-        .map_err(|e| format!("cannot run `{line}`: {e}"))?;
-    if output.status.success() {
-        return serde_json::from_slice(&output.stdout)
-            .map_err(|e| format!("`{line}` printed {:?}: {e}", String::from_utf8_lossy(&output.stdout).trim()));
-    }
-    Err(serde_json::from_slice::<Refused>(&output.stdout)
-        .map_or_else(|_| format!("`{line}` failed ({})", output.status), |refused| refused.error.message))
 }

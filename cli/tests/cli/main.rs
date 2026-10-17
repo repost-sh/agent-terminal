@@ -6,6 +6,8 @@ mod batch;
 #[cfg(test)]
 mod browser;
 #[cfg(test)]
+mod close;
+#[cfg(test)]
 mod control;
 #[cfg(test)]
 mod daemon_socket;
@@ -28,9 +30,9 @@ mod find;
 #[cfg(test)]
 mod get;
 #[cfg(test)]
-mod idle;
-#[cfg(test)]
 mod input;
+#[cfg(test)]
+mod input_snapshot;
 #[cfg(test)]
 mod mcp;
 #[cfg(test)]

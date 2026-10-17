@@ -1,18 +1,19 @@
 use std::ffi::OsString;
 use std::path::Path;
 
-use clap::{CommandFactory, FromArgMatches};
+use clap::CommandFactory;
 
+use super::programs::NAME_THE_TAB;
 use super::tools::BatchArgs;
-use super::{Cli, argv, request as single};
+use super::{Cli, argv, parsed, request as single, unnamed_tab};
 use crate::batch::NotValid;
 use crate::output;
 use crate::protocol::request;
-use crate::protocol::{BatchStep, Request, TabId};
+use crate::protocol::{BatchStep, Name, Request};
 
 pub(super) struct Defaults<'a> {
-    pub(super) session: &'a str,
-    pub(super) tab: Option<TabId>,
+    pub(super) session: Option<&'a Name>,
+    pub(super) tab: Option<&'a Name>,
     pub(super) timeout: u64,
     pub(super) screenshot_dir: Option<&'a Path>,
 }
@@ -20,9 +21,12 @@ pub(super) struct Defaults<'a> {
 pub(super) fn request(args: &BatchArgs, defaults: &Defaults<'_>) -> Result<Request, String> {
     let parser = Cli::command()
         .no_binary_name(true)
-        .mut_arg("session", |arg| arg.env(None::<&str>).default_value(defaults.session.to_string()))
+        .mut_arg("session", |arg| match defaults.session {
+            Some(session) => arg.env(None::<&str>).default_value(session.to_string()),
+            None => arg.env(None::<&str>),
+        })
         .mut_arg("tab", |arg| match defaults.tab {
-            Some(id) => arg.default_value(id.to_string()),
+            Some(tab) => arg.default_value(tab.to_string()),
             None => arg,
         })
         .mut_arg("timeout", |arg| arg.default_value(defaults.timeout.to_string()))
@@ -41,6 +45,8 @@ pub(super) fn request(args: &BatchArgs, defaults: &Defaults<'_>) -> Result<Reque
 
 fn step(mut parser: clap::Command, call: &[String]) -> Result<Request, String> {
     let argv: Vec<OsString> = call.iter().map(OsString::from).collect();
-    let matches = argv::parse(&mut parser, &argv).map_err(|e| e.render().to_string())?;
-    single(Cli::from_arg_matches(&matches).map_err(|e| e.render().to_string())?)
+    let matches = argv::parse(&mut parser, &argv)
+        .map_err(|e| if unnamed_tab(&e) { NAME_THE_TAB.to_string() } else { e.render().to_string() })?;
+    let (command, context) = parsed(matches).map_err(|e| e.render().to_string())?;
+    single(command, context)
 }

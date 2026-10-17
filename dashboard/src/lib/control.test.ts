@@ -3,7 +3,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 
 import { accept, deliver, everySocket, FakeSocket, forgetSockets } from "../fake-daemon/sockets";
 
-const CONTROL = "/api/session/my%20work/t1/control";
+const CONTROL = "/api/session/my%20work/app/control";
 
 const control = async () => {
   const lib = await import("./control");
@@ -17,7 +17,7 @@ const socketAt = (path: string) => everySocket().filter((socket) => socket.path 
 const held = async () => {
   const lib = await control();
 
-  lib.takeControl({ session: "my work", tab: "t1" }, "vim");
+  lib.takeControl({ session: "my work", tab: "app" }, "vim");
   const [socket = new FakeSocket("ws://daemon.test/none")] = socketAt(CONTROL);
 
   accept(socket);
@@ -36,7 +36,7 @@ const keyDown = (pressed: Pressed) => {
 
 const sentFor = async (presses: Pressed[]) => {
   const { controlKeys, socket } = await held();
-  const { keys } = controlKeys("my work", "t1");
+  const { keys } = controlKeys("my work", "app");
 
   for (const pressed of presses) {
     keys(keyDown(pressed).event);
@@ -79,13 +79,13 @@ test("ctrl+p ctrl+q moves focus to the tab's take-control button", async () => {
   const { controlKeys, controlButtonId } = await held();
   const button = document.createElement("button");
 
-  button.id = "take-control-my%20work-t1";
+  button.id = "take-control-my%20work-app";
   document.body.append(button);
-  const { keys } = controlKeys("my work", "t1");
+  const { keys } = controlKeys("my work", "app");
 
   keys(keyDown({ key: "p", code: "KeyP", ctrlKey: true }).event);
   keys(keyDown({ key: "q", code: "KeyQ", ctrlKey: true }).event);
-  expect([controlButtonId("my work", "t1"), document.activeElement]).toEqual([button.id, button]);
+  expect([controlButtonId("my work", "app"), document.activeElement]).toEqual([button.id, button]);
   keys(keyDown({ key: "x" }).event);
   expect(socketAt(CONTROL).flatMap((socket) => socket.sent)).toEqual([{ typed: "x" }]);
   button.remove();
@@ -93,7 +93,7 @@ test("ctrl+p ctrl+q moves focus to the tab's take-control button", async () => {
 
 test("a key the terminal takes is kept from the page, and a lone modifier or a meta chord is not", async () => {
   const { controlKeys } = await held();
-  const { keys } = controlKeys("my work", "t1");
+  const { keys } = controlKeys("my work", "app");
   const taken = keyDown({ key: "a" });
   const meta = keyDown({ key: "v", metaKey: true });
   const modifiers = ["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock", "NumLock", "ScrollLock", "Fn", "OS"].map((key) => keyDown({ key }));
@@ -109,7 +109,7 @@ test("a key the terminal takes is kept from the page, and a lone modifier or a m
 
 test("a paste is kept from the page and sends its text, and nothing when it is empty", async () => {
   const { controlKeys, socket } = await held();
-  const { paste } = controlKeys("my work", "t1");
+  const { paste } = controlKeys("my work", "app");
   const pasted = (text: string) => {
     const event = { clipboardData: { getData: (format: string) => (format === "text" ? text : "") }, preventDefault: vi.fn() };
 
@@ -126,18 +126,18 @@ test("keys sent while the socket is closing are dropped", async () => {
   const { controlKeys, socket } = await held();
 
   socket.readyState = FakeSocket.CLOSING;
-  controlKeys("my work", "t1").keys(keyDown({ key: "a" }).event);
+  controlKeys("my work", "app").keys(keyDown({ key: "a" }).event);
   expect(socket.sent).toEqual([]);
 });
 
 test("a second take of the same tab is ignored, and a release closes the socket and says so once", async () => {
   const taken = await held();
 
-  taken.takeControl({ session: "my work", tab: "t1" }, "vim");
+  taken.takeControl({ session: "my work", tab: "app" }, "vim");
   expect(socketAt(CONTROL)).toHaveLength(1);
   const before = taken.announcements.get().times;
 
-  taken.releaseControl("my work", "t1");
-  taken.releaseControl("my work", "t1");
+  taken.releaseControl("my work", "app");
+  taken.releaseControl("my work", "app");
   expect([taken.socket.readyState, taken.announcements.get()]).toEqual([FakeSocket.CLOSED, { text: "Control returned to the agent", times: before + 1 }]);
 });
