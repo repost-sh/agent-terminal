@@ -64,7 +64,7 @@ fn each_metric_regresses_only_past_both_its_amount_and_its_percent() {
     }
 }
 
-const LIMITS: [(Metric, f64, f64, bool, &str); 12] = [
+const LIMITS: [(Metric, f64, f64, bool, &str); 14] = [
     (Metric::RoundTrip, 4.95, 5.11, false, "over target"),
     (Metric::RoundTrip, 4.95, 5.09, true, "ok"),
     (Metric::Snapshot, 9.9, 10.15, false, "over target"),
@@ -74,8 +74,10 @@ const LIMITS: [(Metric, f64, f64, bool, &str); 12] = [
     (Metric::Snapshot, 12.0, 9.0, true, "ok"),
     (Metric::Png, 39.5, 41.1, false, "over target"),
     (Metric::Png, 39.5, 40.9, true, "ok"),
+    (Metric::Png, 39.5, 41.0, true, "ok"),
     (Metric::IdleMemory, 9.9, 10.3, false, "over target"),
     (Metric::IdleMemory, 9.9, 10.2, true, "ok"),
+    (Metric::IdleMemory, 9.9, 10.25, true, "ok"),
     (Metric::TabMemory, 4.9, 5.0, true, "ok"),
 ];
 
