@@ -382,11 +382,13 @@ fn waiting_for_text_that_never_appears_times_out_and_shows_the_screen() {
 #[test]
 fn open_waits_for_a_stable_first_screen_by_default() {
     let at = AgentTerminal::new();
-    let run = at.run(&["--timeout", "2500", "open", "--name", "app", "--size", "20x2", &fixture("ticker"), "--flash"]);
+    let ticker = fixture("ticker");
+    at.run(&["open", "--name", "warm", "--wait", "ready", &ticker]).success();
+    let run = at.run(&["--timeout", "250", "open", "--name", "app", "--size", "20x2", &ticker, "--flash"]);
     assert_eq!(run.code(), 3, "{}", run.stderr());
     assert!(
         run.stderr().starts_with(
-            "error: timed out after 2500 ms waiting for the screen to stay unchanged for 300 ms; work app is still running"
+            "error: timed out after 250 ms waiting for the screen to stay unchanged for 300 ms; work app is still running"
         ),
         "{}",
         run.stderr()
@@ -407,8 +409,9 @@ fn open_no_wait_prints_the_screen_without_waiting() {
 fn open_wait_stable_takes_an_optional_quiet_period() {
     let at = AgentTerminal::new();
     let ticker = fixture("ticker");
+    at.run(&["open", "--name", "warm", "--wait", "ready", &ticker]).success();
     let run =
-        at.run(&["--timeout", "2500", "open", "--name", "app", "--wait-stable", "--size", "20x2", &ticker, "--flash"]);
+        at.run(&["--timeout", "250", "open", "--name", "app", "--wait-stable", "--size", "20x2", &ticker, "--flash"]);
     assert_eq!(run.code(), 3, "{}", run.stderr());
     assert!(run.stderr().contains("waiting for the screen to stay unchanged for 300 ms;"), "{}", run.stderr());
     let run = at.run(&["open", "--name", "api", "--wait-stable", "50", "--size", "20x2", "cat"]).success();
