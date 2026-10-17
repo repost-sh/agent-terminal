@@ -173,6 +173,10 @@
   opacity: 0.45;
 }
 
+.term-frame.is-mouse .xterm {
+  cursor: default;
+}
+
 .term-box {
   container-type: size;
 }

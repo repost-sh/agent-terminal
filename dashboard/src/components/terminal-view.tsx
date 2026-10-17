@@ -10,7 +10,7 @@ import type { TabInfo } from "../lib/protocol";
 import { useTabStream, type StreamState, type Shown } from "../lib/stream";
 import { tabKey, tabName, type TabAddress } from "../lib/tabs";
 import { LARGEST_FONT_PX, openTerminal } from "../lib/xterm";
-import { ControlButton } from "./control-button";
+import { ControlOverlay } from "./control-button";
 import { controlHint } from "./status-bar";
 import { Button, cn } from "./ui";
 
@@ -127,7 +127,7 @@ export const useHeldViewport = (heldTab: HeldTab) => {
       program: tab.program,
       label: liveLabel(`${name} ${tab.program}`, stream.shown),
       held: heldTerminal({ session, tab: tab.tab }, { held, typing, keyboard, mouse, tracked }),
-      overlay: <ControlButton session={session} tab={tab} stream={stream.state} shown={stream.shown} />,
+      overlay: (moving: boolean) => <ControlOverlay session={session} tab={tab} stream={stream.state} shown={stream.shown} moving={moving} />,
     },
   };
 };
@@ -141,7 +141,7 @@ interface ViewportProps {
   held?: HeldTerminal | null;
   compact?: boolean;
   exit?: ExitActions;
-  overlay?: ReactNode;
+  overlay?: (moving: boolean) => ReactNode;
 }
 
 interface HeldRingProps { held: HeldTerminal | null; compact: boolean; children: ReactNode }
@@ -208,24 +208,50 @@ const Frame = (props: FrameProps) => {
   const { look, mouse } = props;
 
   return (
-    <div ref={mouse} role="group" aria-label={props.label} className={cn("term-frame", look.dim && "is-dim", look.loading && "opacity-0", mouse && "[&_.xterm]:cursor-default")}>
+    <div ref={mouse} role="group" aria-label={props.label} className={cn("term-frame", look.dim && "is-dim", look.loading && "opacity-0", mouse && "is-mouse")}>
       <div ref={props.host} />
     </div>
   );
+};
+
+const POINTER_REST_MS = 1500;
+
+const usePointerMoving = () => {
+  const [moving, setMoving] = useState(false);
+  const rest = useRef<number | null>(null);
+  const settle = (next: boolean) => {
+    if (rest.current !== null) {
+      clearTimeout(rest.current);
+    }
+
+    rest.current = next ? window.setTimeout(settle, POINTER_REST_MS, false) : null;
+    setMoving(next);
+  };
+
+  return {
+    moving,
+    moved: () => {
+      settle(true);
+    },
+    left: () => {
+      settle(false);
+    },
+  };
 };
 
 export const Viewport = (props: ViewportProps) => {
   const box = useRef<HTMLDivElement>(null);
   const host = useTerminalHost(props.paint, box);
   const look = frameLook(props);
+  const pointer = usePointerMoving();
 
   return (
-    <div id={props.exit ? "viewport-region" : undefined} data-testid="viewport" ref={box} className="group/viewport relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+    <div id={props.exit ? "viewport-region" : undefined} data-testid="viewport" ref={box} onMouseMove={pointer.moved} onMouseLeave={pointer.left} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
       {look.loading && <WaitingForFirstFrame />}
       <HeldRing held={props.held ?? null} compact={Boolean(props.compact)}>
         <Frame look={look} label={props.label} mouse={props.held?.mouse} host={host} />
       </HeldRing>
-      {props.overlay}
+      {props.overlay?.(pointer.moving)}
       <ExitOverlay {...props} />
     </div>
   );

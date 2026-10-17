@@ -153,7 +153,7 @@ test("the mouse goes to an app that tracks it, as the hint says, until it is swi
     { mouse: { event: "down", row: 2, col: 3, button: "left", mods: { shift: false, alt: false, ctrl: false } } },
     { mouse: { event: "up", row: 2, col: 3, button: "left", mods: { shift: false, alt: false, ctrl: false } } },
   ]);
-  expect(terminalFrame().className).toContain("cursor-default");
+  expect(terminalFrame().className).toContain("is-mouse");
 
   const toggle = screen.getByRole("button", { name: "Mouse on" });
 
@@ -162,9 +162,39 @@ test("the mouse goes to an app that tracks it, as the hint says, until it is swi
   expect([screen.getByRole("button", { name: "Mouse off" }).getAttribute("aria-pressed"), localStorage.getItem("agent-terminal-mouse")]).toEqual(["false", "off"]);
   expect(screen.getByText("Keys go to vim · ctrl+p ctrl+q moves focus out")).toBeTruthy();
   fireEvent.mouseDown(terminalFrame(), { clientX: 25, clientY: 15, button: 0 });
-  expect([daemon.sent(controlOf("mouse")).length, terminalFrame().className.includes("cursor-default")]).toEqual([3, false]);
+  expect([daemon.sent(controlOf("mouse")).length, terminalFrame().className.includes("is-mouse")]).toEqual([3, false]);
   fireEvent.click(screen.getByRole("button", { name: "Mouse off" }));
   fireEvent.blur(terminal);
   fireEvent.focus(terminal);
   expect(daemon.sent(controlOf("mouse")).slice(3)).toEqual([{ focused: false }, { focused: true }]);
+});
+
+
+test("take control shows while the pointer moves over the terminal and fades once it rests or leaves", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const daemon = await liveApp("moving");
+  const viewport = screen.getByTestId("viewport");
+  const visible = () => screen.getByTestId("take-control").classList.contains("opacity-100");
+
+  expect(visible()).toBe(false);
+  fireEvent.mouseMove(viewport);
+  expect(visible()).toBe(true);
+  act(() => {
+    vi.advanceTimersByTime(1400);
+  });
+  fireEvent.mouseMove(viewport);
+  act(() => {
+    vi.advanceTimersByTime(1400);
+  });
+  expect(visible()).toBe(true);
+  act(() => {
+    vi.advanceTimersByTime(200);
+  });
+  expect(visible()).toBe(false);
+  fireEvent.mouseMove(viewport);
+  fireEvent.mouseLeave(viewport);
+  expect(visible()).toBe(false);
+  await held(daemon, "moving");
+  expect([screen.queryByRole("button", { name: "Take control" }), screen.getByTestId("release-control").className]).toEqual([null, expect.stringContaining("bottom-4")]);
+  vi.useRealTimers();
 });
