@@ -33,6 +33,7 @@ use crate::native::dashboard::{self, Backend};
 use crate::native::log;
 use crate::native::store::{ActivityEntry, SessionFolder, TabId, Typed};
 use crate::native::terminal::Terminal;
+use crate::output;
 use crate::protocol::{ErrorBody, HumanInput, Name, Reply, Request, SessionInfo, Sessions, TabInfo, Target};
 use lifecycle::Activity;
 use refusals::{error_body, known_session, no_tab, no_terminal, stopping};
@@ -215,12 +216,17 @@ impl Backend for Daemon {
             });
             found.ok_or_else(|| ErrorBody::failure(format!("the tab a human held in session {session} was closed")))?
         };
-        let delivered = terminal.input(&input.input()).map(drop).map_err(|e| {
+        let typed = input.input();
+        let delivered = terminal.input(&typed).map(drop).map_err(|e| {
             let mut error = error_body(&e);
             error.message = format!("{session} {name}: {}", error.message);
             error
         });
-        let mut entry = ActivityEntry::at(&Typed { time, words: &input.call() }, started.elapsed());
+        let Some(words) = input.call() else {
+            return delivered;
+        };
+        let action = output::input_action(&typed);
+        let mut entry = ActivityEntry::at(&Typed { time, words: &words, action: Some(&action) }, started.elapsed());
         entry.tab_id = Some(tab);
         entry.tab = Some(name);
         entry.frame = Some(terminal.frame());

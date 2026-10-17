@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import { entryOf } from "../fake-daemon/messages";
-import { activityRows, resultOf } from "./activity";
+import { activityRows, labelOf, resultOf } from "./activity";
 
 test("a failed call reads as its exit, named when the daemon explained it", () => {
   expect(
@@ -29,14 +29,14 @@ test("a failed call reads as its exit, named when the daemon explained it", () =
   ]);
 });
 
-const typed = (text: string) => entryOf("type", { human: { typed: text } });
+const typed = (text: string) => entryOf("type", { action: `typed "${text}"`, human: { typed: text } });
 
-const pressed = (key: string) => entryOf("press", { human: { pressed: key } });
+const pressed = (key: string) => entryOf("press", { action: `pressed ${key}`, human: { pressed: key } });
 
 test("consecutive typing reads as one row that Backspace edits", () => {
   const rows = activityRows([typed("ab"), typed("ç"), pressed("Backspace"), pressed("Backspace"), pressed("Enter"), typed("x")], 10);
 
-  expect(rows.map((row) => [row.at, row.human])).toEqual([
+  expect(rows.map((row) => [row.at, row.label])).toEqual([
     [10, 'typed "a"'],
     [14, "pressed Enter"],
     [15, 'typed "x"'],
@@ -44,15 +44,23 @@ test("consecutive typing reads as one row that Backspace edits", () => {
 });
 
 test("Backspace with nothing typed, pastes, refused typing and agent calls are rows of their own", () => {
-  const refused = entryOf("type", { exit: 4, error: "agent has control", human: { typed: "z" } });
-  const rows = activityRows([pressed("Backspace"), entryOf("paste", { human: { pasted: "p" } }), refused, entryOf("snapshot")], 0);
+  const refused = entryOf("type", { exit: 4, error: "agent has control", action: 'typed "z"', human: { typed: "z" } });
+  const rows = activityRows([pressed("Backspace"), entryOf("paste", { action: 'pasted "p"', human: { pasted: "p" } }), refused, entryOf("snapshot", { action: "read the screen" })], 0);
 
-  expect(rows.map((row) => row.human)).toEqual(["pressed Backspace", 'pasted "p"', 'typed "z"', null]);
-  expect(activityRows([typed("a"), refused], 0).map((row) => row.human)).toEqual(['typed "a"', 'typed "z"']);
+  expect(rows.map((row) => row.label)).toEqual(["pressed Backspace", 'pasted "p"', 'typed "z"', "read the screen"]);
+  expect(activityRows([typed("a"), refused], 0).map((row) => row.label)).toEqual(['typed "a"', 'typed "z"']);
 });
 
 test("typing that empties keeps its row until something else is typed", () => {
   const rows = activityRows([typed("a"), pressed("Backspace"), pressed("Backspace"), typed("b")], 0);
 
-  expect(rows.map((row) => row.human)).toEqual(['typed ""', "pressed Backspace", 'typed "b"']);
+  expect(rows.map((row) => row.label)).toEqual(['typed ""', "pressed Backspace", 'typed "b"']);
+});
+
+test("a call reads as the daemon's label, or as its command when the daemon gave none", () => {
+  expect([labelOf(entryOf("wait 500", { action: "waited for 500 ms to pass" })), labelOf(entryOf("session list")), labelOf({ time: "", command: "snapshot", action: "read the screen" })]).toEqual([
+    "waited for 500 ms to pass",
+    "session list",
+    "read the screen",
+  ]);
 });

@@ -116,7 +116,7 @@ export const releaseControl = (session: string, tab: string) => {
   announce("Control returned to the agent");
 };
 
-const send = (address: TabAddress, input: HumanInput) => {
+export const sendInput = (address: TabAddress, input: HumanInput) => {
   const held = holds.get(tabKey(address.session, address.tab));
 
   if (held?.state === "held" && held.socket.readyState === WebSocket.OPEN) {
@@ -196,47 +196,8 @@ const humanInput = (event: KeyboardEvent): HumanInput | null => {
   return key ? { pressed: [...held, key].join("+") } : null;
 };
 
-const ctrlAnd = (event: KeyboardEvent, letter: string) => event.ctrlKey && !event.altKey && event.key.toLowerCase() === letter;
-
-interface Keystroke { chord: boolean; event: KeyboardEvent<HTMLElement> }
-
-const leftChord = (address: TabAddress, keystroke: Keystroke) => {
-  if (!keystroke.chord) {
-    return false;
-  }
-
-  if (ctrlAnd(keystroke.event, "q")) {
-    document.getElementById(controlButtonId(address.session, address.tab))?.focus();
-
-    return true;
-  }
-
-  send(address, { pressed: "Ctrl+p" });
-
-  return false;
-};
-
-const pressedIn = (address: TabAddress, keystroke: Keystroke) => {
-  if (leftChord(address, keystroke)) {
-    return false;
-  }
-
-  if (ctrlAnd(keystroke.event, "p")) {
-    return true;
-  }
-
-  const input = humanInput(keystroke.event);
-
-  if (input) {
-    send(address, input);
-  }
-
-  return false;
-};
-
 export const controlKeys = (session: string, tab: string) => {
   const address = { session, tab };
-  let chord = false;
   const keys = (event: KeyboardEvent<HTMLElement>) => {
     if (event.metaKey || MODIFIER_KEYS.has(event.key)) {
       return;
@@ -244,7 +205,11 @@ export const controlKeys = (session: string, tab: string) => {
 
     event.preventDefault();
     event.stopPropagation();
-    chord = pressedIn(address, { chord, event });
+    const input = humanInput(event);
+
+    if (input) {
+      sendInput(address, input);
+    }
   };
 
   const paste = (event: ClipboardEvent<HTMLElement>) => {
@@ -252,9 +217,17 @@ export const controlKeys = (session: string, tab: string) => {
     const text = event.clipboardData.getData("text");
 
     if (text) {
-      send(address, { pasted: text });
+      sendInput(address, { pasted: text });
     }
   };
 
-  return { keys, paste };
+  const focusIn = () => {
+    sendInput(address, { focused: true });
+  };
+
+  const focusOut = () => {
+    sendInput(address, { focused: false });
+  };
+
+  return { keys, paste, focusIn, focusOut };
 };

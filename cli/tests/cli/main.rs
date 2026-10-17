@@ -28,6 +28,8 @@ mod expect;
 #[cfg(test)]
 mod find;
 #[cfg(test)]
+mod focus;
+#[cfg(test)]
 mod get;
 #[cfg(test)]
 mod input;

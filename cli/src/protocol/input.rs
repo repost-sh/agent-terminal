@@ -4,19 +4,46 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use super::{Name, Screenshot, Snapshot};
-use crate::key::Key;
+use crate::key::{Key, Mods};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub(crate) enum Input {
-    Type { text: String, delay_ms: u64 },
-    Press { keys: Vec<Key>, repeat: u32 },
-    Paste { text: String },
-    Send { bytes: Vec<u8> },
-    Signal { signal: Signal },
-    Click { target: ClickTarget, button: MouseButton, double: bool },
-    Mouse { event: MouseEvent },
-    Scroll { direction: Direction, count: u32, keys: bool },
+    Type {
+        text: String,
+        delay_ms: u64,
+    },
+    Press {
+        keys: Vec<Key>,
+        repeat: u32,
+    },
+    Paste {
+        text: String,
+    },
+    Send {
+        bytes: Vec<u8>,
+    },
+    Signal {
+        signal: Signal,
+    },
+    Click {
+        target: ClickTarget,
+        button: MouseButton,
+        double: bool,
+        #[serde(default)]
+        mods: Mods,
+    },
+    Mouse {
+        event: MouseEvent,
+    },
+    Scroll {
+        direction: Direction,
+        count: u32,
+        keys: bool,
+    },
+    Focus {
+        focused: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -117,19 +144,51 @@ impl fmt::Display for Direction {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(tag = "event", rename_all = "kebab-case")]
 pub(crate) enum MouseEvent {
-    Move { row: u16, col: u16 },
-    Down { row: u16, col: u16, button: MouseButton },
-    Up { row: u16, col: u16, button: MouseButton },
-    Wheel { row: u16, col: u16, direction: Direction },
+    Move {
+        row: u16,
+        col: u16,
+        #[serde(default)]
+        mods: Mods,
+    },
+    Down {
+        row: u16,
+        col: u16,
+        button: MouseButton,
+        #[serde(default)]
+        mods: Mods,
+    },
+    Up {
+        row: u16,
+        col: u16,
+        button: MouseButton,
+        #[serde(default)]
+        mods: Mods,
+    },
+    Wheel {
+        row: u16,
+        col: u16,
+        direction: Direction,
+        #[serde(default)]
+        mods: Mods,
+    },
 }
 
 impl MouseEvent {
     pub(crate) fn at(self) -> (u16, u16) {
         match self {
-            MouseEvent::Move { row, col }
+            MouseEvent::Move { row, col, .. }
             | MouseEvent::Down { row, col, .. }
             | MouseEvent::Up { row, col, .. }
             | MouseEvent::Wheel { row, col, .. } => (row, col),
+        }
+    }
+
+    pub(crate) fn mods(self) -> Mods {
+        match self {
+            MouseEvent::Move { mods, .. }
+            | MouseEvent::Down { mods, .. }
+            | MouseEvent::Up { mods, .. }
+            | MouseEvent::Wheel { mods, .. } => mods,
         }
     }
 }
@@ -229,6 +288,8 @@ pub(crate) enum Delivery {
         col: u16,
         button: MouseButton,
         double: bool,
+        #[serde(default)]
+        mods: Mods,
         bytes: usize,
     },
     Mouse {
@@ -240,6 +301,10 @@ pub(crate) enum Delivery {
         direction: Direction,
         count: u32,
         by: ScrollBy,
+        bytes: usize,
+    },
+    Focus {
+        focused: bool,
         bytes: usize,
     },
 }

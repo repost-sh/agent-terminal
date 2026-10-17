@@ -12,6 +12,7 @@ Terminal automation CLI for AI agents, the terminal sibling of agent-browser.
 - `dashboard/` is the web app (Vite, React, Tailwind, xterm.js), served by `cli/src/native/dashboard/`. Its wire types in `dashboard/src/lib/protocol.ts` are written by hand to match `cli/src/protocol/`, so change both together. `npm run build` writes the app into `cli/assets/dashboard`, which is committed and embedded in the binary. Its unit tests sit beside the code they test (`*.test.ts`, `*.test.tsx`) and drive it through `src/fake-daemon/`, which stands in for the daemon's sockets and HTTP API.
 - `skill-data/` holds the guides `agent-terminal skills get` prints, compiled into the binary by `cli/src/skills/`. When a command's flags or behaviour change, the guide that teaches it changes in the same commit. `skills/` holds the discovery stub.
 - Releases: `npm/` (launcher and per-platform packages), `dist-workspace.toml`, `.github/workflows/release.yml`.
+- `scripts/dev.sh` is the dev loop: it builds the CLI, links `agent-terminal-dev` (this checkout's build, with its own home in `cli/target/dev-home`), serves the dev daemon's dashboard on port 4859 and runs Vite on port 5173 with live reload. After a Rust change, `scripts/dev.sh restart` rebuilds and restarts the dev daemon while Vite keeps running.
 
 ## Checks
 

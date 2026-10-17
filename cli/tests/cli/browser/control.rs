@@ -57,11 +57,6 @@ fn taking_control_refuses_the_agent_with_exit_4_until_the_human_releases_it() {
 fn the_dashboard_and_the_tab_show_the_human_has_control(at: &AgentTerminal, browser: &Browser) {
     assert_eq!(control_button(browser), "\"Release control\"");
     browser.wait_until("document.querySelector('nav [aria-current=page]')?.innerText.includes('human')");
-    assert!(
-        browser.status().contains(&"Keys go to input-echo · ctrl+p ctrl+q moves focus out".to_string()),
-        "{:?}",
-        browser.status()
-    );
     assert_eq!(at.run(&["--json", "tab"]).success().json()["tabs"][0]["control"], "human");
 }
 
@@ -69,7 +64,7 @@ fn the_agent_is_refused_with_exit_4_and_told_to_wait(at: &AgentTerminal, browser
     let refused = at.run(&["--session", "work", "--timeout", "500", "press", "j"]);
     assert_eq!(refused.code(), 4, "{}", refused.stderr());
     assert_eq!(refused.stderr(), format!("error: {REFUSED}\n"));
-    wait_for_row(browser, ":not([aria-busy])", "--session work --timeout 500 press j ", "| refused: human has control");
+    wait_for_row(browser, ":not([aria-busy])", "agent: pressed j ", "| refused: human has control");
     browser.wait_for_text("The agent is waiting for control");
     let notice = browser.text(".toaster");
     assert!(notice.lines().any(|line| line.trim() == "press j refused · exit 4 · now: wait --control"), "{notice}");
@@ -78,7 +73,7 @@ fn the_agent_is_refused_with_exit_4_and_told_to_wait(at: &AgentTerminal, browser
 fn releasing_control_ends_the_agents_wait(at: &AgentTerminal, browser: &Browser) {
     std::thread::scope(|scope| {
         let waiting = scope.spawn(|| at.run(&["wait", "--control"]));
-        wait_for_row(browser, "[aria-busy=true]", "wait --control", "waiting");
+        wait_for_row(browser, "[aria-busy=true]", "agent: waited for control back", "waiting");
         browser.click_button("Release control");
         let waited = waiting.join().expect("the waiting call").success().stdout();
         assert!(waited.ends_with(" ms for a human to hand back control in work app\n"), "{waited}");
@@ -88,7 +83,7 @@ fn releasing_control_ends_the_agents_wait(at: &AgentTerminal, browser: &Browser)
 fn the_agent_has_control_again(at: &AgentTerminal, browser: &Browser) {
     browser.wait_until("document.activeElement?.textContent === 'Take control'");
     browser.wait_until("!document.querySelector('nav [aria-current=page]')?.innerText.includes('human')");
-    wait_for_row(browser, ":not([aria-busy])", "wait --control ", "");
+    wait_for_row(browser, ":not([aria-busy])", "agent: waited for control back ", "");
     assert_eq!(browser.eval(&format!("{}.length", rows("[aria-busy]"))), "0");
     assert_eq!(at.run(&["--json", "tab"]).success().json()["tabs"][0]["control"], "agent");
     at.run(&["press", "j", "--wait", "j"]).success();
@@ -120,11 +115,9 @@ fn keys_typed_in_the_dashboard_reach_the_program_and_show_in_activity_as_human_r
 
     browser.run(&["press", "Control+p"]);
     browser.run(&["press", "Control+q"]);
-    browser.wait_until("document.activeElement?.textContent === 'Release control'");
-    browser.run(&["focus", "[role=application]"]);
     browser.run(&["press", "z"]);
-    at.run(&["wait", r"\e[Az"]).success();
-    assert_eq!(at.received("work"), r"hi\t\e\x03\e[Az");
+    at.run(&["wait", r"\e[A\x10\x11z"]).success();
+    assert_eq!(at.received("work"), r"hi\t\e\x03\e[A\x10\x11z");
 }
 
 #[test]

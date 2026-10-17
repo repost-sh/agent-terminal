@@ -15,6 +15,7 @@ fn glance(frame: u64) -> Glance {
         size: Size { cols: 80, rows: 24 },
         alt_screen: false,
         mouse: None,
+        mouse_tracking: None,
         bracketed_paste: false,
         status: Status::Running,
     }

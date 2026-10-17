@@ -81,13 +81,15 @@ agent-terminal paste "$(cat notes.txt)"  # paste, not typed key by key
 agent-terminal click @t3                 # only if the header says mouse:...
 agent-terminal click 4,12 --right        # a cell (row,col); --double for a double click
 agent-terminal click "Save"              # the first match of the text
+agent-terminal click 4,12 --ctrl         # with a modifier held: --ctrl, --alt, --shift (mouse takes them too)
 agent-terminal scroll down 3             # mouse wheel if the app takes the mouse, else PageDown
 agent-terminal mouse down 4,3            # low level, e.g. a drag: down, move, up
 agent-terminal mouse move 4,20
 agent-terminal mouse up 4,20
+agent-terminal focus out                 # the app loses focus, as when its window goes behind; focus in brings it back
 ```
 
-Most terminal apps are driven by keys, not the mouse. Read the key hints the app shows (often on the last row) and use them. `click` and `mouse` refuse when the app has no mouse support; that is not a bug in your command. `scroll --keys` presses PageUp/PageDown even when the app takes the mouse.
+Most terminal apps are driven by keys, not the mouse. Read the key hints the app shows (often on the last row) and use them. `click` and `mouse` refuse when the app has no mouse support; that is not a bug in your command. `scroll --keys` presses PageUp/PageDown even when the app takes the mouse. `focus` reaches only an app that asked for focus reports (`get modes` shows `focus_events`); to any other it is a no-op that says so.
 
 Key names: `Enter`, `Tab`, `Shift+Tab`, `Esc`, `Backspace`, `Delete`, `Up`, `Down`, `Left`, `Right`, `Home`, `End`, `PageUp`, `PageDown`, `F1`–`F12`, `Space`, and any letter with `Ctrl+`, `Alt+`, `Shift+`.
 
@@ -171,7 +173,7 @@ Every `open`, `tab new` and `shell` needs `--name`: name the tab after the progr
 
 ## When a human takes control
 
-A person can take control of a tab, from the dashboard or with `agent-terminal attach` in their own terminal. Your input commands (`type`, `press`, `paste`, `send`, `signal`, `click`, `scroll`, `mouse`) and `exec` then exit 4 with "A human has control of …". Reading the screen still works. Do not retry in a loop:
+A person can take control of a tab, from the dashboard or with `agent-terminal attach` in their own terminal. Their keys, and in the dashboard their mouse when the app tracks it, go straight to the app. Your input commands (`type`, `press`, `paste`, `send`, `signal`, `click`, `scroll`, `mouse`, `focus`) and `exec` then exit 4 with "A human has control of …". Reading the screen still works. Do not retry in a loop:
 
 ```bash
 agent-terminal wait --control --timeout 600000   # resumes when they hand it back (the default timeout is 25 s)

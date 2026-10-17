@@ -12,6 +12,7 @@ const BUTTON_BASE =
 
 const BUTTON_VARIANT = {
   default: "bg-primary text-primary-foreground hover:bg-primary/80",
+  inverted: "bg-neutral-950 text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200",
   ghost: "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
   outline: "border-border bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
   destructive:
@@ -21,6 +22,7 @@ const BUTTON_VARIANT = {
 const BUTTON_SIZE = {
   sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] [&_svg]:size-3.5",
   "icon-sm": "size-7 rounded-[min(var(--radius-md),12px)] text-sm [&_svg]:size-4",
+  pill: "h-9 gap-2 rounded-full px-4 text-sm font-semibold shadow-lg shadow-black/30 [&_svg]:size-4",
 };
 
 interface ButtonLook {

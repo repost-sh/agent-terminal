@@ -7,7 +7,8 @@ use crate::native::commands::Submitted;
 use crate::native::control::{Control, Handed};
 use crate::native::terminal::{Labelled, Settled, Status, Terminal};
 use crate::native::wait::Condition;
-use crate::protocol::{CommandOutput, ErrorBody, Reply, RowRange, Snapshot, TextMatch, Wait, WaitOutcome, request};
+use crate::output::{describe_wait, not_met};
+use crate::protocol::{CommandOutput, ErrorBody, Reply, Snapshot, Wait, WaitOutcome, request};
 
 const CONTROL_HANDED_BACK: &str = "a human to hand back control";
 
@@ -70,7 +71,7 @@ impl Daemon {
             Until { wait: &wait, timeout_ms }.wait_on(&at, condition).map_err(|error| failed(error, &missed))?;
         let waited_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let exit_code = exit_code_after(&wait, &terminal);
-        Ok(Reply::Waited(WaitOutcome { session, tab, until: describe(&wait), waited_ms, frame, exit_code }))
+        Ok(Reply::Waited(WaitOutcome { session, tab, until: describe_wait(&wait), waited_ms, frame, exit_code }))
     }
 
     pub(super) fn wait_control(&self, waiting: request::WaitControl) -> Result<Reply, ErrorBody> {
@@ -225,7 +226,7 @@ impl Until<'_> {
         let message = format!(
             "timed out after {} ms waiting for {}; {} {} is still running (read it with `agent-terminal snapshot`, stop it with `agent-terminal close`)",
             self.timeout_ms,
-            describe(self.wait),
+            describe_wait(self.wait),
             snapshot.session,
             snapshot.tab
         );
@@ -237,50 +238,12 @@ fn exited_while_waiting(wait: &Wait, snapshot: Snapshot) -> ErrorBody {
     let how = snapshot.exit_code.map_or_else(String::new, |code| format!(" with code {code}"));
     let message = format!(
         "stopped waiting for {}: {} in {} {} has exited{how}",
-        describe(wait),
+        describe_wait(wait),
         snapshot.program,
         snapshot.session,
         snapshot.tab
     );
     ErrorBody::new(crate::exit::EXITED, message).with_screen(snapshot)
-}
-
-fn describe(wait: &Wait) -> String {
-    match wait {
-        Wait::Stable { quiet_ms } => format!("the screen to stay unchanged for {quiet_ms} ms"),
-        Wait::Idle { quiet_ms } => format!("the program to print nothing for {quiet_ms} ms"),
-        Wait::Elapsed { ms } => format!("{ms} ms to pass"),
-        Wait::Exit { code: None } => "the program to exit".to_string(),
-        Wait::Exit { code: Some(code) } => format!("the program to exit with code {code}"),
-        Wait::Cursor { row, col } => format!("the cursor to reach {row},{col}"),
-        Wait::Frame { frame } => format!("frame {frame}"),
-        Wait::Command => "the shell command to finish".to_string(),
-        Wait::Text(text) => describe_text(text, "to appear", "a match for"),
-        Wait::Gone(text) => describe_text(text, "to disappear", "no match for"),
-    }
-}
-
-fn describe_text(text: &TextMatch, plain: &str, pattern: &str) -> String {
-    let what = if text.regex { format!("{pattern} /{}/", text.text) } else { format!("\"{}\" {plain}", text.text) };
-    match text.rows {
-        Some(RowRange { first, last }) => format!("{what} in rows {first}-{last}"),
-        None => what,
-    }
-}
-
-fn not_met(wait: &Wait) -> String {
-    match wait {
-        Wait::Stable { quiet_ms } => format!("the screen did not stay unchanged for {quiet_ms} ms"),
-        Wait::Idle { quiet_ms } => format!("the program did not stop printing for {quiet_ms} ms"),
-        Wait::Elapsed { ms } => format!("{ms} ms did not pass"),
-        Wait::Exit { code: None } => "the program did not exit".to_string(),
-        Wait::Exit { code: Some(code) } => format!("the program did not exit with code {code}"),
-        Wait::Cursor { row, col } => format!("the cursor did not reach {row},{col}"),
-        Wait::Frame { frame } => format!("the screen did not reach frame {frame}"),
-        Wait::Command => "the shell command did not finish".to_string(),
-        Wait::Text(text) => describe_text(text, "did not appear", "nothing matched"),
-        Wait::Gone(text) => describe_text(text, "did not disappear", "still a match for"),
-    }
 }
 
 #[cfg(test)]

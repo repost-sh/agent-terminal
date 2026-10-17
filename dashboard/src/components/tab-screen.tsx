@@ -1,17 +1,13 @@
-import { useState } from "react";
-
 import { closeTab, reason } from "../lib/api";
-import { controlKeys, useControl } from "../lib/control";
 import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
 import { settle } from "../lib/settle";
 import type { Layout } from "../lib/split";
-import { useTabStream } from "../lib/stream";
 import { firstTab, tabName } from "../lib/tabs";
 import { announce } from "../lib/announcements";
 import { restartExited } from "./restart-button";
-import { controlHint, StatusBar } from "./status-bar";
-import { heldTerminal, liveLabel, Viewport } from "./terminal-view";
+import { StatusBar } from "./status-bar";
+import { useHeldViewport, Viewport } from "./terminal-view";
 import { toast } from "../lib/toasts";
 import { Toolbar } from "./toolbar";
 
@@ -38,11 +34,8 @@ const closeAndMoveOn = async (props: TabScreenProps) => {
 
 export const TabScreen = (props: TabScreenProps) => {
   const { session, tab } = props;
-  const stream = useTabStream(session, tab.tab);
-  const name = tabName(session, tab.tab);
-  const [keyboard] = useState(() => controlKeys(session, tab.tab));
-  const held = useControl(session, tab.tab) === "held";
-  const typing = held && !stream.shown?.exited;
+  const view = useHeldViewport({ session, tab, focused: true });
+  const { stream } = view;
   const exit = {
     onRestart: () => void restartExited(session, tab),
     onClose: () => void closeAndMoveOn(props),
@@ -52,22 +45,12 @@ export const TabScreen = (props: TabScreenProps) => {
     <>
       <Toolbar layout={1} onLayout={props.onLayout} current={{ session, tab, stream: stream.state, shown: stream.shown }} />
       <div className="h-px shrink-0 bg-border" role="none" />
-      <Viewport
-        paint={stream.paint}
-        state={stream.state}
-        shown={stream.shown}
-        program={tab.program}
-        label={liveLabel(`${name} ${tab.program}`, stream.shown)}
-        held={heldTerminal({ session, tab: tab.tab }, { held, typing, keyboard })}
-        exit={exit}
-      />
+      <Viewport {...view.viewport} exit={exit} />
       <div className="h-px shrink-0 bg-border" role="none" />
       <StatusBar
-        session={session}
         tab={tab}
         state={stream.state}
         shown={stream.shown}
-        hint={controlHint(typing, tab.program)}
       />
     </>
   );

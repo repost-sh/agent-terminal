@@ -1,10 +1,10 @@
 import { ArrowDown, ArrowDownToLine, LoaderCircle, Trash2 } from "lucide-react";
 import { useRef, useState, type UIEvent } from "react";
 
-import { activityRows, resultOf, useActivity, type ActivityRow as ActivityRowData } from "../lib/activity";
+import { activityRows, labelOf, resultOf, useActivity, type ActivityRow as ActivityRowData } from "../lib/activity";
 import { screenshotUrl } from "../lib/api";
 import { clockMs, formatDuration } from "../lib/format";
-import type { PendingCall, Screenshot } from "../lib/protocol";
+import type { ActivityEntry, PendingCall, Screenshot } from "../lib/protocol";
 import { fileName, useScreenshots } from "../lib/screenshots";
 import { tabKey, tabName } from "../lib/tabs";
 import type { PanelProps } from "./panels";
@@ -99,21 +99,25 @@ interface RowProps { session: string; row: ActivityRowData; expanded: boolean; o
 
 interface CallTextProps { row: ActivityRowData }
 
+const BY_TONE = { human: "text-amber-600 dark:text-amber-400", agent: "text-violet-600 dark:text-violet-400" };
+
+type By = keyof typeof BY_TONE;
+
+const byOf = (entry: ActivityEntry): By => (entry.human ? "human" : "agent");
+
+interface ActorProps { by: By }
+
+const Actor = ({ by }: ActorProps) => <span className={BY_TONE[by]}>{by}:</span>;
+
 const CallText = ({ row }: CallTextProps) => {
   const entry = row.entry;
   const result = resultOf(entry);
+  const by = byOf(entry);
 
   return (
     <span className="min-w-0 flex-1 font-mono [overflow-wrap:anywhere]">
-      {row.human === null ? (
-        <>
-          {entry.command} <span className="whitespace-nowrap text-muted-foreground">{formatDuration(entry.duration_ms)}</span>
-        </>
-      ) : (
-        <>
-          <span className="text-violet-600 dark:text-violet-400">human:</span> {row.human}
-        </>
-      )}
+      <Actor by={by} /> {row.label}
+      {by === "agent" && <span className="whitespace-nowrap text-muted-foreground"> {formatDuration(entry.duration_ms)}</span>}
       {result && <span className={cn("mt-0.5 flex items-center gap-1", RESULT_TONE[result.tone].text)}>{result.label}</span>}
     </span>
   );
@@ -125,6 +129,11 @@ const RowDetails = (props: RowProps) => {
   return (
     <>
       {entry.screenshots && <Thumbnails session={props.session} paths={entry.screenshots} />}
+      {props.expanded && byOf(entry) === "agent" && (
+        <code role="group" aria-label="Command" className="mb-1.5 block font-mono text-[10px] leading-snug text-muted-foreground [overflow-wrap:anywhere]">
+          agent-terminal {entry.command}
+        </code>
+      )}
       {props.expanded && entry.output !== "" && (
         <pre role="group" aria-label="Output" className="mb-1.5 max-h-48 overflow-auto text-[10px] leading-snug text-muted-foreground">
           {entry.output}
@@ -137,12 +146,12 @@ const RowDetails = (props: RowProps) => {
 const rowClass = (props: RowProps) => {
   const result = resultOf(props.row.entry);
 
-  return cn("border-b border-border", result && RESULT_TONE[result.tone].row, props.row.human !== null && "bg-violet-500/5", props.expanded && "bg-muted/60");
+  return cn("border-b border-border", result && RESULT_TONE[result.tone].row, props.expanded && "bg-muted/60");
 };
 
 const ActivityRow = (props: RowProps) => {
   const entry = props.row.entry;
-  const opens = entry.output !== "";
+  const opens = byOf(entry) === "agent" || entry.output !== "";
 
   return (
     <li className={rowClass(props)}>
@@ -182,7 +191,7 @@ const PendingRow = ({ call }: PendingRowProps) => (
         </time>
       </span>
       <span className="min-w-0 flex-1 font-mono [overflow-wrap:anywhere]">
-        {call.command}
+        <Actor by="agent" /> {labelOf(call)}
         <span className="mt-0.5 flex items-center gap-1 text-muted-foreground">
           <LoaderCircle aria-hidden="true" className="size-[11px] animate-spin" />
           waiting

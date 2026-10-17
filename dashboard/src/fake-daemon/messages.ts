@@ -23,6 +23,7 @@ export const frameOf = (frame: number, change: Partial<FrameUpdate> = {}): Frame
   paint: "",
   alt_screen: false,
   mouse: null,
+  mouse_tracking: null,
   bracketed_paste: false,
   exited: false,
   exit_code: null,

@@ -32,20 +32,24 @@ test("calls list their time, command, duration and result, with pending calls la
 
   expect(screen.getByText("Waiting for calls...")).toBeTruthy();
   await pushed(daemon, {
-    entries: [entryOf("snapshot", { duration_ms: 1500 }), entryOf("wait --text ready", { exit: 3, error: "timed out" })],
-    pending: [{ time: new Date(2026, 0, 2, 3, 4, 6, 0).toISOString(), command: "wait --idle" }],
+    entries: [entryOf("snapshot", { action: "read the screen", duration_ms: 1500 }), entryOf("wait --text ready", { exit: 3, error: "timed out" })],
+    pending: [{ time: new Date(2026, 0, 2, 3, 4, 6, 0).toISOString(), command: "wait --idle", action: "waited for the program to print nothing for 300 ms" }],
   });
-  expect(calls()).toEqual(["03:04:05.006snapshot 1.5 s", "03:04:05.006wait --text ready 12 mstimeout", "03:04:06.000wait --idlewaiting"]);
+  expect(calls()).toEqual([
+    "03:04:05.006agent: read the screen 1.5 s+",
+    "03:04:05.006agent: wait --text ready 12 mstimeout+",
+    "03:04:06.000agent: waited for the program to print nothing for 300 mswaiting",
+  ]);
   expect(within(screen.getByRole("region", { name: "Details of work app" })).getByText("3")).toBeTruthy();
-  await pushed(daemon, { entries: [entryOf("type", { human: { typed: "hi" } })] });
-  expect(calls()).toEqual(["03:04:05.006snapshot 1.5 s", "03:04:05.006wait --text ready 12 mstimeout", '03:04:05.006human: typed "hi"']);
+  await pushed(daemon, { entries: [entryOf("type", { action: 'typed "hi"', human: { typed: "hi" } })] });
+  expect(calls()).toEqual(["03:04:05.006agent: read the screen 1.5 s+", "03:04:05.006agent: wait --text ready 12 mstimeout+", '03:04:05.006human: typed "hi"']);
 });
 
 test("a call with output opens and closes it, and the list stops following while it is open", async () => {
   const daemon = await shownActivity();
 
-  await pushed(daemon, { entries: [entryOf("snapshot", { output: "the screen" }), entryOf("press x")] });
-  const call = screen.getByRole("button", { name: /snapshot/ });
+  await pushed(daemon, { entries: [entryOf("snapshot", { action: "read the screen", output: "the screen" }), entryOf("press x", { action: "pressed x" })] });
+  const call = screen.getByRole("button", { name: /read the screen/ });
 
   expect(call.getAttribute("aria-expanded")).toBe("false");
   fireEvent.click(call);
@@ -55,13 +59,13 @@ test("a call with output opens and closes it, and the list stops following while
   expect(screen.getByRole("button", { name: "Follow" }).getAttribute("aria-pressed")).toBe("true");
   fireEvent.click(call);
   expect(screen.queryByText("the screen")).toBeNull();
-  expect(screen.getByRole("button", { name: /press x/ }).getAttribute("aria-expanded")).toBeNull();
+  expect(screen.getByRole("button", { name: /pressed x/ }).getAttribute("aria-expanded")).toBe("false");
 });
 
 test("scrolling away from the newest call stops following and scrolling back resumes", async () => {
   const daemon = await shownActivity();
 
-  await pushed(daemon, { entries: [entryOf("snapshot")] });
+  await pushed(daemon, { entries: [entryOf("snapshot", { action: "read the screen" })] });
   const list = screen.getByRole("list", { name: "Calls to work app" });
   const follow = screen.getByRole("button", { name: "Follow" });
 
@@ -99,31 +103,35 @@ test("each kind of call has its own look, and a screenshot it took opens in the 
 
   await pushed(daemon, {
     entries: [
-      entryOf("snapshot", { time: at(1) }),
+      entryOf("snapshot", { action: "read the screen", time: at(1) }),
       entryOf("open htop", { exit: 1, time: at(2) }),
-      entryOf("press x", { exit: 4, error: "a human has control", time: at(3) }),
-      entryOf("type", { human: { typed: "hi" }, time: at(4) }),
-      entryOf("get text", { output: "the screen", time: at(5) }),
-      entryOf("screenshot", { screenshots: ["a.png", "notes.txt", "B.PNG"], time: at(6) }),
+      entryOf("press x", { action: "pressed x", exit: 4, error: "a human has control", time: at(3) }),
+      entryOf("type", { action: 'typed "hi"', human: { typed: "hi" }, time: at(4) }),
+      entryOf("get text", { action: "read the text", output: "the screen", time: at(5) }),
+      entryOf("screenshot", { action: "took a screenshot", screenshots: ["a.png", "notes.txt", "B.PNG"], time: at(6) }),
     ],
     pending: [
-      { time: at(7), command: "wait --idle" },
+      { time: at(7), command: "wait --idle", action: "waited for the program to print nothing for 300 ms" },
       { time: at(8), command: "wait --gone" },
     ],
   });
   await daemon.connected(SHOTS);
   await daemon.push(SHOTS, { type: "screenshots", screenshots: [shotOf("a.png", { path: "a.png" })] });
   expect(list().outerHTML).toMatchSnapshot();
-  fireEvent.click(screen.getByRole("button", { name: /get text/ }));
+  fireEvent.click(screen.getByRole("button", { name: /read the text/ }));
   expect(list().outerHTML).toMatchSnapshot();
 });
 
-test("a call without output shows nothing more when clicked", async () => {
+test("an agent call without output shows only its raw command when clicked", async () => {
   const daemon = await shownActivity();
 
-  await pushed(daemon, { entries: [entryOf("press x")], pending: [{ time: at(9), command: "wait --idle" }] });
-  fireEvent.click(screen.getByRole("button", { name: /press x/ }));
-  expect([within(list()).queryByRole("group", { name: "Output" }), calls().length]).toEqual([null, 2]);
+  await pushed(daemon, { entries: [entryOf("press x", { action: "pressed x" })], pending: [{ time: at(9), command: "wait --idle", action: "waited for the program to print nothing for 300 ms" }] });
+  fireEvent.click(screen.getByRole("button", { name: /pressed x/ }));
+  expect([within(list()).queryByRole("group", { name: "Output" }), within(list()).getByRole("group", { name: "Command" }).textContent, calls().length]).toEqual([
+    null,
+    "agent-terminal press x",
+    2,
+  ]);
 });
 
 const scrolledTo = (element: HTMLElement) => {
@@ -147,17 +155,17 @@ const scrolledTo = (element: HTMLElement) => {
 test("a following list scrolls to each new call, to a call that grows, and back when following resumes", async () => {
   const daemon = await shownActivity();
 
-  await pushed(daemon, { entries: [entryOf("screenshot", { screenshots: ["a.png"] })] });
+  await pushed(daemon, { entries: [entryOf("screenshot", { action: "took a screenshot", screenshots: ["a.png"] })] });
   const writes = scrolledTo(list());
 
-  await pushed(daemon, { entries: [entryOf("press x")] });
+  await pushed(daemon, { entries: [entryOf("press x", { action: "pressed x" })] });
   expect(writes).toEqual([1000]);
   await daemon.connected(SHOTS);
   await daemon.push(SHOTS, { type: "screenshots", screenshots: [shotOf("a.png", { path: "a.png" })] });
   expect(writes).toEqual([1000, 1000]);
   fireEvent.scroll(list(), { target: { scrollTop: 760 } });
   expect(screen.getByRole("button", { name: "Follow" }).getAttribute("aria-pressed")).toBe("false");
-  await pushed(daemon, { entries: [entryOf("press y")] });
+  await pushed(daemon, { entries: [entryOf("press y", { action: "pressed y" })] });
   expect(writes).toEqual([1000, 1000, 760]);
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Jump to latest" }));
@@ -187,7 +195,7 @@ test("a closed list stops watching its calls", async () => {
   );
   const daemon = await shownActivity();
 
-  await pushed(daemon, { entries: [entryOf("snapshot")] });
+  await pushed(daemon, { entries: [entryOf("snapshot", { action: "read the screen" })] });
   const calls = list();
 
   fireEvent.click(screen.getByRole("tab", { name: "Output" }));
@@ -206,28 +214,28 @@ test("a list that restarts after clearing shows its first call collapsed", async
   const daemon = await shownActivity("t8");
   const feed = ACTIVITY.replace("app", "t8");
 
-  await daemon.push(feed, { type: "entries", entries: [entryOf("get text", { output: "old", time: at(1) })], pending: [] });
-  fireEvent.click(screen.getByRole("button", { name: /get text/ }));
+  await daemon.push(feed, { type: "entries", entries: [entryOf("get text", { action: "read the text", output: "old", time: at(1) })], pending: [] });
+  fireEvent.click(screen.getByRole("button", { name: /read the text/ }));
   fireEvent.click(screen.getByRole("button", { name: "Clear activity" }));
   await daemon.hangUp(feed);
   await daemon.connected(feed);
-  await daemon.push(feed, { type: "entries", entries: [entryOf("get text", { output: "new", time: at(5) })], pending: [] });
-  expect([screen.getByRole("button", { name: /get text/ }).getAttribute("aria-expanded"), screen.queryByText("new")]).toEqual(["false", null]);
+  await daemon.push(feed, { type: "entries", entries: [entryOf("get text", { action: "read the text", output: "new", time: at(5) })], pending: [] });
+  expect([screen.getByRole("button", { name: /read the text/ }).getAttribute("aria-expanded"), screen.queryByText("new")]).toEqual(["false", null]);
 });
 
 test("clearing outlives switching panels, and a restarted list shows its calls again, collapsed", async () => {
   const daemon = await shownActivity();
 
-  await pushed(daemon, { entries: [entryOf("get text", { output: "the screen", time: at(1) }), entryOf("press x", { time: at(2) })] });
-  fireEvent.click(screen.getByRole("button", { name: /get text/ }));
+  await pushed(daemon, { entries: [entryOf("get text", { action: "read the text", output: "the screen", time: at(1) }), entryOf("press x", { action: "pressed x", time: at(2) })] });
+  fireEvent.click(screen.getByRole("button", { name: /read the text/ }));
   fireEvent.click(screen.getByRole("button", { name: "Clear activity" }));
   fireEvent.click(screen.getByRole("tab", { name: "Output" }));
   fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
   await daemon.connected(ACTIVITY);
-  await daemon.push(ACTIVITY, { type: "entries", entries: [entryOf("get text", { output: "the screen", time: at(1) }), entryOf("press x", { time: at(2) })], pending: [] });
+  await daemon.push(ACTIVITY, { type: "entries", entries: [entryOf("get text", { action: "read the text", output: "the screen", time: at(1) }), entryOf("press x", { action: "pressed x", time: at(2) })], pending: [] });
   expect(screen.getByText("Waiting for calls...")).toBeTruthy();
   await daemon.hangUp(ACTIVITY);
   await daemon.connected(ACTIVITY);
-  await daemon.push(ACTIVITY, { type: "entries", entries: [entryOf("get text", { output: "the screen", time: at(5) })], pending: [] });
-  expect([screen.getByRole("button", { name: /get text/ }).getAttribute("aria-expanded"), screen.queryByText("the screen")]).toEqual(["false", null]);
+  await daemon.push(ACTIVITY, { type: "entries", entries: [entryOf("get text", { action: "read the text", output: "the screen", time: at(5) })], pending: [] });
+  expect([screen.getByRole("button", { name: /read the text/ }).getAttribute("aria-expanded"), screen.queryByText("the screen")]).toEqual(["false", null]);
 });

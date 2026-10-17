@@ -79,7 +79,7 @@ fn the_toolbar_offers_restart_screenshot_layouts_and_control() {
             "Single terminal",
             "Two terminals side by side",
             "Four terminals",
-            "Take control",
+            "Mouse on",
         ]
     );
 }

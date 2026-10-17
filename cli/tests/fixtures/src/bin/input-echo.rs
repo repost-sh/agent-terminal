@@ -31,6 +31,7 @@ fn mode(arg: &str, args: &mut impl Iterator<Item = String>) -> Result<String, St
     let mode = match arg {
         "--app-cursor" => "\x1b[?1h",
         "--bracketed-paste" => "\x1b[?2004h",
+        "--focus-events" => "\x1b[?1004h",
         "--mouse" => mouse(args.next().as_deref())?,
         "--mouse-encoding" => mouse_encoding(args.next().as_deref())?,
         "--kitty" => {

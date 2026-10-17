@@ -39,21 +39,9 @@ export const resultOf = (entry: ActivityEntry): Result | null => {
   return { label: FAILED[entry.exit] ?? `exit ${String(entry.exit)}`, tone: "destructive" };
 };
 
-export interface ActivityRow { at: number; entry: ActivityEntry; human: string | null }
+export interface ActivityRow { at: number; entry: ActivityEntry; label: string }
 
-const quoted = (text: string) => `"${text}"`;
-
-const humanAction = (human: HumanInput) => {
-  if ("typed" in human) {
-    return `typed ${quoted(human.typed)}`;
-  }
-
-  if ("pasted" in human) {
-    return `pasted ${quoted(human.pasted)}`;
-  }
-
-  return `pressed ${human.pressed}`;
-};
+export const labelOf = (call: ActivityEntry | PendingCall) => call.action ?? call.command;
 
 interface Typing { row: ActivityRow; text: string }
 
@@ -64,7 +52,7 @@ interface Placed { at: number; entry: ActivityEntry }
 interface TypedAt extends Placed { typed: string }
 
 const showTyped = (typing: Typing) => {
-  typing.row.human = `typed ${quoted(typing.text)}`;
+  typing.row.label = `typed "${typing.text}"`;
 
   return typing;
 };
@@ -74,7 +62,7 @@ const withoutLastCodePoint = (text: string) => Array.from(text).slice(0, -1).joi
 const isBackspace = (human: HumanInput | undefined) => human !== undefined && "pressed" in human && human.pressed === "Backspace";
 
 const typedInto = (building: Building, placed: TypedAt) => {
-  const typing = building.typing ?? { row: { at: placed.at, entry: placed.entry, human: null }, text: "" };
+  const typing = building.typing ?? { row: { at: placed.at, entry: placed.entry, label: "" }, text: "" };
 
   if (!building.typing) {
     building.rows.push(typing.row);
@@ -87,11 +75,7 @@ const typedInto = (building: Building, placed: TypedAt) => {
 
 const succeededInput = (entry: ActivityEntry) => (entry.exit === 0 ? entry.human : undefined);
 
-const plainRow = (placed: Placed): ActivityRow => ({
-  at: placed.at,
-  entry: placed.entry,
-  human: placed.entry.human ? humanAction(placed.entry.human) : null,
-});
+const plainRow = (placed: Placed): ActivityRow => ({ at: placed.at, entry: placed.entry, label: labelOf(placed.entry) });
 
 const nextTyping = (building: Building, placed: Placed): Typing | null => {
   const human = succeededInput(placed.entry);

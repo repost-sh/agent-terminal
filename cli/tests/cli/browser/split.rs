@@ -62,7 +62,7 @@ fn two_up_from_a_tab_shows_it_beside_the_tab_after_it_both_live() {
 
     let (_, frame) = snapshot_rows(&at, &["--session", "qa", "--tab", "app"]);
     browser.wait_for_status(&format!("frame {frame}"));
-    assert_eq!(browser.status(), ["Live", &dashboard.stream("qa/app"), "30 × 4", &format!("frame {frame}")]);
+    assert_eq!(browser.status(), ["Live", "30 × 4", &format!("frame {frame}")]);
 }
 
 fn open_qa_with_two_tabs_and_web(at: &AgentTerminal) -> Cue {
@@ -104,10 +104,12 @@ fn two_up_shows_t1_beside_t2_with_t1_focused(browser: &Browser) {
             "button \"qa app line-printer , running\"",
             "link \"Maximize qa app\"",
             "button \"Remove qa app from the grid\"",
+            "button \"Take control\"",
             "region \"qa api line-printer\"",
             "button \"qa api line-printer , running\"",
             "link \"Maximize qa api\"",
             "button \"Remove qa api from the grid\"",
+            "button \"Take control\"",
         ]
     );
     assert_eq!(layout(browser), "\"Two terminals side by side\"");
@@ -178,14 +180,17 @@ fn four_up_fills_from_the_current_tab(browser: &Browser) {
             "button \"chat app line-printer , running\"",
             "link \"Maximize chat app\"",
             "button \"Remove chat app from the grid\"",
+            "button \"Take control\"",
             "region \"qa app line-printer\"",
             "button \"qa app line-printer , running\"",
             "link \"Maximize qa app\"",
             "button \"Remove qa app from the grid\"",
+            "button \"Take control\"",
             "region \"qa api line-printer\"",
             "button \"qa api line-printer , running\"",
             "link \"Maximize qa api\"",
             "button \"Remove qa api from the grid\"",
+            "button \"Take control\"",
             "region \"build app line-printer\"",
             "button \"build app line-printer exited 3 , exited 3\"",
             "link \"Maximize build app\"",
@@ -230,7 +235,7 @@ fn removing_a_cell_offers_the_picker_and_picking_a_tab_fills_and_focuses_that_ce
     browser.wait_for_status("Live");
 
     removing_a_cell_offers_the_picker(&browser);
-    picking_a_tab_fills_and_focuses_the_cell(&at, &browser, &dashboard);
+    picking_a_tab_fills_and_focuses_the_cell(&at, &browser);
     browser.click_button("Remove web app from the grid");
     browser.wait_until("location.pathname === '/split/qa:app,_'");
     assert_eq!(focused(&browser), "\"qa app line-printer\"");
@@ -247,6 +252,7 @@ fn removing_a_cell_offers_the_picker(browser: &Browser) {
             "button \"qa app line-printer , running\"",
             "link \"Maximize qa app\"",
             "button \"Remove qa app from the grid\"",
+            "button \"Take control\"",
             "region \"Show a terminal\"",
             "heading \"Show a terminal\"",
             "button \"app line-printer shown , qa app\"",
@@ -264,7 +270,7 @@ fn removing_a_cell_offers_the_picker(browser: &Browser) {
     assert_eq!(browser.eval("document.activeElement.id"), "\"main-content\"");
 }
 
-fn picking_a_tab_fills_and_focuses_the_cell(at: &AgentTerminal, browser: &Browser, dashboard: &Dashboard) {
+fn picking_a_tab_fills_and_focuses_the_cell(at: &AgentTerminal, browser: &Browser) {
     browser.click_button("app line-printer , web app");
     browser.wait_until("location.pathname === '/split/qa:app,web:app'");
     assert_eq!(focused(browser), "\"web app line-printer\"");
@@ -275,7 +281,7 @@ fn picking_a_tab_fills_and_focuses_the_cell(at: &AgentTerminal, browser: &Browse
     let (_, frame) = snapshot_rows(at, &["--session", "web"]);
     browser.wait_for_status(&format!("frame {frame}"));
     browser.wait_for_screen_in(&cell("web app line-printer"), "line 3");
-    assert_eq!(browser.status(), ["Live", &dashboard.stream("web/app"), "34 × 6", &format!("frame {frame}")]);
+    assert_eq!(browser.status(), ["Live", "34 × 6", &format!("frame {frame}")]);
 }
 
 #[test]
@@ -287,22 +293,18 @@ fn clicking_a_cell_focuses_it_and_a_tab_picked_in_the_sidebar_replaces_the_focus
     browser.wait_for_status("30 × 4");
     assert_eq!(selected_in_sidebar(&browser), "\"appline-printer, qa app, running\"");
 
-    clicking_a_cell_focuses_it_and_selects_it_in_the_sidebar(&at, &browser, &dashboard);
+    clicking_a_cell_focuses_it_and_selects_it_in_the_sidebar(&at, &browser);
     a_tab_picked_in_the_sidebar_replaces_the_focused_cell(&at, &browser);
 }
 
-fn clicking_a_cell_focuses_it_and_selects_it_in_the_sidebar(
-    at: &AgentTerminal,
-    browser: &Browser,
-    dashboard: &Dashboard,
-) {
+fn clicking_a_cell_focuses_it_and_selects_it_in_the_sidebar(at: &AgentTerminal, browser: &Browser) {
     browser.wait_for_screen_in(&cell("qa api line-printer"), "line 2");
     browser.click(&format!("{} [role=group]", cell("qa api line-printer")));
     let (_, frame) = snapshot_rows(at, &["--session", "qa", "--tab", "api"]);
     browser.wait_for_status("32 × 5");
     browser.wait_for_status(&format!("frame {frame}"));
     assert_eq!(focused(browser), "\"qa api line-printer\"");
-    assert_eq!(browser.status(), ["Live", &dashboard.stream("qa/api"), "32 × 5", &format!("frame {frame}")]);
+    assert_eq!(browser.status(), ["Live", "32 × 5", &format!("frame {frame}")]);
     assert_eq!(selected_in_sidebar(browser), "\"apiline-printer, qa api, running\"");
     assert_eq!(browser.eval("location.pathname"), "\"/split/qa:app,qa:api\"");
 }
@@ -372,10 +374,5 @@ fn the_focused_cell_of_a_split_takes_the_keys_of_a_human_in_control() {
     browser.run(&["press", "q"]);
     at.run(&["--session", "app", "wait", "q"]).success();
     assert_eq!(at.received("app"), "q");
-    assert!(
-        browser.status().contains(&"Keys go to input-echo · ctrl+p ctrl+q moves focus out".to_string()),
-        "{:?}",
-        browser.status()
-    );
     assert_eq!(browser.eval("document.querySelectorAll('.split-grid [role=application]').length"), "1");
 }

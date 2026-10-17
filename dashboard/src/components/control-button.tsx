@@ -1,32 +1,44 @@
-import { Hand } from "lucide-react";
+import { Hand, MousePointerClick, type LucideIcon } from "lucide-react";
 
 import { controlButtonId, releaseControl, takeControl, useControl } from "../lib/control";
-import { focusWhenShown } from "../lib/focus";
-import type { ToolbarActionProps } from "./toolbar-actions";
+import { focusNext, focusWhenShown } from "../lib/focus";
+import type { ToolbarTab } from "./toolbar-actions";
 import { Button } from "./ui";
 
-const isLive = (props: ToolbarActionProps) =>
+const isLive = (props: ToolbarTab) =>
   props.stream === "open" && props.shown !== null && props.shown.frame > 0 && !props.shown.exited;
 
-const toggle = (props: ToolbarActionProps, held: boolean) => {
-  if (held) {
-    releaseControl(props.session, props.tab.tab);
-  } else {
-    takeControl({ session: props.session, tab: props.tab.tab }, props.tab.program);
-  }
-};
+interface PillProps { id: string; icon: LucideIcon; ready: boolean; onClick: () => void; children: string }
 
-export const ControlButton = (props: ToolbarActionProps) => {
+const Pill = (props: PillProps) => (
+  <Button look={{ variant: "inverted", icon: props.icon, size: "pill" }} className="pointer-events-auto" id={props.id} ref={props.ready ? focusWhenShown(props.id) : undefined} disabled={!props.ready} onClick={props.onClick}>
+    {props.children}
+  </Button>
+);
+
+const TakeControl = (props: ToolbarTab) =>
+  props.shown?.exited ? null : (
+    <div data-testid="take-control" className="opacity-0 transition-opacity duration-500 focus-within:opacity-100 group-data-[moving=true]/viewport:opacity-100 group-data-[moving=true]/viewport:duration-0">
+      <Pill id={controlButtonId(props.session, props.tab.tab)} icon={MousePointerClick} ready={isLive(props)} onClick={() => {
+          takeControl({ session: props.session, tab: props.tab.tab }, props.tab.program);
+        }}>
+        Take control
+      </Pill>
+    </div>
+  );
+
+export const ControlOverlay = (props: ToolbarTab) => {
   const control = useControl(props.session, props.tab.tab);
-  const held = control !== "off";
-  const disabled = held ? control === "taking" : !isLive(props);
   const id = controlButtonId(props.session, props.tab.tab);
 
-  return (
-    <Button look={{ variant: held ? "default" : "outline", icon: Hand }} id={id} ref={disabled ? undefined : focusWhenShown(id)} disabled={disabled} onClick={() => {
-        toggle(props, held);
+  return control === "off" ? (
+    <TakeControl {...props} />
+  ) : (
+    <Pill id={id} icon={Hand} ready={control === "held"} onClick={() => {
+        focusNext(id);
+        releaseControl(props.session, props.tab.tab);
       }}>
-      {held ? "Release control" : "Take control"}
-    </Button>
+      Release control
+    </Pill>
   );
 };

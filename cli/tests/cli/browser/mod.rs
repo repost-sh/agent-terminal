@@ -49,10 +49,6 @@ impl Dashboard {
     pub(crate) fn url(&self, path: &str) -> String {
         format!("http://localhost:{}{path}", self.port)
     }
-
-    pub(crate) fn stream(&self, tab: &str) -> String {
-        format!("ws://localhost:{}/api/session/{tab}/stream", self.port)
-    }
 }
 
 pub(crate) struct Browser {

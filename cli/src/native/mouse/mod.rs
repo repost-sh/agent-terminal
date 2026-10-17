@@ -1,3 +1,4 @@
+use crate::key::Mods;
 use crate::native::screen::{MouseMode, MouseReporting, MouseTracking};
 use crate::protocol::{Direction, MouseButton};
 
@@ -9,6 +10,9 @@ pub(crate) enum Action {
     Wheel(Direction),
 }
 
+const SHIFT: u32 = 4;
+const ALT: u32 = 8;
+const CTRL: u32 = 16;
 const MOTION: u32 = 32;
 const NO_BUTTON: u32 = 3;
 const WHEEL_UP: u32 = 64;
@@ -20,21 +24,23 @@ pub(crate) struct Event {
     pub action: Action,
     pub row: u16,
     pub col: u16,
+    pub mods: Mods,
 }
 
 impl Event {
     pub(crate) fn encode(&self, reporting: MouseReporting) -> Result<Vec<u8>, String> {
-        let Self { action, row, col } = *self;
+        let Self { action, row, col, mods } = *self;
         if !reported(action, reporting.tracking) {
             return Ok(Vec::new());
         }
-        let code = match action {
-            Action::Release(_) if reporting.encoding != MouseMode::Sgr => NO_BUTTON,
-            Action::Press(button) | Action::Release(button) => button_code(button),
-            Action::Move { held } => MOTION + held.map_or(NO_BUTTON, button_code),
-            Action::Wheel(Direction::Up) => WHEEL_UP,
-            Action::Wheel(Direction::Down) => WHEEL_DOWN,
-        };
+        let code = modifier_bits(mods)
+            + match action {
+                Action::Release(_) if reporting.encoding != MouseMode::Sgr => NO_BUTTON,
+                Action::Press(button) | Action::Release(button) => button_code(button),
+                Action::Move { held } => MOTION + held.map_or(NO_BUTTON, button_code),
+                Action::Wheel(Direction::Up) => WHEEL_UP,
+                Action::Wheel(Direction::Down) => WHEEL_DOWN,
+            };
         match reporting.encoding {
             MouseMode::Sgr => {
                 let end = if matches!(action, Action::Release(_)) { 'm' } else { 'M' };
@@ -70,6 +76,10 @@ fn reported(action: Action, tracking: MouseTracking) -> bool {
         (Action::Move { held }, MouseTracking::Drag) => held.is_some(),
         _ => true,
     }
+}
+
+fn modifier_bits(mods: Mods) -> u32 {
+    u32::from(mods.shift) * SHIFT + u32::from(mods.alt) * ALT + u32::from(mods.ctrl) * CTRL
 }
 
 fn button_code(button: MouseButton) -> u32 {

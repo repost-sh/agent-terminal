@@ -1,3 +1,4 @@
+mod action;
 mod batch;
 mod delivery;
 mod facts;
@@ -5,17 +6,20 @@ mod records;
 mod replies;
 mod saved_screen;
 mod screen;
+mod waits;
 
 use std::io::{self, ErrorKind, Write};
 
 use serde::Serialize;
 use serde_json::Value;
 
+pub(crate) use action::{action, input_action};
 use batch::batch_json;
 pub(crate) use batch::call_line;
 pub(crate) use replies::reply_text;
 pub(crate) use saved_screen::saved_rows;
 pub(crate) use screen::screen;
+pub(crate) use waits::{describe_wait, not_met};
 
 use crate::protocol::{ErrorBody, Reply, Squeeze};
 use crate::version::{BUILD, COMMIT, VERSION};

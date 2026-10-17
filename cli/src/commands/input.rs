@@ -2,8 +2,8 @@ use clap::{ArgGroup, Args, Subcommand};
 
 use super::Context;
 use super::reading::{LookArgs, ScreenshotArgs, SnapshotArgs};
-use super::values::{RawBytes, ScreenshotPath, parse_bytes, parse_position};
-use crate::key::Key;
+use super::values::{RawBytes, ScreenshotPath, parse_bytes, parse_focus, parse_position};
+use crate::key::{Key, Mods};
 use crate::protocol::request;
 use crate::protocol::{ClickTarget, Direction, Input, MouseButton, MouseEvent, Request, Signal, TextMatch, Wait};
 
@@ -30,6 +30,10 @@ pub(super) enum InputCommand {
         #[command(subcommand)]
         event: MouseCommand,
     },
+    #[command(
+        about = "Tell the app the terminal gained or lost focus (sent only when the app asked for focus reports)"
+    )]
+    Focus(FocusArgs),
 }
 
 impl InputCommand {
@@ -64,7 +68,8 @@ impl InputCommand {
             InputCommand::Signal(args) => (Input::Signal { signal: args.signal }, args.after),
             InputCommand::Click(args) => {
                 let button = if args.right { MouseButton::Right } else { MouseButton::Left };
-                (Input::Click { target: args.target, button, double: args.double }, args.after)
+                let mods = args.held.mods();
+                (Input::Click { target: args.target, button, double: args.double, mods }, args.after)
             }
             InputCommand::Scroll(args) => {
                 (Input::Scroll { direction: args.direction, count: args.count, keys: args.keys }, args.after)
@@ -73,6 +78,7 @@ impl InputCommand {
                 let (event, after) = event.event();
                 (Input::Mouse { event }, after)
             }
+            InputCommand::Focus(args) => (Input::Focus { focused: args.focused }, args.after),
         }
     }
 }
@@ -159,6 +165,9 @@ pub(super) struct ClickArgs {
     double: bool,
 
     #[command(flatten)]
+    held: ModifierArgs,
+
+    #[command(flatten)]
     after: AfterInput,
 }
 
@@ -182,12 +191,28 @@ pub(super) struct ScrollArgs {
     after: AfterInput,
 }
 
+#[derive(Args)]
+pub(super) struct FocusArgs {
+    #[arg(
+        help = "in when the terminal gains focus, out when it loses it",
+        value_name = "in|out",
+        value_parser = parse_focus,
+        action = clap::ArgAction::Set
+    )]
+    focused: bool,
+
+    #[command(flatten)]
+    after: AfterInput,
+}
+
 #[derive(Subcommand)]
 pub(super) enum MouseCommand {
     #[command(about = "Move the mouse to a cell (the app sees it only when it tracks motion, or drags)")]
     Move {
         #[arg(help = "Row,column, from 1,1 at the top left", value_name = "ROW,COL", value_parser = parse_position)]
         at: (u16, u16),
+        #[command(flatten)]
+        held: ModifierArgs,
         #[command(flatten)]
         after: AfterInput,
     },
@@ -198,6 +223,8 @@ pub(super) enum MouseCommand {
         #[command(flatten)]
         button: ButtonArgs,
         #[command(flatten)]
+        held: ModifierArgs,
+        #[command(flatten)]
         after: AfterInput,
     },
     #[command(about = "Release a mouse button at a cell")]
@@ -206,6 +233,8 @@ pub(super) enum MouseCommand {
         at: (u16, u16),
         #[command(flatten)]
         button: ButtonArgs,
+        #[command(flatten)]
+        held: ModifierArgs,
         #[command(flatten)]
         after: AfterInput,
     },
@@ -216,6 +245,8 @@ pub(super) enum MouseCommand {
         #[arg(help = "Row,column, from 1,1 at the top left", value_name = "ROW,COL", value_parser = parse_position)]
         at: (u16, u16),
         #[command(flatten)]
+        held: ModifierArgs,
+        #[command(flatten)]
         after: AfterInput,
     },
 }
@@ -223,17 +254,37 @@ pub(super) enum MouseCommand {
 impl MouseCommand {
     fn event(self) -> (MouseEvent, AfterInput) {
         match self {
-            MouseCommand::Move { at: (row, col), after } => (MouseEvent::Move { row, col }, after),
-            MouseCommand::Down { at: (row, col), button, after } => {
-                (MouseEvent::Down { row, col, button: button.button() }, after)
+            MouseCommand::Move { at: (row, col), held, after } => {
+                (MouseEvent::Move { row, col, mods: held.mods() }, after)
             }
-            MouseCommand::Up { at: (row, col), button, after } => {
-                (MouseEvent::Up { row, col, button: button.button() }, after)
+            MouseCommand::Down { at: (row, col), button, held, after } => {
+                (MouseEvent::Down { row, col, button: button.button(), mods: held.mods() }, after)
             }
-            MouseCommand::Wheel { direction, at: (row, col), after } => {
-                (MouseEvent::Wheel { row, col, direction }, after)
+            MouseCommand::Up { at: (row, col), button, held, after } => {
+                (MouseEvent::Up { row, col, button: button.button(), mods: held.mods() }, after)
+            }
+            MouseCommand::Wheel { direction, at: (row, col), held, after } => {
+                (MouseEvent::Wheel { row, col, direction, mods: held.mods() }, after)
             }
         }
+    }
+}
+
+#[derive(Args)]
+pub(super) struct ModifierArgs {
+    #[arg(long, help = "With Shift held")]
+    shift: bool,
+
+    #[arg(long, help = "With Alt held")]
+    alt: bool,
+
+    #[arg(long, help = "With Ctrl held")]
+    ctrl: bool,
+}
+
+impl ModifierArgs {
+    fn mods(&self) -> Mods {
+        Mods { shift: self.shift, alt: self.alt, ctrl: self.ctrl }
     }
 }
 

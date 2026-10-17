@@ -14,6 +14,7 @@ pub(super) struct Logged {
     squeeze: Squeeze,
     pending: Option<Pending>,
     pub(super) typed: Vec<String>,
+    action: Option<String>,
     time: SystemTime,
     started: Instant,
 }
@@ -31,7 +32,9 @@ impl Daemon {
             }
         };
         let time = SystemTime::now();
-        let pending = sessions.get(session).map(|s| s.folder.begin(&Typed { time, words: &typed }, tab.clone()));
+        let action = output::action(request);
+        let called = Typed { time, words: &typed, action: action.as_deref() };
+        let pending = sessions.get(session).map(|s| s.folder.begin(&called, tab.clone()));
         Some(Logged {
             session: session.clone(),
             tab,
@@ -40,6 +43,7 @@ impl Daemon {
             squeeze: request.squeeze(),
             pending,
             typed,
+            action,
             time,
             started: Instant::now(),
         })
@@ -52,7 +56,10 @@ impl Daemon {
     }
 
     fn entry(&self, logged: &Logged, handled: &Result<Reply, ErrorBody>) -> ActivityEntry {
-        let mut entry = ActivityEntry::at(&Typed { time: logged.time, words: &logged.typed }, logged.started.elapsed());
+        let mut entry = ActivityEntry::at(
+            &Typed { time: logged.time, words: &logged.typed, action: logged.action.as_deref() },
+            logged.started.elapsed(),
+        );
         entry.raw = logged.raw;
         let shown = match handled {
             Ok(Reply::Snapshot(snapshot)) => Some(snapshot),

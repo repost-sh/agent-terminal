@@ -87,8 +87,11 @@ fn the_row_shows_the_call(row: &Value, entry: &Value, result: Option<&str>) {
     let text = row["time"].as_str().unwrap();
     assert_eq!(text.len(), "14:02:07.312".len(), "{row}");
     assert_eq!(seconds_and_millis(text), &time[17..23], "{row}");
-    let mut parts =
-        vec![format!("{} {}", entry["command"].as_str().unwrap(), duration(entry["duration_ms"].as_u64().unwrap()))];
+    let mut parts = vec![format!(
+        "agent: {} {}",
+        entry["action"].as_str().unwrap(),
+        duration(entry["duration_ms"].as_u64().unwrap())
+    )];
     parts.extend(result.map(str::to_string));
     parts.push("+".into());
     assert_eq!(row["parts"], serde_json::json!(parts), "{entry}");
@@ -178,10 +181,7 @@ fn clearing_empties_the_list_until_the_next_call(at: &AgentTerminal, browser: &B
     assert_eq!(browser.eval("[...document.querySelectorAll('#ppanel-activity button')].find((b) => b.textContent === 'Clear activity').disabled"), "true");
     at.run(&["get", "frame"]).success();
     wait_for_calls(browser, 1);
-    assert_eq!(
-        calls(browser)[0]["parts"][0].as_str().unwrap().split(' ').take(2).collect::<Vec<_>>(),
-        ["get", "frame"]
-    );
+    assert!(calls(browser)[0]["parts"][0].as_str().unwrap().starts_with("agent: read the frame "));
     browser.select_panel("Output");
     browser.select_panel("Activity");
     wait_for_calls(browser, 1);
@@ -193,7 +193,7 @@ fn reopening_the_tab_starts_a_new_list(at: &AgentTerminal, browser: &Browser) {
     at.run(&["open", "--name", "app", "--size", "40x6", "--wait", "line 3", &fixture("line-printer"), "--hold"])
         .success();
     wait_for_calls(browser, 1);
-    assert_eq!(calls(browser)[0]["parts"][0].as_str().unwrap().split(' ').next(), Some("open"));
+    assert!(calls(browser)[0]["parts"][0].as_str().unwrap().starts_with("agent: opened app "));
 }
 
 #[test]

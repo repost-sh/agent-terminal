@@ -18,7 +18,7 @@ fn typed(words: &[&str]) -> Vec<String> {
 fn entry(command: &[&str]) -> ActivityEntry {
     let words = typed(command);
     ActivityEntry::at(
-        &Typed { time: SystemTime::UNIX_EPOCH + Duration::from_millis(1500), words: &words },
+        &Typed { time: SystemTime::UNIX_EPOCH + Duration::from_millis(1500), words: &words, action: None },
         Duration::from_millis(7),
     )
 }
@@ -84,9 +84,11 @@ fn a_call_is_pending_from_its_start_and_listed_with_its_tab() {
     let started = Arc::new(SessionFolder::start(home.path(), "work").unwrap());
     let logged = started.logged();
     let words = typed(&["wait", "--idle"]);
-    let _pending = started
-        .begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, Some((TabId::FIRST, "app".parse().unwrap())));
-    let _other = started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, None);
+    let _pending = started.begin(
+        &Typed { time: SystemTime::UNIX_EPOCH, words: &words, action: None },
+        Some((TabId::FIRST, "app".parse().unwrap())),
+    );
+    let _other = started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words, action: None }, None);
     let (entries, end, waiting) = started.activity_and_pending_since(0).unwrap();
     let listed: Vec<_> =
         waiting.iter().map(|call| (call.tab.as_deref(), call.command.as_str(), call.time.as_str())).collect();
@@ -103,8 +105,8 @@ fn a_pending_call_ends_when_it_is_logged_or_dropped_and_the_log_reads_on_from_an
     let started = Arc::new(SessionFolder::start(home.path(), "work").unwrap());
     let mut logged = started.logged();
     let words = typed(&["wait", "--idle"]);
-    let pending = started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, None);
-    let other = started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words }, None);
+    let pending = started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words, action: None }, None);
+    let other = started.begin(&Typed { time: SystemTime::UNIX_EPOCH, words: &words, action: None }, None);
     logged.mark_unchanged();
     pending.log(&entry(&["wait", "--idle"]));
     let after_log = logged.has_changed().unwrap();
