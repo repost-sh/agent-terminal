@@ -1,3 +1,6 @@
+use std::net::Shutdown;
+use std::os::fd::OwnedFd;
+use std::os::unix::net::UnixStream;
 use std::process::Command;
 
 struct Checked {
@@ -305,12 +308,12 @@ fn a_report_that_cannot_be_printed_or_appended_is_an_error() {
     let dir = tempfile::tempdir().expect("temp dir");
     let results = dir.path().join("results.json");
     std::fs::write(&results, PASSING).expect("write the results");
-    let (reader, writer) = std::io::pipe().expect("a pipe");
-    drop(reader);
+    let (unwritable, _reader) = UnixStream::pair().expect("a socket pair");
+    unwritable.shutdown(Shutdown::Write).expect("close the socket for writing");
     let unread = Command::new(env!("CARGO_BIN_EXE_at-perf"))
         .arg("check")
         .arg(&results)
-        .stdout(writer)
+        .stdout(OwnedFd::from(unwritable))
         .output()
         .expect("run at-perf");
     let not_a_file = Command::new(env!("CARGO_BIN_EXE_at-perf"))
