@@ -302,9 +302,10 @@ fn snapshot_with_nothing_open_explains_how_to_start() {
 #[test]
 fn open_waits_for_the_first_output_of_a_program_that_starts_slowly() {
     let at = AgentTerminal::new();
+    let printer = fixture("line-printer");
+    at.run(&["open", "--name", "warm", "--wait", "line 1", &printer, "--lines", "1", "--hold"]).success();
     let late = ["--start-after-ms", "600", "--lines", "1", "--hold"];
-    let run =
-        at.run(&[&["open", "--name", "app", "--size", "20x2", &fixture("line-printer")], &late[..]].concat()).success();
+    let run = at.run(&[&["open", "--name", "app", "--size", "20x2", &printer], &late[..]].concat()).success();
     insta::assert_snapshot!(run.screen(), @r"
     work app · line-printer · 20x2 · cursor 2,1 · frame N
     1│line 1
