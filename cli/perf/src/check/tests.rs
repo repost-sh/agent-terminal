@@ -64,7 +64,26 @@ fn each_metric_regresses_only_past_both_its_amount_and_its_percent() {
     }
 }
 
-const LIMITS: [(Metric, f64, f64, bool, &str); 14] = [
+const AT_A_TOLERANCE: [(Metric, f64, f64); 4] = [
+    (Metric::Png, 4.0, 5.0),
+    (Metric::IdleMemory, 2.0, 2.5),
+    (Metric::RoundTrip, 2.5, 2.75),
+    (Metric::IdleMemory, 20.0, 21.0),
+];
+
+#[test]
+fn a_difference_exactly_at_its_amount_or_its_percent_is_no_regression() {
+    for (metric, base, change) in AT_A_TOLERANCE {
+        let report = judged(metric, &[base], &[change]);
+        assert!(
+            report.passed && !verdict(&report, metric).contains("regressed"),
+            "{base} -> {change}: {}",
+            report.text
+        );
+    }
+}
+
+const LIMITS: [(Metric, f64, f64, bool, &str); 15] = [
     (Metric::RoundTrip, 4.95, 5.11, false, "over target"),
     (Metric::RoundTrip, 4.95, 5.09, true, "ok"),
     (Metric::Snapshot, 9.9, 10.15, false, "over target"),
@@ -72,6 +91,7 @@ const LIMITS: [(Metric, f64, f64, bool, &str); 14] = [
     (Metric::Snapshot, 9.95, 10.05, true, "ok"),
     (Metric::Snapshot, 12.0, 12.0, true, "over target, base too"),
     (Metric::Snapshot, 12.0, 9.0, true, "ok"),
+    (Metric::Snapshot, 12.0, 10.0, true, "ok"),
     (Metric::Png, 39.5, 41.1, false, "over target"),
     (Metric::Png, 39.5, 40.9, true, "ok"),
     (Metric::Png, 39.5, 41.0, true, "ok"),
