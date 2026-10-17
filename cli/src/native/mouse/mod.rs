@@ -79,11 +79,7 @@ fn reported(action: Action, tracking: MouseTracking) -> bool {
 }
 
 fn modifier_bits(mods: Mods) -> u32 {
-    [(mods.shift, SHIFT), (mods.alt, ALT), (mods.ctrl, CTRL)]
-        .into_iter()
-        .filter(|(on, _)| *on)
-        .map(|(_, bit)| bit)
-        .sum()
+    u32::from(mods.shift) * SHIFT + u32::from(mods.alt) * ALT + u32::from(mods.ctrl) * CTRL
 }
 
 fn button_code(button: MouseButton) -> u32 {

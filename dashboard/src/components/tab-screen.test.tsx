@@ -30,7 +30,7 @@ test("a tab waits for its first frame, then shows it live with its size and mode
   expect(await screen.findByText("Live")).toBeTruthy();
   expect(screen.getByRole("group", { name: "work app htop, live frame 1" })).toBeTruthy();
   expect(screenRows()).toEqual(["hello", "world", ""]);
-  expect(status()).toContain("ws://localhost:3000/api/session/work/app/stream");
+  expect(status()).not.toContain("ws://");
   expect(["20 × 3", "alt-screen", "mouse drag", "bracketed paste", "frame 1"].map((chip) => screen.getByText(chip).textContent)).toHaveLength(5);
   expect(screen.queryByText("Waiting for first frame...")).toBeNull();
   expect(daemon.sent(STREAM)).toEqual([{ type: "shown" }]);
@@ -93,7 +93,6 @@ const statusBar = () => {
   return [
     bar.getByText(/^(Connected|Exited|Live)$/).textContent,
     within(bar.getByRole("list", { name: "Details" })).queryAllByRole("listitem").map((chip) => chip.textContent),
-    bar.queryByText(/^Keys go to /),
   ];
 };
 
@@ -101,17 +100,17 @@ test("the status bar says Connected with only the size until a frame is drawn, a
   const daemon = startDaemon([sessionInfo("work", [tabInfo("app", { cols: 100, rows: 30 })])]);
 
   await shownApp(daemon);
-  expect(statusBar()).toEqual(["Connected", ["100 × 30"], null]);
+  expect(statusBar()).toEqual(["Connected", ["100 × 30"]]);
   await daemon.push(STREAM, frameOf(0, { mouse: "drag" }));
   await vi.waitFor(() => {
     expect(daemon.sent(STREAM)).toHaveLength(1);
   });
-  expect(statusBar()).toEqual(["Connected", ["80 × 24", "mouse drag"], null]);
+  expect(statusBar()).toEqual(["Connected", ["80 × 24", "mouse drag"]]);
   await daemon.push(STREAM, frameOf(0, { exited: true }));
   await vi.waitFor(() => {
     expect(daemon.sent(STREAM)).toHaveLength(2);
   });
-  expect(statusBar()).toEqual(["Exited", ["80 × 24", "frame 0"], null]);
+  expect(statusBar()).toEqual(["Exited", ["80 × 24", "frame 0"]]);
 });
 
 test("choosing the layout already shown keeps the tab, and a new layout takes focus to its button", async () => {

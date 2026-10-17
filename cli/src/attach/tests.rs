@@ -8,7 +8,7 @@ fn calls(pressed: Vec<Pressed>) -> Vec<String> {
     pressed
         .into_iter()
         .map(|pressed| match pressed {
-            Pressed::Human(input) => input.call().join(" "),
+            Pressed::Human(input) => input.call().unwrap_or_default().join(" "),
             Pressed::Detach => "detach".to_string(),
         })
         .collect()

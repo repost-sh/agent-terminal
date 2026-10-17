@@ -46,6 +46,8 @@ pub(crate) struct PendingCall {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tab: Option<Name>,
     pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
 }
 
 pub(crate) struct Pending {
@@ -80,6 +82,8 @@ pub(crate) struct ActivityEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tab: Option<Name>,
     pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
     pub duration_ms: u64,
     pub exit: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -119,6 +123,7 @@ pub(crate) struct ScreenshotEntry {
 pub(crate) struct Typed<'a> {
     pub time: SystemTime,
     pub words: &'a [String],
+    pub action: Option<&'a str>,
 }
 
 impl ActivityEntry {
@@ -128,6 +133,7 @@ impl ActivityEntry {
             tab_id: None,
             tab: None,
             command: call_line(typed.words),
+            action: typed.action.map(str::to_string),
             duration_ms: u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
             exit: 0,
             error: None,
@@ -182,7 +188,16 @@ impl SessionFolder {
         calls.next += 1;
         let time = humantime::format_rfc3339_millis(typed.time).to_string();
         let (tab_id, tab) = tab.unzip();
-        calls.pending.push((id, PendingCall { time, tab_id, tab, command: call_line(typed.words) }));
+        calls.pending.push((
+            id,
+            PendingCall {
+                time,
+                tab_id,
+                tab,
+                command: call_line(typed.words),
+                action: typed.action.map(str::to_string),
+            },
+        ));
         drop(calls);
         self.logged.notify();
         Pending { folder: Arc::clone(self), id }

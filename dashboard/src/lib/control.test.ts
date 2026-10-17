@@ -68,27 +68,14 @@ test("a held key with ctrl reads the physical letter or digit, whatever the layo
   ).toEqual(["Ctrl+a", "Ctrl+ф", "Ctrl+ф", "Ctrl+ф", "Ctrl+1", "Ctrl+&", "Ctrl+&"].map((pressed) => ({ pressed })));
 });
 
-test("ctrl+alt+p is a key of its own, not the start of the leave chord", async () => {
-  expect(await sentFor([{ key: "p", code: "KeyP", ctrlKey: true, altKey: true }, { key: "q", code: "KeyQ", ctrlKey: true }])).toEqual([
-    { pressed: "Ctrl+Alt+p" },
-    { pressed: "Ctrl+q" },
-  ]);
-});
+test("ctrl+p and ctrl+q are keys like any other and reach the program at once", async () => {
+  const presses = [
+    { key: "p", code: "KeyP", ctrlKey: true },
+    { key: "q", code: "KeyQ", ctrlKey: true },
+    { key: "p", code: "KeyP", ctrlKey: true, altKey: true },
+  ];
 
-test("ctrl+p ctrl+q moves focus to the tab's take-control button", async () => {
-  const { controlKeys, controlButtonId } = await held();
-  const button = document.createElement("button");
-
-  button.id = "take-control-my%20work-app";
-  document.body.append(button);
-  const { keys } = controlKeys("my work", "app");
-
-  keys(keyDown({ key: "p", code: "KeyP", ctrlKey: true }).event);
-  keys(keyDown({ key: "q", code: "KeyQ", ctrlKey: true }).event);
-  expect([controlButtonId("my work", "app"), document.activeElement]).toEqual([button.id, button]);
-  keys(keyDown({ key: "x" }).event);
-  expect(socketAt(CONTROL).flatMap((socket) => socket.sent)).toEqual([{ typed: "x" }]);
-  button.remove();
+  expect(await sentFor(presses)).toEqual([{ pressed: "Ctrl+p" }, { pressed: "Ctrl+q" }, { pressed: "Ctrl+Alt+p" }]);
 });
 
 test("a key the terminal takes is kept from the page, and a lone modifier or a meta chord is not", async () => {

@@ -1,51 +1,44 @@
-import { Hand, MousePointerClick } from "lucide-react";
+import { Hand, MousePointerClick, type LucideIcon } from "lucide-react";
 
 import { controlButtonId, releaseControl, takeControl, useControl } from "../lib/control";
-import { focusWhenShown } from "../lib/focus";
+import { focusNext, focusWhenShown } from "../lib/focus";
 import type { ToolbarTab } from "./toolbar-actions";
-import { Button, cn } from "./ui";
+import { Button } from "./ui";
 
 const isLive = (props: ToolbarTab) =>
   props.stream === "open" && props.shown !== null && props.shown.frame > 0 && !props.shown.exited;
 
-const CENTRED = "pointer-events-none absolute inset-0 z-10 flex items-center justify-center transition-opacity focus-within:opacity-100";
+interface PillProps { id: string; icon: LucideIcon; ready: boolean; onClick: () => void; children: string }
 
-const BOTTOM = "pointer-events-none absolute inset-x-0 z-10 flex justify-center";
+const Pill = (props: PillProps) => (
+  <Button look={{ variant: "inverted", icon: props.icon, size: "pill" }} className="pointer-events-auto" id={props.id} ref={props.ready ? focusWhenShown(props.id) : undefined} disabled={!props.ready} onClick={props.onClick}>
+    {props.children}
+  </Button>
+);
 
-const TakeControl = (props: ToolbarTab & { moving: boolean }) => {
-  const id = controlButtonId(props.session, props.tab.tab);
-
-  if (props.shown?.exited) {
-    return null;
-  }
-
-  return (
-    <div data-testid="take-control" className={cn(CENTRED, props.moving ? "opacity-100 duration-0" : "opacity-0 duration-500")}>
-      <Button look={{ variant: "inverted", icon: MousePointerClick, size: "pill" }} className="pointer-events-auto" id={id} ref={isLive(props) ? focusWhenShown(id) : undefined} disabled={!isLive(props)} onClick={() => {
+const TakeControl = (props: ToolbarTab) =>
+  props.shown?.exited ? null : (
+    <div data-testid="take-control" className="opacity-0 transition-opacity duration-500 focus-within:opacity-100 group-data-[moving=true]/viewport:opacity-100 group-data-[moving=true]/viewport:duration-0">
+      <Pill id={controlButtonId(props.session, props.tab.tab)} icon={MousePointerClick} ready={isLive(props)} onClick={() => {
           takeControl({ session: props.session, tab: props.tab.tab }, props.tab.program);
         }}>
         Take control
-      </Button>
+      </Pill>
     </div>
   );
-};
 
-const ReleaseControl = (props: ToolbarTab & { taking: boolean }) => {
+export const ControlOverlay = (props: ToolbarTab) => {
+  const control = useControl(props.session, props.tab.tab);
   const id = controlButtonId(props.session, props.tab.tab);
 
-  return (
-    <div data-testid="release-control" className={cn(BOTTOM, props.shown?.exited ? "bottom-16" : "bottom-4")}>
-      <Button look={{ variant: "inverted", icon: Hand, size: "pill" }} className="pointer-events-auto" id={id} ref={props.taking ? undefined : focusWhenShown(id)} disabled={props.taking} onClick={() => {
-          releaseControl(props.session, props.tab.tab);
-        }}>
-        Release control
-      </Button>
-    </div>
+  return control === "off" ? (
+    <TakeControl {...props} />
+  ) : (
+    <Pill id={id} icon={Hand} ready={control === "held"} onClick={() => {
+        focusNext(id);
+        releaseControl(props.session, props.tab.tab);
+      }}>
+      Release control
+    </Pill>
   );
-};
-
-export const ControlOverlay = (props: ToolbarTab & { moving: boolean }) => {
-  const control = useControl(props.session, props.tab.tab);
-
-  return control === "off" ? <TakeControl {...props} /> : <ReleaseControl {...props} taking={control === "taking"} />;
 };

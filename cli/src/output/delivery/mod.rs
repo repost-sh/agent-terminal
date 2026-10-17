@@ -18,7 +18,8 @@ pub(super) fn delivery(d: &Delivered) -> String {
             format!("sent {signal} to {target} (process group {process_group})")
         }
         Delivery::Click { target: clicked, row, col, button, double, mods, .. } => {
-            let click = Click { clicked, row: *row, col: *col, button: *button, double: *double, mods: *mods };
+            let press = Press { button: *button, double: *double, mods: *mods };
+            let click = Click { clicked, row: *row, col: *col, press };
             clicked_text(&click, &target)
         }
         Delivery::Mouse { event, bytes } => mouse_text(*event, *bytes, &target),
@@ -42,9 +43,24 @@ struct Click<'a> {
     clicked: &'a ClickTarget,
     row: u16,
     col: u16,
-    button: MouseButton,
-    double: bool,
-    mods: Mods,
+    press: Press,
+}
+
+pub(super) struct Press {
+    pub(super) button: MouseButton,
+    pub(super) double: bool,
+    pub(super) mods: Mods,
+}
+
+impl Press {
+    pub(super) fn notes(&self) -> Vec<String> {
+        let mut notes = button_note(self.button);
+        if self.double {
+            notes.push("double click".into());
+        }
+        notes.extend(held_note(self.mods));
+        notes
+    }
 }
 
 fn clicked_text(click: &Click<'_>, target: &str) -> String {
@@ -54,15 +70,18 @@ fn clicked_text(click: &Click<'_>, target: &str) -> String {
         ClickTarget::Ref(_) => format!("{clicked} at {row},{col}"),
         ClickTarget::Text(text) => format!("{text:?} at {row},{col}"),
     };
-    let mut notes = button_note(click.button);
-    if click.double {
-        notes.push("double click".into());
-    }
-    notes.extend(held_note(click.mods));
-    format!("clicked {what} in {target}{}", noted(&notes))
+    format!("clicked {what} in {target}{}", noted(&click.press.notes()))
 }
 
 fn mouse_text(event: MouseEvent, bytes: usize, target: &str) -> String {
+    let (what, mut notes) = mouse_event(event);
+    if bytes == 0 {
+        notes.push("not sent: the app does not track this event".into());
+    }
+    format!("{what} in {target}{}", noted(&notes))
+}
+
+pub(super) fn mouse_event(event: MouseEvent) -> (String, Vec<String>) {
     let (what, mut notes) = match event {
         MouseEvent::Move { row, col, .. } => (format!("mouse move to {row},{col}"), Vec::new()),
         MouseEvent::Down { row, col, button, .. } => (format!("mouse down at {row},{col}"), button_note(button)),
@@ -72,10 +91,7 @@ fn mouse_text(event: MouseEvent, bytes: usize, target: &str) -> String {
         }
     };
     notes.extend(held_note(event.mods()));
-    if bytes == 0 {
-        notes.push("not sent: the app does not track this event".into());
-    }
-    format!("{what} in {target}{}", noted(&notes))
+    (what, notes)
 }
 
 fn button_note(button: MouseButton) -> Vec<String> {
@@ -86,10 +102,10 @@ fn button_note(button: MouseButton) -> Vec<String> {
 }
 
 fn held_note(mods: Mods) -> Option<String> {
-    (!mods.is_none()).then(|| format!("{mods} held"))
+    (mods != Mods::default()).then(|| format!("{mods} held"))
 }
 
-fn noted(notes: &[String]) -> String {
+pub(super) fn noted(notes: &[String]) -> String {
     if notes.is_empty() { String::new() } else { format!(" ({})", notes.join(", ")) }
 }
 

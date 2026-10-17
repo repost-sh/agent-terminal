@@ -1,4 +1,3 @@
-
 import { closeTab, reason } from "../lib/api";
 import type { SessionInfo, TabInfo } from "../lib/protocol";
 import { navigate, tabRoute } from "../lib/route";
@@ -49,11 +48,9 @@ export const TabScreen = (props: TabScreenProps) => {
       <Viewport {...view.viewport} exit={exit} />
       <div className="h-px shrink-0 bg-border" role="none" />
       <StatusBar
-        session={session}
         tab={tab}
         state={stream.state}
         shown={stream.shown}
-        hint={view.hint}
       />
     </>
   );

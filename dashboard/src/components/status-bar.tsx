@@ -1,32 +1,17 @@
-import { tabStreamUrl } from "../lib/api";
 import type { TabInfo } from "../lib/protocol";
 import type { Shown, StreamState } from "../lib/stream";
 import { Badge, Dot, type Tone } from "./ui";
 
 interface StatusBarProps {
-  session: string;
   tab: TabInfo;
   state: StreamState;
   shown: Shown | null;
-  hint?: string | null;
 }
 
 const modesOf = (shown: Shown) =>
   [shown.alt_screen && "alt-screen", shown.mouse && `mouse ${shown.mouse}`, shown.bracketed_paste && "bracketed paste"].filter(
     (mode): mode is string => Boolean(mode),
   );
-
-export interface Hinted { program: string; mouse: boolean }
-
-export const controlHint = (typing: boolean, hinted: Hinted) => {
-  if (!typing) {
-    return null;
-  }
-
-  const goes = hinted.mouse ? `Keys and mouse go to ${hinted.program} · shift selects text` : `Keys go to ${hinted.program}`;
-
-  return `${goes} · ctrl+p ctrl+q moves focus out`;
-};
 
 interface Status { tone: Tone; label: string }
 
@@ -68,27 +53,18 @@ const chipsOf = (props: StatusBarProps) => {
 
 export const StatusBar = (props: StatusBarProps) => {
   const status = statusOf(props);
-  const hint = props.hint ?? null;
 
   return (
-    <div id="status-region" role="group" aria-label="Status" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
+    <div id="status-region" role="group" aria-label="Status" className="flex h-9 shrink-0 items-center gap-x-2 px-3">
       <Dot tone={status.tone} />
-      <span className="text-xs text-muted-foreground">{status.label}</span>
-      <span className="font-mono text-xs break-all text-muted-foreground/60">{tabStreamUrl(props.session, props.tab.tab)}</span>
-      <div className="ml-auto flex flex-wrap items-center gap-2">
-        {hint && (
-          <span id="control-hint" className="text-[10px] text-muted-foreground">
-            {hint}
-          </span>
-        )}
-        <ul aria-label="Details" className="contents">
-          {chipsOf(props).map((chip) => (
-            <li key={chip} className="contents">
-              <Badge variant="outline">{chip}</Badge>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <span className="shrink-0 text-xs text-muted-foreground">{status.label}</span>
+      <ul aria-label="Details" className="ml-auto flex shrink-0 items-center gap-2">
+        {chipsOf(props).map((chip) => (
+          <li key={chip} className="contents">
+            <Badge variant="outline">{chip}</Badge>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 };

@@ -180,8 +180,6 @@ const held = async (daemon: FakeDaemon, address: TabAddress) => {
   await daemon.push(path, { type: "held" });
 };
 
-const hint = () => screen.queryByText(/Keys go to/)?.textContent;
-
 test("a held cell takes keys only while it is focused and its program runs, and keeps its ring when it is not", async () => {
   const daemon = await shownApp("/split/work:app,work:api");
 
@@ -189,14 +187,14 @@ test("a held cell takes keys only while it is focused and its program runs, and 
   await drawn(daemon, streamOf("work", "api"));
   await held(daemon, { session: "work", tab: "app" });
   fireEvent.keyDown(screen.getByRole("application", { name: "Terminal work app, you have control" }), { key: "a" });
-  expect([daemon.sent(controlOf("work", "app")), hint()]).toEqual([[{ focused: true }, { typed: "a" }], "Keys go to vim · ctrl+p ctrl+q moves focus out"]);
+  expect(daemon.sent(controlOf("work", "app"))).toEqual([{ focused: true }, { typed: "a" }]);
   fireEvent.click(region("work api make"));
-  expect([screen.queryByRole("application"), hint(), ringed("work api make", ".ring-warning")]).toEqual([null, undefined, false]);
+  expect([screen.queryByRole("application"), ringed("work api make", ".ring-warning")]).toEqual([null, false]);
   expect(ringed("work app vim", String.raw`.rounded-\[2px\].ring-2.ring-warning.ring-offset-2.ring-offset-background`)).toBe(true);
   fireEvent.click(region("work app vim"));
   await daemon.push(streamOf("work", "app"), frameOf(4, { exited: true }));
-  expect((await within(region("work app vim")).findByRole("status")).className.split(" ").at(-1)).toBe("bottom-2");
-  expect(hint()).toBeUndefined();
+  await within(region("work app vim")).findByRole("status");
+  expect(within(region("work app vim")).getByTestId("viewport-bottom").className.split(" ").at(-1)).toBe("bottom-2");
 });
 
 test("a cell that switches to another tab sends its keys to that tab", async () => {

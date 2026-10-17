@@ -414,27 +414,19 @@ fn human_mouse_inputs() -> [HumanInput; 8] {
 }
 
 #[test]
-fn a_human_mouse_event_or_focus_change_reads_as_the_command_it_stands_for() {
+fn a_logged_human_input_reads_as_the_command_it_stands_for_and_moves_and_focus_are_not_logged() {
     assert_eq!(
-        human_mouse_inputs().iter().map(|input| input.call().join(" ")).collect::<Vec<_>>(),
+        human_mouse_inputs().iter().map(|input| input.call().map(|words| words.join(" "))).collect::<Vec<_>>(),
         [
-            "mouse move 2,3",
-            "mouse down 2,3 --ctrl",
-            "mouse up 2,4 --right --shift --alt --ctrl",
-            "mouse wheel down 2,4",
-            "mouse down 1,1 --middle",
-            "focus in",
-            "focus out",
-            "type x",
+            None,
+            Some("mouse down 2,3 --ctrl".into()),
+            Some("mouse up 2,4 --right --ctrl --alt --shift".into()),
+            Some("mouse wheel down 2,4".into()),
+            Some("mouse down 1,1 --middle".into()),
+            None,
+            None,
+            Some("type x".into()),
         ]
-    );
-}
-
-#[test]
-fn mouse_moves_and_focus_changes_are_not_logged_as_activity() {
-    assert_eq!(
-        human_mouse_inputs().iter().map(HumanInput::logged).collect::<Vec<_>>(),
-        [false, true, true, true, true, false, false, true]
     );
 }
 

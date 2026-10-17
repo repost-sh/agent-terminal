@@ -11,7 +11,6 @@ import { useTabStream, type StreamState, type Shown } from "../lib/stream";
 import { tabKey, tabName, type TabAddress } from "../lib/tabs";
 import { LARGEST_FONT_PX, openTerminal } from "../lib/xterm";
 import { ControlOverlay } from "./control-button";
-import { controlHint } from "./status-bar";
 import { Button, cn } from "./ui";
 
 const PADDING_PX = 32;
@@ -87,15 +86,7 @@ export interface Holding {
 }
 
 const typedInto = (holding: Holding): Partial<HeldTerminal> =>
-  holding.typing
-    ? {
-        keys: holding.keyboard.keys,
-        paste: holding.keyboard.paste,
-        focusIn: holding.keyboard.focus,
-        focusOut: holding.keyboard.blur,
-        mouse: holding.tracked ? holding.mouse.attach : undefined,
-      }
-    : {};
+  holding.typing ? { ...holding.keyboard, mouse: holding.tracked ? holding.mouse.attach : undefined } : {};
 
 export const heldTerminal = (address: TabAddress, holding: Holding): HeldTerminal | null => {
   holding.mouse.track(holding.typing ? holding.tracked : null);
@@ -119,7 +110,6 @@ export const useHeldViewport = (heldTab: HeldTab) => {
 
   return {
     stream,
-    hint: controlHint(typing, { program: tab.program, mouse: tracked !== null }),
     viewport: {
       paint: stream.paint,
       state: stream.state,
@@ -127,7 +117,7 @@ export const useHeldViewport = (heldTab: HeldTab) => {
       program: tab.program,
       label: liveLabel(`${name} ${tab.program}`, stream.shown),
       held: heldTerminal({ session, tab: tab.tab }, { held, typing, keyboard, mouse, tracked }),
-      overlay: (moving: boolean) => <ControlOverlay session={session} tab={tab} stream={stream.state} shown={stream.shown} moving={moving} />,
+      overlay: <ControlOverlay session={session} tab={tab} stream={stream.state} shown={stream.shown} />,
     },
   };
 };
@@ -141,7 +131,7 @@ interface ViewportProps {
   held?: HeldTerminal | null;
   compact?: boolean;
   exit?: ExitActions;
-  overlay?: (moving: boolean) => ReactNode;
+  overlay?: ReactNode;
 }
 
 interface HeldRingProps { held: HeldTerminal | null; compact: boolean; children: ReactNode }
@@ -156,7 +146,6 @@ const HeldRing = (props: HeldRingProps) => {
       role="application"
       aria-roledescription="terminal"
       aria-label={`Terminal ${held.name}, you have control`}
-      aria-describedby="control-hint"
       onKeyDown={held.keys}
       onPaste={held.paste}
       onFocus={held.focusIn}
@@ -246,13 +235,15 @@ export const Viewport = (props: ViewportProps) => {
   const pointer = usePointerMoving();
 
   return (
-    <div id={props.exit ? "viewport-region" : undefined} data-testid="viewport" ref={box} onMouseMove={pointer.moved} onMouseLeave={pointer.left} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+    <div id={props.exit ? "viewport-region" : undefined} data-testid="viewport" data-moving={pointer.moving} ref={box} onMouseMove={pointer.moved} onMouseLeave={pointer.left} className="group/viewport relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
       {look.loading && <WaitingForFirstFrame />}
       <HeldRing held={props.held ?? null} compact={Boolean(props.compact)}>
         <Frame look={look} label={props.label} mouse={props.held?.mouse} host={host} />
       </HeldRing>
-      {props.overlay?.(pointer.moving)}
-      <ExitOverlay {...props} />
+      <div data-testid="viewport-bottom" className={cn("pointer-events-none absolute inset-x-0 z-10 flex flex-col items-center gap-2", props.exit ? "bottom-4" : "bottom-2")}>
+        {props.overlay}
+        <ExitOverlay {...props} />
+      </div>
     </div>
   );
 };
@@ -275,8 +266,7 @@ const ExitBar = (props: ExitBarProps) => (
   <div
     role="status"
     className={cn(
-      "absolute inset-x-0 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-xl bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/10",
-      props.actions ? "bottom-4" : "bottom-2",
+      "pointer-events-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-xl bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/10",
     )}
   >
     <span>

@@ -39,11 +39,7 @@ pub struct Mods {
 }
 
 impl Mods {
-    pub fn is_none(self) -> bool {
-        self == Mods::default()
-    }
-
-    fn names(self) -> impl Iterator<Item = &'static str> {
+    pub(crate) fn names(self) -> impl Iterator<Item = &'static str> {
         [(self.ctrl, "Ctrl"), (self.alt, "Alt"), (self.shift, "Shift")]
             .into_iter()
             .filter(|(on, _)| *on)

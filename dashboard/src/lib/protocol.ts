@@ -50,6 +50,7 @@ export interface ActivityEntry {
   time: string;
   tab?: string;
   command: string;
+  action?: string;
   duration_ms: number;
   exit: number;
   error?: string;
@@ -71,7 +72,7 @@ export type MouseEvent =
 
 export type HumanInput = { typed: string } | { pressed: string } | { pasted: string } | { mouse: MouseEvent } | { focused: boolean };
 
-export interface PendingCall { time: string; tab?: string; command: string }
+export interface PendingCall { time: string; tab?: string; command: string; action?: string }
 
 export type ActivityUpdate = { type: "entries"; entries: ActivityEntry[]; pending: PendingCall[] } | { type: "closed" };
 

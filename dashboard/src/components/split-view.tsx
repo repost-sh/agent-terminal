@@ -171,7 +171,7 @@ const SplitCell = (props: SplitCellProps) => {
         <CellHeader {...props} />
         <Viewport compact={!props.focused} {...view.viewport} />
         <Portaled target={props.slots.status}>
-          <StatusBar session={session} tab={tab} state={stream.state} shown={stream.shown} hint={view.hint} />
+          <StatusBar tab={tab} state={stream.state} shown={stream.shown} />
         </Portaled>
       </section>
     </>
