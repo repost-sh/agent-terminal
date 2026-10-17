@@ -1,4 +1,3 @@
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -6,8 +5,10 @@ use super::{Agent, Binary, Daemon, Dialect};
 
 fn executable(work: &Path, name: &str, script: &str) -> PathBuf {
     let path = work.join(name);
-    std::fs::write(&path, script).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut writer = Command::new("sh");
+    writer.args(["-c", "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"", "sh", script]).arg(&path);
+    let status = writer.status().expect("run the shell that writes the executable");
+    assert!(status.success(), "{writer:?} failed with {status}");
     path
 }
 
@@ -61,8 +62,8 @@ fn session_and_tab(dialect: Dialect) -> (Result<String, String>, String) {
     let work = tempfile::tempdir().unwrap();
     let agent = agent("base", work.path(), RECORDER, dialect);
     let opened = agent.new_session("perf").and_then(|()| agent.open("screen", &["program"]));
-    let calls = std::fs::read_to_string(work.path().join("calls")).unwrap();
-    (opened.map_err(|error| error.to_string()), calls)
+    let calls = std::fs::read_to_string(work.path().join("calls")).unwrap_or_default();
+    (opened.map_err(|error| format!("{error:#}")), calls)
 }
 
 #[test]
