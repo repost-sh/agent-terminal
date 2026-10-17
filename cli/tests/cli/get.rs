@@ -38,6 +38,7 @@ fn get_reports_cursor_size_program_and_frame() {
         "--hold",
     ])
     .success();
+    at.run(&["wait", "--cursor", "4,1"]).success();
     assert_eq!(at.run(&["get", "cursor"]).success().stdout(), "4,1\n");
     assert_eq!(at.run(&["get", "size"]).success().stdout(), "40x10\n");
     assert_eq!(at.run(&["get", "program"]).success().stdout(), "line-printer\n");

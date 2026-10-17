@@ -70,6 +70,7 @@ fn trace_export_adds_the_screenshots_the_session_saved() {
     let at = AgentTerminal::new();
     let work = at.work_folder();
     open_printer(&at, "work", &["open", "--name", "app"]);
+    at.run(&["wait", "--cursor", "4,1"]).success();
     let frame = at.run(&["get", "frame"]).success().stdout().trim().to_string();
     at.run_in(&work, &["--screenshot-dir", "shots", "screenshot"]).success();
     at.run_in(&work, &["screenshot", "named.png"]).success();

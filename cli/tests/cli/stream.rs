@@ -88,6 +88,7 @@ fn a_single_change_on_a_quiet_terminal_is_one_message_carrying_the_current_frame
         "printf \"ready\\n\"; cat",
     ])
     .success();
+    at.run(&["wait", "--cursor", "2,1"]).success();
     let mut socket = DashboardSocket::open(dashboard(&at), STREAM);
     socket.acknowledge_next();
 

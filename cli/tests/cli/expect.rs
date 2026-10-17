@@ -15,11 +15,13 @@ fn open_three_lines(at: &AgentTerminal) {
         "--hold",
     ])
     .success();
+    at.run(&["wait", "--cursor", "4,1"]).success();
 }
 
 fn open_styled(at: &AgentTerminal) {
     let script = r"printf '\033[1;31mred\033[0m \033[7minv\033[0m \033[4;44mund\033[0m\n'; read _";
     at.run(&["open", "--name", "app", "--size", "30x3", "--wait", "und", "sh", "-c", script]).success();
+    at.run(&["wait", "--cursor", "2,1"]).success();
 }
 
 fn without_frame(text: &str) -> String {

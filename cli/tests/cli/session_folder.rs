@@ -178,6 +178,7 @@ fn every_png_screenshot_is_listed_in_the_session_folder_with_the_call_that_took_
     let diff = shots.join("diff.png").to_string_lossy().into_owned();
     let began = SystemTime::now() - Duration::from_secs(1);
     at.run(&["open", "--name", "app", "--size", "20x4", "--wait", "line 3", &printer, "--hold"]).success();
+    at.run(&["wait", "--cursor", "4,1"]).success();
     at.run(&["screenshot", &first]).success();
     let first_frame = at.frame("work");
     at.run(&["type", "x", "--wait", "x", "--screenshot"]).success();

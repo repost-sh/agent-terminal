@@ -8,6 +8,7 @@ fn snapshot_rows_shows_only_that_range() {
     let at = AgentTerminal::new();
     at.run(&["open", "--name", "app", "--size", "40x10", "--wait", "line 5", &printer, "--lines", "5", "--hold"])
         .success();
+    at.run(&["wait", "--cursor", "6,1"]).success();
     insta::assert_snapshot!(at.run(&["snapshot", "--rows", "2:3"]).success().screen(), @r"
     work app · line-printer · 40x10 · cursor 6,1 · frame N
      2│line 2
@@ -61,6 +62,7 @@ fn snapshot_scrollback_adds_lines_that_scrolled_off_the_top() {
     let at = AgentTerminal::new();
     at.run(&["open", "--name", "app", "--size", "30x5", "--wait", "line 8", &printer, "--lines", "8", "--hold"])
         .success();
+    at.run(&["wait", "--cursor", "5,1"]).success();
     insta::assert_snapshot!(at.run(&["snapshot", "--scrollback", "2"]).success().screen(), @r"
     work app · line-printer · 30x5 · cursor 5,1 · frame N
     -2│line 3
