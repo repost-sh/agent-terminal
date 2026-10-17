@@ -142,8 +142,17 @@ fn a_launch_is_pending_until_the_first_output_and_met_when_the_grace_passes_with
             launched(&scene, 5_000, 25_000, 5_000),
             launched(&scene, 300, 1_000, 999),
             launched(&scene, 300, 1_000, 1_000),
+            launched(&scene, 300, 250, 250),
         ],
-        ["pending until 2000ms", "met", "pending until 5000ms", "met", "pending until 1000ms", "met"]
+        [
+            "pending until 2000ms",
+            "met",
+            "pending until 5000ms",
+            "met",
+            "pending until 1000ms",
+            "met",
+            "pending until 300ms"
+        ]
     );
     scene.exited = true;
     assert_eq!(launched(&scene, 300, 25_000, 100), "met");

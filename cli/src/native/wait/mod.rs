@@ -114,7 +114,7 @@ impl Condition {
     pub(crate) fn after_launch(self, launched: Instant, timeout: Duration) -> Self {
         match self {
             Condition::Stable(quiet, _) => {
-                Condition::FirstStable { quiet, silent_by: launched + quiet.max(FIRST_OUTPUT_GRACE).min(timeout) }
+                Condition::FirstStable { quiet, silent_by: launched + quiet.max(FIRST_OUTPUT_GRACE.min(timeout)) }
             }
             other => other.counted_from(launched),
         }
