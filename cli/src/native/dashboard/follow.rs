@@ -16,6 +16,7 @@ pub(super) enum Event {
     HungUp,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub(super) enum Wake {
     OnChange,
     At(Instant),
