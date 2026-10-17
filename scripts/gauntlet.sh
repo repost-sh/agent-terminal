@@ -37,7 +37,8 @@ coverage() {
   command -v agent-browser >/dev/null || fail "agent-browser is not on PATH: coverage runs the browser tests too; install it → GAUNTLET.md#coverage-floor"
   cd "$root/cli"
   step "fix the error cargo-llvm-cov printed → GAUNTLET.md#coverage-floor" cargo llvm-cov clean --workspace
-  step "fix the code the failing test names → GAUNTLET.md#rust-tests" cargo llvm-cov --workspace --all-targets --features browser-tests --no-report
+  step "fix the code the failing test names → GAUNTLET.md#rust-tests" cargo llvm-cov --workspace --all-targets --features browser-tests --no-report -- --skip browser::fast_output
+  step "fix the code the failing test names → GAUNTLET.md#rust-tests" cargo llvm-cov --workspace --all-targets --features browser-tests --no-report -- browser::fast_output --test-threads 1
   step "fix the error cargo-llvm-cov printed → GAUNTLET.md#coverage-floor" cargo llvm-cov report --lcov --no-default-ignore-filename-regex --output-path target/lcov.info
   step "fix the error cargo-llvm-cov printed → GAUNTLET.md#crap" cargo llvm-cov report --json --no-default-ignore-filename-regex --output-path target/coverage.json
   step "test the uncovered behaviour through the crate's real surface → GAUNTLET.md#coverage-floor" cargo run --quiet -p at-gauntlet -- coverage target/lcov.info
@@ -172,7 +173,8 @@ duplication() {
 browser() {
   command -v agent-browser >/dev/null || fail "agent-browser is not on PATH: install it to run the browser tests → GAUNTLET.md#browser-tests"
   cd "$root/cli"
-  step "fix the dashboard behaviour the failing browser test names → GAUNTLET.md#browser-tests" cargo test --features browser-tests --test cli browser::
+  step "fix the dashboard behaviour the failing browser test names → GAUNTLET.md#browser-tests" cargo test --features browser-tests --test cli browser:: -- --skip browser::fast_output
+  step "fix the dashboard behaviour the failing browser test names → GAUNTLET.md#browser-tests" cargo test --features browser-tests --test cli browser::fast_output -- --test-threads 1
 }
 
 areas=("$@")

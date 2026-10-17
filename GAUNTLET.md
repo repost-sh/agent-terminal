@@ -95,7 +95,7 @@ No block of 100 tokens appears twice (jscpd 5.4.1 at repost-go's dupl threshold,
 
 ### Coverage floor
 
-At least 90% of lines covered per crate (`cargo llvm-cov` with the browser tests, judged by `at-gauntlet coverage`) and in the dashboard (`vitest --coverage`). A branch nothing can reach is deleted, not excluded. A branch the operating system can reach stays and gets a test: an interrupted read, a full pipe, a pseudo-terminal that closes, a file that cannot be opened. Drive it through a fake at the library's wrapper (`native/pty.rs` hands out the reader and writer a fake can stand in for) rather than deleting it. On offense: test the uncovered behaviour through the crate's real surface.
+At least 90% of lines covered per crate (`cargo llvm-cov` with the browser tests, judged by `at-gauntlet coverage`; the frame-rate test `browser::fast_output` runs alone in a second `cargo llvm-cov` run with `--test-threads 1`, because it measures wall-clock rates) and in the dashboard (`vitest --coverage`). A branch nothing can reach is deleted, not excluded. A branch the operating system can reach stays and gets a test: an interrupted read, a full pipe, a pseudo-terminal that closes, a file that cannot be opened. Drive it through a fake at the library's wrapper (`native/pty.rs` hands out the reader and writer a fake can stand in for) rather than deleting it. On offense: test the uncovered behaviour through the crate's real surface.
 
 ### CRAP
 
@@ -135,7 +135,7 @@ Black-box Gherkin features in `cli/acceptance/features` drive the built binary. 
 
 ### Browser tests
 
-`cargo test --features browser-tests --test cli browser::` drives the dashboard in Chrome through `agent-browser`. On offense: fix the dashboard behaviour the failing test names.
+`cargo test --features browser-tests --test cli browser::` drives the dashboard in Chrome through `agent-browser`, skipping `browser::fast_output`; that frame-rate test then runs alone with `--test-threads 1`, because it measures wall-clock rates that the other tests' load would skew. On offense: fix the dashboard behaviour the failing test names.
 
 ### npm tests
 
