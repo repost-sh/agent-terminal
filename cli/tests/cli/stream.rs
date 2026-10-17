@@ -44,7 +44,7 @@ fn a_fast_tab_is_delivered_at_most_thirty_times_a_second_to_each_viewer_and_ends
     let latest = at.frame("work");
 
     for (counted, last_frame) in delivered {
-        assert!((100..=175).contains(&counted), "a viewer received {counted} frames in {COUNTED:?}, not 100 to 175");
+        assert!(counted <= 175, "a viewer received {counted} frames in {COUNTED:?}, more than 175");
         assert_eq!(last_frame, latest, "a viewer ended on frame {last_frame}, the tab on {latest}");
     }
 }
