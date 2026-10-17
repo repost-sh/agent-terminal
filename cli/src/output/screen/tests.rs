@@ -21,6 +21,17 @@ fn a_squeezed_screen_folds_each_run_of_three_or_more_blank_rows_and_keeps_the_nu
     "##);
 }
 
+#[test]
+fn the_header_names_each_mode_the_tab_is_in_and_an_exit_that_left_no_code() {
+    let ended: Snapshot = serde_json::from_value(serde_json::json!({
+        "session": "rec", "tab": "app", "program": "vim", "cols": 30, "rows": 2, "alt_screen": true,
+        "mouse": "sgr", "cursor": [1, 1], "cursor_visible": false, "frame": 4, "exited": true, "exit_code": null,
+        "first_row": 1, "lines": [], "nothing_printed": true
+    }))
+    .unwrap();
+    insta::assert_snapshot!(screen(&ended, &Squeeze::Off), @"rec app · vim · 30x2 · alt-screen · mouse:sgr · cursor hidden · frame 4 · exited · nothing printed yet");
+}
+
 fn squeezable(first_row: u16, lines: &[String]) -> Snapshot {
     let rows = usize::from(first_row) + lines.len();
     serde_json::from_value(serde_json::json!({
