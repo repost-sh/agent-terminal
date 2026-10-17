@@ -17,7 +17,7 @@ The escape hatches are sealed by checks of their own: [sealed lint table](#seale
 | `npm` | [npm tests](#npm-tests) | default; pre-commit for `npm/`; CI on Linux and macOS |
 | `duplication` | [duplication](#duplication) | default; pre-commit for `cli/`, `dashboard/`, `scripts/`; CI on Linux and macOS |
 | `browser` | [browser tests](#browser-tests) | CI on Linux; needs `agent-browser` and Chrome |
-| `coverage` | [coverage floor](#coverage-floor) and [CRAP](#crap) for the Rust crates | pre-push for `cli/`; CI on Linux; needs `cargo-llvm-cov` and `agent-browser` |
+| `coverage` | [coverage floor](#coverage-floor) and [CRAP](#crap) for the Rust crates | pre-push for every path the Rust tests read (`cli/`, `scripts/`, `.githooks/`, `skill-data/`, `skills/`, `dashboard/`, `npm/`, `.github/`, `.claude-plugin/`, `GAUNTLET.md`, `rust-toolchain.toml`, `.gitignore`); CI on Linux; needs `cargo-llvm-cov` and `agent-browser` |
 | `mutation` | [mutation](#mutation): cargo-mutants and Stryker on the lines the change touched since `main` | CI on every push to `main` against the pushed range (against `HEAD~1` after a force-push), on each pull request against its base branch, and on a manual run against its `base` input; minutes for a typical change |
 | `acceptance-faults` | the fault self-test of [acceptance](#acceptance) | CI on Linux; about five minutes |
 | `workflows` | [workflows](#workflows) | pre-commit for `.github/workflows/`, `.github/actions/`; CI on Linux; needs `actionlint` |

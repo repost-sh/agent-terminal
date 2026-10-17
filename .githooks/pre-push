@@ -12,6 +12,6 @@ while read -r _ local_sha _ remote_sha; do
   pushed+="$(git diff --name-only "$base...$local_sha")"$'\n'
 done
 
-if grep -q '^cli/' <<<"$pushed"; then
+if grep -qE '^((cli|scripts|\.githooks|skill-data|skills|dashboard|npm|\.github|\.claude-plugin)/|GAUNTLET\.md$|rust-toolchain\.toml$|\.gitignore$)' <<<"$pushed"; then
   "$root/scripts/gauntlet.sh" coverage
 fi
