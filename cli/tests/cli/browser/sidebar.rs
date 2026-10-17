@@ -83,7 +83,7 @@ fn the_sidebar_lists_each_session_with_its_tabs(browser: &Browser) {
 }
 
 fn a_tab_link_opens_that_terminal(at: &AgentTerminal, browser: &Browser) {
-    browser.run(&["find", "role", "link", "click", "--name", "app fixture-tui , qa app, running", "--exact"]);
+    browser.click_link("app fixture-tui , qa app, running");
     browser.wait_until("location.pathname === '/s/qa/app'");
     browser.wait_for_screen("Move: j/k");
     browser.wait_for_status("alt-screen");
@@ -152,7 +152,7 @@ fn a_tab_that_is_not_open_says_so_and_links_back() {
 
     browser.wait_for_text("qa gone is not open");
     assert_eq!(browser.run(&["get", "title"]).trim(), "Not open · agent-terminal");
-    browser.run(&["find", "role", "link", "click", "--name", "Show open sessions", "--exact"]);
+    browser.click_link("Show open sessions");
     browser.wait_until("location.pathname === '/s/qa/app'");
 }
 
@@ -186,7 +186,7 @@ fn the_side_panel_keeps_its_tab_and_width_from_one_terminal_to_the_next() {
 }
 
 fn the_next_terminal_keeps_the_output_panel_at_that_width(browser: &Browser) {
-    browser.run(&["find", "role", "link", "click", "--name", "api line-printer , qa api, running", "--exact"]);
+    browser.click_link("api line-printer , qa api, running");
     browser.wait_until("location.pathname === '/s/qa/api'");
     browser.wait_until("document.querySelector('[aria-label=\"Details of qa api\"]') !== null");
     assert_eq!(browser.eval("document.querySelector('[role=tab][aria-selected=true]').textContent"), "\"Output\"");

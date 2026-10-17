@@ -95,7 +95,7 @@ fn the_row_shows_the_call(row: &Value, entry: &Value, result: Option<&str>) {
 }
 
 fn expanding_a_call_shows_what_it_printed(browser: &Browser, log: &[Value]) {
-    browser.run(&["click", &format!("{CALLS}:nth-child(3) button")]);
+    browser.click(&format!("{CALLS}:nth-child(3) button"));
     browser.wait_until("document.querySelector('#ppanel-activity pre') !== null");
     assert_eq!(
         browser.eval("document.querySelector('#ppanel-activity pre').textContent"),
@@ -223,7 +223,9 @@ fn in_a_split_activity_shows_the_calls_to_the_focused_terminal() {
     browser
         .wait_until("document.querySelectorAll(\"[aria-label='Calls to qa app'] > li:not([aria-busy])\").length === 1");
 
-    browser.run(&["click", "main section[aria-label='web app line-printer'] [role=group]"]);
+    let web = "main section[aria-label='web app line-printer']";
+    browser.wait_for_screen_in(web, "line 3");
+    browser.click(&format!("{web} [role=group]"));
     browser.wait_until(
         "document.querySelectorAll(\"[aria-label='Calls to web app'] > li:not([aria-busy])\").length === 2",
     );

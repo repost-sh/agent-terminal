@@ -297,7 +297,7 @@ fn clicking_a_cell_focuses_it_and_selects_it_in_the_sidebar(
     dashboard: &Dashboard,
 ) {
     browser.wait_for_screen_in(&cell("qa api line-printer"), "line 2");
-    browser.run(&["click", &format!("{} [role=group]", cell("qa api line-printer"))]);
+    browser.click(&format!("{} [role=group]", cell("qa api line-printer")));
     let (_, frame) = snapshot_rows(at, &["--session", "qa", "--tab", "api"]);
     browser.wait_for_status("32 × 5");
     browser.wait_for_status(&format!("frame {frame}"));
@@ -308,7 +308,7 @@ fn clicking_a_cell_focuses_it_and_selects_it_in_the_sidebar(
 }
 
 fn a_tab_picked_in_the_sidebar_replaces_the_focused_cell(at: &AgentTerminal, browser: &Browser) {
-    browser.run(&["find", "role", "link", "click", "--name", "app line-printer , web app, running", "--exact"]);
+    browser.click_link("app line-printer , web app, running");
     browser.wait_until("location.pathname === '/split/qa:app,web:app'");
     assert_eq!(focused(browser), "\"web app line-printer\"");
     browser.wait_for_status("34 × 6");
@@ -333,7 +333,7 @@ fn maximize_shows_the_tab_alone_and_a_split_route_survives_a_reload() {
     browser.wait_for_screen_in(&cell("web-app app line-printer"), "line 2");
     assert_eq!(focused(&browser), "\"qa app line-printer\"");
 
-    browser.run(&["find", "role", "link", "click", "--name", "Maximize web-app app", "--exact"]);
+    browser.click_link("Maximize web-app app");
     browser.wait_until("location.pathname === '/s/web-app/app'");
     assert_eq!(browser.eval("document.activeElement.id"), "\"main-content\"");
     browser.wait_for_status("32 × 5");
